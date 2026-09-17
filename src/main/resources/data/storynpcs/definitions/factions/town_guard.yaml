@@ -1,0 +1,5 @@
+id: "storynpcs:town_guard"
+name: "Town Guard"
+defaultPoints: 1000
+hostileThreshold: 400
+friendlyThreshold: 1600

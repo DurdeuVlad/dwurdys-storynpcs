@@ -1,0 +1,74 @@
+package com.storynpcs.network;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class NetworkPayloadsTest {
+
+    @Test
+    @DisplayName("ServerboundDialogueChoosePayload encode and decode matches")
+    void testServerboundDialogueChoosePayloadCodec() {
+        ServerboundDialogueChoosePayload payload = new ServerboundDialogueChoosePayload(3);
+        assertEquals(3, payload.optionIndex());
+        assertEquals(ServerboundDialogueChoosePayload.TYPE, payload.type());
+
+        ByteBuf buf = Unpooled.buffer();
+        ServerboundDialogueChoosePayload.STREAM_CODEC.encode(buf, payload);
+
+        ServerboundDialogueChoosePayload decoded = ServerboundDialogueChoosePayload.STREAM_CODEC.decode(buf);
+        assertEquals(3, decoded.optionIndex());
+        assertEquals(payload, decoded);
+    }
+
+    @Test
+    @DisplayName("ClientboundDialogueOpenPayload encode and decode matches")
+    void testClientboundDialogueOpenPayloadCodec() {
+        ClientboundDialogueOpenPayload payload = new ClientboundDialogueOpenPayload(
+                "storynpcs:guard_talk",
+                "node_1",
+                "Halt! Who goes there?",
+                "minecraft:entity.villager.ambient",
+                List.of("I am a traveler.", "None of your business!"),
+                false
+        );
+
+        assertEquals("storynpcs:guard_talk", payload.dialogueId());
+        assertEquals("node_1", payload.nodeId());
+        assertEquals("Halt! Who goes there?", payload.text());
+        assertEquals("minecraft:entity.villager.ambient", payload.sound());
+        assertEquals(2, payload.options().size());
+        assertFalse(payload.isTerminal());
+        assertEquals(ClientboundDialogueOpenPayload.TYPE, payload.type());
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundDialogueOpenPayload.STREAM_CODEC.encode(buf, payload);
+
+        ClientboundDialogueOpenPayload decoded = ClientboundDialogueOpenPayload.STREAM_CODEC.decode(buf);
+        assertEquals(payload.dialogueId(), decoded.dialogueId());
+        assertEquals(payload.nodeId(), decoded.nodeId());
+        assertEquals(payload.text(), decoded.text());
+        assertEquals(payload.sound(), decoded.sound());
+        assertEquals(payload.options(), decoded.options());
+        assertEquals(payload.isTerminal(), decoded.isTerminal());
+        assertEquals(payload, decoded);
+    }
+
+    @Test
+    @DisplayName("ClientboundDialogueClosePayload encode and decode matches")
+    void testClientboundDialogueClosePayloadCodec() {
+        ClientboundDialogueClosePayload payload = ClientboundDialogueClosePayload.INSTANCE;
+        assertEquals(ClientboundDialogueClosePayload.TYPE, payload.type());
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundDialogueClosePayload.STREAM_CODEC.encode(buf, payload);
+
+        ClientboundDialogueClosePayload decoded = ClientboundDialogueClosePayload.STREAM_CODEC.decode(buf);
+        assertSame(ClientboundDialogueClosePayload.INSTANCE, decoded);
+    }
+}

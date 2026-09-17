@@ -1,0 +1,14 @@
+id: "storynpcs:bounty_goblins"
+title: "Bounty: Forest Goblins"
+description: "Eliminate 5 goblins prowling outside the village gate."
+category: "combat"
+repeatType: "DAILY"
+objectives:
+  - id: "kill_goblins"
+    type: "KILL_ENTITY"
+    target: "minecraft:zombie"
+    requiredCount: 5
+rewards:
+  - type: "FACTION_POINTS"
+    target: "storynpcs:town_guard"
+    amount: 300

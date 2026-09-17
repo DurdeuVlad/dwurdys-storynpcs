@@ -1,0 +1,33 @@
+id: "storynpcs:captain_dialogue"
+title: "Captain Valerie's Orders"
+entryNodeId: "greeting"
+nodes:
+  greeting:
+    id: "greeting"
+    text: "Halt! State your business in town, traveler."
+    sound: "minecraft:entity.villager.ambient"
+    options:
+      - text: "Looking for work. Any bounties available?"
+        targetNodeId: "bounty_info"
+      - text: "Just passing through."
+        targetNodeId: "dismissed"
+  bounty_info:
+    id: "bounty_info"
+    text: "Goblins have been raiding our caravans. Take the bounty on the board."
+    options:
+      - text: "I'll handle it right away."
+        targetNodeId: "accept_bounty"
+        actions:
+          - type: "START_QUEST"
+            target: "storynpcs:bounty_goblins"
+            value: ""
+      - text: "Sounds dangerous. Let me ask something else."
+        targetNodeId: "greeting"
+  accept_bounty:
+    id: "accept_bounty"
+    text: "Good hunting! Return when the beasts are slain."
+    options: []
+  dismissed:
+    id: "dismissed"
+    text: "Keep your hands where I can see them."
+    options: []

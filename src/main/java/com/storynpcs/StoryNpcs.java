@@ -12,6 +12,9 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import com.storynpcs.command.StoryNpcsCommands;
+import com.storynpcs.network.StoryNpcsNetwork;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 
 import java.nio.file.Path;
@@ -36,8 +39,14 @@ public class StoryNpcs {
         this.loader = new YamlDefinitionLoader(registry);
         this.eventPublisher = new EventPublisher();
 
+        modEventBus.addListener(StoryNpcsNetwork::register);
+        NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(this::onServerStarting);
         NeoForge.EVENT_BUS.addListener(this::onServerStopping);
+    }
+
+    private void onRegisterCommands(RegisterCommandsEvent event) {
+        StoryNpcsCommands.register(event);
     }
 
     public static StoryNpcs getInstance() {

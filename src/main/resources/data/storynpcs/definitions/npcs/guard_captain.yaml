@@ -1,0 +1,24 @@
+id: "storynpcs:guard_captain"
+display:
+  name: "Captain Valerie"
+  title: "Town Guard Commander"
+  skinTexture: "storynpcs:textures/entity/captain.png"
+  showName: true
+stats:
+  maxHealth: 60.0
+  attackDamage: 9.0
+  movementSpeed: 0.28
+  respawnTimeSeconds: 30
+ai:
+  movementType: "STANDING"
+  doorInteract: true
+  returnToStart: true
+dialogueId: "storynpcs:captain_dialogue"
+factionId: "storynpcs:town_guard"
+mark:
+  type: 1
+  color: 16776960
+  text: "!"
+inventory:
+  - "minecraft:iron_sword"
+  - "minecraft:shield"
