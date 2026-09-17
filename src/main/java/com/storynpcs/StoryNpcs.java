@@ -63,6 +63,7 @@ public class StoryNpcs {
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onServerStopping);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedOut);
+        NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDamage);
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {

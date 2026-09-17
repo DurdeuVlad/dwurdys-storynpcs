@@ -41,6 +41,7 @@ public class StoryNpcEntity extends PathfinderMob {
             SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.STRING);
 
     private final StoryNpcState state = new StoryNpcState();
+    private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
     private BlockPos startPosition;
     private FollowerRole followerRole;
 
@@ -65,12 +66,25 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new NpcFollowFormationGoal(this, 1.0D, 1.35D, 1.75F, 24.0F));
-        this.goalSelector.addGoal(2, new NpcPatrolGoal(this, 1.0D));
-        this.goalSelector.addGoal(3, new NpcReturnToStartGoal(this, 1.0D));
-        this.goalSelector.addGoal(4, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.6D));
-        this.goalSelector.addGoal(6, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(1, new com.storynpcs.ai.combat.NpcMeleeAttackGoal(this, 1.25D));
+        this.goalSelector.addGoal(2, new NpcFollowFormationGoal(this, 1.0D, 1.35D, 1.75F, 24.0F));
+        this.goalSelector.addGoal(3, new NpcPatrolGoal(this, 1.0D));
+        this.goalSelector.addGoal(4, new NpcReturnToStartGoal(this, 1.0D));
+        this.goalSelector.addGoal(5, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.6D));
+        this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
+    }
+
+    public com.storynpcs.ai.combat.ThreatManager getThreatManager() {
+        return threatManager;
+    }
+
+    @Override
+    public void aiStep() {
+        super.aiStep();
+        if (!this.level().isClientSide && this.tickCount % 20 == 0) {
+            this.threatManager.tick(5);
+        }
     }
 
     @Override
