@@ -350,4 +350,61 @@ public class StoryNpcsApplicationService {
 
         eventPublisher.publish(new QuestCompleteEvent(playerUuid, questId));
     }
+
+    // ==========================================
+    // 5. Role & Subsystem Operations
+    // ==========================================
+
+    public boolean executeTrade(UUID playerUuid, NamespacedId npcId, com.storynpcs.domain.role.trader.TradeListing trade) {
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        int currentFactionScore = 0;
+        if (trade.getRequiredFaction() != null) {
+            var factionOpt = registry.getFaction(trade.getRequiredFaction());
+            int defaultPts = factionOpt.map(com.storynpcs.domain.faction.Faction::getDefaultPoints).orElse(0);
+            currentFactionScore = progression.getFactionScore(trade.getRequiredFaction(), defaultPts);
+        }
+
+        if (!trade.isAvailable(currentFactionScore)) {
+            return false;
+        }
+
+        boolean recorded = trade.recordTrade();
+        if (recorded) {
+            eventPublisher.publish(new com.storynpcs.api.event.TradeExecutedEvent(playerUuid, npcId, trade));
+        }
+        return recorded;
+    }
+
+    public boolean setFollowerState(UUID playerUuid, NamespacedId npcId, com.storynpcs.domain.role.follower.FollowerRole role, com.storynpcs.domain.role.follower.FollowerRole.State newState) {
+        if (!role.isOwnedBy(playerUuid)) {
+            return false;
+        }
+        var oldState = role.getState();
+        role.setState(newState);
+        eventPublisher.publish(new com.storynpcs.api.event.FollowerStateChangeEvent(playerUuid, npcId, oldState, newState));
+        return true;
+    }
+
+    public boolean depositToBank(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count) {
+        if (bankRepo == null) return false;
+        var vault = bankRepo.getOrCreate(playerUuid);
+        boolean success = vault.deposit(tab, slot, itemId, count);
+        if (success) {
+            eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
+                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
+        }
+        return success;
+    }
+
+    public java.util.Optional<com.storynpcs.domain.role.banker.BankVault.VaultItem> withdrawFromBank(
+            UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, int count) {
+        if (bankRepo == null) return java.util.Optional.empty();
+        var vault = bankRepo.getOrCreate(playerUuid);
+        var itemOpt = vault.withdraw(tab, slot, count);
+        itemOpt.ifPresent(item -> {
+            eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
+                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW, tab, item.getItemId(), item.getCount()));
+        });
+        return itemOpt;
+    }
 }
