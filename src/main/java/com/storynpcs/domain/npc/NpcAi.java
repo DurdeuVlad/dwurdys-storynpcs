@@ -1,6 +1,7 @@
 package com.storynpcs.domain.npc;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.storynpcs.domain.ai.WaypointPath;
 
 public class NpcAi {
     public enum MovementType {
@@ -24,6 +25,9 @@ public class NpcAi {
     @JsonProperty
     private boolean returnToStart = true;
 
+    @JsonProperty
+    private WaypointPath waypointPath = new WaypointPath();
+
     public NpcAi() {}
 
     public MovementType getMovementType() { return movementType; }
@@ -40,4 +44,9 @@ public class NpcAi {
 
     public boolean isReturnToStart() { return returnToStart; }
     public void setReturnToStart(boolean returnToStart) { this.returnToStart = returnToStart; }
+
+    public WaypointPath getWaypointPath() { return waypointPath; }
+    public void setWaypointPath(WaypointPath waypointPath) {
+        this.waypointPath = waypointPath != null ? waypointPath : new WaypointPath();
+    }
 }

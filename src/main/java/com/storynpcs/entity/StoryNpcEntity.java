@@ -1,9 +1,12 @@
 package com.storynpcs.entity;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.ai.NpcPatrolGoal;
+import com.storynpcs.ai.NpcReturnToStartGoal;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -20,8 +23,10 @@ import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.pathfinder.PathType;
 
 import java.util.Optional;
 
@@ -31,6 +36,7 @@ public class StoryNpcEntity extends PathfinderMob {
             SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.STRING);
 
     private final StoryNpcState state = new StoryNpcState();
+    private BlockPos startPosition;
 
     public StoryNpcEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -47,9 +53,11 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(2, new WaterAvoidingRandomStrollGoal(this, 0.6D));
-        this.goalSelector.addGoal(3, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(1, new NpcPatrolGoal(this, 1.0D));
+        this.goalSelector.addGoal(2, new NpcReturnToStartGoal(this, 1.0D));
+        this.goalSelector.addGoal(3, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 0.6D));
+        this.goalSelector.addGoal(5, new RandomLookAroundGoal(this));
     }
 
     @Override
@@ -66,6 +74,17 @@ public class StoryNpcEntity extends PathfinderMob {
         this.entityData.set(DEFINITION_ID, definitionId != null ? definitionId : "");
         this.state.setDefinitionId(definitionId);
         applyDefinition();
+    }
+
+    public BlockPos getStartPosition() {
+        if (startPosition == null) {
+            startPosition = this.blockPosition();
+        }
+        return startPosition;
+    }
+
+    public void setStartPosition(BlockPos startPosition) {
+        this.startPosition = startPosition;
     }
 
     public StoryNpcState getState() {
@@ -95,6 +114,15 @@ public class StoryNpcEntity extends PathfinderMob {
             var speedAttr = this.getAttribute(Attributes.MOVEMENT_SPEED);
             if (speedAttr != null && stats.getMovementSpeed() > 0) {
                 speedAttr.setBaseValue(stats.getMovementSpeed());
+            }
+        });
+
+        state.resolveDefinition(mod.getRegistry()).ifPresent(def -> {
+            if (def.getAi() != null) {
+                if (this.getNavigation() instanceof GroundPathNavigation groundNav) {
+                    groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
+                }
+                this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
             }
         });
     }
@@ -127,6 +155,11 @@ public class StoryNpcEntity extends PathfinderMob {
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
+        if (startPosition != null) {
+            compound.putInt("StartX", startPosition.getX());
+            compound.putInt("StartY", startPosition.getY());
+            compound.putInt("StartZ", startPosition.getZ());
+        }
     }
 
     @Override
@@ -134,6 +167,9 @@ public class StoryNpcEntity extends PathfinderMob {
         super.readAdditionalSaveData(compound);
         if (compound.contains("StoryNpcDefinitionId")) {
             setDefinitionId(compound.getString("StoryNpcDefinitionId"));
+        }
+        if (compound.contains("StartX") && compound.contains("StartY") && compound.contains("StartZ")) {
+            this.startPosition = new BlockPos(compound.getInt("StartX"), compound.getInt("StartY"), compound.getInt("StartZ"));
         }
     }
 }
