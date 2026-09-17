@@ -143,15 +143,29 @@ public class YamlDefinitionLoader {
     private void loadFile(Path file, ValidationResult result) {
         try {
             String content = Files.readString(file);
-            String pathStr = file.toString().toLowerCase();
-            if (pathStr.contains("npcs") || pathStr.contains("npc")) {
+            Path parent = file.getParent();
+            String parentName = parent != null ? parent.getFileName().toString().toLowerCase() : "";
+            String fileName = file.getFileName().toString().toLowerCase();
+
+            if (parentName.equals("npcs") || parentName.equals("npc") || fileName.startsWith("npc_")) {
                 loadNpc(content, file.toString(), result);
-            } else if (pathStr.contains("dialogues") || pathStr.contains("dialogue")) {
+            } else if (parentName.equals("dialogues") || parentName.equals("dialogue") || fileName.startsWith("dialogue_")) {
                 loadDialogue(content, file.toString(), result);
-            } else if (pathStr.contains("factions") || pathStr.contains("faction")) {
+            } else if (parentName.equals("factions") || parentName.equals("faction") || fileName.startsWith("faction_")) {
                 loadFaction(content, file.toString(), result);
-            } else if (pathStr.contains("quests") || pathStr.contains("quest")) {
+            } else if (parentName.equals("quests") || parentName.equals("quest") || fileName.startsWith("quest_")) {
                 loadQuest(content, file.toString(), result);
+            } else {
+                // Fallback: inspect content signatures
+                if (content.contains("entryNodeId:") || content.contains("nodes:")) {
+                    loadDialogue(content, file.toString(), result);
+                } else if (content.contains("hostileThreshold:") || content.contains("friendlyThreshold:")) {
+                    loadFaction(content, file.toString(), result);
+                } else if (content.contains("objectives:") || content.contains("rewards:")) {
+                    loadQuest(content, file.toString(), result);
+                } else {
+                    loadNpc(content, file.toString(), result);
+                }
             }
         } catch (IOException e) {
             result.addError(file.toString(), 1, 1, "IO_ERROR", "Could not read file: " + e.getMessage());
