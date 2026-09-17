@@ -34,6 +34,9 @@ public class NpcDefinition {
     @JsonProperty
     private List<String> inventory = new ArrayList<>();
 
+    @JsonProperty
+    private List<com.storynpcs.domain.rule.BehaviorRule> rules = new ArrayList<>();
+
     public NpcDefinition() {}
 
     public NpcDefinition(NamespacedId id, String name) {
@@ -64,4 +67,8 @@ public class NpcDefinition {
 
     public List<String> getInventory() { return inventory; }
     public void setInventory(List<String> inventory) { this.inventory = inventory; }
+
+    public List<com.storynpcs.domain.rule.BehaviorRule> getRules() { return rules; }
+    public void setRules(List<com.storynpcs.domain.rule.BehaviorRule> rules) { this.rules = rules; }
 }
+

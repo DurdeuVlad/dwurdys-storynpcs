@@ -67,6 +67,10 @@ public final class NamespacedId implements Comparable<NamespacedId> {
         return namespace + ":" + path;
     }
 
+    public String asString() {
+        return toString();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

@@ -429,4 +429,21 @@ public class StoryNpcsApplicationService {
         });
         return itemOpt;
     }
+
+    public void adjustFactionReputation(UUID playerUuid, NamespacedId factionId, int delta) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(factionId, "factionId");
+        PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
+        int defaultPoints = registry.getFaction(factionId).map(Faction::getDefaultPoints).orElse(0);
+        int oldScore = prog.getFactionScore(factionId, defaultPoints);
+        prog.adjustFactionScore(factionId, delta, defaultPoints);
+        int newScore = prog.getFactionScore(factionId, defaultPoints);
+        try {
+            progressionRepository.save(playerUuid);
+        } catch (IOException e) {
+            System.err.println("Failed to persist progression for " + playerUuid + ": " + e.getMessage());
+        }
+        eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldScore, newScore));
+    }
 }
+
