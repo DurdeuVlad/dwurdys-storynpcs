@@ -54,6 +54,9 @@ public class StoryNpcs {
 
         StoryNpcRegistry.register(modEventBus);
         modEventBus.addListener(StoryNpcsNetwork::register);
+        if (net.neoforged.fml.loading.FMLEnvironment.dist.isClient()) {
+            modEventBus.addListener(com.storynpcs.client.StoryNpcsClient::registerRenderers);
+        }
 
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onServerStarted);
