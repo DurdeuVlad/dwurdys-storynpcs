@@ -25,7 +25,7 @@ public class StoryNpcsNetwork {
                 ClientboundDialogueOpenPayload.TYPE,
                 ClientboundDialogueOpenPayload.STREAM_CODEC,
                 (payload, context) -> {
-                    // Handled client-side in GUI screen
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openDialogue(payload));
                 }
         );
 
@@ -33,7 +33,7 @@ public class StoryNpcsNetwork {
                 ClientboundDialogueClosePayload.TYPE,
                 ClientboundDialogueClosePayload.STREAM_CODEC,
                 (payload, context) -> {
-                    // Handled client-side in GUI screen
+                    context.enqueueWork(com.storynpcs.client.StoryNpcsClient::closeDialogue);
                 }
         );
     }
