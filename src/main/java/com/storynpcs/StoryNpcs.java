@@ -39,6 +39,7 @@ public class StoryNpcs {
         this.loader = new YamlDefinitionLoader(registry);
         this.eventPublisher = new EventPublisher();
 
+        com.storynpcs.entity.StoryNpcRegistry.register(modEventBus);
         modEventBus.addListener(StoryNpcsNetwork::register);
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(this::onServerStarting);
