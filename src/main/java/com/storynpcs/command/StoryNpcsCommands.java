@@ -51,6 +51,9 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("info")
                                 .then(Commands.argument("dialogue_id", StringArgumentType.string())
                                         .executes(StoryNpcsCommands::infoDialogue)))
+                        .then(Commands.literal("edit")
+                                .then(Commands.argument("dialogue_id", StringArgumentType.string())
+                                        .executes(StoryNpcsCommands::editDialogue)))
                         .then(Commands.literal("start")
                                 .then(Commands.argument("dialogue_id", StringArgumentType.string())
                                         .executes(ctx -> startDialogue(ctx, null))
@@ -219,6 +222,18 @@ public final class StoryNpcsCommands {
     }
 
     // Quest Handlers
+    private static int editDialogue(CommandContext<CommandSourceStack> ctx) {
+        String idStr = StringArgumentType.getString(ctx, "dialogue_id");
+        NamespacedId id = NamespacedId.of(idStr);
+        var dialogueOpt = StoryNpcs.getInstance().getRegistry().getDialogue(id);
+        if (dialogueOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("Opening visual dialogue editor for " + id), false);
+        return 1;
+    }
+
     private static int listQuests(CommandContext<CommandSourceStack> ctx) {
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
         Collection<Quest> quests = reg.getAllQuests();

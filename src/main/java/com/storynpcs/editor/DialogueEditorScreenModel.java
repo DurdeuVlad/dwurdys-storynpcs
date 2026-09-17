@@ -1,0 +1,112 @@
+package com.storynpcs.editor;
+
+import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.dialogue.DialogueGraph;
+
+import java.util.UUID;
+import java.util.function.Consumer;
+
+public class DialogueEditorScreenModel {
+
+    private final NamespacedId dialogueId;
+    private final String title;
+    private final GraphEditorState editorState;
+    private final Consumer<DialogueGraph> onSaveCallback;
+
+    private String statusMessage = "";
+    private boolean unsavedChanges = false;
+
+    public DialogueEditorScreenModel(DialogueGraph graph, Consumer<DialogueGraph> onSaveCallback) {
+        this.dialogueId = graph != null ? graph.getId() : NamespacedId.of("storynpcs:new_dialogue");
+        this.title = graph != null ? graph.getTitle() : "New Dialogue";
+        this.onSaveCallback = onSaveCallback;
+
+        DialogueGraphLayout layout = graph != null
+                ? DialogueGraphLayout.fromDialogueGraph(graph)
+                : new DialogueGraphLayout();
+        this.editorState = new GraphEditorState(layout);
+    }
+
+    public NamespacedId getDialogueId() { return dialogueId; }
+    public String getTitle() { return title; }
+    public GraphEditorState getEditorState() { return editorState; }
+    public DialogueGraphLayout getLayout() { return editorState.getLayout(); }
+    public String getStatusMessage() { return statusMessage; }
+    public boolean hasUnsavedChanges() { return unsavedChanges; }
+
+    public VisualNode addNode(String id, String text, double canvasX, double canvasY) {
+        if (id == null || id.trim().isEmpty()) {
+            id = "node_" + UUID.randomUUID().toString().substring(0, 6);
+        }
+        VisualNode node = new VisualNode(id, text, canvasX, canvasY);
+        getLayout().addNode(node);
+        if (getLayout().getEntryNodeId() == null) {
+            getLayout().setEntryNodeId(id);
+        }
+        editorState.setSelectedNodeId(id);
+        unsavedChanges = true;
+        statusMessage = "Added node: " + id;
+        return node;
+    }
+
+    public void removeSelectedNode() {
+        String selectedId = editorState.getSelectedNodeId();
+        if (selectedId != null) {
+            getLayout().removeNode(selectedId);
+            editorState.setSelectedNodeId(null);
+            unsavedChanges = true;
+            statusMessage = "Removed node: " + selectedId;
+        }
+    }
+
+    public void updateSelectedNodeText(String newText) {
+        String selectedId = editorState.getSelectedNodeId();
+        if (selectedId != null) {
+            VisualNode node = getLayout().getNodes().get(selectedId);
+            if (node != null) {
+                node.setText(newText != null ? newText : "");
+                unsavedChanges = true;
+            }
+        }
+    }
+
+    public void setAsEntryNode(String nodeId) {
+        if (getLayout().getNodes().containsKey(nodeId)) {
+            getLayout().setEntryNodeId(nodeId);
+            unsavedChanges = true;
+            statusMessage = "Set entry node to: " + nodeId;
+        }
+    }
+
+    public void startConnectingEdge(String sourceNodeId) {
+        editorState.setConnectingSourceNodeId(sourceNodeId);
+        statusMessage = "Click target node to connect edge...";
+    }
+
+    public void completeConnectingEdge(String targetNodeId, String choiceText) {
+        if (editorState.getConnectingSourceNodeId() != null) {
+            String src = editorState.getConnectingSourceNodeId();
+            editorState.connectEdge(targetNodeId, choiceText != null && !choiceText.isEmpty() ? choiceText : "Continue");
+            unsavedChanges = true;
+            statusMessage = String.format("Connected %s -> %s", src, targetNodeId);
+        }
+    }
+
+    public void cancelConnectingEdge() {
+        editorState.setConnectingSourceNodeId(null);
+        statusMessage = "Edge connection canceled";
+    }
+
+    public DialogueGraph exportGraph() {
+        return getLayout().toDialogueGraph(dialogueId, title);
+    }
+
+    public void save() {
+        DialogueGraph graph = exportGraph();
+        if (onSaveCallback != null) {
+            onSaveCallback.accept(graph);
+        }
+        unsavedChanges = false;
+        statusMessage = "Graph saved successfully.";
+    }
+}

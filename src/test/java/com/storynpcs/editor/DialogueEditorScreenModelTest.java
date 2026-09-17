@@ -1,0 +1,111 @@
+package com.storynpcs.editor;
+
+import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.dialogue.DialogueEdge;
+import com.storynpcs.domain.dialogue.DialogueGraph;
+import com.storynpcs.domain.dialogue.DialogueNode;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class DialogueEditorScreenModelTest {
+
+    @Test
+    @DisplayName("DialogueEditorScreenModel initializes from DialogueGraph and tracks status")
+    void testModelInitialization() {
+        DialogueGraph graph = new DialogueGraph(NamespacedId.of("storynpcs:elder_talk"), "Elder Conversation", "entry");
+        graph.addNode(new DialogueNode("entry", "Hello traveler."));
+
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(graph, null);
+
+        assertEquals(NamespacedId.of("storynpcs:elder_talk"), model.getDialogueId());
+        assertEquals("Elder Conversation", model.getTitle());
+        assertEquals(1, model.getLayout().getNodes().size());
+        assertEquals("entry", model.getLayout().getEntryNodeId());
+        assertFalse(model.hasUnsavedChanges());
+    }
+
+    @Test
+    @DisplayName("Adding and editing nodes updates layout, selection, and dirty flag")
+    void testAddAndEditNodes() {
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, null);
+
+        VisualNode n1 = model.addNode("node_1", "First node", 100, 50);
+        assertNotNull(n1);
+        assertEquals("node_1", model.getEditorState().getSelectedNodeId());
+        assertEquals("node_1", model.getLayout().getEntryNodeId(), "First added node should become entry node");
+        assertTrue(model.hasUnsavedChanges());
+
+        model.updateSelectedNodeText("Updated text content");
+        assertEquals("Updated text content", model.getLayout().getNodes().get("node_1").getText());
+
+        VisualNode n2 = model.addNode("node_2", "Second node", 300, 50);
+        assertEquals("node_2", model.getEditorState().getSelectedNodeId());
+        assertEquals(2, model.getLayout().getNodes().size());
+
+        // Set second node as entry
+        model.setAsEntryNode("node_2");
+        assertEquals("node_2", model.getLayout().getEntryNodeId());
+        assertTrue(model.getLayout().getNodes().get("node_2").isEntryNode());
+        assertFalse(model.getLayout().getNodes().get("node_1").isEntryNode());
+    }
+
+    @Test
+    @DisplayName("Connecting edges and removing nodes cleans up connections")
+    void testEdgeConnectingAndNodeRemoval() {
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, null);
+        model.addNode("src", "Source", 0, 0);
+        model.addNode("dst", "Destination", 200, 0);
+
+        model.startConnectingEdge("src");
+        assertEquals("src", model.getEditorState().getConnectingSourceNodeId());
+
+        model.completeConnectingEdge("dst", "Go to destination");
+        assertNull(model.getEditorState().getConnectingSourceNodeId());
+        assertEquals(1, model.getLayout().getEdges().size());
+
+        VisualEdge edge = model.getLayout().getEdges().get(0);
+        assertEquals("src", edge.getSourceNodeId());
+        assertEquals("dst", edge.getTargetNodeId());
+        assertEquals("Go to destination", edge.getText());
+
+        // Select and remove destination node
+        model.getEditorState().setSelectedNodeId("dst");
+        model.removeSelectedNode();
+
+        assertEquals(1, model.getLayout().getNodes().size());
+        assertEquals(0, model.getLayout().getEdges().size(), "Edges attached to removed node must be deleted");
+    }
+
+    @Test
+    @DisplayName("Saving graph invokes callback, exports valid DialogueGraph, and clears dirty flag")
+    void testSaveWorkflow() {
+        AtomicReference<DialogueGraph> saved = new AtomicReference<>();
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(
+                new DialogueGraph(NamespacedId.of("storynpcs:save_test"), "Save Test", "start"),
+                saved::set
+        );
+
+        model.addNode("start", "Start text", 0, 0);
+        model.addNode("next", "Next text", 200, 0);
+        model.startConnectingEdge("start");
+        model.completeConnectingEdge("next", "Next choice");
+
+        assertTrue(model.hasUnsavedChanges());
+
+        model.save();
+
+        assertFalse(model.hasUnsavedChanges(), "Dirty flag must be cleared after save");
+        assertNotNull(saved.get(), "Save callback must have received exported graph");
+
+        DialogueGraph exported = saved.get();
+        assertEquals(NamespacedId.of("storynpcs:save_test"), exported.getId());
+        assertEquals(2, exported.getNodes().size());
+        assertTrue(exported.getNode("start").isPresent());
+        assertEquals(1, exported.getNode("start").get().getOptions().size());
+        assertEquals("next", exported.getNode("start").get().getOptions().get(0).getTargetNodeId());
+    }
+}

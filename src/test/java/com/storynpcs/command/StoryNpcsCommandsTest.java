@@ -39,6 +39,7 @@ class StoryNpcsCommandsTest {
         assertNotNull(dialogue, "Subcommand 'dialogue' must exist");
         assertNotNull(dialogue.getChild("list"), "dialogue list must exist");
         assertNotNull(dialogue.getChild("info"), "dialogue info must exist");
+        assertNotNull(dialogue.getChild("edit"), "dialogue edit must exist");
         assertNotNull(dialogue.getChild("start"), "dialogue start must exist");
 
         // Quest subcommands
