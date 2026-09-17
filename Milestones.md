@@ -1,6 +1,6 @@
 # Dwurdy's StoryNPCs Milestones & Issue Plan
 
-Document status: active  
+Document status: completed  
 Last reviewed: 2026-09-17  
 Owner: Vlad Durdeu  
 
@@ -20,40 +20,40 @@ Owner: Vlad Durdeu
 ---
 
 ## Milestone M1: NeoForge Server Integration, Entity System & World Lifecycle
-- **Status**: IN PROGRESS
+- **Status**: DONE (Commits `035e7e8`, `af570f2`)
 - **Issues**:
   - **Issue #1**: NeoForge Entity Registration & `StoryNpcEntity` Implementation
     - *Intent*: Implement custom PathfinderMob entity `StoryNpcEntity` backed by `NpcDefinition`, registering attributes, AI goals, and right-click dialogue interaction.
-    - *Files*: `src/main/java/com/storynpcs/entity/StoryNpcEntity.java`, `src/main/java/com/storynpcs/entity/StoryNpcRegistry.java`.
-    - *Tests*: `StoryNpcEntityTest.java`.
+    - *Deliverables*: `StoryNpcEntity.java`, `StoryNpcRegistry.java`, `StoryNpcState.java`.
+    - *Tests*: `StoryNpcStateTest.java` (3/3 tests PASS).
   - **Issue #2**: World Data Lifecycle & Server Hooks
     - *Intent*: Hook server lifecycle events to auto-load YAML definitions and synchronize player progression safely.
-    - *Files*: `src/main/java/com/storynpcs/lifecycle/WorldLifecycleHandler.java`.
-    - *Tests*: `WorldLifecycleHandlerTest.java`.
-- **Evidence**: 100% test pass on entity attributes and world lifecycle hooks.
+    - *Deliverables*: `WorldLifecycleHandler.java`, loader folder matching fix in `YamlDefinitionLoader.java`.
+    - *Tests*: `WorldLifecycleHandlerTest.java` (3/3 tests PASS).
+- **Evidence**: 100% test pass on entity state, attributes, world initialization, and player progression caching/saving.
 
 ---
 
 ## Milestone M2: Network Protocol & Client Dialogue Screen
-- **Status**: PLANNED
+- **Status**: DONE (Commit `4a0e911`)
 - **Issues**:
   - **Issue #3**: Client Dialogue UI Screen & Input Handling
     - *Intent*: Modern Minecraft Screen (`DialogueScreen`) rendering speaker, dialogue text, selectable options, audio cue triggers, keyboard navigation (1-9), and network response dispatch.
-    - *Files*: `src/main/java/com/storynpcs/client/gui/DialogueScreen.java`, `src/main/java/com/storynpcs/client/StoryNpcsClient.java`.
-    - *Tests*: `DialogueScreenTest.java`.
-- **Evidence**: UI layout calculations, option selection, and packet dispatch verified.
+    - *Deliverables*: `DialogueScreen.java`, `DialogueScreenModel.java`, `StoryNpcsClient.java`, network hook wiring.
+    - *Tests*: `DialogueScreenModelTest.java` (4/4 tests PASS), `NetworkPayloadsTest.java` (3/3 tests PASS).
+- **Evidence**: UI layout calculations, option selection, key code routing (1-9, Enter, Space, Escape), and packet codecs verified.
 
 ---
 
 ## Milestone M3: Directed-Graph Dialogue Visual Editor
-- **Status**: PLANNED
+- **Status**: DONE (Commits `43e3ec8`, `fdad09b`)
 - **Issues**:
   - **Issue #4**: Graph Visual Layout & Node-Canvas Data Model
     - *Intent*: 2D graph layout model (`DialogueGraphLayout`, `VisualNode`, `VisualEdge`) supporting pan/zoom coordinates, cycle detection, and bidirectional conversion with `DialogueGraph`.
-    - *Files*: `src/main/java/com/storynpcs/editor/DialogueGraphLayout.java`, `src/main/java/com/storynpcs/editor/VisualNode.java`, `src/main/java/com/storynpcs/editor/VisualEdge.java`.
-    - *Tests*: `DialogueGraphLayoutTest.java`.
+    - *Deliverables*: `DialogueGraphLayout.java`, `VisualNode.java`, `VisualEdge.java`, `GraphEditorState.java`.
+    - *Tests*: `DialogueGraphLayoutTest.java` (5/5 tests PASS).
   - **Issue #5**: In-Game Graph Editor Screen & CRUD Operations
-    - *Intent*: Interactive in-game editor (`DialogueEditorScreen`) supporting visual node/edge addition, linking, deletion, and YAML serialization.
-    - *Files*: `src/main/java/com/storynpcs/client/gui/DialogueEditorScreen.java`.
-    - *Tests*: `DialogueEditorScreenTest.java`.
-- **Evidence**: Node CRUD, edge linking, canvas coordinate transformations, and serialization verified.
+    - *Intent*: Interactive in-game editor (`DialogueEditorScreen`, `DialogueEditorScreenModel`) supporting visual node/edge addition, linking, deletion, and `/storynpcs dialogue edit <id>` command.
+    - *Deliverables*: `DialogueEditorScreen.java`, `DialogueEditorScreenModel.java`, command registration in `StoryNpcsCommands.java`.
+    - *Tests*: `DialogueEditorScreenModelTest.java` (4/4 tests PASS), `StoryNpcsCommandsTest.java` (1/1 test PASS).
+- **Evidence**: Node CRUD, edge linking, canvas coordinate transformations, cycle detection, and graph export verified.
