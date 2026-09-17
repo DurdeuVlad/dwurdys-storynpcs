@@ -385,6 +385,28 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
+    public boolean setFollowerFormation(
+            UUID playerUuid,
+            NamespacedId npcId,
+            com.storynpcs.domain.role.follower.FollowerRole role,
+            com.storynpcs.domain.role.follower.FormationType newFormation,
+            int slotIndex,
+            double spacing
+    ) {
+        if (role == null || !role.isOwnedBy(playerUuid)) {
+            return false;
+        }
+        var oldFormation = role.getFormation();
+        role.setFormation(newFormation);
+        role.setFormationSlot(slotIndex);
+        if (spacing > 0.0) {
+            role.setFormationSpacing(spacing);
+        }
+        eventPublisher.publish(new com.storynpcs.api.event.FollowerFormationChangeEvent(
+                playerUuid, npcId, oldFormation, newFormation, slotIndex, role.getFormationSpacing()));
+        return true;
+    }
+
     public boolean depositToBank(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count) {
         if (bankRepo == null) return false;
         var vault = bankRepo.getOrCreate(playerUuid);

@@ -14,6 +14,9 @@ import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
+import com.storynpcs.domain.role.follower.FollowerRole;
+import com.storynpcs.domain.role.follower.FormationType;
+import com.storynpcs.entity.StoryNpcEntity;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
@@ -86,7 +89,21 @@ public final class StoryNpcsCommands {
                                         .then(Commands.argument("delta", IntegerArgumentType.integer())
                                                 .executes(ctx -> adjustFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
-                                                        .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player"))))))));
+                                                        .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player"))))))))
+                // Follower commands
+                .then(Commands.literal("follower")
+                        .then(Commands.literal("formation")
+                                .then(Commands.argument("formation", StringArgumentType.word())
+                                        .executes(ctx -> setFollowerFormationCmd(ctx, -1, 2.5))
+                                        .then(Commands.argument("slot", IntegerArgumentType.integer())
+                                                .executes(ctx -> setFollowerFormationCmd(ctx, IntegerArgumentType.getInteger(ctx, "slot"), 2.5))
+                                                .then(Commands.argument("spacing", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.5, 10.0))
+                                                        .executes(ctx -> setFollowerFormationCmd(ctx,
+                                                                IntegerArgumentType.getInteger(ctx, "slot"),
+                                                                com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "spacing")))))))
+                        .then(Commands.literal("state")
+                                .then(Commands.argument("state", StringArgumentType.word())
+                                        .executes(StoryNpcsCommands::setFollowerStateCmd))));
 
         dispatcher.register(root);
         // Register alias /sn
@@ -349,5 +366,69 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("Failed to adjust faction points: " + e.getMessage()));
             return 0;
         }
+    }
+
+    private static int setFollowerFormationCmd(CommandContext<CommandSourceStack> ctx, int slot, double spacing) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Command must be executed by a player."));
+            return 0;
+        }
+
+        String formationStr = StringArgumentType.getString(ctx, "formation");
+        FormationType type = FormationType.fromString(formationStr);
+
+        int updated = 0;
+        var entities = player.serverLevel().getEntitiesOfClass(
+                StoryNpcEntity.class,
+                player.getBoundingBox().inflate(64.0),
+                npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
+        );
+
+        for (StoryNpcEntity npc : entities) {
+            FollowerRole role = npc.getFollowerRole();
+            role.setFormation(type);
+            role.setFormationSlot(slot);
+            role.setFormationSpacing(spacing);
+            updated++;
+        }
+
+        final int count = updated;
+        source.sendSuccess(() -> Component.literal("[StoryNPCs] Updated " + count + " followers to " + type.name() + " formation (slot: " + (slot < 0 ? "auto" : slot) + ", spacing: " + spacing + "m)."), true);
+        return updated;
+    }
+
+    private static int setFollowerStateCmd(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Command must be executed by a player."));
+            return 0;
+        }
+
+        String stateStr = StringArgumentType.getString(ctx, "state").toUpperCase();
+        FollowerRole.State state;
+        try {
+            state = FollowerRole.State.valueOf(stateStr);
+        } catch (IllegalArgumentException e) {
+            source.sendFailure(Component.literal("[StoryNPCs] Invalid state: " + stateStr + ". Valid states: FOLLOWING, STAYING, GUARDING"));
+            return 0;
+        }
+
+        int updated = 0;
+        var entities = player.serverLevel().getEntitiesOfClass(
+                StoryNpcEntity.class,
+                player.getBoundingBox().inflate(64.0),
+                npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
+        );
+
+        for (StoryNpcEntity npc : entities) {
+            FollowerRole role = npc.getFollowerRole();
+            role.setState(state);
+            updated++;
+        }
+
+        final int count = updated;
+        source.sendSuccess(() -> Component.literal("[StoryNPCs] Updated " + count + " followers to state " + state.name() + "."), true);
+        return updated;
     }
 }

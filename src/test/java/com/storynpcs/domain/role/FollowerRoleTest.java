@@ -1,9 +1,11 @@
 package com.storynpcs.domain.role;
 
 import com.storynpcs.api.event.EventPublisher;
+import com.storynpcs.api.event.FollowerFormationChangeEvent;
 import com.storynpcs.api.event.FollowerStateChangeEvent;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.role.follower.FollowerRole;
+import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.persistence.ProgressionRepository;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
@@ -19,10 +21,12 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@DisplayName("FollowerRole & Formation Operations Tests")
 class FollowerRoleTest {
 
     private StoryNpcsApplicationService service;
     private List<FollowerStateChangeEvent> stateEvents;
+    private List<FollowerFormationChangeEvent> formationEvents;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) {
@@ -30,9 +34,12 @@ class FollowerRoleTest {
         ProgressionRepository repo = new ProgressionRepository(tempDir);
         EventPublisher publisher = new EventPublisher();
         stateEvents = new ArrayList<>();
+        formationEvents = new ArrayList<>();
         publisher.register(event -> {
             if (event instanceof FollowerStateChangeEvent fe) {
                 stateEvents.add(fe);
+            } else if (event instanceof FollowerFormationChangeEvent ffe) {
+                formationEvents.add(ffe);
             }
         });
 
@@ -62,5 +69,38 @@ class FollowerRoleTest {
         assertEquals(1, stateEvents.size());
         assertEquals(FollowerRole.State.FOLLOWING, stateEvents.get(0).previousState());
         assertEquals(FollowerRole.State.GUARDING, stateEvents.get(0).newState());
+    }
+
+    @Test
+    @DisplayName("Owner can change formation pattern, slot, and spacing with event published")
+    void testChangeFormation() {
+        UUID owner = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:guard");
+
+        FollowerRole role = new FollowerRole(owner);
+        assertEquals(FormationType.WEDGE, role.getFormation());
+
+        // Stranger denied
+        boolean strangerResult = service.setFollowerFormation(stranger, npcId, role, FormationType.COLUMN, 1, 3.0);
+        assertFalse(strangerResult);
+        assertEquals(FormationType.WEDGE, role.getFormation());
+        assertEquals(0, formationEvents.size());
+
+        // Owner succeeds
+        boolean ownerResult = service.setFollowerFormation(owner, npcId, role, FormationType.COLUMN, 2, 3.5);
+        assertTrue(ownerResult);
+        assertEquals(FormationType.COLUMN, role.getFormation());
+        assertEquals(2, role.getFormationSlot());
+        assertEquals(3.5, role.getFormationSpacing());
+
+        assertEquals(1, formationEvents.size());
+        FollowerFormationChangeEvent event = formationEvents.get(0);
+        assertEquals(owner, event.playerUuid());
+        assertEquals(npcId, event.npcId());
+        assertEquals(FormationType.WEDGE, event.previousFormation());
+        assertEquals(FormationType.COLUMN, event.newFormation());
+        assertEquals(2, event.slotIndex());
+        assertEquals(3.5, event.spacing());
     }
 }

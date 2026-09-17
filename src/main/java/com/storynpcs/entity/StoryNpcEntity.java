@@ -1,9 +1,14 @@
 package com.storynpcs.entity;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.ai.NpcFollowFormationGoal;
 import com.storynpcs.ai.NpcPatrolGoal;
 import com.storynpcs.ai.NpcReturnToStartGoal;
+import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
+import com.storynpcs.domain.role.follower.FollowerGroup;
+import com.storynpcs.domain.role.follower.FollowerRole;
+import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
 import net.minecraft.core.BlockPos;
@@ -37,6 +42,7 @@ public class StoryNpcEntity extends PathfinderMob {
 
     private final StoryNpcState state = new StoryNpcState();
     private BlockPos startPosition;
+    private FollowerRole followerRole;
 
     public StoryNpcEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -53,11 +59,12 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new NpcPatrolGoal(this, 1.0D));
-        this.goalSelector.addGoal(2, new NpcReturnToStartGoal(this, 1.0D));
-        this.goalSelector.addGoal(3, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 0.6D));
-        this.goalSelector.addGoal(5, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(1, new NpcFollowFormationGoal(this, 1.0D, 1.35D, 1.75F, 24.0F));
+        this.goalSelector.addGoal(2, new NpcPatrolGoal(this, 1.0D));
+        this.goalSelector.addGoal(3, new NpcReturnToStartGoal(this, 1.0D));
+        this.goalSelector.addGoal(4, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.6D));
+        this.goalSelector.addGoal(6, new RandomLookAroundGoal(this));
     }
 
     @Override
@@ -127,6 +134,14 @@ public class StoryNpcEntity extends PathfinderMob {
         });
     }
 
+    public FollowerRole getFollowerRole() {
+        return followerRole;
+    }
+
+    public void setFollowerRole(FollowerRole followerRole) {
+        this.followerRole = followerRole;
+    }
+
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
         if (hand != InteractionHand.MAIN_HAND) {
@@ -139,6 +154,37 @@ public class StoryNpcEntity extends PathfinderMob {
 
         if (player instanceof ServerPlayer serverPlayer) {
             var mod = StoryNpcs.getInstance();
+
+            // Shift-right-click to cycle follower states if player is owner
+            if (followerRole != null && followerRole.isOwnedBy(serverPlayer.getUUID()) && serverPlayer.isShiftKeyDown()) {
+                FollowerRole.State nextState = switch (followerRole.getState()) {
+                    case FOLLOWING -> FollowerRole.State.STAYING;
+                    case STAYING -> FollowerRole.State.GUARDING;
+                    case GUARDING -> FollowerRole.State.FOLLOWING;
+                };
+
+                if (mod != null) {
+                    NamespacedId npcId = null;
+                    try {
+                        npcId = NamespacedId.of(getDefinitionId());
+                    } catch (Exception ignored) {}
+                    if (npcId != null) {
+                        mod.getApplicationService().setFollowerState(serverPlayer.getUUID(), npcId, followerRole, nextState);
+                    } else {
+                        followerRole.setState(nextState);
+                    }
+                } else {
+                    followerRole.setState(nextState);
+                }
+
+                String npcName = this.getName().getString();
+                String stateMsg = (nextState == FollowerRole.State.FOLLOWING)
+                        ? "§6" + npcName + "§r is now §aFOLLOWING§r (§e" + followerRole.getFormation().name() + "§r formation)."
+                        : "§6" + npcName + "§r is now §e" + nextState.name() + "§r.";
+                serverPlayer.sendSystemMessage(Component.literal(stateMsg), true);
+                return InteractionResult.SUCCESS;
+            }
+
             if (mod != null) {
                 var viewOpt = state.interact(serverPlayer.getUUID(), mod.getApplicationService(), mod.getRegistry());
                 if (viewOpt.isPresent()) {
@@ -152,6 +198,14 @@ public class StoryNpcEntity extends PathfinderMob {
     }
 
     @Override
+    public void remove(RemovalReason reason) {
+        super.remove(reason);
+        if (followerRole != null && followerRole.getOwnerUuid() != null) {
+            FollowerGroup.unregister(followerRole.getOwnerUuid(), this.getUUID());
+        }
+    }
+
+    @Override
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
@@ -159,6 +213,19 @@ public class StoryNpcEntity extends PathfinderMob {
             compound.putInt("StartX", startPosition.getX());
             compound.putInt("StartY", startPosition.getY());
             compound.putInt("StartZ", startPosition.getZ());
+        }
+        if (followerRole != null) {
+            CompoundTag followerTag = new CompoundTag();
+            if (followerRole.getOwnerUuid() != null) {
+                followerTag.putUUID("Owner", followerRole.getOwnerUuid());
+            }
+            followerTag.putString("State", followerRole.getState().name());
+            followerTag.putString("Formation", followerRole.getFormation().name());
+            followerTag.putInt("Slot", followerRole.getFormationSlot());
+            followerTag.putDouble("Spacing", followerRole.getFormationSpacing());
+            followerTag.putInt("DaysHired", followerRole.getDaysHired());
+            followerTag.putInt("DailyRate", followerRole.getDailyRate());
+            compound.put("Follower", followerTag);
         }
     }
 
@@ -170,6 +237,33 @@ public class StoryNpcEntity extends PathfinderMob {
         }
         if (compound.contains("StartX") && compound.contains("StartY") && compound.contains("StartZ")) {
             this.startPosition = new BlockPos(compound.getInt("StartX"), compound.getInt("StartY"), compound.getInt("StartZ"));
+        }
+        if (compound.contains("Follower")) {
+            CompoundTag followerTag = compound.getCompound("Follower");
+            this.followerRole = new FollowerRole();
+            if (followerTag.hasUUID("Owner")) {
+                this.followerRole.setOwnerUuid(followerTag.getUUID("Owner"));
+            }
+            if (followerTag.contains("State")) {
+                try {
+                    this.followerRole.setState(FollowerRole.State.valueOf(followerTag.getString("State")));
+                } catch (Exception ignored) {}
+            }
+            if (followerTag.contains("Formation")) {
+                this.followerRole.setFormation(FormationType.fromString(followerTag.getString("Formation")));
+            }
+            if (followerTag.contains("Slot")) {
+                this.followerRole.setFormationSlot(followerTag.getInt("Slot"));
+            }
+            if (followerTag.contains("Spacing")) {
+                this.followerRole.setFormationSpacing(followerTag.getDouble("Spacing"));
+            }
+            if (followerTag.contains("DaysHired")) {
+                this.followerRole.setDaysHired(followerTag.getInt("DaysHired"));
+            }
+            if (followerTag.contains("DailyRate")) {
+                this.followerRole.setDailyRate(followerTag.getInt("DailyRate"));
+            }
         }
     }
 }
