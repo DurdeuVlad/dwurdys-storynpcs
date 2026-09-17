@@ -20,7 +20,9 @@ import com.storynpcs.entity.StoryNpcEntity;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
@@ -43,22 +45,22 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("npc")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listNpcs))
                         .then(Commands.literal("info")
-                                .then(Commands.argument("npc_id", StringArgumentType.string())
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::infoNpc)))
                         .then(Commands.literal("delete")
-                                .then(Commands.argument("npc_id", StringArgumentType.string())
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteNpc))))
                 // Dialogue commands
                 .then(Commands.literal("dialogue")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listDialogues))
                         .then(Commands.literal("info")
-                                .then(Commands.argument("dialogue_id", StringArgumentType.string())
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::infoDialogue)))
                         .then(Commands.literal("edit")
-                                .then(Commands.argument("dialogue_id", StringArgumentType.string())
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::editDialogue)))
                         .then(Commands.literal("start")
-                                .then(Commands.argument("dialogue_id", StringArgumentType.string())
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .executes(ctx -> startDialogue(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> startDialogue(ctx, EntityArgument.getPlayer(ctx, "player")))))))
@@ -66,12 +68,12 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("quest")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listQuests))
                         .then(Commands.literal("start")
-                                .then(Commands.argument("quest_id", StringArgumentType.string())
+                                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
                                         .executes(ctx -> startQuest(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> startQuest(ctx, EntityArgument.getPlayer(ctx, "player"))))))
                         .then(Commands.literal("complete")
-                                .then(Commands.argument("quest_id", StringArgumentType.string())
+                                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
                                         .executes(ctx -> completeQuest(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> completeQuest(ctx, EntityArgument.getPlayer(ctx, "player")))))))
@@ -79,13 +81,13 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("faction")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listFactions))
                         .then(Commands.literal("set")
-                                .then(Commands.argument("faction_id", StringArgumentType.string())
+                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
                                         .then(Commands.argument("points", IntegerArgumentType.integer())
                                                 .executes(ctx -> setFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
                                                         .executes(ctx -> setFaction(ctx, EntityArgument.getPlayer(ctx, "player")))))))
                         .then(Commands.literal("adjust")
-                                .then(Commands.argument("faction_id", StringArgumentType.string())
+                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
                                         .then(Commands.argument("delta", IntegerArgumentType.integer())
                                                 .executes(ctx -> adjustFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
@@ -139,6 +141,11 @@ public final class StoryNpcsCommands {
         }
     }
 
+    private static NamespacedId getNamespacedId(CommandContext<CommandSourceStack> ctx, String argName) {
+        ResourceLocation loc = ResourceLocationArgument.getId(ctx, argName);
+        return NamespacedId.of(loc.getNamespace(), loc.getPath());
+    }
+
     // NPC Handlers
     private static int listNpcs(CommandContext<CommandSourceStack> ctx) {
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
@@ -152,8 +159,7 @@ public final class StoryNpcsCommands {
     }
 
     private static int infoNpc(CommandContext<CommandSourceStack> ctx) {
-        String idStr = StringArgumentType.getString(ctx, "npc_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
         var npcOpt = reg.getNpc(id);
         if (npcOpt.isEmpty()) {
@@ -174,8 +180,7 @@ public final class StoryNpcsCommands {
     }
 
     private static int deleteNpc(CommandContext<CommandSourceStack> ctx) {
-        String idStr = StringArgumentType.getString(ctx, "npc_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
         boolean deleted = StoryNpcs.getInstance().getApplicationService().deleteNpc(id);
         if (deleted) {
             ctx.getSource().sendSuccess(() -> Component.literal("Deleted NPC: " + id), true);
@@ -199,8 +204,7 @@ public final class StoryNpcsCommands {
     }
 
     private static int infoDialogue(CommandContext<CommandSourceStack> ctx) {
-        String idStr = StringArgumentType.getString(ctx, "dialogue_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "dialogue_id");
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
         var dOpt = reg.getDialogue(id);
         if (dOpt.isEmpty()) {
@@ -224,8 +228,7 @@ public final class StoryNpcsCommands {
                 return 0;
             }
         }
-        String idStr = StringArgumentType.getString(ctx, "dialogue_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "dialogue_id");
         try {
             DialogueView view = StoryNpcs.getInstance().getApplicationService().startDialogue(player.getUUID(), id);
             StoryNpcsNetwork.sendOpenDialogue(player, view);
@@ -240,8 +243,7 @@ public final class StoryNpcsCommands {
 
     // Quest Handlers
     private static int editDialogue(CommandContext<CommandSourceStack> ctx) {
-        String idStr = StringArgumentType.getString(ctx, "dialogue_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "dialogue_id");
         var dialogueOpt = StoryNpcs.getInstance().getRegistry().getDialogue(id);
         if (dialogueOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
@@ -272,8 +274,7 @@ public final class StoryNpcsCommands {
                 return 0;
             }
         }
-        String idStr = StringArgumentType.getString(ctx, "quest_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
         try {
             StoryNpcs.getInstance().getApplicationService().startQuest(player.getUUID(), id);
             ServerPlayer finalPlayer = player;
@@ -295,8 +296,7 @@ public final class StoryNpcsCommands {
                 return 0;
             }
         }
-        String idStr = StringArgumentType.getString(ctx, "quest_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
         try {
             StoryNpcs.getInstance().getApplicationService().completeQuest(player.getUUID(), id);
             ServerPlayer finalPlayer = player;
@@ -330,8 +330,7 @@ public final class StoryNpcsCommands {
                 return 0;
             }
         }
-        String idStr = StringArgumentType.getString(ctx, "faction_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "faction_id");
         int points = IntegerArgumentType.getInteger(ctx, "points");
         try {
             StoryNpcs.getInstance().getApplicationService().setFactionPoints(player.getUUID(), id, points);
@@ -354,8 +353,7 @@ public final class StoryNpcsCommands {
                 return 0;
             }
         }
-        String idStr = StringArgumentType.getString(ctx, "faction_id");
-        NamespacedId id = NamespacedId.of(idStr);
+        NamespacedId id = getNamespacedId(ctx, "faction_id");
         int delta = IntegerArgumentType.getInteger(ctx, "delta");
         try {
             StoryNpcs.getInstance().getApplicationService().adjustFactionPoints(player.getUUID(), id, delta);

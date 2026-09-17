@@ -35,12 +35,16 @@ public class StoryNpcs {
     /**
      * Test / headless constructor.
      */
-    public StoryNpcs() {
+    private StoryNpcs() {
         instance = this;
         this.registry = new DefinitionRegistry();
         this.loader = new YamlDefinitionLoader(registry);
         this.eventPublisher = new EventPublisher();
         this.lifecycleHandler = new WorldLifecycleHandler(this);
+    }
+
+    public static StoryNpcs createForTesting() {
+        return new StoryNpcs();
     }
 
     public StoryNpcs(IEventBus modEventBus, ModContainer modContainer) {

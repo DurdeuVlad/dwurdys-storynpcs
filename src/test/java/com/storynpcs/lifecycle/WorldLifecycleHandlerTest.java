@@ -22,7 +22,7 @@ class WorldLifecycleHandlerTest {
 
     @BeforeEach
     void setUp() {
-        mod = new StoryNpcs();
+        mod = StoryNpcs.createForTesting();
         handler = mod.getLifecycleHandler();
     }
 

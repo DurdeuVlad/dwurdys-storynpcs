@@ -250,6 +250,14 @@ public class StoryNpcsApplicationService {
         }
     }
 
+    private void saveProgression(UUID playerUuid) {
+        try {
+            progressionRepository.save(playerUuid);
+        } catch (IOException e) {
+            System.err.println("Failed to persist progression for " + playerUuid + ": " + e.getMessage());
+        }
+    }
+
     // ==========================================
     // 3. Faction Operations
     // ==========================================
@@ -260,6 +268,7 @@ public class StoryNpcsApplicationService {
                 .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
         int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
         progression.setFactionScore(factionId, points);
+        saveProgression(playerUuid);
 
         eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, points));
     }
@@ -271,6 +280,7 @@ public class StoryNpcsApplicationService {
         int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
         int newPoints = oldPoints + delta;
         progression.setFactionScore(factionId, newPoints);
+        saveProgression(playerUuid);
 
         eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, newPoints));
     }
@@ -296,6 +306,7 @@ public class StoryNpcsApplicationService {
         }
 
         state.setStatus(QuestProgressState.Status.IN_PROGRESS);
+        saveProgression(playerUuid);
         eventPublisher.publish(new QuestStartEvent(playerUuid, questId));
     }
 
@@ -316,6 +327,7 @@ public class StoryNpcsApplicationService {
                 .orElseThrow(() -> new NoSuchElementException("Objective not found: " + objectiveId));
 
         state.incrementCount(objectiveId, amount);
+        saveProgression(playerUuid);
         int currentCount = state.getCount(objectiveId);
 
         eventPublisher.publish(new QuestObjectiveProgressEvent(
@@ -338,6 +350,7 @@ public class StoryNpcsApplicationService {
         QuestProgressState state = progression.getQuestState(questId);
 
         state.setStatus(QuestProgressState.Status.COMPLETED);
+        saveProgression(playerUuid);
 
         // Deliver rewards
         if (quest.getRewards() != null) {
