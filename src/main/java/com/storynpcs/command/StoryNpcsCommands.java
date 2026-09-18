@@ -103,6 +103,12 @@ public final class StoryNpcsCommands {
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .suggests(NPC_IDS)
                                         .executes(StoryNpcsCommands::infoNpc)))
+                        .then(Commands.literal("create")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .executes(ctx -> createNpc(ctx, null))
+                                        .then(Commands.argument("name", StringArgumentType.greedyString())
+                                                .executes(ctx -> createNpc(ctx, StringArgumentType.getString(ctx, "name"))))))
                         .then(Commands.literal("spawn")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
@@ -361,6 +367,64 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("NPC not found: " + id));
             return 0;
         }
+    }
+
+    /**
+     * One command to a working NPC: scaffold a valid YAML definition, validate + persist
+     * it through the application service, then spawn it at the admin's feet in-game.
+     * From the console the entity step is skipped and a clickable [Spawn] is offered.
+     */
+    private static int createNpc(CommandContext<CommandSourceStack> ctx, String name) {
+        CommandSourceStack source = ctx.getSource();
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        if (mod.getRegistry().getNpc(id).isPresent()) {
+            source.sendFailure(Component.literal("[StoryNPCs] NPC '" + id + "' already exists — use '/storynpcs npc info " + id + "'"));
+            return 0;
+        }
+
+        String displayName = (name != null && !name.isBlank()) ? name.trim() : humanizeName(id.getPath());
+        var def = new com.storynpcs.domain.npc.NpcDefinition(id, displayName);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            source.sendFailure(Component.literal("[StoryNPCs] NPC scaffold rejected (nothing written):\n" + result.formatReport(10)));
+            return 0;
+        }
+
+        final String fileName = com.storynpcs.yaml.YamlDefinitionWriter.fileNameFor(id);
+        // In-game: spawn it right where the admin stands — zero extra steps to a working NPC
+        if (source.getEntity() != null) {
+            source.sendSuccess(() -> Component.literal("[StoryNPCs] Created NPC '" + displayName
+                    + "' (" + id + ") — saved to npcs/" + fileName + ".yaml"), true);
+            return spawnNpc(ctx, null);
+        }
+        // Console: definition exists but no position — offer the one-click spawn path
+        MutableComponent line = Component.literal("[StoryNPCs] Created NPC '" + displayName
+                + "' (" + id + ") — saved to npcs/" + fileName + ".yaml  ")
+                .append(clickable("§a[Spawn]", "/storynpcs npc spawn " + id + " ",
+                        ClickEvent.Action.SUGGEST_COMMAND, "Spawn '" + id + "' (add coordinates)"))
+                .append(Component.literal(" "))
+                .append(clickable("§b[Info]", "/storynpcs npc info " + id,
+                        ClickEvent.Action.RUN_COMMAND, "View '" + id + "' details"));
+        source.sendSuccess(() -> line, true);
+        return 1;
+    }
+
+    /** "guard_captain" → "Guard Captain" — sensible display name when none is given. */
+    private static String humanizeName(String path) {
+        String[] parts = path.split("[^a-zA-Z0-9]+");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(p.charAt(0)));
+            if (p.length() > 1) sb.append(p.substring(1));
+        }
+        return sb.length() > 0 ? sb.toString() : path;
     }
 
     // Dialogue Handlers
@@ -817,6 +881,7 @@ public final class StoryNpcsCommands {
     private static int sendNpcHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- StoryNPCs NPC Commands ---§r\n" +
+                "§e/storynpcs npc create <npc_id> [name] §7- Scaffold a new NPC (writes YAML, spawns it)\n" +
                 "§e/storynpcs npc list §7- List all registered NPC definitions\n" +
                 "§e/storynpcs npc info <npc_id> §7- View details of an NPC definition\n" +
                 "§e/storynpcs npc spawn <npc_id> [pos] §7- Spawn an NPC into the world\n" +

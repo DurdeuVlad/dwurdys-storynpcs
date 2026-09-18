@@ -468,4 +468,47 @@ class StoryNpcsApplicationServiceTest {
         assertThat(loadResult.isValid()).isTrue();
         assertThat(fresh.getDialogue(dialogueId)).isPresent();
     }
+
+    @Test
+    void saveNpcShouldRegisterDefinitionAndWriteLoadableYaml() throws Exception {
+        com.storynpcs.yaml.YamlDefinitionLoader loader =
+                new com.storynpcs.yaml.YamlDefinitionLoader(registry);
+        loader.loadDirectory(tempDir); // binds root path for persistence
+        service.setLoader(loader);
+
+        NamespacedId npcId = NamespacedId.of("storynpcs:new_recruit");
+        NpcDefinition def = new NpcDefinition(npcId, "New Recruit");
+
+        var result = service.saveNpc(def);
+
+        assertThat(result.hasErrors()).isFalse();
+        assertThat(registry.getNpc(npcId)).isPresent();
+        assertThat(registry.getNpc(npcId).get().getDisplay().getName()).isEqualTo("New Recruit");
+
+        Path expected = tempDir.resolve("npcs").resolve("new_recruit.yaml");
+        assertThat(expected).exists();
+        // The scaffolded file is itself valid YAML that loads back cleanly
+        DefinitionRegistry fresh = new DefinitionRegistry();
+        var loadResult = new com.storynpcs.yaml.YamlDefinitionLoader(fresh).loadDirectory(tempDir);
+        assertThat(loadResult.isValid()).isTrue();
+        assertThat(fresh.getNpc(npcId)).isPresent();
+        assertThat(fresh.getNpc(npcId).get().getDisplay().getName()).isEqualTo("New Recruit");
+    }
+
+    @Test
+    void saveNpcShouldRejectMissingIdAndDanglingReferences() {
+        var noId = service.saveNpc(new NpcDefinition(null, "No Id"));
+        assertThat(noId.hasErrors()).isTrue();
+        assertThat(noId.formatReport()).contains("NPC_ID_MISSING");
+
+        NamespacedId npcId = NamespacedId.of("storynpcs:dangling");
+        NpcDefinition def = new NpcDefinition(npcId, "Dangling");
+        def.setDialogueId(NamespacedId.of("storynpcs:ghost_dialogue"));
+
+        var result = service.saveNpc(def);
+
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("REF_NPC_DIALOGUE_MISSING");
+        assertThat(registry.getNpc(npcId)).isEmpty();
+    }
 }

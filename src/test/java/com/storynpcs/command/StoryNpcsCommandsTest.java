@@ -32,11 +32,18 @@ class StoryNpcsCommandsTest {
         // NPC subcommands
         CommandNode<CommandSourceStack> npc = storynpcs.getChild("npc");
         assertNotNull(npc, "Subcommand 'npc' must exist");
+        assertNotNull(npc.getChild("create"), "npc create must exist");
         assertNotNull(npc.getChild("list"), "npc list must exist");
         assertNotNull(npc.getChild("info"), "npc info must exist");
         assertNotNull(npc.getChild("spawn"), "npc spawn must exist");
         assertNotNull(npc.getChild("despawn"), "npc despawn must exist");
         assertNotNull(npc.getChild("delete"), "npc delete must exist");
+
+        // npc create takes npc_id then an optional greedy name
+        CommandNode<CommandSourceStack> create = npc.getChild("create");
+        CommandNode<CommandSourceStack> createId = create.getChild("npc_id");
+        assertNotNull(createId, "npc create npc_id argument must exist");
+        assertNotNull(createId.getChild("name"), "npc create optional name argument must exist");
 
         // Dialogue subcommands
         CommandNode<CommandSourceStack> dialogue = storynpcs.getChild("dialogue");
