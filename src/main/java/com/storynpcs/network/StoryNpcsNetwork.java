@@ -48,6 +48,62 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openDialogueEditor(payload));
                 }
         );
+
+        registrar.playToServer(
+                ServerboundDialogueSavePayload.TYPE,
+                ServerboundDialogueSavePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleDialogueSave(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToClient(
+                ClientboundDialogueSaveResultPayload.TYPE,
+                ClientboundDialogueSaveResultPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleDialogueSaveResult(payload));
+                }
+        );
+    }
+
+    private static void handleDialogueSave(ServerPlayer player, ServerboundDialogueSavePayload payload) {
+        // Editor saves are an admin operation — same gate as /storynpcs dialogue edit.
+        if (!player.hasPermissions(2)) {
+            sendSaveResult(player, false, "Insufficient permissions — dialogue editing requires operator level 2.");
+            return;
+        }
+        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        if (service == null) {
+            sendSaveResult(player, false, "StoryNPCs service is not available on this server.");
+            return;
+        }
+        com.storynpcs.domain.common.NamespacedId id;
+        try {
+            id = com.storynpcs.domain.common.NamespacedId.of(payload.dialogueId());
+        } catch (Exception e) {
+            sendSaveResult(player, false, "Malformed dialogue id: '" + payload.dialogueId() + "'");
+            return;
+        }
+        var graphOpt = com.storynpcs.domain.dialogue.DialogueGraphSerde.fromJson(payload.graphJson());
+        if (graphOpt.isEmpty()) {
+            sendSaveResult(player, false, "Malformed graph data — save rejected.");
+            return;
+        }
+        var result = service.saveDialogue(id, graphOpt.get());
+        if (result.hasErrors()) {
+            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            sendSaveResult(player, false, "Save rejected: " + first + (result.getErrors().size() > 1
+                    ? " (+" + (result.getErrors().size() - 1) + " more)" : ""));
+        } else {
+            sendSaveResult(player, true, "Dialogue '" + id + "' saved to disk and reloaded.");
+        }
+    }
+
+    private static void sendSaveResult(ServerPlayer player, boolean success, String message) {
+        PacketDistributor.sendToPlayer(player, new ClientboundDialogueSaveResultPayload(success, message));
+        player.sendSystemMessage(Component.literal((success ? "§a[StoryNPCs] " : "§c[StoryNPCs] ") + message));
     }
 
     private static final java.util.Map<java.util.UUID, Long> LAST_CHOICE_MILLIS = new java.util.concurrent.ConcurrentHashMap<>();

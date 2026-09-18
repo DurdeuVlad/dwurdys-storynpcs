@@ -101,12 +101,33 @@ public class DialogueEditorScreenModel {
         return getLayout().toDialogueGraph(dialogueId, title);
     }
 
+    public void setStatusMessage(String statusMessage) {
+        this.statusMessage = statusMessage != null ? statusMessage : "";
+    }
+
+    /**
+     * Sends the exported graph to the save callback (the server, in production).
+     * The status reflects that a save was *requested* — the real outcome arrives
+     * via {@link #onSaveResult} once the server validates and persists.
+     */
     public void save() {
         DialogueGraph graph = exportGraph();
         if (onSaveCallback != null) {
             onSaveCallback.accept(graph);
+            statusMessage = "Save sent — awaiting server confirmation...";
+        } else {
+            statusMessage = "Cannot save: no server connection.";
         }
-        unsavedChanges = false;
-        statusMessage = "Graph saved successfully.";
+    }
+
+    /**
+     * Applies the server's verdict on a save request. Only a successful save
+     * clears the unsaved-changes flag; a rejection keeps it so nothing is lost.
+     */
+    public void onSaveResult(boolean success, String message) {
+        statusMessage = message != null ? message : (success ? "Saved." : "Save rejected.");
+        if (success) {
+            unsavedChanges = false;
+        }
     }
 }
