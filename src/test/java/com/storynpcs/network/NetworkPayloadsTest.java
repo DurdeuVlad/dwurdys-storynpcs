@@ -35,7 +35,9 @@ class NetworkPayloadsTest {
                 "Halt! Who goes there?",
                 "minecraft:entity.villager.ambient",
                 List.of("I am a traveler.", "None of your business!"),
-                false
+                false,
+                "Guard Captain",
+                List.of("Quest: Patrol Duty", "Reputation: Kingdom -10")
         );
 
         assertEquals("storynpcs:guard_talk", payload.dialogueId());
@@ -44,6 +46,8 @@ class NetworkPayloadsTest {
         assertEquals("minecraft:entity.villager.ambient", payload.sound());
         assertEquals(2, payload.options().size());
         assertFalse(payload.isTerminal());
+        assertEquals("Guard Captain", payload.npcName());
+        assertEquals(List.of("Quest: Patrol Duty", "Reputation: Kingdom -10"), payload.optionHints());
         assertEquals(ClientboundDialogueOpenPayload.TYPE, payload.type());
 
         ByteBuf buf = Unpooled.buffer();
@@ -56,7 +60,21 @@ class NetworkPayloadsTest {
         assertEquals(payload.sound(), decoded.sound());
         assertEquals(payload.options(), decoded.options());
         assertEquals(payload.isTerminal(), decoded.isTerminal());
+        assertEquals(payload.npcName(), decoded.npcName());
+        assertEquals(payload.optionHints(), decoded.optionHints());
         assertEquals(payload, decoded);
+    }
+
+    @Test
+    @DisplayName("ClientboundDialogueOpenPayload sanitizes nulls to empty values")
+    void testClientboundDialogueOpenPayloadNullSanitization() {
+        ClientboundDialogueOpenPayload payload = new ClientboundDialogueOpenPayload(
+                null, null, null, null, null, true, null, null);
+
+        assertEquals("", payload.dialogueId());
+        assertEquals("", payload.npcName());
+        assertEquals(List.of(), payload.options());
+        assertEquals(List.of(), payload.optionHints());
     }
 
     @Test

@@ -167,6 +167,50 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void shouldExposeSpeakerNameAndOptionHintsInDialogueView() {
+        UUID playerUuid = UUID.randomUUID();
+
+        NamespacedId factionId = NamespacedId.of("storynpcs:knights");
+        registry.registerFaction(new Faction(factionId, "Knights", 1000, 500, 1500));
+
+        NamespacedId questId = NamespacedId.of("storynpcs:kill_dragons");
+        Quest quest = new Quest(questId, "Kill Dragons");
+        quest.setObjectives(List.of(new QuestObjective("kill_drake", QuestObjective.Type.KILL_ENTITY, "minecraft:ender_dragon", 1)));
+        registry.registerQuest(quest);
+
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:commander_dialogue");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Commander Dialogue", "greeting");
+
+        DialogueNode greeting = new DialogueNode("greeting", "What report do you bring?");
+        DialogueNode end = new DialogueNode("end", "Dismissed!");
+
+        DialogueEdge orders = new DialogueEdge("Ask for orders", "end");
+        orders.getActions().add(new DialogueAction(DialogueAction.Type.START_QUEST, questId.toString(), ""));
+        orders.getActions().add(new DialogueAction(DialogueAction.Type.ADJUST_FACTION, factionId.toString(), "-50"));
+        greeting.addOption(orders);
+
+        DialogueEdge gift = new DialogueEdge("Hand over supplies", "end");
+        gift.getActions().add(new DialogueAction(DialogueAction.Type.GIVE_ITEM, "minecraft:golden_apple", "1"));
+        greeting.addOption(gift);
+
+        greeting.addOption(new DialogueEdge("Nothing to report", "end")); // no actions -> empty hint
+
+        graph.addNode(greeting);
+        graph.addNode(end);
+        registry.registerDialogue(graph);
+
+        DialogueView view = service.startDialogue(playerUuid, dialogueId);
+
+        // No entity in unit tests -> speaker falls back to graph title
+        assertThat(view.npcName()).isEqualTo("Commander Dialogue");
+        // Hints are parallel to options, derived from edge actions
+        assertThat(view.optionHints()).containsExactly(
+                "Quest: Kill Dragons, Reputation: Knights -50",
+                "Item: golden apple",
+                "");
+    }
+
+    @Test
     void shouldManageQuestProgressionAndRewards() {
         UUID playerUuid = UUID.randomUUID();
         NamespacedId factionId = NamespacedId.of("storynpcs:merchants");

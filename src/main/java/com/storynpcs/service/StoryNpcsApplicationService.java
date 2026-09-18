@@ -140,6 +140,7 @@ public class StoryNpcsApplicationService {
                 .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + dialogueId));
 
         DialogueSession session = new DialogueSession(playerUuid, graph, npcEntityUuid, dimensionId, originX, originY, originZ);
+        session.setNpcDisplayName(resolveNpcDisplayName(npcEntityUuid));
         activeSessions.put(playerUuid, session);
 
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
@@ -167,7 +168,9 @@ public class StoryNpcsApplicationService {
         }
 
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        List<DialogueEdge> availableEdges = getAvailableEdges(currentNode, progression);
+        // Must use the session-aware overload so onceOnly filtering matches buildDialogueView —
+        // otherwise the displayed option index resolves to a different edge than the one shown.
+        List<DialogueEdge> availableEdges = getAvailableEdges(currentNode, progression, session);
 
         if (optionIndex < 0 || optionIndex >= availableEdges.size()) {
             closeDialogue(playerUuid);
@@ -255,20 +258,117 @@ public class StoryNpcsApplicationService {
         return result;
     }
 
+    /**
+     * Resolves the speaking NPC's display name from its entity UUID (null-safe —
+     * command-started dialogues and unit tests simply return null).
+     */
+    private String resolveNpcDisplayName(UUID npcEntityUuid) {
+        if (npcEntityUuid == null || minecraftServer == null) {
+            return null;
+        }
+        try {
+            for (var level : minecraftServer.getAllLevels()) {
+                var entity = level.getEntity(npcEntityUuid);
+                if (entity instanceof com.storynpcs.entity.StoryNpcEntity npc) {
+                    return npc.getDefinition()
+                            .map(def -> def.getDisplay() != null ? def.getDisplay().getName() : null)
+                            .orElse(null);
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /** Best available speaker label: NPC display name, then the dialogue title. */
+    private String speakerLabel(DialogueSession session) {
+        if (session.getNpcDisplayName() != null && !session.getNpcDisplayName().isBlank()) {
+            return session.getNpcDisplayName();
+        }
+        String title = session.getGraph().getTitle();
+        return title != null ? title : "";
+    }
+
+    /**
+     * Short player-facing summary of an option's consequences, e.g. "Quest: Bounty" or
+     * "Reputation". Keeps choices informed without leaking implementation detail.
+     */
+    private String optionHint(DialogueEdge edge) {
+        if (edge.getActions() == null || edge.getActions().isEmpty()) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        for (DialogueAction action : edge.getActions()) {
+            if (action == null || action.getType() == null) continue;
+            String label = switch (action.getType()) {
+                case START_QUEST -> questTitle(action.getTarget());
+                case ADVANCE_QUEST -> "Progress quest";
+                case COMPLETE_QUEST -> "Complete quest";
+                case ADJUST_FACTION -> factionHint(action);
+                case GIVE_ITEM -> "Item: " + itemName(action.getTarget());
+                case EXECUTE_COMMAND -> "Command";
+                case CLOSE_DIALOGUE -> null;
+            };
+            if (label != null && !parts.contains(label)) {
+                parts.add(label);
+            }
+        }
+        return String.join(", ", parts);
+    }
+
+    /** e.g. "Kingdom +50" / "Kingdom -20" — players see reputation shifts before choosing. */
+    private String factionHint(DialogueAction action) {
+        String name;
+        try {
+            NamespacedId fid = NamespacedId.of(action.getTarget());
+            name = registry.getFaction(fid)
+                    .map(f -> f.getName() != null && !f.getName().isBlank() ? f.getName() : fid.getPath())
+                    .orElse(fid.getPath());
+        } catch (Exception e) {
+            name = action.getTarget();
+        }
+        String delta = action.getValue() != null ? action.getValue().trim() : "";
+        if (!delta.isEmpty() && !delta.startsWith("-") && !delta.startsWith("+")) {
+            delta = "+" + delta;
+        }
+        return "Reputation: " + name + (delta.isEmpty() ? "" : " " + delta);
+    }
+
+    /** Human-readable item name from a namespaced id, e.g. "minecraft:golden_apple" → "golden apple". */
+    private String itemName(String target) {
+        if (target == null || target.isBlank()) return "?";
+        String path = target.contains(":") ? target.substring(target.indexOf(':') + 1) : target;
+        return path.replace('_', ' ');
+    }
+
+    private String questTitle(String target) {
+        try {
+            NamespacedId qid = NamespacedId.of(target);
+            return registry.getQuest(qid)
+                    .map(q -> "Quest: " + (q.getTitle() != null && !q.getTitle().isBlank() ? q.getTitle() : qid.getPath()))
+                    .orElse("Quest");
+        } catch (Exception e) {
+            return "Quest";
+        }
+    }
+
     private DialogueView buildDialogueView(DialogueSession session, PlayerProgression progression) {
+        String speaker = speakerLabel(session);
         DialogueNode node = session.getCurrentNode();
         if (node == null || node.isTerminal()) {
             session.close();
             activeSessions.remove(session.getPlayerUuid());
             return new DialogueView(session.getDialogueId(), node != null ? node.getId() : "",
-                    node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true);
+                    node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true,
+                    speaker, List.of());
         }
 
         // VULN-46: pass session so onceOnly options are filtered after first selection
         List<DialogueEdge> availableEdges = getAvailableEdges(node, progression, session);
         List<String> optionTexts = availableEdges.stream().map(DialogueEdge::getText).toList();
+        List<String> optionHints = availableEdges.stream().map(this::optionHint).toList();
 
-        return new DialogueView(session.getDialogueId(), node.getId(), node.getText(), node.getSound(), optionTexts, false);
+        return new DialogueView(session.getDialogueId(), node.getId(), node.getText(), node.getSound(),
+                optionTexts, false, speaker, optionHints);
     }
 
     private List<DialogueEdge> getAvailableEdges(DialogueNode node, PlayerProgression progression, DialogueSession session) {
@@ -287,21 +387,12 @@ public class StoryNpcsApplicationService {
         return result;
     }
 
-    /** Legacy two-arg overload used in chooseDialogueOption before session is known — always passes session. */
-    private List<DialogueEdge> getAvailableEdges(DialogueNode node, PlayerProgression progression) {
-        return getAvailableEdges(node, progression, null);
-    }
-
     private boolean evalConditions(List<DialogueCondition> conditions, PlayerProgression progression, DialogueSession session) {
         if (conditions == null || conditions.isEmpty()) return true;
         for (DialogueCondition cond : conditions) {
             if (!evalCondition(cond, progression)) return false;
         }
         return true;
-    }
-
-    private boolean evalConditions(List<DialogueCondition> conditions, PlayerProgression progression) {
-        return evalConditions(conditions, progression, null);
     }
 
     private boolean evalCondition(DialogueCondition cond, PlayerProgression progression) {

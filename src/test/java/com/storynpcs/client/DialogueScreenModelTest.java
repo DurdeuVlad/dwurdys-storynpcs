@@ -114,4 +114,33 @@ class DialogueScreenModelTest {
         assertFalse(model.chooseOption(0));
         assertFalse(model.handleKeyPress(49));
     }
+
+    @Test
+    @DisplayName("Speaker name and option hints are exposed; missing hints yield empty string")
+    void testNpcNameAndOptionHints() {
+        DialogueScreenModel model = new DialogueScreenModel(
+                "d1", "n1", "Test", "",
+                List.of("Take the job", "Refuse"),
+                false,
+                null,
+                "Quartermaster",
+                List.of("Quest: Supply Run", "")
+        );
+
+        assertEquals("Quartermaster", model.getNpcName());
+        assertEquals("Quest: Supply Run", model.getOptionHint(0));
+        assertEquals("", model.getOptionHint(1));
+        assertEquals("", model.getOptionHint(-1));
+        assertEquals("", model.getOptionHint(9));
+    }
+
+    @Test
+    @DisplayName("Legacy constructor defaults to no speaker and no hints")
+    void testLegacyCtorDefaults() {
+        DialogueScreenModel model = new DialogueScreenModel(
+                "d1", "n1", "Test", "", List.of("A"), false, null);
+
+        assertEquals("", model.getNpcName());
+        assertEquals("", model.getOptionHint(0));
+    }
 }
