@@ -27,6 +27,7 @@ class StoryNpcsCommandsTest {
         // Subcommands under /storynpcs
         assertNotNull(storynpcs.getChild("reload"), "Subcommand 'reload' must exist");
         assertNotNull(storynpcs.getChild("help"), "Subcommand 'help' must exist");
+        assertNotNull(storynpcs.getChild("me"), "Subcommand 'me' must exist");
 
         // NPC subcommands
         CommandNode<CommandSourceStack> npc = storynpcs.getChild("npc");

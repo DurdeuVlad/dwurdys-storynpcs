@@ -10,7 +10,10 @@ import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.dialogue.DialogueGraph;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.npc.NpcDefinition;
+import com.storynpcs.domain.progression.PlayerProgression;
+import com.storynpcs.domain.progression.QuestProgressState;
 import com.storynpcs.domain.quest.Quest;
+import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
 import com.storynpcs.service.StoryNpcsApplicationService;
@@ -84,6 +87,11 @@ public final class StoryNpcsCommands {
         var root = Commands.literal("storynpcs")
                 .executes(StoryNpcsCommands::sendHelp)
                 .then(Commands.literal("help").executes(StoryNpcsCommands::sendHelp))
+                .then(Commands.literal("me")
+                        .executes(ctx -> showStatus(ctx, null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .requires(source -> source.hasPermission(2))
+                                .executes(ctx -> showStatus(ctx, EntityArgument.getPlayer(ctx, "player")))))
                 .then(Commands.literal("reload")
                         .requires(source -> source.hasPermission(2))
                         .executes(StoryNpcsCommands::reload))
@@ -690,9 +698,99 @@ public final class StoryNpcsCommands {
         return recalled;
     }
 
+    /**
+     * /storynpcs me — zero-arg self-service status: active quests with n/m objective
+     * progress and faction standings. Saves players from asking an admin (or never
+     * knowing their progress at all). The [player] variant lets ops inspect anyone.
+     */
+    private static int showStatus(CommandContext<CommandSourceStack> ctx, ServerPlayer target) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = target;
+        if (player == null) {
+            if (source.getEntity() instanceof ServerPlayer sp) {
+                player = sp;
+            } else {
+                source.sendFailure(Component.literal("[StoryNPCs] Specify a player when run from the console."));
+                return 0;
+            }
+        }
+
+        StoryNpcs mod = StoryNpcs.getInstance();
+        var repo = mod != null ? mod.getProgressionRepository() : null;
+        if (repo == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Progression store is not available."));
+            return 0;
+        }
+        PlayerProgression prog = repo.getOrCreate(player.getUUID());
+        DefinitionRegistry reg = mod.getRegistry();
+
+        boolean self = source.getEntity() == player;
+        String header = self ? "§6--- Your StoryNPCs Status ---"
+                : "§6--- StoryNPCs Status: " + player.getScoreboardName() + " ---";
+        source.sendSuccess(() -> Component.literal(header), false);
+
+        // Quests — active states with per-objective n/m progress; completed summarized
+        int active = 0;
+        int completed = 0;
+        List<String> questLines = new java.util.ArrayList<>();
+        for (var entry : prog.getQuests().entrySet()) {
+            QuestProgressState state = entry.getValue();
+            if (state.getStatus() == QuestProgressState.Status.COMPLETED) {
+                completed++;
+                continue;
+            }
+            if (state.getStatus() != QuestProgressState.Status.IN_PROGRESS) {
+                continue;
+            }
+            active++;
+            StringBuilder sb = new StringBuilder(" §a• ");
+            var questOpt = reg != null ? reg.getQuest(entry.getKey()) : java.util.Optional.<Quest>empty();
+            if (questOpt.isPresent()) {
+                Quest q = questOpt.get();
+                sb.append(q.getTitle() != null && !q.getTitle().isBlank() ? q.getTitle() : entry.getKey().toString());
+                for (QuestObjective obj : q.getObjectives()) {
+                    sb.append(String.format(" §7[%s %d/%d]",
+                            obj.getTarget(), state.getCount(obj.getId()), obj.getRequiredCount()));
+                }
+            } else {
+                sb.append(entry.getKey()).append(" §7(definition removed)");
+            }
+            questLines.add(sb.toString());
+        }
+        final int fActive = active;
+        final int fCompleted = completed;
+        source.sendSuccess(() -> Component.literal(
+                String.format("§eQuests: %d active, %d completed", fActive, fCompleted)), false);
+        for (String line : questLines) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        if (questLines.isEmpty()) {
+            source.sendSuccess(() -> Component.literal(" §7No quests in progress — talk to an NPC."), false);
+        }
+
+        // Factions — every registered faction with the player's points + standing color
+        var factions = reg != null ? reg.getAllFactions() : java.util.List.<Faction>of();
+        if (!factions.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("§eFactions:"), false);
+            for (Faction f : factions) {
+                int pts = prog.getFactionScore(f.getId(), f.getDefaultPoints());
+                var standing = f.getStandingForPoints(pts);
+                String color = switch (standing) {
+                    case FRIENDLY -> "§a";
+                    case HOSTILE -> "§c";
+                    default -> "§e";
+                };
+                String line = String.format(" %s%s §7- %d pts (%s)", color, f.getName(), pts, standing.name());
+                source.sendSuccess(() -> Component.literal(line), false);
+            }
+        }
+        return 1;
+    }
+
     private static int sendHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- Dwurdy's StoryNPCs Help ---§r\n" +
+                "§e/storynpcs me [player] §7- Your quests & faction standing\n" +
                 "§e/storynpcs reload §7- Reload YAML definitions\n" +
                 "§e/storynpcs npc <list|info|spawn|despawn|delete> §7- Manage NPCs\n" +
                 "§e/storynpcs dialogue <list|info|edit|start> §7- Manage Dialogues\n" +
