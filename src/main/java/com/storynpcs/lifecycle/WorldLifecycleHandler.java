@@ -25,6 +25,9 @@ public class WorldLifecycleHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(WorldLifecycleHandler.class);
 
+    /** Cap on diagnostic lines shown in-game — the full report stays in the server log. */
+    private static final int MAX_DIAGNOSTIC_LINES = 5;
+
     /** Starter definitions shipped inside the mod jar at data/storynpcs/definitions/. */
     private static final List<String> STARTER_DEFINITIONS = List.of(
             "dialogues/captain_dialogue.yaml",
@@ -124,6 +127,9 @@ public class WorldLifecycleHandler {
         // Load definitions
         try {
             ValidationResult result = mod.getLoader().loadDirectory(definitionsDir);
+            // Stored so operators logging in can be told about load errors in-game
+            // instead of having to hunt through the console log.
+            mod.setLastLoadDiagnostics(result);
             if (result.isValid()) {
                 LOGGER.info("StoryNPCs definitions loaded: {}", result.formatReport());
             } else {
@@ -199,6 +205,7 @@ public class WorldLifecycleHandler {
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() != null) {
             handlePlayerLogin(event.getEntity().getUUID());
+            notifyOperatorOfLoadErrors(event.getEntity());
         }
     }
 
@@ -211,6 +218,31 @@ public class WorldLifecycleHandler {
             mod.getBankRepository().getOrCreate(uuid);
         }
         LOGGER.debug("Loaded progression and bank for player {}", uuid);
+    }
+
+    /**
+     * Startup load failures otherwise live only in the console — an op logging in gets
+     * the error count plus the top diagnostics with file:line and the fix path.
+     */
+    private void notifyOperatorOfLoadErrors(Player player) {
+        ValidationResult result = mod.getLastLoadDiagnostics();
+        if (result == null || !result.hasErrors()) {
+            return;
+        }
+        if (!(player instanceof net.minecraft.server.level.ServerPlayer sp) || !sp.hasPermissions(2)) {
+            return;
+        }
+        int errorCount = result.getErrors().size();
+        sp.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                "§c[StoryNPCs] Definition load failed: " + errorCount
+                        + " error(s) — previous definitions retained. Fix the files below, then run §e/storynpcs reload"));
+        result.getErrors().stream().limit(MAX_DIAGNOSTIC_LINES)
+                .forEach(d -> sp.sendSystemMessage(net.minecraft.network.chat.Component.literal("§7  - " + d)));
+        int extra = errorCount - MAX_DIAGNOSTIC_LINES;
+        if (extra > 0) {
+            sp.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "§7  …and " + extra + " more — see the server log for the full report"));
+        }
     }
 
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {

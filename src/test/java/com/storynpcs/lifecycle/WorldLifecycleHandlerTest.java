@@ -130,4 +130,33 @@ class WorldLifecycleHandlerTest {
         assertFalse(Files.exists(npcDir.resolve("guard_captain.yaml")));
         assertTrue(mod.getRegistry().getNpc(NamespacedId.of("storynpcs:my_npc")).isPresent());
     }
+
+    @Test
+    @DisplayName("Load diagnostics are stored on the mod so ops can be notified in-game")
+    void testLoadDiagnosticsStoredForInGameSurfacing(@TempDir Path worldDir) throws IOException {
+        Path defDir = worldDir.resolve("storynpcs").resolve("definitions").resolve("quests");
+        Files.createDirectories(defDir);
+        // Invalid: a quest with no objectives triggers QUEST_OBJ_EMPTY
+        String brokenYaml = """
+                id: "storynpcs:broken_quest"
+                title: "Broken"
+                objectives: []
+                """;
+        Files.writeString(defDir.resolve("broken.yaml"), brokenYaml);
+
+        handler.initializeWorld(worldDir);
+
+        assertNotNull(mod.getLastLoadDiagnostics(), "load result must be retained for in-game surfacing");
+        assertTrue(mod.getLastLoadDiagnostics().hasErrors());
+        assertTrue(mod.getLastLoadDiagnostics().formatReport(10).contains("QUEST_OBJ_EMPTY"));
+    }
+
+    @Test
+    @DisplayName("A clean load leaves no error diagnostics behind")
+    void testCleanLoadClearsDiagnostics(@TempDir Path worldDir) {
+        handler.initializeWorld(worldDir); // seeds valid starter YAML
+
+        assertNotNull(mod.getLastLoadDiagnostics());
+        assertFalse(mod.getLastLoadDiagnostics().hasErrors());
+    }
 }
