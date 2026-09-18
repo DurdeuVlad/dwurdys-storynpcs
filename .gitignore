@@ -12,3 +12,4 @@ run/
 .DS_Store
 *.tmp
 *.log
+__pycache__/
