@@ -21,6 +21,7 @@ import com.storynpcs.yaml.DefinitionRegistry;
 import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.entity.StoryNpcEntity;
+import java.util.NoSuchElementException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -130,6 +131,20 @@ public final class StoryNpcsCommands {
                                                 .executes(ctx -> despawnNpc(ctx,
                                                         ResourceLocationArgument.getId(ctx, "npc_id"),
                                                         com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius"))))))
+                        .then(Commands.literal("set")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.literal("dialogue")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                                        .suggests(DIALOGUE_IDS)
+                                                        .executes(StoryNpcsCommands::setNpcDialogue))))
+                                .then(Commands.literal("faction")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                                                        .suggests(FACTION_IDS)
+                                                        .executes(StoryNpcsCommands::setNpcFaction)))))
                         .then(Commands.literal("delete")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
@@ -143,11 +158,22 @@ public final class StoryNpcsCommands {
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .suggests(DIALOGUE_IDS)
                                         .executes(StoryNpcsCommands::infoDialogue)))
+                        .then(Commands.literal("create")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .executes(ctx -> createDialogue(ctx, null))
+                                        .then(Commands.argument("title", StringArgumentType.greedyString())
+                                                .executes(ctx -> createDialogue(ctx, StringArgumentType.getString(ctx, "title"))))))
                         .then(Commands.literal("edit")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .suggests(DIALOGUE_IDS)
                                         .executes(StoryNpcsCommands::editDialogue)))
+                        .then(Commands.literal("delete")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .suggests(DIALOGUE_IDS)
+                                        .executes(StoryNpcsCommands::deleteDialogue)))
                         .then(Commands.literal("start")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
@@ -159,6 +185,10 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("quest")
                         .executes(StoryNpcsCommands::sendQuestHelp)
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listQuests))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                                        .suggests(QUEST_IDS)
+                                        .executes(StoryNpcsCommands::infoQuest)))
                         .then(Commands.literal("start")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("quest_id", ResourceLocationArgument.id())
@@ -177,6 +207,10 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("faction")
                         .executes(StoryNpcsCommands::sendFactionHelp)
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listFactions))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                                        .suggests(FACTION_IDS)
+                                        .executes(StoryNpcsCommands::infoFaction)))
                         .then(Commands.literal("set")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
@@ -302,11 +336,17 @@ public final class StoryNpcsCommands {
                 npc.getAi().getMovementType(), npc.getAi().getWalkingRange(), npc.getAi().isDoorInteract())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Dialogue: %s | Faction: %s",
                 npc.getDialogueId(), npc.getFactionId())), false);
-        // Action row — one click instead of retyping the id into spawn/despawn/delete
+        // Action row — one click instead of retyping the id into spawn/set/despawn/delete
         if (ctx.getSource().hasPermission(2)) {
             MutableComponent actions = Component.literal(" §7[ ")
                     .append(clickable("§aSpawn Here", "/storynpcs npc spawn " + id,
                             ClickEvent.Action.RUN_COMMAND, "Spawn '" + id + "' at your position"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§bSet Dialogue", "/storynpcs npc set dialogue " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Assign dialogue to '" + id + "'"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§dSet Faction", "/storynpcs npc set faction " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Assign faction to '" + id + "'"))
                     .append(Component.literal(" §7| "))
                     .append(clickable("§eDespawn", "/storynpcs npc despawn " + id + " ",
                             ClickEvent.Action.SUGGEST_COMMAND, "Despawn in-world '" + id + "' entities (choose radius)"))
@@ -317,6 +357,50 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendSuccess(() -> actions, false);
         }
         return 1;
+    }
+
+    private static int setNpcDialogue(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        NamespacedId dialogueId = getNamespacedId(ctx, "dialogue_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        try {
+            var result = mod.getApplicationService().assignDialogue(npcId, dialogueId);
+            if (result.hasErrors()) {
+                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to assign dialogue:\n" + result.formatReport(5)));
+                return 0;
+            }
+            ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Assigned dialogue '" + dialogueId + "' to NPC '" + npcId + "' (persisted to YAML)."), true);
+            return 1;
+        } catch (NoSuchElementException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int setNpcFaction(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        NamespacedId factionId = getNamespacedId(ctx, "faction_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        try {
+            var result = mod.getApplicationService().assignFaction(npcId, factionId);
+            if (result.hasErrors()) {
+                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to assign faction:\n" + result.formatReport(5)));
+                return 0;
+            }
+            ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Assigned faction '" + factionId + "' to NPC '" + npcId + "' (persisted to YAML)."), true);
+            return 1;
+        } catch (NoSuchElementException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
+            return 0;
+        }
     }
 
     private static int spawnNpc(CommandContext<CommandSourceStack> ctx, Vec3 pos) {
@@ -455,6 +539,10 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("=== Dialogue: %s ('%s') ===", d.getId(), d.getTitle())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Entry Node: %s", d.getEntryNodeId())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Total Nodes: %d", d.getNodes().size())), false);
+        var referencingNpcs = StoryNpcs.getInstance().getApplicationService().findNpcsReferencingDialogue(id);
+        if (!referencingNpcs.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Referenced by NPCs: %s", referencingNpcs)), false);
+        }
         if (ctx.getSource().hasPermission(2)) {
             MutableComponent actions = Component.literal(" §7[ ")
                     .append(clickable("§bOpen Editor", "/storynpcs dialogue edit " + id,
@@ -462,10 +550,79 @@ public final class StoryNpcsCommands {
                     .append(Component.literal(" §7| "))
                     .append(clickable("§aStart", "/storynpcs dialogue start " + id + " ",
                             ClickEvent.Action.SUGGEST_COMMAND, "Start dialogue '" + id + "' (pick a player)"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§cDelete", "/storynpcs dialogue delete " + id,
+                            ClickEvent.Action.SUGGEST_COMMAND, "Delete '" + id + "' definition (confirm with Enter)"))
                     .append(Component.literal(" §7]"));
             ctx.getSource().sendSuccess(() -> actions, false);
         }
         return 1;
+    }
+
+    private static int createDialogue(CommandContext<CommandSourceStack> ctx, String title) {
+        CommandSourceStack source = ctx.getSource();
+        NamespacedId id = getNamespacedId(ctx, "dialogue_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        if (mod.getRegistry().getDialogue(id).isPresent()) {
+            source.sendFailure(Component.literal("[StoryNPCs] Dialogue '" + id + "' already exists — use '/storynpcs dialogue edit " + id + "'"));
+            return 0;
+        }
+
+        String dialogueTitle = (title != null && !title.isBlank()) ? title.trim() : humanizeName(id.getPath());
+        var result = mod.getApplicationService().createDialogue(id, dialogueTitle);
+        if (result.hasErrors()) {
+            source.sendFailure(Component.literal("[StoryNPCs] Dialogue scaffold rejected:\n" + result.formatReport(10)));
+            return 0;
+        }
+
+        final String fileName = com.storynpcs.yaml.YamlDefinitionWriter.fileNameFor(id);
+        if (source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            // In-game: open the visual editor right away for the new dialogue!
+            var dialogueOpt = mod.getRegistry().getDialogue(id);
+            if (dialogueOpt.isPresent()) {
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                        new com.storynpcs.network.ClientboundDialogueEditorOpenPayload(
+                                id.toString(),
+                                com.storynpcs.domain.dialogue.DialogueGraphSerde.toJson(dialogueOpt.get())));
+            }
+            source.sendSuccess(() -> Component.literal("[StoryNPCs] Created dialogue '" + dialogueTitle
+                    + "' (" + id + ") — saved to dialogues/" + fileName + ".yaml and opened editor."), true);
+            return 1;
+        }
+
+        // Console:
+        MutableComponent line = Component.literal("[StoryNPCs] Created dialogue '" + dialogueTitle
+                + "' (" + id + ") — saved to dialogues/" + fileName + ".yaml  ")
+                .append(clickable("§b[Info]", "/storynpcs dialogue info " + id,
+                        ClickEvent.Action.RUN_COMMAND, "View '" + id + "' details"));
+        source.sendSuccess(() -> line, true);
+        return 1;
+    }
+
+    private static int deleteDialogue(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "dialogue_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var referencingNpcs = mod.getApplicationService().findNpcsReferencingDialogue(id);
+        boolean deleted = mod.getApplicationService().deleteDialogue(id);
+        if (deleted) {
+            if (!referencingNpcs.isEmpty()) {
+                ctx.getSource().sendSuccess(() -> Component.literal("§e[StoryNPCs] Warning: Deleted dialogue '" + id + "' was referenced by NPC(s): " + referencingNpcs + ". Assign them a new dialogue with '/storynpcs npc set dialogue <npc> <dialogue>'."), true);
+            } else {
+                ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Deleted dialogue definition '" + id + "' from registry and disk."), true);
+            }
+            return 1;
+        } else {
+            ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
+            return 0;
+        }
     }
 
     private static int startDialogue(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
@@ -500,7 +657,10 @@ public final class StoryNpcsCommands {
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
         var dialogueOpt = StoryNpcs.getInstance().getRegistry().getDialogue(id);
         if (dialogueOpt.isEmpty()) {
-            ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
+            MutableComponent failMsg = Component.literal("[StoryNPCs] Dialogue not found: '" + id + "'  ")
+                    .append(clickable("§a[Create & Edit]", "/storynpcs dialogue create " + id,
+                            ClickEvent.Action.RUN_COMMAND, "Scaffold '" + id + "' and open visual editor immediately"));
+            ctx.getSource().sendFailure(failMsg);
             return 0;
         }
         if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
@@ -526,11 +686,50 @@ public final class StoryNpcsCommands {
             MutableComponent line = clickable(
                     String.format(" - %s: '%s' (%s, Objectives: %d)",
                             q.getId(), q.getTitle(), q.getCategory(), q.getObjectives().size()),
-                    "/storynpcs quest start " + q.getId() + " ", ClickEvent.Action.SUGGEST_COMMAND,
-                    "Click to start quest " + q.getId() + " (pick a player)");
+                    "/storynpcs quest info " + q.getId(), ClickEvent.Action.RUN_COMMAND,
+                    "Click to view quest " + q.getId() + " details and actions");
             ctx.getSource().sendSuccess(() -> line, false);
         }
         return quests.size();
+    }
+
+    private static int infoQuest(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        var qOpt = reg.getQuest(id);
+        if (qOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("Quest not found: " + id));
+            return 0;
+        }
+        Quest q = qOpt.get();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("=== Quest: %s ('%s') ===", q.getId(), q.getTitle())), false);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Category: %s | Repeat: %s", q.getCategory(), q.getRepeatType())), false);
+        if (q.getPrerequisites() != null && !q.getPrerequisites().isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Prerequisites: %s", q.getPrerequisites())), false);
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Objectives (%d):", q.getObjectives().size())), false);
+        for (var obj : q.getObjectives()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format("  - [%s] %s (Target: %s, Required: %d)",
+                    obj.getType(), obj.getId(), obj.getTarget(), obj.getRequiredCount())), false);
+        }
+        if (q.getRewards() != null && !q.getRewards().isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Rewards (%d):", q.getRewards().size())), false);
+            for (var rew : q.getRewards()) {
+                ctx.getSource().sendSuccess(() -> Component.literal(String.format("  - %s: %s (amount: %d)",
+                        rew.getType(), rew.getTarget(), rew.getAmount())), false);
+            }
+        }
+        if (ctx.getSource().hasPermission(2)) {
+            MutableComponent actions = Component.literal(" §7[ ")
+                    .append(clickable("§aStart Quest", "/storynpcs quest start " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Start quest '" + id + "' (pick a player)"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§eComplete Quest", "/storynpcs quest complete " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Force-complete quest '" + id + "' (pick a player)"))
+                    .append(Component.literal(" §7]"));
+            ctx.getSource().sendSuccess(() -> actions, false);
+        }
+        return 1;
     }
 
     private static int startQuest(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
@@ -586,11 +785,40 @@ public final class StoryNpcsCommands {
             MutableComponent line = clickable(
                     String.format(" - %s: '%s' (Default: %d, Hostile: <%d, Friendly: >=%d)",
                             f.getId(), f.getName(), f.getDefaultPoints(), f.getHostileThreshold(), f.getFriendlyThreshold()),
-                    "/storynpcs faction adjust " + f.getId() + " ", ClickEvent.Action.SUGGEST_COMMAND,
-                    "Click to adjust reputation with " + f.getId());
+                    "/storynpcs faction info " + f.getId(), ClickEvent.Action.RUN_COMMAND,
+                    "Click to view faction " + f.getId() + " details and actions");
             ctx.getSource().sendSuccess(() -> line, false);
         }
         return factions.size();
+    }
+
+    private static int infoFaction(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "faction_id");
+        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        var fOpt = reg.getFaction(id);
+        if (fOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("Faction not found: " + id));
+            return 0;
+        }
+        Faction f = fOpt.get();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("=== Faction: %s ('%s') ===", f.getId(), f.getName())), false);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Default Points: %d", f.getDefaultPoints())), false);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Standing Thresholds: Hostile < %d, Neutral %d-%d, Friendly >= %d",
+                f.getHostileThreshold(), f.getHostileThreshold(), f.getFriendlyThreshold() - 1, f.getFriendlyThreshold())), false);
+        if (ctx.getSource().hasPermission(2)) {
+            MutableComponent actions = Component.literal(" §7[ ")
+                    .append(clickable("§bSet Points", "/storynpcs faction set " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Set points for faction '" + id + "'"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§a+100 Rep", "/storynpcs faction adjust " + id + " 100",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Add 100 reputation with '" + id + "'"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§c-100 Rep", "/storynpcs faction adjust " + id + " -100",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Subtract 100 reputation with '" + id + "'"))
+                    .append(Component.literal(" §7]"));
+            ctx.getSource().sendSuccess(() -> actions, false);
+        }
+        return 1;
     }
 
     private static int setFaction(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
@@ -869,10 +1097,10 @@ public final class StoryNpcsCommands {
         source.sendSuccess(() -> Component.literal("§6--- Dwurdy's StoryNPCs Help ---§r\n" +
                 "§e/storynpcs me [player] §7- Your quests & faction standing\n" +
                 "§e/storynpcs reload §7- Reload YAML definitions\n" +
-                "§e/storynpcs npc <list|info|spawn|despawn|delete> §7- Manage NPCs\n" +
-                "§e/storynpcs dialogue <list|info|edit|start> §7- Manage Dialogues\n" +
-                "§e/storynpcs quest <list|start|complete> §7- Manage Quests\n" +
-                "§e/storynpcs faction <list|set|adjust> §7- Manage Factions\n" +
+                "§e/storynpcs npc <create|list|info|set|spawn|despawn|delete> §7- Manage NPCs\n" +
+                "§e/storynpcs dialogue <create|list|info|edit|delete|start> §7- Manage Dialogues\n" +
+                "§e/storynpcs quest <list|info|start|complete> §7- Manage Quests\n" +
+                "§e/storynpcs faction <list|info|set|adjust> §7- Manage Factions\n" +
                 "§e/storynpcs follower <recall|formation|state> §7- Command Followers\n" +
                 "§7Alias: /sn · IDs tab-complete · list entries are clickable"), false);
         return 1;
@@ -883,19 +1111,23 @@ public final class StoryNpcsCommands {
         source.sendSuccess(() -> Component.literal("§6--- StoryNPCs NPC Commands ---§r\n" +
                 "§e/storynpcs npc create <npc_id> [name] §7- Scaffold a new NPC (writes YAML, spawns it)\n" +
                 "§e/storynpcs npc list §7- List all registered NPC definitions\n" +
-                "§e/storynpcs npc info <npc_id> §7- View details of an NPC definition\n" +
+                "§e/storynpcs npc info <npc_id> §7- View details & action buttons for an NPC\n" +
+                "§e/storynpcs npc set dialogue <npc_id> <dialogue_id> §7- Assign dialogue to an NPC\n" +
+                "§e/storynpcs npc set faction <npc_id> <faction_id> §7- Assign faction to an NPC\n" +
                 "§e/storynpcs npc spawn <npc_id> [pos] §7- Spawn an NPC into the world\n" +
                 "§e/storynpcs npc despawn [npc_id] [radius] §7- Remove spawned NPCs from the world\n" +
-                "§e/storynpcs npc delete <npc_id> §7- Delete NPC definition from registry"), false);
+                "§e/storynpcs npc delete <npc_id> §7- Delete NPC definition from registry & disk"), false);
         return 1;
     }
 
     private static int sendDialogueHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Dialogue Commands ---§r\n" +
+                "§e/storynpcs dialogue create <dialogue_id> [title] §7- Scaffold starter dialogue & open editor\n" +
                 "§e/storynpcs dialogue list §7- List loaded dialogue graphs\n" +
-                "§e/storynpcs dialogue info <dialogue_id> §7- View dialogue graph structure\n" +
-                "§e/storynpcs dialogue edit <dialogue_id> §7- Open dialogue graph editor GUI\n" +
+                "§e/storynpcs dialogue info <dialogue_id> §7- View dialogue graph structure & referencing NPCs\n" +
+                "§e/storynpcs dialogue edit <dialogue_id> §7- Open visual graph editor GUI\n" +
+                "§e/storynpcs dialogue delete <dialogue_id> §7- Delete dialogue definition from registry & disk\n" +
                 "§e/storynpcs dialogue start <dialogue_id> [player] §7- Initiate dialogue session"), false);
         return 1;
     }
@@ -904,6 +1136,7 @@ public final class StoryNpcsCommands {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Quest Commands ---§r\n" +
                 "§e/storynpcs quest list §7- List all registered quests\n" +
+                "§e/storynpcs quest info <quest_id> §7- View quest objectives, rewards & details\n" +
                 "§e/storynpcs quest start <quest_id> [player] §7- Start a quest for a player\n" +
                 "§e/storynpcs quest complete <quest_id> [player] §7- Complete a quest for a player"), false);
         return 1;
@@ -913,6 +1146,7 @@ public final class StoryNpcsCommands {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Faction Commands ---§r\n" +
                 "§e/storynpcs faction list §7- List all factions\n" +
+                "§e/storynpcs faction info <faction_id> §7- View faction thresholds & standing\n" +
                 "§e/storynpcs faction set <faction_id> <points> [player] §7- Set player faction reputation\n" +
                 "§e/storynpcs faction adjust <faction_id> <delta> [player] §7- Adjust player faction reputation"), false);
         return 1;

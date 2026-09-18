@@ -83,6 +83,15 @@ public class DefinitionRegistry {
         }
     }
 
+    public void removeDialogue(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            dialogues.remove(id);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     public void registerFaction(Faction faction) {
         rwLock.writeLock().lock();
         try {
@@ -110,6 +119,15 @@ public class DefinitionRegistry {
         }
     }
 
+    public void removeFaction(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            factions.remove(id);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     public void registerQuest(Quest quest) {
         rwLock.writeLock().lock();
         try {
@@ -134,6 +152,15 @@ public class DefinitionRegistry {
             return List.copyOf(quests.values());
         } finally {
             rwLock.readLock().unlock();
+        }
+    }
+
+    public void removeQuest(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            quests.remove(id);
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
