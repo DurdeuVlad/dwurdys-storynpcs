@@ -95,4 +95,39 @@ class WorldLifecycleHandlerTest {
         assertTrue(Files.exists(p1File));
         assertTrue(Files.exists(p2File));
     }
+
+    @Test
+    @DisplayName("initializeWorld seeds bundled starter definitions only when the dir is empty")
+    void testStarterDefinitionSeeding(@TempDir Path worldDir) throws IOException {
+        handler.initializeWorld(worldDir);
+
+        Path defDir = worldDir.resolve("storynpcs").resolve("definitions");
+        // Bundled starter content landed on disk and loaded into the registry
+        assertTrue(Files.exists(defDir.resolve("npcs").resolve("guard_captain.yaml")));
+        assertTrue(Files.exists(defDir.resolve("dialogues").resolve("captain_dialogue.yaml")));
+        assertTrue(Files.exists(defDir.resolve("factions").resolve("town_guard.yaml")));
+        assertTrue(Files.exists(defDir.resolve("quests").resolve("bounty_goblins.yaml")));
+        assertTrue(mod.getRegistry().getNpc(NamespacedId.of("storynpcs:guard_captain")).isPresent());
+        assertTrue(mod.getRegistry().getDialogue(NamespacedId.of("storynpcs:captain_dialogue")).isPresent());
+    }
+
+    @Test
+    @DisplayName("Seeding never overwrites existing admin YAML")
+    void testSeedingRespectsExistingContent(@TempDir Path worldDir) throws IOException {
+        Path npcDir = worldDir.resolve("storynpcs").resolve("definitions").resolve("npcs");
+        Files.createDirectories(npcDir);
+        String customYaml = """
+                id: "storynpcs:my_npc"
+                display:
+                  name: "Custom"
+                """;
+        Files.writeString(npcDir.resolve("my_npc.yaml"), customYaml);
+
+        handler.initializeWorld(worldDir);
+
+        // Admin file untouched, starter content not added on top
+        assertEquals(customYaml, Files.readString(npcDir.resolve("my_npc.yaml")));
+        assertFalse(Files.exists(npcDir.resolve("guard_captain.yaml")));
+        assertTrue(mod.getRegistry().getNpc(NamespacedId.of("storynpcs:my_npc")).isPresent());
+    }
 }

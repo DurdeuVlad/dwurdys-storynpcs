@@ -13,13 +13,25 @@ import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 public class WorldLifecycleHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(WorldLifecycleHandler.class);
+
+    /** Starter definitions shipped inside the mod jar at data/storynpcs/definitions/. */
+    private static final List<String> STARTER_DEFINITIONS = List.of(
+            "dialogues/captain_dialogue.yaml",
+            "factions/town_guard.yaml",
+            "npcs/guard_captain.yaml",
+            "quests/bounty_goblins.yaml"
+    );
 
     private final StoryNpcs mod;
     private MinecraftServer currentServer;
@@ -88,6 +100,11 @@ public class WorldLifecycleHandler {
             LOGGER.error("Failed to create StoryNPCs directories: {}", e.getMessage(), e);
         }
 
+        // First-run effort reduction: an empty definitions dir means a brand-new install,
+        // so seed the bundled starter content — the admin gets a working NPC out of the box
+        // instead of facing an empty mod. Never overwrites existing YAML.
+        seedStarterDefinitions(definitionsDir);
+
         ProgressionRepository progressionRepo = new ProgressionRepository(progressionDir);
         mod.setProgressionRepository(progressionRepo);
 
@@ -114,6 +131,44 @@ public class WorldLifecycleHandler {
             }
         } catch (Exception e) {
             LOGGER.error("Error loading definitions from {}: {}", definitionsDir, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Copies the bundled starter definitions into {@code definitionsDir} — but only when
+     * the directory contains no YAML at all, so existing admin content is never touched.
+     */
+    private void seedStarterDefinitions(Path definitionsDir) {
+        try (Stream<Path> existing = Files.walk(definitionsDir)) {
+            boolean hasYaml = existing.anyMatch(p ->
+                    p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"));
+            if (hasYaml) {
+                return; // admin already has content — never overwrite
+            }
+        } catch (IOException e) {
+            LOGGER.warn("Could not scan definitions directory for starter seeding: {}", e.getMessage());
+            return;
+        }
+
+        int seeded = 0;
+        for (String rel : STARTER_DEFINITIONS) {
+            String resource = "data/storynpcs/definitions/" + rel;
+            try (InputStream in = getClass().getClassLoader().getResourceAsStream(resource)) {
+                if (in == null) {
+                    LOGGER.warn("Starter definition missing from mod jar: {}", resource);
+                    continue;
+                }
+                Path target = definitionsDir.resolve(rel);
+                Files.createDirectories(target.getParent());
+                Files.copy(in, target);
+                seeded++;
+            } catch (IOException e) {
+                LOGGER.warn("Failed to seed starter definition {}: {}", rel, e.getMessage());
+            }
+        }
+        if (seeded > 0) {
+            LOGGER.info("Seeded {} starter definitions into {} — try /storynpcs npc spawn storynpcs:guard_captain",
+                    seeded, definitionsDir);
         }
     }
 
