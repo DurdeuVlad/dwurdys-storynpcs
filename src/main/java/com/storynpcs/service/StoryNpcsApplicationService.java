@@ -158,14 +158,28 @@ public class StoryNpcsApplicationService {
         setNpcMark(id, null);
     }
 
-    public void assignDialogue(NamespacedId npcId, NamespacedId dialogueId) {
+    public ValidationResult assignDialogue(NamespacedId npcId, NamespacedId dialogueId) {
+        Objects.requireNonNull(npcId, "npcId");
         NpcDefinition npc = registry.getNpc(npcId)
                 .orElseThrow(() -> new NoSuchElementException("NPC not found: " + npcId));
         if (dialogueId != null && registry.getDialogue(dialogueId).isEmpty()) {
             throw new NoSuchElementException("Dialogue not found: " + dialogueId);
         }
         npc.setDialogueId(dialogueId);
+        return saveNpc(npc);
     }
+
+    public ValidationResult assignFaction(NamespacedId npcId, NamespacedId factionId) {
+        Objects.requireNonNull(npcId, "npcId");
+        NpcDefinition npc = registry.getNpc(npcId)
+                .orElseThrow(() -> new NoSuchElementException("NPC not found: " + npcId));
+        if (factionId != null && registry.getFaction(factionId).isEmpty()) {
+            throw new NoSuchElementException("Faction not found: " + factionId);
+        }
+        npc.setFactionId(factionId);
+        return saveNpc(npc);
+    }
+
 
     // ==========================================
     // 2. Dialogue Directed-Graph Operations
@@ -297,6 +311,56 @@ public class StoryNpcsApplicationService {
         registry.registerDialogue(graph);
         return result;
     }
+
+    /**
+     * Scaffolds a valid starter dialogue graph, validates and persists it to YAML, and
+     * registers it live in the registry. Canonical creation path for `/storynpcs dialogue create`.
+     */
+    public ValidationResult createDialogue(NamespacedId id, String title) {
+        Objects.requireNonNull(id, "id");
+        if (registry.getDialogue(id).isPresent()) {
+            ValidationResult res = ValidationResult.valid();
+            res.addError("DIALOGUE_ALREADY_EXISTS", "Dialogue '" + id + "' already exists");
+            return res;
+        }
+        String dialogueTitle = (title != null && !title.isBlank()) ? title.trim() : id.getPath();
+        DialogueGraph graph = new DialogueGraph(id, dialogueTitle, "start");
+        DialogueNode startNode = new DialogueNode("start", "Hello, traveler!");
+        graph.addNode(startNode);
+        return saveDialogue(id, graph);
+    }
+
+    /**
+     * Removes a dialogue definition from the live registry and removes its YAML file from disk.
+     * Mirrors {@link #deleteNpc}.
+     */
+    public boolean deleteDialogue(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        if (registry.getDialogue(id).isPresent()) {
+            registry.removeDialogue(id);
+            if (loader != null) {
+                boolean fileDeleted = loader.deleteDefinitionFile("dialogue", id);
+                if (!fileDeleted) {
+                    System.err.println("[StoryNPCs] Warning: Dialogue '" + id + "' removed from registry but definition file could not be found on disk. It may resurrect on reload.");
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Finds all NPCs in the registry that reference a given dialogue ID.
+     * Used by deletion and info safety checks to prevent broken/dangling dialogue references.
+     */
+    public List<NamespacedId> findNpcsReferencingDialogue(NamespacedId dialogueId) {
+        if (dialogueId == null) return List.of();
+        return registry.getAllNpcs().stream()
+                .filter(npc -> dialogueId.equals(npc.getDialogueId()))
+                .map(NpcDefinition::getId)
+                .toList();
+    }
+
 
     /**
      * Resolves the speaking NPC's display name from its entity UUID (null-safe —
