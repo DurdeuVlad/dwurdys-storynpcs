@@ -72,11 +72,14 @@ public class TradeListing {
         return true;
     }
 
-    public boolean recordTrade() {
+    public synchronized boolean recordTrade() {
         if (maxUses > 0 && uses >= maxUses) {
             return false;
         }
-        uses++;
+        // VULN-48: clamp to avoid integer overflow on unlimited trades
+        if (uses < Integer.MAX_VALUE) {
+            uses++;
+        }
         return true;
     }
 

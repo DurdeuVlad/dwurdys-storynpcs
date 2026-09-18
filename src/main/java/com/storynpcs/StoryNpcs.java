@@ -68,6 +68,7 @@ public class StoryNpcs {
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onServerStopping);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedOut);
+        NeoForge.EVENT_BUS.addListener(lifecycleHandler::onLevelSave); // VULN-53: save on world auto-save
         NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDamage);
         NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDeath);
     }

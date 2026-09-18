@@ -23,6 +23,8 @@ import java.util.stream.Stream;
 public class YamlDefinitionLoader {
     private final ObjectMapper mapper;
     private final DefinitionRegistry registry;
+    /** Root path of the last loaded definitions directory — used to delete files on /npc delete (VULN-57 fix). */
+    private Path lastLoadedRootPath;
 
     public YamlDefinitionLoader(DefinitionRegistry registry) {
         this.registry = registry;
@@ -48,6 +50,11 @@ public class YamlDefinitionLoader {
             NpcDefinition npc = mapper.readValue(yamlContent, NpcDefinition.class);
             if (npc == null || npc.getId() == null) {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "NPC definition must declare an 'id'");
+                return null;
+            }
+            if (registry.getNpc(npc.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate NPC ID '" + npc.getId() + "' is already defined in another file");
                 return null;
             }
             registry.registerNpc(npc);
@@ -76,6 +83,11 @@ public class YamlDefinitionLoader {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "Dialogue definition must declare an 'id'");
                 return null;
             }
+            if (registry.getDialogue(dialogue.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate Dialogue ID '" + dialogue.getId() + "' is already defined in another file");
+                return null;
+            }
             registry.registerDialogue(dialogue);
             return dialogue;
         } catch (JsonParseException e) {
@@ -100,6 +112,11 @@ public class YamlDefinitionLoader {
             Faction faction = mapper.readValue(yamlContent, Faction.class);
             if (faction == null || faction.getId() == null) {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "Faction definition must declare an 'id'");
+                return null;
+            }
+            if (registry.getFaction(faction.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate Faction ID '" + faction.getId() + "' is already defined in another file");
                 return null;
             }
             registry.registerFaction(faction);
@@ -128,6 +145,11 @@ public class YamlDefinitionLoader {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "Quest definition must declare an 'id'");
                 return null;
             }
+            if (registry.getQuest(quest.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate Quest ID '" + quest.getId() + "' is already defined in another file");
+                return null;
+            }
             registry.registerQuest(quest);
             return quest;
         } catch (JsonParseException e) {
@@ -143,7 +165,63 @@ public class YamlDefinitionLoader {
         return null;
     }
 
+    /** Returns the definitions root path that was passed to the last {@code loadDirectory} call. */
+    public Path getLastLoadedRootPath() {
+        return lastLoadedRootPath;
+    }
+
+    /**
+     * Deletes the YAML definition file that defines {@code id}.
+     * File must be located somewhere under {@link #lastLoadedRootPath}.
+     * VULN-57: Without this, deleting an NPC from the registry leaves the file on disk and it
+     * resurrects the next time the server reloads definitions.
+     *
+     * @return true if a file was found and deleted, false if not found or already missing.
+     */
+    public boolean deleteDefinitionFile(String type, com.storynpcs.domain.common.NamespacedId id) {
+        if (lastLoadedRootPath == null || id == null) return false;
+        // Convention: files live under <root>/<type>/<namespace>/<name>.yml or flat <root>/*.yml
+        // We search the whole tree for the first file whose parsed id matches.
+        try (Stream<Path> stream = Files.walk(lastLoadedRootPath)) {
+            return stream
+                    .filter(p -> p.toString().endsWith(".yml") || p.toString().endsWith(".yaml"))
+                    .filter(p -> {
+                        // Quick heuristic: check if filename contains the id's name part
+                        String fn = p.getFileName().toString();
+                        return fn.contains(id.getPath()) || fn.contains(id.toString().replace(":", "_"));
+                    })
+                    .filter(p -> {
+                        // Confirm by attempting to parse and checking the id field
+                        try {
+                            var node = mapper.readTree(p.toFile());
+                            if (node.has("id") && id.toString().equals(node.get("id").asText())) return true;
+                            // Fallback: check namespace+name as separate fields
+                            if (node.has("namespace") && node.has("name")) {
+                                return id.getNamespace().equals(node.get("namespace").asText())
+                                        && id.getPath().equals(node.get("name").asText());
+                            }
+                        } catch (Exception ignored) {}
+                        return false;
+                    })
+                    .findFirst()
+                    .map(p -> {
+                        try {
+                            Files.delete(p);
+                            return true;
+                        } catch (IOException e) {
+                            System.err.println("[StoryNPCs] Failed to delete definition file " + p + ": " + e.getMessage());
+                            return false;
+                        }
+                    })
+                    .orElse(false);
+        } catch (IOException e) {
+            System.err.println("[StoryNPCs] Error scanning definitions directory for delete: " + e.getMessage());
+            return false;
+        }
+    }
+
     public ValidationResult loadDirectory(Path rootPath) throws IOException {
+        this.lastLoadedRootPath = rootPath; // VULN-57: remember for later file deletion
         ValidationResult result = ValidationResult.valid();
         if (!Files.exists(rootPath) || !Files.isDirectory(rootPath)) {
             result.addWarning(rootPath.toString(), 0, 0, "DIR_NOT_FOUND", "Directory does not exist: " + rootPath);

@@ -336,7 +336,14 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
             return 0;
         }
-        ctx.getSource().sendSuccess(() -> Component.literal("Opening visual dialogue editor for " + id), false);
+        if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] The dialogue editor can only be opened by a player, not the console."));
+            return 0;
+        }
+        // VULN-49: send the editor-open packet so the client actually opens DialogueEditorScreen
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                new com.storynpcs.network.ClientboundDialogueEditorOpenPayload(id.toString()));
+        ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Opening visual dialogue editor for '" + id + "'."), false);
         return 1;
     }
 

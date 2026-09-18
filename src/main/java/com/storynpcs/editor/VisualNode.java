@@ -3,6 +3,7 @@ package com.storynpcs.editor;
 public class VisualNode {
     private String id;
     private String text;
+    private String sound = "";
     private double x;
     private double y;
     private double width = 160;
@@ -20,6 +21,9 @@ public class VisualNode {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+
+    public String getSound() { return sound; }
+    public void setSound(String sound) { this.sound = sound != null ? sound : ""; }
 
     public String getText() { return text; }
     public void setText(String text) { this.text = text; }

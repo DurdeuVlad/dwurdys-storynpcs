@@ -261,18 +261,33 @@ public class StoryNpcEntity extends PathfinderMob {
         if (source.getEntity() instanceof Player player && player.isCreative()) {
             return false;
         }
+        // VULN-52: OUT_OF_WORLD (void) must NEVER grant invulnerability; otherwise a PASSIVE NPC
+        // falling into the void runs the hurt tick forever, causing a CPU-saturating loop.
+        var damageTypes = this.level().registryAccess().registryOrThrow(
+                net.minecraft.core.registries.Registries.DAMAGE_TYPE);
+        if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            return false;
+        }
         var defOpt = getDefinition();
         // Unloaded / missing definition must NOT default to invulnerable ghost entity (VULN-15)
         if (defOpt.isEmpty()) {
             return false;
         }
-        if (defOpt.get().getAi() != null) {
-            var stance = defOpt.get().getAi().getTacticalStance();
-            if (stance != null && stance != TacticalStance.PASSIVE) {
-                return false;
-            }
+        var mod = StoryNpcs.getInstance();
+        // VULN-55: read effective stance from per-entity override first
+        TacticalStance stance = (mod != null)
+                ? state.getEffectiveTacticalStance(mod.getRegistry())
+                : (defOpt.get().getAi() != null ? defOpt.get().getAi().getTacticalStance() : null);
+        if (stance != null && stance != TacticalStance.PASSIVE) {
+            return false; // non-PASSIVE stance NPCs take normal damage
         }
-        return true;
+        return true; // PASSIVE stance is invulnerable to non-bypassing damage
+    }
+
+    @Override
+    public boolean canBeLeashed() {
+        // VULN-50: Prevent any player from leashing StoryNPCs — all leash requests are rejected
+        return false;
     }
 
     @Override

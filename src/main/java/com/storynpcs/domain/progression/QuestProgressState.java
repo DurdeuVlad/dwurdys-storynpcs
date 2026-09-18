@@ -43,6 +43,9 @@ public class QuestProgressState {
     }
 
     public void incrementCount(String objectiveId, int delta) {
-        objectiveCounts.put(objectiveId, getCount(objectiveId) + delta);
+        // VULN-56: clamp to [0, 100_000] to prevent integer overflow causing permanent quest softlock
+        long newCount = (long) getCount(objectiveId) + (long) delta;
+        int clamped = (int) Math.max(0L, Math.min(100_000L, newCount));
+        objectiveCounts.put(objectiveId, clamped);
     }
 }

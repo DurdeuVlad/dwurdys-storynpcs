@@ -99,10 +99,20 @@ public class DialogueGraphLayout {
             double y = 50 + (row * 130);
 
             VisualNode vNode = new VisualNode(domainNode.getId(), domainNode.getText(), x, y);
+            // VULN-44: preserve node sound
+            vNode.setSound(domainNode.getSound() != null ? domainNode.getSound() : "");
             layout.addNode(vNode);
 
             for (DialogueEdge domainEdge : domainNode.getOptions()) {
                 VisualEdge vEdge = new VisualEdge(domainNode.getId(), domainEdge.getTargetNodeId(), domainEdge.getText());
+                // VULN-44: preserve all edge semantic fields
+                vEdge.setOnceOnly(domainEdge.isOnceOnly());
+                vEdge.setConditions(domainEdge.getConditions() != null
+                        ? new java.util.ArrayList<>(domainEdge.getConditions())
+                        : new java.util.ArrayList<>());
+                vEdge.setActions(domainEdge.getActions() != null
+                        ? new java.util.ArrayList<>(domainEdge.getActions())
+                        : new java.util.ArrayList<>());
                 layout.addEdge(vEdge);
             }
         }
@@ -116,12 +126,23 @@ public class DialogueGraphLayout {
 
         for (VisualNode vNode : nodes.values()) {
             DialogueNode domainNode = new DialogueNode(vNode.getId(), vNode.getText());
+            // VULN-44: restore node sound
+            domainNode.setSound(vNode.getSound() != null ? vNode.getSound() : "");
             graph.addNode(domainNode);
         }
 
         for (VisualEdge vEdge : edges) {
             graph.getNode(vEdge.getSourceNodeId()).ifPresent(sourceNode -> {
-                sourceNode.addOption(new DialogueEdge(vEdge.getText(), vEdge.getTargetNodeId()));
+                DialogueEdge edge = new DialogueEdge(vEdge.getText(), vEdge.getTargetNodeId());
+                // VULN-44: restore all edge semantic fields
+                edge.setOnceOnly(vEdge.isOnceOnly());
+                edge.setConditions(vEdge.getConditions() != null
+                        ? new java.util.ArrayList<>(vEdge.getConditions())
+                        : new java.util.ArrayList<>());
+                edge.setActions(vEdge.getActions() != null
+                        ? new java.util.ArrayList<>(vEdge.getActions())
+                        : new java.util.ArrayList<>());
+                sourceNode.addOption(edge);
             });
         }
 
