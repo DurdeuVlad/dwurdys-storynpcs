@@ -21,9 +21,12 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
+import net.minecraft.commands.arguments.coordinates.Vec3Argument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 import java.nio.file.Path;
@@ -39,15 +42,23 @@ public final class StoryNpcsCommands {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         var root = Commands.literal("storynpcs")
-                .requires(source -> source.hasPermission(2))
-                .then(Commands.literal("reload").executes(StoryNpcsCommands::reload))
+                .then(Commands.literal("reload")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(StoryNpcsCommands::reload))
                 // NPC commands
                 .then(Commands.literal("npc")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listNpcs))
                         .then(Commands.literal("info")
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::infoNpc)))
+                        .then(Commands.literal("spawn")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .executes(ctx -> spawnNpc(ctx, null))
+                                        .then(Commands.argument("pos", Vec3Argument.vec3())
+                                                .executes(ctx -> spawnNpc(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
                         .then(Commands.literal("delete")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteNpc))))
                 // Dialogue commands
@@ -57,9 +68,11 @@ public final class StoryNpcsCommands {
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::infoDialogue)))
                         .then(Commands.literal("edit")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::editDialogue)))
                         .then(Commands.literal("start")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                         .executes(ctx -> startDialogue(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
@@ -68,11 +81,13 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("quest")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listQuests))
                         .then(Commands.literal("start")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("quest_id", ResourceLocationArgument.id())
                                         .executes(ctx -> startQuest(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> startQuest(ctx, EntityArgument.getPlayer(ctx, "player"))))))
                         .then(Commands.literal("complete")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("quest_id", ResourceLocationArgument.id())
                                         .executes(ctx -> completeQuest(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
@@ -81,18 +96,20 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("faction")
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listFactions))
                         .then(Commands.literal("set")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
                                         .then(Commands.argument("points", IntegerArgumentType.integer())
                                                 .executes(ctx -> setFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
                                                         .executes(ctx -> setFaction(ctx, EntityArgument.getPlayer(ctx, "player")))))))
                         .then(Commands.literal("adjust")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
                                         .then(Commands.argument("delta", IntegerArgumentType.integer())
                                                 .executes(ctx -> adjustFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
                                                         .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player"))))))))
-                // Follower commands
+                // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
                         .then(Commands.literal("formation")
                                 .then(Commands.argument("formation", StringArgumentType.word())
@@ -108,8 +125,8 @@ public final class StoryNpcsCommands {
                                         .executes(StoryNpcsCommands::setFollowerStateCmd))));
 
         dispatcher.register(root);
-        // Register alias /sn
-        dispatcher.register(Commands.literal("sn").requires(source -> source.hasPermission(2)).redirect(dispatcher.getRoot().getChild("storynpcs")));
+        // Register alias /sn (inherits subcommand permissions from root)
+        dispatcher.register(Commands.literal("sn").redirect(dispatcher.getRoot().getChild("storynpcs")));
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {
@@ -122,21 +139,25 @@ public final class StoryNpcsCommands {
             return 0;
         }
 
-        mod.getRegistry().clear();
         try {
             Path worldDir = source.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
             Path definitionsDir = worldDir.resolve("storynpcs").resolve("definitions");
-            var result = mod.getLoader().loadDirectory(definitionsDir);
+
+            // Atomic reload: Load into staging registry to ensure zero-data-loss on syntax/validation errors
+            DefinitionRegistry staging = new DefinitionRegistry();
+            com.storynpcs.yaml.YamlDefinitionLoader stagingLoader = new com.storynpcs.yaml.YamlDefinitionLoader(staging);
+            var result = stagingLoader.loadDirectory(definitionsDir);
 
             if (result.isValid()) {
+                mod.getRegistry().copyFrom(staging);
                 source.sendSuccess(() -> Component.literal("[StoryNPCs] Definitions reloaded successfully: " + result.formatReport()), true);
                 return 1;
             } else {
-                source.sendFailure(Component.literal("[StoryNPCs] Validation errors during reload:\n" + result.formatReport()));
+                source.sendFailure(Component.literal("[StoryNPCs] Validation errors during reload (previous definitions retained):\n" + result.formatReport()));
                 return 0;
             }
         } catch (Exception e) {
-            source.sendFailure(Component.literal("[StoryNPCs] Error during reload: " + e.getMessage()));
+            source.sendFailure(Component.literal("[StoryNPCs] Error during reload (previous definitions retained): " + e.getMessage()));
             return 0;
         }
     }
@@ -176,6 +197,44 @@ public final class StoryNpcsCommands {
                 npc.getAi().getMovementType(), npc.getAi().getWalkingRange(), npc.getAi().isDoorInteract())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Dialogue: %s | Faction: %s",
                 npc.getDialogueId(), npc.getFactionId())), false);
+        return 1;
+    }
+
+    private static int spawnNpc(CommandContext<CommandSourceStack> ctx, Vec3 pos) {
+        CommandSourceStack source = ctx.getSource();
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+
+        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        if (reg.getNpc(id).isEmpty()) {
+            source.sendFailure(Component.literal("[StoryNPCs] NPC definition not found: " + id));
+            return 0;
+        }
+
+        Vec3 spawnPos = pos;
+        if (spawnPos == null) {
+            if (source.getEntity() != null) {
+                spawnPos = source.getPosition();
+            } else {
+                source.sendFailure(Component.literal("[StoryNPCs] Position must be specified when executed from console"));
+                return 0;
+            }
+        }
+
+        ServerLevel level = source.getLevel();
+        com.storynpcs.entity.StoryNpcEntity entity = com.storynpcs.entity.StoryNpcRegistry.STORY_NPC.get().create(level);
+        if (entity == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Failed to create NPC entity"));
+            return 0;
+        }
+
+        entity.setPos(spawnPos.x, spawnPos.y, spawnPos.z);
+        entity.setDefinitionId(id.toString());
+        entity.setStartPosition(entity.blockPosition());
+        level.addFreshEntity(entity);
+
+        final Vec3 finalPos = spawnPos;
+        source.sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Spawned '%s' at (%.1f, %.1f, %.1f)",
+                id, finalPos.x, finalPos.y, finalPos.z)), true);
         return 1;
     }
 

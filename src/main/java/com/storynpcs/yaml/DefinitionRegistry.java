@@ -70,6 +70,17 @@ public class DefinitionRegistry {
         return Collections.unmodifiableCollection(quests.values());
     }
 
+    public void copyFrom(DefinitionRegistry other) {
+        npcs.clear();
+        npcs.putAll(other.npcs);
+        dialogues.clear();
+        dialogues.putAll(other.dialogues);
+        factions.clear();
+        factions.putAll(other.factions);
+        quests.clear();
+        quests.putAll(other.quests);
+    }
+
     public void clear() {
         npcs.clear();
         dialogues.clear();
