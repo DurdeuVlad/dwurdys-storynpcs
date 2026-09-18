@@ -3,6 +3,7 @@ package com.storynpcs.entity;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcStats;
+import com.storynpcs.domain.npc.TacticalStance;
 import com.storynpcs.service.DialogueView;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
@@ -13,6 +14,9 @@ import java.util.UUID;
 public class StoryNpcState {
 
     private String definitionId;
+
+    /** VULN-55: Per-entity tactical stance override — takes precedence over the shared NpcDefinition.ai.tacticalStance. */
+    private TacticalStance tacticalStanceOverride = null;
 
     public StoryNpcState() {
         this.definitionId = "";
@@ -28,6 +32,31 @@ public class StoryNpcState {
 
     public void setDefinitionId(String definitionId) {
         this.definitionId = definitionId != null ? definitionId : "";
+    }
+
+    /** Returns the per-entity stance override, or null if no override has been set. */
+    public TacticalStance getTacticalStanceOverride() {
+        return tacticalStanceOverride;
+    }
+
+    /** Sets a per-entity tactical stance override. Pass null to clear and fall back to the definition's stance. */
+    public void setTacticalStanceOverride(TacticalStance tacticalStanceOverride) {
+        this.tacticalStanceOverride = tacticalStanceOverride;
+    }
+
+    /**
+     * Returns the effective tactical stance for this entity.
+     * Prefers the per-entity override over the shared definition stance (VULN-55 fix).
+     */
+    public TacticalStance getEffectiveTacticalStance(DefinitionRegistry registry) {
+        if (tacticalStanceOverride != null) {
+            return tacticalStanceOverride;
+        }
+        return resolveDefinition(registry)
+                .map(com.storynpcs.domain.npc.NpcDefinition::getAi)
+                .filter(ai -> ai != null)
+                .map(ai -> ai.getTacticalStance())
+                .orElse(null);
     }
 
     public Optional<NpcDefinition> resolveDefinition(DefinitionRegistry registry) {

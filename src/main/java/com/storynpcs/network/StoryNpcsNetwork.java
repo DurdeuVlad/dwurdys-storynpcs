@@ -39,6 +39,15 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(com.storynpcs.client.StoryNpcsClient::closeDialogue);
                 }
         );
+
+        // VULN-49: register editor-open payload so /storynpcs dialogue edit actually opens the GUI
+        registrar.playToClient(
+                ClientboundDialogueEditorOpenPayload.TYPE,
+                ClientboundDialogueEditorOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openDialogueEditor(payload));
+                }
+        );
     }
 
     private static final java.util.Map<java.util.UUID, Long> LAST_CHOICE_MILLIS = new java.util.concurrent.ConcurrentHashMap<>();

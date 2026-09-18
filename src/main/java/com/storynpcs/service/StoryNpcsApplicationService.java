@@ -12,6 +12,7 @@ import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.domain.quest.QuestReward;
 import com.storynpcs.persistence.ProgressionRepository;
 import com.storynpcs.yaml.DefinitionRegistry;
+import com.storynpcs.yaml.YamlDefinitionLoader;
 
 import java.io.IOException;
 import java.util.*;
@@ -27,13 +28,29 @@ public class StoryNpcsApplicationService {
     private final ProgressionRepository progressionRepository;
     private final EventPublisher eventPublisher;
     private final Map<UUID, DialogueSession> activeSessions = new ConcurrentHashMap<>();
+    /** May be null in unit-test contexts — all code that uses this must null-check. */
+    private final net.minecraft.server.MinecraftServer minecraftServer;
+    /** May be null in unit-test contexts — needed for VULN-57 file deletion on deleteNpc. */
+    private YamlDefinitionLoader loader;
+
+    public void setLoader(YamlDefinitionLoader loader) {
+        this.loader = loader;
+    }
 
     public StoryNpcsApplicationService(DefinitionRegistry registry,
                                        ProgressionRepository progressionRepository,
                                        EventPublisher eventPublisher) {
+        this(registry, progressionRepository, eventPublisher, null);
+    }
+
+    public StoryNpcsApplicationService(DefinitionRegistry registry,
+                                       ProgressionRepository progressionRepository,
+                                       EventPublisher eventPublisher,
+                                       net.minecraft.server.MinecraftServer minecraftServer) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.progressionRepository = Objects.requireNonNull(progressionRepository, "progressionRepository");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.minecraftServer = minecraftServer; // nullable — degrades gracefully
     }
 
     // ==========================================
@@ -52,6 +69,13 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(id, "id");
         if (registry.getNpc(id).isPresent()) {
             registry.removeNpc(id);
+            // VULN-57: also delete the YAML file so the NPC doesn't resurrect on the next reload
+            if (loader != null) {
+                boolean fileDeleted = loader.deleteDefinitionFile("npc", id);
+                if (!fileDeleted) {
+                    System.err.println("[StoryNPCs] Warning: NPC '" + id + "' removed from registry but definition file could not be found on disk. It may resurrect on reload.");
+                }
+            }
             return true;
         }
         return false;
@@ -197,24 +221,35 @@ public class StoryNpcsApplicationService {
                     node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true);
         }
 
-        List<DialogueEdge> availableEdges = getAvailableEdges(node, progression);
+        // VULN-46: pass session so onceOnly options are filtered after first selection
+        List<DialogueEdge> availableEdges = getAvailableEdges(node, progression, session);
         List<String> optionTexts = availableEdges.stream().map(DialogueEdge::getText).toList();
 
         return new DialogueView(session.getDialogueId(), node.getId(), node.getText(), node.getSound(), optionTexts, false);
     }
 
-    private List<DialogueEdge> getAvailableEdges(DialogueNode node, PlayerProgression progression) {
+    private List<DialogueEdge> getAvailableEdges(DialogueNode node, PlayerProgression progression, DialogueSession session) {
         if (node.getOptions() == null) return List.of();
         List<DialogueEdge> result = new ArrayList<>();
         for (DialogueEdge edge : node.getOptions()) {
-            if (evalConditions(edge.getConditions(), progression)) {
+            // VULN-46: skip edges marked onceOnly that this session has already traversed
+            if (edge.isOnceOnly() && session != null
+                    && session.hasSelectedOption(node.getId() + "->" + edge.getTargetNodeId())) {
+                continue;
+            }
+            if (evalConditions(edge.getConditions(), progression, session)) {
                 result.add(edge);
             }
         }
         return result;
     }
 
-    private boolean evalConditions(List<DialogueCondition> conditions, PlayerProgression progression) {
+    /** Legacy two-arg overload used in chooseDialogueOption before session is known — always passes session. */
+    private List<DialogueEdge> getAvailableEdges(DialogueNode node, PlayerProgression progression) {
+        return getAvailableEdges(node, progression, null);
+    }
+
+    private boolean evalConditions(List<DialogueCondition> conditions, PlayerProgression progression, DialogueSession session) {
         if (conditions == null || conditions.isEmpty()) return true;
         for (DialogueCondition cond : conditions) {
             if (!evalCondition(cond, progression)) return false;
@@ -222,38 +257,104 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
+    private boolean evalConditions(List<DialogueCondition> conditions, PlayerProgression progression) {
+        return evalConditions(conditions, progression, null);
+    }
+
     private boolean evalCondition(DialogueCondition cond, PlayerProgression progression) {
         if (cond == null || cond.getType() == null) return true;
         try {
-            if (cond.getType() == DialogueCondition.Type.QUEST_STATUS) {
-                NamespacedId qid = NamespacedId.of(cond.getTarget());
-                QuestProgressState state = progression.getQuestState(qid);
-                return state.getStatus().name().equalsIgnoreCase(cond.getValue());
-            } else if (cond.getType() == DialogueCondition.Type.FACTION_STANDING) {
-                NamespacedId fid = NamespacedId.of(cond.getTarget());
-                Faction faction = registry.getFaction(fid).orElse(null);
-                if (faction == null) return false;
-                int pts = progression.getFactionScore(fid, faction.getDefaultPoints());
-                return faction.getStandingForPoints(pts).name().equalsIgnoreCase(cond.getValue());
-            } else if (cond.getType() == DialogueCondition.Type.FACTION_POINTS) {
-                NamespacedId fid = NamespacedId.of(cond.getTarget());
-                Faction faction = registry.getFaction(fid).orElse(null);
-                int defPts = faction != null ? faction.getDefaultPoints() : 1000;
-                int pts = progression.getFactionScore(fid, defPts);
-                int targetVal = Integer.parseInt(cond.getValue() != null ? cond.getValue().trim() : "0");
-                return switch (cond.getOperator()) {
-                    case ">=" -> pts >= targetVal;
-                    case "<=" -> pts <= targetVal;
-                    case ">" -> pts > targetVal;
-                    case "<" -> pts < targetVal;
-                    default -> pts == targetVal;
-                };
+            switch (cond.getType()) {
+                case QUEST_STATUS -> {
+                    NamespacedId qid = NamespacedId.of(cond.getTarget());
+                    QuestProgressState state = progression.getQuestState(qid);
+                    return state.getStatus().name().equalsIgnoreCase(cond.getValue());
+                }
+                case FACTION_STANDING -> {
+                    NamespacedId fid = NamespacedId.of(cond.getTarget());
+                    Faction faction = registry.getFaction(fid).orElse(null);
+                    if (faction == null) return false;
+                    int pts = progression.getFactionScore(fid, faction.getDefaultPoints());
+                    return faction.getStandingForPoints(pts).name().equalsIgnoreCase(cond.getValue());
+                }
+                case FACTION_POINTS -> {
+                    NamespacedId fid = NamespacedId.of(cond.getTarget());
+                    Faction faction = registry.getFaction(fid).orElse(null);
+                    int defPts = faction != null ? faction.getDefaultPoints() : 1000;
+                    int pts = progression.getFactionScore(fid, defPts);
+                    int targetVal = Integer.parseInt(cond.getValue() != null ? cond.getValue().trim() : "0");
+                    return switch (cond.getOperator()) {
+                        case ">=" -> pts >= targetVal;
+                        case "<=" -> pts <= targetVal;
+                        case ">" -> pts > targetVal;
+                        case "<" -> pts < targetVal;
+                        default -> pts == targetVal;
+                    };
+                }
+                case HAS_ITEM -> {
+                    // VULN-45: Check live player inventory for the required item and count
+                    if (minecraftServer == null) {
+                        System.err.println("[StoryNPCs] HAS_ITEM condition cannot be evaluated — server reference not available");
+                        return false; // fail closed
+                    }
+                    net.minecraft.server.level.ServerPlayer player = minecraftServer.getPlayerList()
+                            .getPlayer(progression.getPlayerUuid());
+                    if (player == null) return false; // player not online
+                    int required = 1;
+                    try { required = Math.max(1, Integer.parseInt(cond.getValue().trim())); } catch (Exception ignored) {}
+                    net.minecraft.resources.ResourceLocation itemRl = net.minecraft.resources.ResourceLocation.tryParse(cond.getTarget());
+                    if (itemRl == null) return false;
+                    var itemOpt = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl);
+                    if (itemOpt.isEmpty()) return false;
+                    final int req = required;
+                    final net.minecraft.world.item.Item targetItem = itemOpt.get();
+                    int count = player.getInventory().items.stream()
+                            .filter(s -> !s.isEmpty() && s.getItem() == targetItem)
+                            .mapToInt(net.minecraft.world.item.ItemStack::getCount)
+                            .sum();
+                    return count >= req;
+                }
+                case HAS_PERMISSION -> {
+                    // VULN-45: Check player permission level (op level 2+) or NeoForge permission node
+                    if (minecraftServer == null) {
+                        System.err.println("[StoryNPCs] HAS_PERMISSION condition cannot be evaluated — server reference not available");
+                        return false; // fail closed
+                    }
+                    net.minecraft.server.level.ServerPlayer player = minecraftServer.getPlayerList()
+                            .getPlayer(progression.getPlayerUuid());
+                    if (player == null) return false;
+                    String permTarget = cond.getTarget() != null ? cond.getTarget().trim() : "";
+                    if (permTarget.isEmpty()) return false;
+                    // Support numeric OP-level targets ("2", "4") and string permission nodes
+                    try {
+                        int level = Integer.parseInt(permTarget);
+                        return player.hasPermissions(level);
+                    } catch (NumberFormatException e) {
+                        // Treat as a NeoForge permission node name ("modid.node.path" dot-form).
+                        // Nodes must have been registered via PermissionGatherEvent.Nodes — querying an
+                        // unregistered node throws, so look it up in the registered set first.
+                        for (var node : net.neoforged.neoforge.server.permission.PermissionAPI.getRegisteredNodes()) {
+                            if (node.getNodeName().equals(permTarget)
+                                    && node.getType() == net.neoforged.neoforge.server.permission.nodes.PermissionTypes.BOOLEAN) {
+                                @SuppressWarnings("unchecked")
+                                var boolNode = (net.neoforged.neoforge.server.permission.nodes.PermissionNode<Boolean>) node;
+                                return Boolean.TRUE.equals(
+                                        net.neoforged.neoforge.server.permission.PermissionAPI.getPermission(player, boolNode));
+                            }
+                        }
+                        return false; // unregistered node — fail closed
+                    }
+                }
+                default -> {
+                    // VULN-45: unknown condition types default to false (fail closed) to prevent bypass
+                    System.err.println("[StoryNPCs] Unknown dialogue condition type: " + cond.getType() + " — defaulting to false");
+                    return false;
+                }
             }
         } catch (Exception e) {
             System.err.println("Error evaluating dialogue condition " + cond.getType() + ": " + e.getMessage());
             return false;
         }
-        return true;
     }
 
     private void executeAction(UUID playerUuid, DialogueAction action) {
@@ -292,8 +393,51 @@ public class StoryNpcsApplicationService {
                         System.err.println("Warning: Dialogue action ADJUST_FACTION references unknown faction: " + action.getTarget());
                     }
                 }
+                case GIVE_ITEM -> {
+                    // VULN-47: give item to player inventory; drop at feet if inventory full
+                    if (minecraftServer == null) {
+                        System.err.println("[StoryNPCs] GIVE_ITEM cannot execute — server reference not available");
+                        break;
+                    }
+                    net.minecraft.server.level.ServerPlayer player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+                    if (player == null) break;
+                    net.minecraft.resources.ResourceLocation itemRl = net.minecraft.resources.ResourceLocation.tryParse(
+                            action.getTarget() != null ? action.getTarget().trim() : "");
+                    if (itemRl == null) { System.err.println("[StoryNPCs] GIVE_ITEM: invalid item id: " + action.getTarget()); break; }
+                    var itemOpt = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl);
+                    if (itemOpt.isEmpty()) { System.err.println("[StoryNPCs] GIVE_ITEM: unknown item: " + itemRl); break; }
+                    int amount = 1;
+                    try { amount = Math.max(1, Integer.parseInt(action.getValue().trim())); } catch (Exception ignored) {}
+                    net.minecraft.world.item.ItemStack stack = new net.minecraft.world.item.ItemStack(itemOpt.get(), amount);
+                    if (!player.getInventory().add(stack)) {
+                        // Inventory full — drop at player's feet
+                        player.drop(stack, false);
+                    }
+                }
+                case EXECUTE_COMMAND -> {
+                    // VULN-47: execute server command; sanitize %player% to prevent injection
+                    if (minecraftServer == null) {
+                        System.err.println("[StoryNPCs] EXECUTE_COMMAND cannot execute — server reference not available");
+                        break;
+                    }
+                    net.minecraft.server.level.ServerPlayer player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+                    String cmd = action.getTarget() != null ? action.getTarget().trim() : "";
+                    if (cmd.isEmpty()) break;
+                    if (player != null) {
+                        // Sanitize player name — only [a-zA-Z0-9_]{2,16} allowed to prevent injection
+                        String safeName = player.getScoreboardName().replaceAll("[^a-zA-Z0-9_]", "");
+                        if (safeName.length() < 2 || safeName.length() > 16) safeName = "unknown";
+                        cmd = cmd.replace("%player%", safeName);
+                    }
+                    // Strip leading slash if present (runCommand expects no leading slash)
+                    if (cmd.startsWith("/")) cmd = cmd.substring(1);
+                    minecraftServer.getCommands().performPrefixedCommand(
+                            minecraftServer.createCommandSourceStack().withSuppressedOutput().withMaximumPermission(4),
+                            cmd
+                    );
+                }
                 case CLOSE_DIALOGUE -> closeDialogue(playerUuid);
-                default -> {}
+                default -> System.err.println("[StoryNPCs] Unhandled dialogue action type: " + action.getType());
             }
         } catch (Exception e) {
             System.err.println("Failed to execute dialogue action " + action.getType() + " for player " + playerUuid + ": " + e.getMessage());
@@ -414,15 +558,63 @@ public class StoryNpcsApplicationService {
         state.setStatus(QuestProgressState.Status.COMPLETED);
         saveProgression(playerUuid);
 
-        // Deliver rewards
+        // Deliver rewards — VULN-47: all reward types now implemented
         if (quest.getRewards() != null) {
             for (QuestReward reward : quest.getRewards()) {
                 try {
-                    if (reward.getType() == QuestReward.Type.FACTION_POINTS && reward.getTarget() != null) {
-                        adjustFactionPoints(playerUuid, NamespacedId.of(reward.getTarget()), reward.getAmount());
+                    switch (reward.getType()) {
+                        case FACTION_POINTS -> {
+                            if (reward.getTarget() != null) {
+                                adjustFactionPoints(playerUuid, NamespacedId.of(reward.getTarget()), reward.getAmount());
+                            }
+                        }
+                        case EXPERIENCE -> {
+                            if (minecraftServer != null) {
+                                var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+                                if (player != null) {
+                                    player.giveExperiencePoints(reward.getAmount());
+                                }
+                            }
+                        }
+                        case ITEM -> {
+                            if (minecraftServer != null && reward.getTarget() != null) {
+                                var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+                                if (player != null) {
+                                    var itemRl = net.minecraft.resources.ResourceLocation.tryParse(reward.getTarget().trim());
+                                    if (itemRl != null) {
+                                        var itemOpt = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl);
+                                        itemOpt.ifPresent(item -> {
+                                            net.minecraft.world.item.ItemStack stack = new net.minecraft.world.item.ItemStack(item, Math.max(1, reward.getAmount()));
+                                            if (!player.getInventory().add(stack)) {
+                                                player.drop(stack, false);
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        case COMMAND -> {
+                            if (minecraftServer != null && reward.getTarget() != null) {
+                                var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+                                String cmd = reward.getTarget().trim();
+                                if (!cmd.isEmpty()) {
+                                    if (player != null) {
+                                        String safeName = player.getScoreboardName().replaceAll("[^a-zA-Z0-9_]", "");
+                                        if (safeName.length() < 2 || safeName.length() > 16) safeName = "unknown";
+                                        cmd = cmd.replace("%player%", safeName);
+                                    }
+                                    if (cmd.startsWith("/")) cmd = cmd.substring(1);
+                                    minecraftServer.getCommands().performPrefixedCommand(
+                                            minecraftServer.createCommandSourceStack().withSuppressedOutput().withMaximumPermission(4),
+                                            cmd
+                                    );
+                                }
+                            }
+                        }
+                        default -> System.err.println("[StoryNPCs] Unhandled quest reward type: " + reward.getType());
                     }
                 } catch (Exception e) {
-                    System.err.println("Failed to deliver quest reward for quest " + questId + " to player " + playerUuid + ": " + e.getMessage());
+                    System.err.println("Failed to deliver quest reward " + reward.getType() + " for quest " + questId + " to player " + playerUuid + ": " + e.getMessage());
                 }
             }
         }
@@ -447,6 +639,48 @@ public class StoryNpcsApplicationService {
             return false;
         }
 
+        // VULN-48: Verify player has the required price item; deduct it before giving offer item
+        if (minecraftServer != null && trade.getPriceItemId() != null && !trade.getPriceItemId().isBlank()) {
+            var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+            if (player == null) return false;
+            var priceRl = net.minecraft.resources.ResourceLocation.tryParse(trade.getPriceItemId().trim());
+            if (priceRl == null) return false;
+            var priceItemOpt = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(priceRl);
+            if (priceItemOpt.isEmpty()) return false;
+            int required = Math.max(1, trade.getPriceCount());
+            var priceItem = priceItemOpt.get();
+            int held = player.getInventory().items.stream()
+                    .filter(s -> !s.isEmpty() && s.getItem() == priceItem)
+                    .mapToInt(net.minecraft.world.item.ItemStack::getCount)
+                    .sum();
+            if (held < required) {
+                return false; // insufficient items — abort without recording
+            }
+            // Deduct price
+            int toRemove = required;
+            for (net.minecraft.world.item.ItemStack slot : player.getInventory().items) {
+                if (!slot.isEmpty() && slot.getItem() == priceItem && toRemove > 0) {
+                    int take = Math.min(slot.getCount(), toRemove);
+                    slot.shrink(take);
+                    toRemove -= take;
+                }
+            }
+            // Give offer item
+            if (trade.getOfferItemId() != null && !trade.getOfferItemId().isBlank()) {
+                var offerRl = net.minecraft.resources.ResourceLocation.tryParse(trade.getOfferItemId().trim());
+                if (offerRl != null) {
+                    var offerOpt = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(offerRl);
+                    offerOpt.ifPresent(offerItem -> {
+                        net.minecraft.world.item.ItemStack offerStack = new net.minecraft.world.item.ItemStack(offerItem, Math.max(1, trade.getOfferCount()));
+                        if (!player.getInventory().add(offerStack)) {
+                            player.drop(offerStack, false);
+                        }
+                    });
+                }
+            }
+        }
+
+        // VULN-48: recordTrade is synchronized inside TradeListing to prevent race conditions
         boolean recorded = trade.recordTrade();
         if (recorded) {
             eventPublisher.publish(new com.storynpcs.api.event.TradeExecutedEvent(playerUuid, npcId, trade));
@@ -487,9 +721,18 @@ public class StoryNpcsApplicationService {
     }
 
     public boolean depositToBank(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count) {
+        // VULN-54: delegate to tagged overload with null tag — callers that have tag data should use the overload below
+        return depositToBank(playerUuid, bankRepo, tab, slot, itemId, count, null);
+    }
+
+    /**
+     * Deposit an item into the player's bank vault preserving its NBT/DataComponent tag.
+     * VULN-54: This overload must be used by GUI and command code that has access to the full ItemStack tag.
+     */
+    public boolean depositToBank(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count, String tag) {
         if (bankRepo == null) return false;
         var vault = bankRepo.getOrCreate(playerUuid);
-        boolean success = vault.deposit(tab, slot, itemId, count);
+        boolean success = vault.deposit(tab, slot, itemId, count, tag);
         if (success) {
             try {
                 bankRepo.save(playerUuid);

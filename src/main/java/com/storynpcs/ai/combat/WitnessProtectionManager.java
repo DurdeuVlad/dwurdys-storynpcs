@@ -124,9 +124,8 @@ public class WitnessProtectionManager {
 
                 @Override
                 public void onChangeStance(TacticalStance newStance) {
-                    if (def.getAi() != null) {
-                        def.getAi().setTacticalStance(newStance);
-                    }
+                    // VULN-55: store per-entity stance override on the entity's state — NOT on the shared NpcDefinition singleton
+                    npc.getState().setTacticalStanceOverride(newStance);
                 }
 
                 @Override

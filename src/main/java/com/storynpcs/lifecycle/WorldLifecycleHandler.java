@@ -22,21 +22,53 @@ public class WorldLifecycleHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(WorldLifecycleHandler.class);
 
     private final StoryNpcs mod;
+    private MinecraftServer currentServer;
 
     public WorldLifecycleHandler(StoryNpcs mod) {
         this.mod = mod;
     }
 
+    public MinecraftServer getCurrentServer() {
+        return currentServer;
+    }
+
     public void onServerStarted(ServerStartedEvent event) {
+        this.currentServer = event.getServer();
         initializeServer(event.getServer());
+    }
+
+    public void onLevelSave(net.neoforged.neoforge.event.level.LevelEvent.Save event) {
+        // VULN-53: Save all online player data on every world auto-save, not just server shutdown
+        if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                && serverLevel.dimension().equals(net.minecraft.world.level.Level.OVERWORLD)) {
+            if (mod.getProgressionRepository() != null) {
+                try {
+                    mod.getProgressionRepository().saveAll();
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to save player progressions on world save: {}", e.getMessage());
+                }
+            }
+            if (mod.getBankRepository() != null) {
+                try {
+                    mod.getBankRepository().saveAll();
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to save bank vaults on world save: {}", e.getMessage());
+                }
+            }
+        }
     }
 
     public void initializeServer(MinecraftServer server) {
         Path worldDir = server.getWorldPath(LevelResource.ROOT);
-        initializeWorld(worldDir);
+        initializeWorld(worldDir, server);
     }
 
+    /** Legacy overload kept for unit tests that call initializeWorld directly without a server instance. */
     public void initializeWorld(Path worldDir) {
+        initializeWorld(worldDir, null);
+    }
+
+    public void initializeWorld(Path worldDir, MinecraftServer server) {
         Path storyNpcsDir = worldDir.resolve("storynpcs");
         Path progressionDir = storyNpcsDir.resolve("progression");
         Path bankDir = storyNpcsDir.resolve("bank");
@@ -65,8 +97,11 @@ public class WorldLifecycleHandler {
         StoryNpcsApplicationService appService = new StoryNpcsApplicationService(
                 mod.getRegistry(),
                 progressionRepo,
-                mod.getEventPublisher()
+                mod.getEventPublisher(),
+                server  // may be null in unit tests — service degrades gracefully
         );
+        // VULN-57: give the service a loader reference so deleteNpc can delete YAML files on disk
+        appService.setLoader(mod.getLoader());
         mod.setApplicationService(appService);
 
         // Load definitions
