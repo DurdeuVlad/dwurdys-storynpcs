@@ -67,7 +67,7 @@ public class NpcFollowFormationGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        if (leader == null || !leader.isAlive() || leader.isSpectator()) {
+        if (leader == null || leader.isRemoved() || leader.level() != npc.level() || !leader.isAlive() || leader.isSpectator()) {
             return false;
         }
 
@@ -200,6 +200,9 @@ public class NpcFollowFormationGoal extends Goal {
     }
 
     private boolean isSafeTeleportTarget(Level level, BlockPos pos) {
+        if (!level.hasChunkAt(pos)) {
+            return false;
+        }
         BlockPos below = pos.below();
         BlockState stateBelow = level.getBlockState(below);
         BlockState stateAt = level.getBlockState(pos);

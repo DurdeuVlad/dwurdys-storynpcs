@@ -34,10 +34,19 @@ public class YamlDefinitionLoader {
         return registry;
     }
 
+    private boolean isEmptyOrCommentOnly(String yamlContent) {
+        if (yamlContent == null || yamlContent.isBlank()) return true;
+        return yamlContent.lines().allMatch(l -> l.trim().isEmpty() || l.trim().startsWith("#"));
+    }
+
     public NpcDefinition loadNpc(String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
         try {
             NpcDefinition npc = mapper.readValue(yamlContent, NpcDefinition.class);
-            if (npc.getId() == null) {
+            if (npc == null || npc.getId() == null) {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "NPC definition must declare an 'id'");
                 return null;
             }
@@ -57,9 +66,13 @@ public class YamlDefinitionLoader {
     }
 
     public DialogueGraph loadDialogue(String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
         try {
             DialogueGraph dialogue = mapper.readValue(yamlContent, DialogueGraph.class);
-            if (dialogue.getId() == null) {
+            if (dialogue == null || dialogue.getId() == null) {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "Dialogue definition must declare an 'id'");
                 return null;
             }
@@ -79,9 +92,13 @@ public class YamlDefinitionLoader {
     }
 
     public Faction loadFaction(String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
         try {
             Faction faction = mapper.readValue(yamlContent, Faction.class);
-            if (faction.getId() == null) {
+            if (faction == null || faction.getId() == null) {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "Faction definition must declare an 'id'");
                 return null;
             }
@@ -101,9 +118,13 @@ public class YamlDefinitionLoader {
     }
 
     public Quest loadQuest(String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
         try {
             Quest quest = mapper.readValue(yamlContent, Quest.class);
-            if (quest.getId() == null) {
+            if (quest == null || quest.getId() == null) {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "Quest definition must declare an 'id'");
                 return null;
             }

@@ -39,6 +39,7 @@ public class WorldLifecycleHandler {
     public void initializeWorld(Path worldDir) {
         Path storyNpcsDir = worldDir.resolve("storynpcs");
         Path progressionDir = storyNpcsDir.resolve("progression");
+        Path bankDir = storyNpcsDir.resolve("bank");
         Path definitionsDir = storyNpcsDir.resolve("definitions");
 
         try {
@@ -48,12 +49,18 @@ public class WorldLifecycleHandler {
             if (!Files.exists(progressionDir)) {
                 Files.createDirectories(progressionDir);
             }
+            if (!Files.exists(bankDir)) {
+                Files.createDirectories(bankDir);
+            }
         } catch (Exception e) {
             LOGGER.error("Failed to create StoryNPCs directories: {}", e.getMessage(), e);
         }
 
         ProgressionRepository progressionRepo = new ProgressionRepository(progressionDir);
         mod.setProgressionRepository(progressionRepo);
+
+        com.storynpcs.persistence.BankRepository bankRepo = new com.storynpcs.persistence.BankRepository(bankDir);
+        mod.setBankRepository(bankRepo);
 
         StoryNpcsApplicationService appService = new StoryNpcsApplicationService(
                 mod.getRegistry(),
@@ -88,6 +95,15 @@ public class WorldLifecycleHandler {
                 LOGGER.error("Failed to save player progressions on server stop: {}", e.getMessage(), e);
             }
         }
+        if (mod.getBankRepository() != null) {
+            try {
+                mod.getBankRepository().saveAll();
+                LOGGER.info("All StoryNPCs bank vaults saved successfully.");
+            } catch (Exception e) {
+                LOGGER.error("Failed to save bank vaults on server stop: {}", e.getMessage(), e);
+            }
+        }
+        com.storynpcs.domain.role.follower.FollowerGroup.clearAll();
     }
 
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
@@ -97,9 +113,14 @@ public class WorldLifecycleHandler {
     }
 
     public void handlePlayerLogin(UUID uuid) {
-        if (uuid == null || mod.getProgressionRepository() == null) return;
-        mod.getProgressionRepository().getOrCreate(uuid);
-        LOGGER.debug("Loaded progression for player {}", uuid);
+        if (uuid == null) return;
+        if (mod.getProgressionRepository() != null) {
+            mod.getProgressionRepository().getOrCreate(uuid);
+        }
+        if (mod.getBankRepository() != null) {
+            mod.getBankRepository().getOrCreate(uuid);
+        }
+        LOGGER.debug("Loaded progression and bank for player {}", uuid);
     }
 
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
@@ -109,12 +130,31 @@ public class WorldLifecycleHandler {
     }
 
     public void handlePlayerLogout(UUID uuid) {
-        if (uuid == null || mod.getProgressionRepository() == null) return;
-        try {
-            mod.getProgressionRepository().save(uuid);
-            LOGGER.debug("Saved progression for player {} on logout", uuid);
-        } catch (Exception e) {
-            LOGGER.error("Failed to save progression on logout for {}: {}", uuid, e.getMessage());
+        if (uuid == null) return;
+
+        if (mod.getApplicationService() != null) {
+            mod.getApplicationService().closeDialogue(uuid);
+        }
+        com.storynpcs.network.StoryNpcsNetwork.clearPlayer(uuid);
+        com.storynpcs.domain.role.follower.FollowerGroup.clearLeader(uuid);
+
+        if (mod.getProgressionRepository() != null) {
+            try {
+                mod.getProgressionRepository().save(uuid);
+                mod.getProgressionRepository().unload(uuid);
+                LOGGER.debug("Saved and unloaded progression for player {} on logout", uuid);
+            } catch (Exception e) {
+                LOGGER.error("Failed to save progression on logout for {}: {}", uuid, e.getMessage());
+            }
+        }
+        if (mod.getBankRepository() != null) {
+            try {
+                mod.getBankRepository().save(uuid);
+                mod.getBankRepository().unload(uuid);
+                LOGGER.debug("Saved and unloaded bank vault for player {} on logout", uuid);
+            } catch (Exception e) {
+                LOGGER.error("Failed to save bank vault on logout for {}: {}", uuid, e.getMessage());
+            }
         }
     }
 }

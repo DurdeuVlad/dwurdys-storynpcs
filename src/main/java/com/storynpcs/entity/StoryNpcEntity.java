@@ -6,11 +6,14 @@ import com.storynpcs.ai.NpcPatrolGoal;
 import com.storynpcs.ai.NpcReturnToStartGoal;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
+import com.storynpcs.domain.npc.TacticalStance;
 import com.storynpcs.domain.role.follower.FollowerGroup;
 import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -71,8 +74,28 @@ public class StoryNpcEntity extends PathfinderMob {
         this.goalSelector.addGoal(3, new NpcPatrolGoal(this, 1.0D));
         this.goalSelector.addGoal(4, new NpcReturnToStartGoal(this, 1.0D));
         this.goalSelector.addGoal(5, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.6D));
+        this.goalSelector.addGoal(6, new NpcWanderingStrollGoal(this, 0.6D));
         this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
+    }
+
+    private static class NpcWanderingStrollGoal extends WaterAvoidingRandomStrollGoal {
+        private final StoryNpcEntity npc;
+
+        public NpcWanderingStrollGoal(StoryNpcEntity mob, double speedModifier) {
+            super(mob, speedModifier);
+            this.npc = mob;
+        }
+
+        @Override
+        public boolean canUse() {
+            var defOpt = npc.getDefinition();
+            if (defOpt.isEmpty()) return false;
+            var ai = defOpt.get().getAi();
+            if (ai == null || ai.getMovementType() != com.storynpcs.domain.npc.NpcAi.MovementType.WANDERING) {
+                return false;
+            }
+            return super.canUse();
+        }
     }
 
     public com.storynpcs.ai.combat.ThreatManager getThreatManager() {
@@ -172,6 +195,11 @@ public class StoryNpcEntity extends PathfinderMob {
             return InteractionResult.SUCCESS;
         }
 
+        // Prevent interacting while dead, spectating, or through solid obstacles without line of sight (VULN-12)
+        if (!player.isAlive() || player.isSpectator() || !this.hasLineOfSight(player)) {
+            return InteractionResult.FAIL;
+        }
+
         if (player instanceof ServerPlayer serverPlayer) {
             var mod = StoryNpcs.getInstance();
 
@@ -206,15 +234,71 @@ public class StoryNpcEntity extends PathfinderMob {
             }
 
             if (mod != null) {
-                var viewOpt = state.interact(serverPlayer.getUUID(), mod.getApplicationService(), mod.getRegistry());
+                var viewOpt = state.interact(serverPlayer.getUUID(), mod.getApplicationService(), mod.getRegistry(),
+                        this.getUUID(), this.level().dimension().location().toString(), this.getX(), this.getY(), this.getZ());
                 if (viewOpt.isPresent()) {
                     StoryNpcsNetwork.sendOpenDialogue(serverPlayer, viewOpt.get());
+                    return InteractionResult.SUCCESS;
+                } else if (!serverPlayer.isShiftKeyDown()) {
+                    if (serverPlayer.hasPermissions(2)) {
+                        serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs] NPC '" + this.getName().getString() + "' (" + getDefinitionId() + ") has no dialogue configured or loaded."));
+                    } else {
+                        serverPlayer.sendSystemMessage(Component.literal("§7[" + this.getName().getString() + "] §f*Has nothing to say.*"), true);
+                    }
                     return InteractionResult.SUCCESS;
                 }
             }
         }
 
         return super.mobInteract(player, hand);
+    }
+
+    @Override
+    public boolean isInvulnerableTo(DamageSource source) {
+        if (super.isInvulnerableTo(source)) {
+            return true;
+        }
+        if (source.getEntity() instanceof Player player && player.isCreative()) {
+            return false;
+        }
+        var defOpt = getDefinition();
+        // Unloaded / missing definition must NOT default to invulnerable ghost entity (VULN-15)
+        if (defOpt.isEmpty()) {
+            return false;
+        }
+        if (defOpt.get().getAi() != null) {
+            var stance = defOpt.get().getAi().getTacticalStance();
+            if (stance != null && stance != TacticalStance.PASSIVE) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        if (isInvulnerableTo(source)) {
+            return false;
+        }
+        if (!this.level().isClientSide && source.getEntity() instanceof LivingEntity attacker) {
+            // Prevent self-targeting loop (VULN-19)
+            if (attacker != this && !attacker.getUUID().equals(this.getUUID())) {
+                boolean sameFaction = false;
+                var mod = StoryNpcs.getInstance();
+                if (attacker instanceof StoryNpcEntity otherNpc && mod != null) {
+                    var myFaction = this.getState().getFactionId(mod.getRegistry());
+                    var otherFaction = otherNpc.getState().getFactionId(mod.getRegistry());
+                    if (myFaction.isPresent() && otherFaction.isPresent() && myFaction.get().equals(otherFaction.get())) {
+                        sameFaction = true; // Friendly fire between same faction NPCs
+                    }
+                }
+                // Only evaluate non-player hits here; player hits are evaluated with tolerance by WitnessProtectionManager (VULN-17)
+                if (!sameFaction && !(attacker instanceof ServerPlayer)) {
+                    this.threatManager.evaluateHit(attacker.getUUID(), this.level().getGameTime(), 0, 60);
+                }
+            }
+        }
+        return super.hurt(source, amount);
     }
 
     @Override

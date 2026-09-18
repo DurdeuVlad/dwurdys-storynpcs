@@ -16,12 +16,27 @@ public class DialogueSession {
     private final Set<String> selectedOptionKeys = new HashSet<>();
     private boolean active = true;
 
+    private final UUID npcEntityUuid;
+    private final String dimensionId;
+    private final double originX;
+    private final double originY;
+    private final double originZ;
+
     public DialogueSession(UUID playerUuid, DialogueGraph graph) {
+        this(playerUuid, graph, null, null, 0.0, 0.0, 0.0);
+    }
+
+    public DialogueSession(UUID playerUuid, DialogueGraph graph, UUID npcEntityUuid, String dimensionId, double originX, double originY, double originZ) {
         this.playerUuid = Objects.requireNonNull(playerUuid, "playerUuid");
         this.graph = Objects.requireNonNull(graph, "graph");
         this.dialogueId = graph.getId();
         this.currentNodeId = graph.getEntryNodeId();
         this.visitedNodes.add(currentNodeId);
+        this.npcEntityUuid = npcEntityUuid;
+        this.dimensionId = dimensionId;
+        this.originX = originX;
+        this.originY = originY;
+        this.originZ = originZ;
     }
 
     public UUID getPlayerUuid() { return playerUuid; }
@@ -29,6 +44,12 @@ public class DialogueSession {
     public DialogueGraph getGraph() { return graph; }
     public String getCurrentNodeId() { return currentNodeId; }
     public boolean isActive() { return active; }
+    public UUID getNpcEntityUuid() { return npcEntityUuid; }
+    public String getDimensionId() { return dimensionId; }
+    public double getOriginX() { return originX; }
+    public double getOriginY() { return originY; }
+    public double getOriginZ() { return originZ; }
+    public boolean hasLocation() { return dimensionId != null; }
 
     public DialogueNode getCurrentNode() {
         return graph.getNode(currentNodeId).orElse(null);

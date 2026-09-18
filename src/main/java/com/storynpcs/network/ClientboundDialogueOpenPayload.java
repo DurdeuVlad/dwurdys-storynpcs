@@ -17,6 +17,13 @@ public record ClientboundDialogueOpenPayload(
         List<String> options,
         boolean isTerminal
 ) implements CustomPacketPayload {
+    public ClientboundDialogueOpenPayload {
+        dialogueId = dialogueId != null ? dialogueId : "";
+        nodeId = nodeId != null ? nodeId : "";
+        text = text != null ? text : "";
+        sound = sound != null ? sound : "";
+        options = options != null ? options.stream().map(s -> s != null ? s : "").toList() : List.of();
+    }
     public static final Type<ClientboundDialogueOpenPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(StoryNpcs.MOD_ID, "dialogue_open"));
 

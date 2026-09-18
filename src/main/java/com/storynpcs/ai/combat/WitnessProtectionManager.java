@@ -14,6 +14,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 
 import java.util.List;
 
@@ -97,13 +98,14 @@ public class WitnessProtectionManager {
 
                 @Override
                 public void onShoutAlert(double radius, String message) {
+                    double safeRadius = Math.max(1.0, Math.min(64.0, radius));
                     npc.level().getEntitiesOfClass(
                             StoryNpcEntity.class,
-                            npc.getBoundingBox().inflate(radius),
+                            npc.getBoundingBox().inflate(safeRadius),
                             other -> other != npc
                     ).forEach(other -> other.getThreatManager().addThreat(attacker.getUUID(), 100));
                     npc.level().players().forEach(p -> {
-                        if (p.distanceToSqr(npc) <= radius * radius) {
+                        if (p.distanceToSqr(npc) <= safeRadius * safeRadius) {
                             p.sendSystemMessage(Component.literal("§e[" + npcName + "]§c " + message));
                         }
                     });
@@ -239,5 +241,17 @@ public class WitnessProtectionManager {
                 }
             }
         }
+    }
+
+    @SubscribeEvent
+    public static void onLivingDeath(LivingDeathEvent event) {
+        LivingEntity deceased = event.getEntity();
+        if (deceased == null || deceased.level().isClientSide) return;
+        java.util.UUID deadUuid = deceased.getUUID();
+        // Clear threat across all nearby StoryNPCs within 64 blocks
+        deceased.level().getEntitiesOfClass(
+                StoryNpcEntity.class,
+                deceased.getBoundingBox().inflate(64.0)
+        ).forEach(npc -> npc.getThreatManager().forgive(deadUuid));
     }
 }

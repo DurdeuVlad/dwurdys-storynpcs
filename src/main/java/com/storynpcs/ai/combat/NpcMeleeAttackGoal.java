@@ -29,26 +29,53 @@ public class NpcMeleeAttackGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (!npc.isAlive()) return false;
+        if (!npc.isAlive() || npc.isRemoved()) return false;
 
         Optional<UUID> targetUuidOpt = npc.getThreatManager().getCurrentTarget();
         if (targetUuidOpt.isEmpty()) return false;
 
         UUID targetUuid = targetUuidOpt.get();
-        Player player = npc.level().getPlayerByUUID(targetUuid);
-        if (player != null && player.isAlive() && !player.isCreative() && !player.isSpectator()) {
-            this.target = player;
-            return true;
+
+        // Support players AND living entities (e.g. hostile mobs attacking the town) (VULN-19)
+        LivingEntity candidate = null;
+        if (npc.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            net.minecraft.world.entity.Entity entity = serverLevel.getEntity(targetUuid);
+            if (entity instanceof LivingEntity living) {
+                candidate = living;
+            }
+        } else {
+            candidate = npc.level().getPlayerByUUID(targetUuid);
         }
 
-        // Could be another living entity
+        if (candidate != null && candidate.isAlive() && !candidate.isRemoved()) {
+            if (candidate instanceof Player p && (p.isCreative() || p.isSpectator())) {
+                npc.getThreatManager().forgive(targetUuid);
+                return false;
+            }
+            // Enforce maximum leash range (32 blocks) to prevent cross-world chasing / spawn camping (VULN-18)
+            if (npc.distanceToSqr(candidate) <= 32.0 * 32.0) {
+                this.target = candidate;
+                return true;
+            } else {
+                npc.getThreatManager().forgive(targetUuid);
+            }
+        } else {
+            // Target is dead or offline; clear from threat table to prevent AI lock (VULN-18)
+            npc.getThreatManager().forgive(targetUuid);
+        }
+
         return false;
     }
 
     @Override
     public boolean canContinueToUse() {
-        if (target == null || !target.isAlive()) return false;
+        if (target == null || !target.isAlive() || target.isRemoved()) return false;
         if (target instanceof Player p && (p.isCreative() || p.isSpectator())) return false;
+        // Combat leash: drop aggro if target escapes beyond 32 blocks (VULN-18)
+        if (npc.distanceToSqr(target) > 32.0 * 32.0) {
+            npc.getThreatManager().forgive(target.getUUID());
+            return false;
+        }
         return npc.getThreatManager().getCurrentTarget().map(u -> u.equals(target.getUUID())).orElse(false);
     }
 

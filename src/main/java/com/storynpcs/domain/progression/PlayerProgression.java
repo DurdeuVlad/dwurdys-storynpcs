@@ -49,12 +49,15 @@ public class PlayerProgression {
     }
 
     public void setFactionScore(NamespacedId factionId, int points) {
-        factionPoints.put(factionId, points);
+        int clamped = Math.max(-100_000, Math.min(100_000, points));
+        factionPoints.put(factionId, clamped);
     }
 
     public void adjustFactionScore(NamespacedId factionId, int delta, int defaultPoints) {
         int current = getFactionScore(factionId, defaultPoints);
-        factionPoints.put(factionId, current + delta);
+        long sum = (long) current + (long) delta;
+        int clamped = (int) Math.max(-100_000, Math.min(100_000, sum));
+        factionPoints.put(factionId, clamped);
     }
 
     public void recordDialogueNodeVisit(String nodeId) {

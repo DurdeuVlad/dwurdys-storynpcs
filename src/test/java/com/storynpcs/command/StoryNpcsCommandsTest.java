@@ -26,12 +26,15 @@ class StoryNpcsCommandsTest {
 
         // Subcommands under /storynpcs
         assertNotNull(storynpcs.getChild("reload"), "Subcommand 'reload' must exist");
+        assertNotNull(storynpcs.getChild("help"), "Subcommand 'help' must exist");
 
         // NPC subcommands
         CommandNode<CommandSourceStack> npc = storynpcs.getChild("npc");
         assertNotNull(npc, "Subcommand 'npc' must exist");
         assertNotNull(npc.getChild("list"), "npc list must exist");
         assertNotNull(npc.getChild("info"), "npc info must exist");
+        assertNotNull(npc.getChild("spawn"), "npc spawn must exist");
+        assertNotNull(npc.getChild("despawn"), "npc despawn must exist");
         assertNotNull(npc.getChild("delete"), "npc delete must exist");
 
         // Dialogue subcommands
@@ -55,5 +58,12 @@ class StoryNpcsCommandsTest {
         assertNotNull(faction.getChild("list"), "faction list must exist");
         assertNotNull(faction.getChild("set"), "faction set must exist");
         assertNotNull(faction.getChild("adjust"), "faction adjust must exist");
+
+        // Follower subcommands
+        CommandNode<CommandSourceStack> follower = storynpcs.getChild("follower");
+        assertNotNull(follower, "Subcommand 'follower' must exist");
+        assertNotNull(follower.getChild("recall"), "follower recall must exist");
+        assertNotNull(follower.getChild("formation"), "follower formation must exist");
+        assertNotNull(follower.getChild("state"), "follower state must exist");
     }
 }

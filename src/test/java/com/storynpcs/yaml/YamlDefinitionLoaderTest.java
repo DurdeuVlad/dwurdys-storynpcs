@@ -178,4 +178,19 @@ class YamlDefinitionLoaderTest {
         assertThat(error.code()).isEqualTo("YAML_PARSE_ERROR");
         assertThat(error.line()).isGreaterThan(0);
     }
+
+    @Test
+    void shouldReportDiagnosticsWhenYamlEmptyOrCommentOnly() {
+        String emptyYaml = "# Only comments in this file\n# Another comment\n";
+        ValidationResult result = ValidationResult.valid();
+
+        loader.loadNpc(emptyYaml, "empty_npc.yaml", result);
+        loader.loadDialogue(emptyYaml, "empty_dialogue.yaml", result);
+        loader.loadFaction(emptyYaml, "empty_faction.yaml", result);
+        loader.loadQuest(emptyYaml, "empty_quest.yaml", result);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).hasSize(4);
+        assertThat(result.getErrors()).allMatch(e -> e.code().equals("SCHEMA_EMPTY_FILE"));
+    }
 }

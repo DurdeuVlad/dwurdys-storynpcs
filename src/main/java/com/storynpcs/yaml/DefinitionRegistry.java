@@ -8,83 +8,162 @@ import com.storynpcs.domain.quest.Quest;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Thread-safe central registry for all loaded story definitions.
  */
 public class DefinitionRegistry {
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Map<NamespacedId, NpcDefinition> npcs = new ConcurrentHashMap<>();
     private final Map<NamespacedId, DialogueGraph> dialogues = new ConcurrentHashMap<>();
     private final Map<NamespacedId, Faction> factions = new ConcurrentHashMap<>();
     private final Map<NamespacedId, Quest> quests = new ConcurrentHashMap<>();
 
     public void registerNpc(NpcDefinition npc) {
-        npcs.put(npc.getId(), npc);
+        rwLock.writeLock().lock();
+        try {
+            npcs.put(npc.getId(), npc);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     public Optional<NpcDefinition> getNpc(NamespacedId id) {
-        return Optional.ofNullable(npcs.get(id));
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(npcs.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public Collection<NpcDefinition> getAllNpcs() {
-        return Collections.unmodifiableCollection(npcs.values());
+        rwLock.readLock().lock();
+        try {
+            return List.copyOf(npcs.values());
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public void removeNpc(NamespacedId id) {
-        npcs.remove(id);
+        rwLock.writeLock().lock();
+        try {
+            npcs.remove(id);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     public void registerDialogue(DialogueGraph dialogue) {
-        dialogues.put(dialogue.getId(), dialogue);
+        rwLock.writeLock().lock();
+        try {
+            dialogues.put(dialogue.getId(), dialogue);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     public Optional<DialogueGraph> getDialogue(NamespacedId id) {
-        return Optional.ofNullable(dialogues.get(id));
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(dialogues.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public Collection<DialogueGraph> getAllDialogues() {
-        return Collections.unmodifiableCollection(dialogues.values());
+        rwLock.readLock().lock();
+        try {
+            return List.copyOf(dialogues.values());
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public void registerFaction(Faction faction) {
-        factions.put(faction.getId(), faction);
+        rwLock.writeLock().lock();
+        try {
+            factions.put(faction.getId(), faction);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     public Optional<Faction> getFaction(NamespacedId id) {
-        return Optional.ofNullable(factions.get(id));
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(factions.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public Collection<Faction> getAllFactions() {
-        return Collections.unmodifiableCollection(factions.values());
+        rwLock.readLock().lock();
+        try {
+            return List.copyOf(factions.values());
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public void registerQuest(Quest quest) {
-        quests.put(quest.getId(), quest);
+        rwLock.writeLock().lock();
+        try {
+            quests.put(quest.getId(), quest);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     public Optional<Quest> getQuest(NamespacedId id) {
-        return Optional.ofNullable(quests.get(id));
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(quests.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public Collection<Quest> getAllQuests() {
-        return Collections.unmodifiableCollection(quests.values());
+        rwLock.readLock().lock();
+        try {
+            return List.copyOf(quests.values());
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public void copyFrom(DefinitionRegistry other) {
-        npcs.clear();
-        npcs.putAll(other.npcs);
-        dialogues.clear();
-        dialogues.putAll(other.dialogues);
-        factions.clear();
-        factions.putAll(other.factions);
-        quests.clear();
-        quests.putAll(other.quests);
+        rwLock.writeLock().lock();
+        other.rwLock.readLock().lock();
+        try {
+            npcs.clear();
+            npcs.putAll(other.npcs);
+            dialogues.clear();
+            dialogues.putAll(other.dialogues);
+            factions.clear();
+            factions.putAll(other.factions);
+            quests.clear();
+            quests.putAll(other.quests);
+        } finally {
+            other.rwLock.readLock().unlock();
+            rwLock.writeLock().unlock();
+        }
     }
 
     public void clear() {
-        npcs.clear();
-        dialogues.clear();
-        factions.clear();
-        quests.clear();
+        rwLock.writeLock().lock();
+        try {
+            npcs.clear();
+            dialogues.clear();
+            factions.clear();
+            quests.clear();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 }

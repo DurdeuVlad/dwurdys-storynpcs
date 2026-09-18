@@ -16,12 +16,20 @@ public class BankVault {
         @JsonProperty
         private int count;
 
+        @JsonProperty
+        private String tag;
+
         public VaultItem() {}
 
         public VaultItem(int slot, String itemId, int count) {
+            this(slot, itemId, count, null);
+        }
+
+        public VaultItem(int slot, String itemId, int count, String tag) {
             this.slot = slot;
             this.itemId = itemId != null ? itemId : "";
             this.count = count;
+            this.tag = tag;
         }
 
         public int getSlot() { return slot; }
@@ -32,6 +40,9 @@ public class BankVault {
 
         public int getCount() { return count; }
         public void setCount(int count) { this.count = count; }
+
+        public String getTag() { return tag; }
+        public void setTag(String tag) { this.tag = tag; }
     }
 
     @JsonProperty(required = true)
@@ -56,36 +67,41 @@ public class BankVault {
     public int getUnlockedTabs() { return unlockedTabs; }
     public void setUnlockedTabs(int unlockedTabs) { this.unlockedTabs = unlockedTabs; }
 
-    public Map<Integer, List<VaultItem>> getTabs() { return tabs; }
-    public void setTabs(Map<Integer, List<VaultItem>> tabs) {
+    public synchronized Map<Integer, List<VaultItem>> getTabs() { return tabs; }
+    public synchronized void setTabs(Map<Integer, List<VaultItem>> tabs) {
         this.tabs = tabs != null ? tabs : new HashMap<>();
     }
 
-    public List<VaultItem> getTabItems(int tabIndex) {
+    public synchronized List<VaultItem> getTabItems(int tabIndex) {
         return tabs.computeIfAbsent(tabIndex, k -> new ArrayList<>());
     }
 
-    public boolean deposit(int tabIndex, int slotIndex, String itemId, int count) {
-        if (tabIndex < 0 || tabIndex >= unlockedTabs || count <= 0) {
+    public synchronized boolean deposit(int tabIndex, int slotIndex, String itemId, int count) {
+        return deposit(tabIndex, slotIndex, itemId, count, null);
+    }
+
+    public synchronized boolean deposit(int tabIndex, int slotIndex, String itemId, int count, String tag) {
+        if (tabIndex < 0 || tabIndex >= unlockedTabs || slotIndex < 0 || slotIndex >= 54 || count <= 0) {
             return false;
         }
         List<VaultItem> items = getTabItems(tabIndex);
         // Check if slot already occupied
         for (VaultItem item : items) {
             if (item.getSlot() == slotIndex) {
-                if (item.getItemId().equals(itemId)) {
-                    item.setCount(item.getCount() + count);
+                if (item.getItemId().equals(itemId) && Objects.equals(item.getTag(), tag)) {
+                    long sum = (long) item.getCount() + (long) count;
+                    item.setCount((int) Math.min(Integer.MAX_VALUE, sum));
                     return true;
                 }
-                return false; // occupied by different item
+                return false; // occupied by different item or different component tag
             }
         }
-        items.add(new VaultItem(slotIndex, itemId, count));
+        items.add(new VaultItem(slotIndex, itemId, count, tag));
         return true;
     }
 
-    public Optional<VaultItem> withdraw(int tabIndex, int slotIndex, int count) {
-        if (tabIndex < 0 || tabIndex >= unlockedTabs || count <= 0) {
+    public synchronized Optional<VaultItem> withdraw(int tabIndex, int slotIndex, int count) {
+        if (tabIndex < 0 || tabIndex >= unlockedTabs || slotIndex < 0 || slotIndex >= 54 || count <= 0) {
             return Optional.empty();
         }
         List<VaultItem> items = getTabItems(tabIndex);
@@ -97,7 +113,7 @@ public class BankVault {
                     return Optional.of(item);
                 } else {
                     item.setCount(item.getCount() - count);
-                    return Optional.of(new VaultItem(slotIndex, item.getItemId(), count));
+                    return Optional.of(new VaultItem(slotIndex, item.getItemId(), count, item.getTag()));
                 }
             }
         }

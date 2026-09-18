@@ -40,8 +40,14 @@ public class ProgressionRepository {
             try {
                 return mapper.readValue(Files.readAllBytes(filePath), PlayerProgression.class);
             } catch (IOException e) {
-                // If corrupted, fallback to clean progression rather than crashing the server
-                System.err.println("Failed to read progression for " + playerUuid + ", creating new: " + e.getMessage());
+                // If corrupted, backup to .corrupted.<timestamp> rather than silently destroying data
+                Path backupPath = storageDirectory.resolve(playerUuid.toString() + ".corrupted." + System.currentTimeMillis());
+                try {
+                    Files.copy(filePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+                    System.err.println("Corrupted progression for " + playerUuid + " backed up to: " + backupPath);
+                } catch (IOException backupEx) {
+                    System.err.println("Failed to backup corrupted progression: " + backupEx.getMessage());
+                }
             }
         }
         return new PlayerProgression(playerUuid);
@@ -54,7 +60,10 @@ public class ProgressionRepository {
         Path targetPath = storageDirectory.resolve(playerUuid.toString() + ".json");
         Path tempPath = storageDirectory.resolve(playerUuid.toString() + ".tmp");
 
-        byte[] data = mapper.writeValueAsBytes(progression);
+        byte[] data;
+        synchronized (progression) {
+            data = mapper.writeValueAsBytes(progression);
+        }
         Files.write(tempPath, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
 
         try {
@@ -64,11 +73,17 @@ public class ProgressionRepository {
         }
     }
 
+    public void unload(UUID playerUuid) {
+        if (playerUuid != null) {
+            cache.remove(playerUuid);
+        }
+    }
+
     public void saveAll() {
         for (UUID uuid : cache.keySet()) {
             try {
                 save(uuid);
-            } catch (IOException e) {
+            } catch (Exception e) {
                 System.err.println("Error saving progression for " + uuid + ": " + e.getMessage());
             }
         }

@@ -11,6 +11,7 @@ public class NpcReturnToStartGoal extends Goal {
 
     private final StoryNpcEntity npc;
     private final double speedModifier;
+    private int repathDelay = 0;
 
     public NpcReturnToStartGoal(StoryNpcEntity npc, double speedModifier) {
         this.npc = npc;
@@ -20,7 +21,14 @@ public class NpcReturnToStartGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (repathDelay > 0) {
+            repathDelay--;
+            return false;
+        }
         if (!npc.isAlive()) return false;
+        if (npc.getFollowerRole() != null && npc.getFollowerRole().getState() == com.storynpcs.domain.role.follower.FollowerRole.State.FOLLOWING) {
+            return false;
+        }
         var defOpt = npc.getDefinition();
         if (defOpt.isEmpty()) return false;
 
@@ -51,5 +59,17 @@ public class NpcReturnToStartGoal extends Goal {
         if (start != null) {
             npc.getNavigation().moveTo(start.getX() + 0.5, start.getY(), start.getZ() + 0.5, speedModifier);
         }
+    }
+
+    @Override
+    public void tick() {
+        if (npc.getNavigation().isDone()) {
+            this.repathDelay = 40;
+        }
+    }
+
+    @Override
+    public void stop() {
+        this.repathDelay = 40;
     }
 }

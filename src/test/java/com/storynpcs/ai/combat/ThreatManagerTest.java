@@ -91,4 +91,14 @@ class ThreatManagerTest {
         assertTrue(threatManager.getCurrentTarget().isEmpty());
         assertEquals(0, threatManager.getStrikes(player));
     }
+
+    @Test
+    @DisplayName("Adding massive threat clamps at 100,000 without integer overflow")
+    void testThreatOverflowClamping() {
+        UUID player = UUID.randomUUID();
+        threatManager.addThreat(player, 2_000_000_000);
+        threatManager.addThreat(player, 2_000_000_000);
+        assertTrue(threatManager.getCurrentTarget().isPresent());
+        assertEquals(player, threatManager.getCurrentTarget().get());
+    }
 }

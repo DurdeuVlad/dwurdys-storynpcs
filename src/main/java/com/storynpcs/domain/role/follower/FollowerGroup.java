@@ -76,6 +76,15 @@ public final class FollowerGroup {
     }
 
     /**
+     * Clears registered followers for a specific leader (e.g. on player logout).
+     */
+    public static void clearLeader(UUID leaderUuid) {
+        if (leaderUuid != null) {
+            LEADER_FOLLOWERS.remove(leaderUuid);
+        }
+    }
+
+    /**
      * Clears all registered follower groups (used during server shutdown or test cleanup).
      */
     public static void clearAll() {

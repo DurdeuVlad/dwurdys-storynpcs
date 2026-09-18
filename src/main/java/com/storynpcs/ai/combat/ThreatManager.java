@@ -49,6 +49,11 @@ public class ThreatManager {
 
         strikes.put(attackerUuid, new StrikeRecord(newCount, currentTick));
 
+        if (strikes.size() > 20) {
+            long threshold = currentTick - (long) windowTicks * 3L;
+            strikes.entrySet().removeIf(e -> e.getValue().lastTick() < threshold);
+        }
+
         if (newCount <= strikeTolerance) {
             return CombatReaction.TOLERATED_WARN;
         } else {
@@ -59,7 +64,7 @@ public class ThreatManager {
 
     public void addThreat(UUID targetUuid, int amount) {
         if (targetUuid == null || amount <= 0) return;
-        threatTable.merge(targetUuid, amount, Integer::sum);
+        threatTable.merge(targetUuid, amount, (a, b) -> (int) Math.min(100_000, (long) a + b));
         this.aggroTimer = Math.max(this.aggroTimer, 400); // 20s minimum
         recalculateTarget();
     }

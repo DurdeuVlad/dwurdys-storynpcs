@@ -59,4 +59,21 @@ class ProgressionRepositoryTest {
         assertThat(reloaded.getFactionScore(factionId, 1000)).isEqualTo(1250);
         assertThat(reloaded.hasVisitedDialogueNode("welcome_node")).isTrue();
     }
+
+    @Test
+    void shouldBackupCorruptedFileWhenLoading() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        Path targetFile = tempDir.resolve(playerUuid.toString() + ".json");
+        Files.writeString(targetFile, "{ corrupt json unclosed");
+
+        PlayerProgression prog = repository.getOrCreate(playerUuid);
+        assertThat(prog).isNotNull();
+        assertThat(prog.getPlayerUuid()).isEqualTo(playerUuid);
+
+        // Verify a .corrupted backup file was created
+        try (var stream = Files.list(tempDir)) {
+            boolean hasBackup = stream.anyMatch(p -> p.getFileName().toString().contains(".corrupted."));
+            assertThat(hasBackup).isTrue();
+        }
+    }
 }

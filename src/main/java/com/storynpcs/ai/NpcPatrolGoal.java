@@ -15,6 +15,7 @@ public class NpcPatrolGoal extends Goal {
     private int currentWaypointIndex = 0;
     private boolean movingForward = true;
     private int waitTicksRemaining = 0;
+    private int repathDelay = 0;
 
     public NpcPatrolGoal(StoryNpcEntity npc, double speedModifier) {
         this.npc = npc;
@@ -57,6 +58,7 @@ public class NpcPatrolGoal extends Goal {
     @Override
     public void start() {
         this.waitTicksRemaining = 0;
+        this.repathDelay = 0;
         moveToCurrentWaypoint();
     }
 
@@ -86,10 +88,14 @@ public class NpcPatrolGoal extends Goal {
             int[] next = path.computeNextIndex(currentWaypointIndex, movingForward);
             this.currentWaypointIndex = next[0];
             this.movingForward = (next[1] == 1);
+            this.repathDelay = 0;
 
             moveToCurrentWaypoint();
         } else if (npc.getNavigation().isDone()) {
-            moveToCurrentWaypoint();
+            if (--this.repathDelay <= 0) {
+                this.repathDelay = 20; // Throttle to at most 1 repath attempt per second
+                moveToCurrentWaypoint();
+            }
         }
     }
 

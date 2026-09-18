@@ -26,11 +26,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.List;
 
 public final class StoryNpcsCommands {
 
@@ -42,11 +44,14 @@ public final class StoryNpcsCommands {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         var root = Commands.literal("storynpcs")
+                .executes(StoryNpcsCommands::sendHelp)
+                .then(Commands.literal("help").executes(StoryNpcsCommands::sendHelp))
                 .then(Commands.literal("reload")
                         .requires(source -> source.hasPermission(2))
                         .executes(StoryNpcsCommands::reload))
                 // NPC commands
                 .then(Commands.literal("npc")
+                        .executes(StoryNpcsCommands::sendNpcHelp)
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listNpcs))
                         .then(Commands.literal("info")
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
@@ -57,12 +62,26 @@ public final class StoryNpcsCommands {
                                         .executes(ctx -> spawnNpc(ctx, null))
                                         .then(Commands.argument("pos", Vec3Argument.vec3())
                                                 .executes(ctx -> spawnNpc(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
+                        .then(Commands.literal("despawn")
+                                .requires(source -> source.hasPermission(2))
+                                .executes(ctx -> despawnNpc(ctx, null, 128.0))
+                                .then(Commands.literal("all")
+                                        .executes(ctx -> despawnNpc(ctx, null, 256.0))
+                                        .then(Commands.argument("radius", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(1.0, 512.0))
+                                                .executes(ctx -> despawnNpc(ctx, null, com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius")))))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .executes(ctx -> despawnNpc(ctx, ResourceLocationArgument.getId(ctx, "npc_id"), 128.0))
+                                        .then(Commands.argument("radius", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(1.0, 512.0))
+                                                .executes(ctx -> despawnNpc(ctx,
+                                                        ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                        com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius"))))))
                         .then(Commands.literal("delete")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteNpc))))
                 // Dialogue commands
                 .then(Commands.literal("dialogue")
+                        .executes(StoryNpcsCommands::sendDialogueHelp)
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listDialogues))
                         .then(Commands.literal("info")
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
@@ -79,6 +98,7 @@ public final class StoryNpcsCommands {
                                                 .executes(ctx -> startDialogue(ctx, EntityArgument.getPlayer(ctx, "player")))))))
                 // Quest commands
                 .then(Commands.literal("quest")
+                        .executes(StoryNpcsCommands::sendQuestHelp)
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listQuests))
                         .then(Commands.literal("start")
                                 .requires(source -> source.hasPermission(2))
@@ -94,6 +114,7 @@ public final class StoryNpcsCommands {
                                                 .executes(ctx -> completeQuest(ctx, EntityArgument.getPlayer(ctx, "player")))))))
                 // Faction commands
                 .then(Commands.literal("faction")
+                        .executes(StoryNpcsCommands::sendFactionHelp)
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listFactions))
                         .then(Commands.literal("set")
                                 .requires(source -> source.hasPermission(2))
@@ -111,12 +132,15 @@ public final class StoryNpcsCommands {
                                                         .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player"))))))))
                 // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
+                        .executes(StoryNpcsCommands::sendFollowerHelp)
+                        .then(Commands.literal("recall")
+                                .executes(StoryNpcsCommands::recallFollowers))
                         .then(Commands.literal("formation")
                                 .then(Commands.argument("formation", StringArgumentType.word())
                                         .executes(ctx -> setFollowerFormationCmd(ctx, -1, 2.5))
-                                        .then(Commands.argument("slot", IntegerArgumentType.integer())
+                                        .then(Commands.argument("slot", IntegerArgumentType.integer(-1, 64))
                                                 .executes(ctx -> setFollowerFormationCmd(ctx, IntegerArgumentType.getInteger(ctx, "slot"), 2.5))
-                                                .then(Commands.argument("spacing", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.5, 10.0))
+                                                .then(Commands.argument("spacing", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.5, 16.0))
                                                         .executes(ctx -> setFollowerFormationCmd(ctx,
                                                                 IntegerArgumentType.getInteger(ctx, "slot"),
                                                                 com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "spacing")))))))
@@ -125,8 +149,8 @@ public final class StoryNpcsCommands {
                                         .executes(StoryNpcsCommands::setFollowerStateCmd))));
 
         dispatcher.register(root);
-        // Register alias /sn (inherits subcommand permissions from root)
-        dispatcher.register(Commands.literal("sn").redirect(dispatcher.getRoot().getChild("storynpcs")));
+        // Register alias /sn (inherits subcommand permissions from root and executes help when called alone)
+        dispatcher.register(Commands.literal("sn").executes(StoryNpcsCommands::sendHelp).redirect(dispatcher.getRoot().getChild("storynpcs")));
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {
@@ -242,7 +266,7 @@ public final class StoryNpcsCommands {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
         boolean deleted = StoryNpcs.getInstance().getApplicationService().deleteNpc(id);
         if (deleted) {
-            ctx.getSource().sendSuccess(() -> Component.literal("Deleted NPC: " + id), true);
+            ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Deleted NPC definition '" + id + "' from registry. To remove in-world entities, use '/storynpcs npc despawn " + id + "'."), true);
             return 1;
         } else {
             ctx.getSource().sendFailure(Component.literal("NPC not found: " + id));
@@ -289,7 +313,11 @@ public final class StoryNpcsCommands {
         }
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
         try {
-            DialogueView view = StoryNpcs.getInstance().getApplicationService().startDialogue(player.getUUID(), id);
+            DialogueView view = StoryNpcs.getInstance().getApplicationService().startDialogue(
+                    player.getUUID(), id, null,
+                    player.level().dimension().location().toString(),
+                    player.getX(), player.getY(), player.getZ()
+            );
             StoryNpcsNetwork.sendOpenDialogue(player, view);
             ServerPlayer finalPlayer = player;
             ctx.getSource().sendSuccess(() -> Component.literal(String.format("Started dialogue '%s' for %s", id, finalPlayer.getScoreboardName())), true);
@@ -442,16 +470,24 @@ public final class StoryNpcsCommands {
                 npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
         );
 
+        var appService = StoryNpcs.getInstance().getApplicationService();
+        int entityIdx = 0;
         for (StoryNpcEntity npc : entities) {
             FollowerRole role = npc.getFollowerRole();
-            role.setFormation(type);
-            role.setFormationSlot(slot);
-            role.setFormationSpacing(spacing);
+            int finalSlot = slot < 0 ? -1 : (slot + entityIdx);
+            if (appService != null) {
+                appService.setFollowerFormation(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, type, finalSlot, spacing);
+            } else {
+                role.setFormation(type);
+                role.setFormationSlot(finalSlot);
+                role.setFormationSpacing(spacing);
+            }
             updated++;
+            entityIdx++;
         }
 
         final int count = updated;
-        source.sendSuccess(() -> Component.literal("[StoryNPCs] Updated " + count + " followers to " + type.name() + " formation (slot: " + (slot < 0 ? "auto" : slot) + ", spacing: " + spacing + "m)."), true);
+        source.sendSuccess(() -> Component.literal("[StoryNPCs] Updated " + count + " followers to " + type.name() + " formation (slot: " + (slot < 0 ? "auto" : slot) + ", spacing: " + spacing + "m)."), false);
         return updated;
     }
 
@@ -478,14 +514,138 @@ public final class StoryNpcsCommands {
                 npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
         );
 
+        var appService = StoryNpcs.getInstance().getApplicationService();
         for (StoryNpcEntity npc : entities) {
             FollowerRole role = npc.getFollowerRole();
-            role.setState(state);
+            if (appService != null) {
+                appService.setFollowerState(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, state);
+            } else {
+                role.setState(state);
+            }
             updated++;
         }
 
         final int count = updated;
-        source.sendSuccess(() -> Component.literal("[StoryNPCs] Updated " + count + " followers to state " + state.name() + "."), true);
+        source.sendSuccess(() -> Component.literal("[StoryNPCs] Updated " + count + " followers to state " + state.name() + "."), false);
         return updated;
+    }
+
+    private static int despawnNpc(CommandContext<CommandSourceStack> ctx, ResourceLocation targetNpcId, double radius) {
+        CommandSourceStack source = ctx.getSource();
+        Vec3 origin = source.getPosition();
+        AABB box = new AABB(
+                origin.x - radius, source.getLevel().getMinBuildHeight(), origin.z - radius,
+                origin.x + radius, source.getLevel().getMaxBuildHeight(), origin.z + radius
+        );
+        List<StoryNpcEntity> entities = source.getLevel().getEntitiesOfClass(StoryNpcEntity.class, box);
+        int count = 0;
+        for (StoryNpcEntity entity : entities) {
+            if (targetNpcId == null || targetNpcId.toString().equals(entity.getDefinitionId())) {
+                entity.discard();
+                count++;
+            }
+        }
+        final int removedCount = count;
+        String targetName = targetNpcId != null ? targetNpcId.toString() : "all";
+        source.sendSuccess(() -> Component.literal(String.format("§a[StoryNPCs] Despawned %d in-world '%s' entity(ies) within %.0f blocks.", removedCount, targetName, radius)), true);
+        return removedCount;
+    }
+
+    private static int recallFollowers(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("§c[StoryNPCs] Only players can recall followers."));
+            return 0;
+        }
+        List<StoryNpcEntity> followers = player.serverLevel().getEntitiesOfClass(
+                StoryNpcEntity.class,
+                player.getBoundingBox().inflate(256.0),
+                npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
+        );
+        int count = 0;
+        float playerYaw = player.getYRot();
+        for (int i = 0; i < followers.size(); i++) {
+            StoryNpcEntity follower = followers.get(i);
+            FollowerRole role = follower.getFollowerRole();
+            FormationType formation = (role != null && role.getFormation() != null) ? role.getFormation() : FormationType.COLUMN;
+            int slot = (role != null && role.getFormationSlot() >= 0) ? role.getFormationSlot() : i;
+            double spacing = (role != null && role.getFormationSpacing() > 0) ? role.getFormationSpacing() : 2.0;
+
+            var offset = com.storynpcs.domain.role.follower.FormationCalculator.computeOffset(formation, slot, spacing);
+            var targetPos = com.storynpcs.domain.role.follower.FormationCalculator.toWorldCoordinates(
+                    player.getX(), player.getY(), player.getZ(), playerYaw, offset
+            );
+
+            follower.teleportTo(targetPos.x(), targetPos.y(), targetPos.z());
+            follower.getNavigation().stop();
+            count++;
+        }
+        final int recalled = count;
+        if (recalled == 0) {
+            player.sendSystemMessage(Component.literal("§e[StoryNPCs] Recalled 0 followers. Followers must be in loaded chunks within 256 blocks."));
+        } else {
+            player.sendSystemMessage(Component.literal(String.format("§a[StoryNPCs] Recalled %d follower(s) to your position.", recalled)));
+        }
+        return recalled;
+    }
+
+    private static int sendHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("§6--- Dwurdy's StoryNPCs Help ---§r\n" +
+                "§e/storynpcs reload §7- Reload YAML definitions\n" +
+                "§e/storynpcs npc <list|info|spawn|despawn|delete> §7- Manage NPCs\n" +
+                "§e/storynpcs dialogue <list|info|edit|start> §7- Manage Dialogues\n" +
+                "§e/storynpcs quest <list|start|complete> §7- Manage Quests\n" +
+                "§e/storynpcs faction <list|set|adjust> §7- Manage Factions\n" +
+                "§e/storynpcs follower <recall|formation|state> §7- Command Followers"), false);
+        return 1;
+    }
+
+    private static int sendNpcHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("§6--- StoryNPCs NPC Commands ---§r\n" +
+                "§e/storynpcs npc list §7- List all registered NPC definitions\n" +
+                "§e/storynpcs npc info <npc_id> §7- View details of an NPC definition\n" +
+                "§e/storynpcs npc spawn <npc_id> [pos] §7- Spawn an NPC into the world\n" +
+                "§e/storynpcs npc despawn [npc_id] [radius] §7- Remove spawned NPCs from the world\n" +
+                "§e/storynpcs npc delete <npc_id> §7- Delete NPC definition from registry"), false);
+        return 1;
+    }
+
+    private static int sendDialogueHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Dialogue Commands ---§r\n" +
+                "§e/storynpcs dialogue list §7- List loaded dialogue graphs\n" +
+                "§e/storynpcs dialogue info <dialogue_id> §7- View dialogue graph structure\n" +
+                "§e/storynpcs dialogue edit <dialogue_id> §7- Open dialogue graph editor GUI\n" +
+                "§e/storynpcs dialogue start <dialogue_id> [player] §7- Initiate dialogue session"), false);
+        return 1;
+    }
+
+    private static int sendQuestHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Quest Commands ---§r\n" +
+                "§e/storynpcs quest list §7- List all registered quests\n" +
+                "§e/storynpcs quest start <quest_id> [player] §7- Start a quest for a player\n" +
+                "§e/storynpcs quest complete <quest_id> [player] §7- Complete a quest for a player"), false);
+        return 1;
+    }
+
+    private static int sendFactionHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Faction Commands ---§r\n" +
+                "§e/storynpcs faction list §7- List all factions\n" +
+                "§e/storynpcs faction set <faction_id> <points> [player] §7- Set player faction reputation\n" +
+                "§e/storynpcs faction adjust <faction_id> <delta> [player] §7- Adjust player faction reputation"), false);
+        return 1;
+    }
+
+    private static int sendFollowerHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("§6--- StoryNPCs Follower Commands ---§r\n" +
+                "§e/storynpcs follower recall §7- Summon owned followers to your position\n" +
+                "§e/storynpcs follower formation <COLUMN|WEDGE|ROW|CIRCLE> [slot] [spacing] §7- Change formation pattern\n" +
+                "§e/storynpcs follower state <FOLLOWING|STAYING|GUARDING> §7- Change follower tactical state"), false);
+        return 1;
     }
 }

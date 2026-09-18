@@ -209,6 +209,197 @@ def run_live_tests():
     if os.path.exists(corrupt_prog_file):
         os.remove(corrupt_prog_file)
 
+    # =========================================================================
+    # LIVE TEST 4: ADVERSARIAL AUDIT FIXES VERIFICATION (VULN-01 to VULN-10)
+    # =========================================================================
+    print("----------------------------------------------------------------------")
+    print("LIVE TEST 4: Adversarial Audit Fixes Verification")
+    print("----------------------------------------------------------------------")
+
+    # 4.1 Help screens on root and categories (VULN-10)
+    print("[4.1] Testing root command help screen: `storynpcs`")
+    resp_help = client.command("storynpcs").strip()
+    print(f"      Response:\n{resp_help}")
+    assert "Dwurdy's StoryNPCs Help" in resp_help, "Root help screen failed"
+
+    print("[4.2] Testing alias help screen: `sn`")
+    resp_sn = client.command("sn").strip()
+    assert "Dwurdy's StoryNPCs Help" in resp_sn, "Alias /sn help failed"
+
+    print("[4.3] Testing category help screens: npc, dialogue, quest, faction, follower")
+    assert "StoryNPCs NPC Commands" in client.command("storynpcs npc"), "NPC help failed"
+    assert "StoryNPCs Dialogue Commands" in client.command("storynpcs dialogue"), "Dialogue help failed"
+    assert "StoryNPCs Quest Commands" in client.command("storynpcs quest"), "Quest help failed"
+    assert "StoryNPCs Faction Commands" in client.command("storynpcs faction"), "Faction help failed"
+    assert "StoryNPCs Follower Commands" in client.command("storynpcs follower"), "Follower help failed"
+    print("      All category help screens verified successfully.\n")
+
+    # 4.4 In-world Despawn Command (VULN-02)
+    print("[4.4] Testing in-world entity spawn and despawn commands...")
+    resp_spawn1 = client.command("storynpcs npc spawn storynpcs:guard_captain 224 70 64").strip()
+    print(f"      Spawn 1: {resp_spawn1}")
+    assert "Spawned 'storynpcs:guard_captain'" in resp_spawn1
+
+    resp_despawn1 = client.command("storynpcs npc despawn storynpcs:guard_captain 64").strip()
+    print(f"      Despawn 1: {resp_despawn1}")
+    assert "Despawned" in resp_despawn1 and "storynpcs:guard_captain" in resp_despawn1
+
+    # Spawn 2 and despawn all
+    client.command("storynpcs npc spawn storynpcs:guard_captain 224 70 64")
+    client.command("storynpcs npc spawn storynpcs:guard_captain 225 70 64")
+    resp_despawn_all = client.command("storynpcs npc despawn all 64").strip()
+    print(f"      Despawn All: {resp_despawn_all}")
+    assert "Despawned" in resp_despawn_all and "all" in resp_despawn_all
+
+    # 4.5 Delete NPC definition feedback pointing to despawn (VULN-02)
+    print("[4.5] Testing delete definition feedback...")
+    resp_del = client.command("storynpcs npc delete storynpcs:guard_captain").strip()
+    print(f"      Delete: {resp_del}")
+    assert "To remove in-world entities, use '/storynpcs npc despawn storynpcs:guard_captain'" in resp_del
+    # Restore definitions
+    client.command("storynpcs reload")
+
+    # 4.6 Follower formation slot bounds check (VULN-04)
+    print("[4.6] Testing follower formation slot argument bounds (-1 to 64)...")
+    resp_bounds_high = client.command("storynpcs follower formation WEDGE 100000 2.5").strip()
+    print(f"      Bounds high response: {resp_bounds_high}")
+    assert "must not be more than 64" in resp_bounds_high or "no more than 64" in resp_bounds_high
+
+    resp_bounds_low = client.command("storynpcs follower formation WEDGE -10 2.5").strip()
+    print(f"      Bounds low response: {resp_bounds_low}")
+    assert "must not be less than -1" in resp_bounds_low or "no less than -1" in resp_bounds_low
+
+    # 4.7 Follower recall command (VULN-07)
+    print("[4.7] Testing follower recall command...")
+    resp_recall = client.command("storynpcs follower recall").strip()
+    print(f"      Recall response: {resp_recall}")
+    assert "Only players can recall followers" in resp_recall
+
+    # 4.8 Live YAML validation of corrupt dialogue actions (VULN-03)
+    print("[4.8] Testing live YAML validation catches corrupt action targets and non-numeric faction delta...")
+    dialogues_dir = os.path.join(world_def_dir, "dialogues")
+    os.makedirs(dialogues_dir, exist_ok=True)
+    corrupt_action_file = os.path.join(dialogues_dir, "invalid_action_test.yaml")
+    try:
+        with open(corrupt_action_file, "w", encoding="utf-8") as f:
+            f.write('''id: "storynpcs:corrupt_dialogue"
+title: "Corrupt Test"
+entryNodeId: "start"
+nodes:
+  start:
+    id: "start"
+    text: "Broken dialogue"
+    options:
+      - text: "Crash test"
+        targetNodeId: "end"
+        actions:
+          - type: "START_QUEST"
+            target: "storynpcs:ghost_quest_nonexistent"
+            value: ""
+  end:
+    id: "end"
+    text: "End"
+    options: []
+''')
+
+        resp_corrupt_reload = client.command("storynpcs reload").strip()
+        print(f"      Corrupt Action Reload:\n{resp_corrupt_reload}")
+        assert "Validation errors during reload" in resp_corrupt_reload and "GRAPH_ACTION_QUEST_NOT_FOUND" in resp_corrupt_reload
+    finally:
+        if os.path.exists(corrupt_action_file):
+            os.remove(corrupt_action_file)
+
+    # 4.9 Live YAML validation of empty/comment-only files (VULN-25)
+    print("[4.9] Testing live YAML validation catches empty/comment-only files with SCHEMA_EMPTY_FILE...")
+    empty_yaml_file = os.path.join(dialogues_dir, "empty_comment_only.yaml")
+    try:
+        with open(empty_yaml_file, "w", encoding="utf-8") as f:
+            f.write("# This file contains only comments\n# And no definitions\n\n")
+
+        resp_empty_reload = client.command("storynpcs reload").strip()
+        print(f"      Empty File Reload:\n{resp_empty_reload}")
+        assert "Validation errors during reload" in resp_empty_reload and "SCHEMA_EMPTY_FILE" in resp_empty_reload
+    finally:
+        if os.path.exists(empty_yaml_file):
+            os.remove(empty_yaml_file)
+
+    # 4.10 Live YAML validation of missing dialogue option text (VULN-33)
+    print("[4.10] Testing live YAML validation catches missing option text with GRAPH_EDGE_TEXT_MISSING...")
+    missing_text_file = os.path.join(dialogues_dir, "missing_text_test.yaml")
+    try:
+        with open(missing_text_file, "w", encoding="utf-8") as f:
+            f.write('''id: "storynpcs:missing_text_dialogue"
+title: "Missing Text Test"
+entryNodeId: "start"
+nodes:
+  start:
+    id: "start"
+    text: "Testing missing text"
+    options:
+      - targetNodeId: "end"
+  end:
+    id: "end"
+    text: "End"
+    options: []
+''')
+
+        resp_text_reload = client.command("storynpcs reload").strip()
+        print(f"      Missing Text Reload:\n{resp_text_reload}")
+        assert "Validation errors during reload" in resp_text_reload and "GRAPH_EDGE_TEXT_MISSING" in resp_text_reload
+    finally:
+        if os.path.exists(missing_text_file):
+            os.remove(missing_text_file)
+
+    # 4.11 Live YAML validation of quest with empty objectives (VULN-34)
+    print("[4.11] Testing live YAML validation catches quest with no objectives with QUEST_OBJ_EMPTY...")
+    quests_dir = os.path.join(world_def_dir, "quests")
+    os.makedirs(quests_dir, exist_ok=True)
+    empty_obj_quest_file = os.path.join(quests_dir, "empty_obj_quest.yaml")
+    try:
+        with open(empty_obj_quest_file, "w", encoding="utf-8") as f:
+            f.write('''id: "storynpcs:empty_obj_quest"
+title: "No Objectives Quest"
+category: "general"
+repeatType: "ONCE"
+objectives: []
+''')
+
+        resp_obj_reload = client.command("storynpcs reload").strip()
+        print(f"      Empty Obj Reload:\n{resp_obj_reload}")
+        assert "Validation errors during reload" in resp_obj_reload and "QUEST_OBJ_EMPTY" in resp_obj_reload
+    finally:
+        if os.path.exists(empty_obj_quest_file):
+            os.remove(empty_obj_quest_file)
+
+    # 4.12 Live YAML validation of quest reward with unknown faction (VULN-35)
+    print("[4.12] Testing live YAML validation catches unknown faction reward with QUEST_REWARD_FACTION_NOT_FOUND...")
+    bad_reward_quest_file = os.path.join(quests_dir, "bad_reward_quest.yaml")
+    try:
+        with open(bad_reward_quest_file, "w", encoding="utf-8") as f:
+            f.write('''id: "storynpcs:bad_reward_quest"
+title: "Bad Reward Quest"
+objectives:
+  - id: "kill_1"
+    type: "KILL_ENTITY"
+    target: "minecraft:zombie"
+    requiredCount: 1
+rewards:
+  - type: "FACTION_POINTS"
+    target: "storynpcs:nonexistent_faction_xyz"
+    amount: 100
+''')
+
+        resp_reward_reload = client.command("storynpcs reload").strip()
+        print(f"      Bad Reward Reload:\n{resp_reward_reload}")
+        assert "Validation errors during reload" in resp_reward_reload and "QUEST_REWARD_FACTION_NOT_FOUND" in resp_reward_reload
+    finally:
+        if os.path.exists(bad_reward_quest_file):
+            os.remove(bad_reward_quest_file)
+
+    # Final restore
+    client.command("storynpcs reload")
+    print("      Restored clean YAML definitions after validation tests.\n")
+
     client.close()
     print("=== LIVE TEST SUITE EXECUTION COMPLETE ===")
 

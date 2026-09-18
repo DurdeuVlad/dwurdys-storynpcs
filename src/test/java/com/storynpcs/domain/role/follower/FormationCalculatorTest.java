@@ -111,4 +111,16 @@ class FormationCalculatorTest {
         assertEquals(64.0, posEast.y(), EPSILON);
         assertEquals(200.0, posEast.z(), EPSILON);
     }
+
+    @Test
+    @DisplayName("computeOffset clamps excessive slotIndex and spacing safely")
+    void testComputeOffsetBounds() {
+        FormationOffset offsetMax = FormationCalculator.computeOffset(FormationType.COLUMN, 99999, 100.0);
+        assertEquals(0.0, offsetMax.lateral(), EPSILON);
+        assertEquals(-(16.0 + 64 * 16.0), offsetMax.longitudinal(), EPSILON);
+
+        FormationOffset offsetNegative = FormationCalculator.computeOffset(FormationType.COLUMN, -5, -2.0);
+        assertEquals(0.0, offsetNegative.lateral(), EPSILON);
+        assertEquals(-2.0, offsetNegative.longitudinal(), EPSILON);
+    }
 }

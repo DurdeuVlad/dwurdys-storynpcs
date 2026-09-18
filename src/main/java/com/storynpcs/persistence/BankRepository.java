@@ -39,7 +39,13 @@ public class BankRepository {
             try {
                 return mapper.readValue(Files.readAllBytes(filePath), BankVault.class);
             } catch (IOException e) {
-                System.err.println("Failed to read bank vault for " + playerUuid + ": " + e.getMessage());
+                Path backupPath = storageDirectory.resolve(playerUuid.toString() + ".corrupted." + System.currentTimeMillis());
+                try {
+                    Files.copy(filePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+                    System.err.println("Corrupted bank vault for " + playerUuid + " backed up to: " + backupPath);
+                } catch (IOException backupEx) {
+                    System.err.println("Failed to backup corrupted bank vault: " + backupEx.getMessage());
+                }
             }
         }
         return new BankVault(playerUuid);
@@ -52,7 +58,10 @@ public class BankRepository {
         Path targetPath = storageDirectory.resolve(playerUuid.toString() + ".json");
         Path tempPath = storageDirectory.resolve(playerUuid.toString() + ".tmp");
 
-        byte[] data = mapper.writeValueAsBytes(vault);
+        byte[] data;
+        synchronized (vault) {
+            data = mapper.writeValueAsBytes(vault);
+        }
         Files.write(tempPath, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
 
         try {
@@ -62,11 +71,17 @@ public class BankRepository {
         }
     }
 
+    public void unload(UUID playerUuid) {
+        if (playerUuid != null) {
+            cache.remove(playerUuid);
+        }
+    }
+
     public void saveAll() {
         for (UUID uuid : cache.keySet()) {
             try {
                 save(uuid);
-            } catch (IOException e) {
+            } catch (Exception e) {
                 System.err.println("Error saving bank vault for " + uuid + ": " + e.getMessage());
             }
         }

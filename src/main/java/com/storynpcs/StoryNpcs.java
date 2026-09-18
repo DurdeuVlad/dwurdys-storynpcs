@@ -30,6 +30,7 @@ public class StoryNpcs {
     private final EventPublisher eventPublisher;
     private final WorldLifecycleHandler lifecycleHandler;
     private ProgressionRepository progressionRepository;
+    private com.storynpcs.persistence.BankRepository bankRepository;
     private StoryNpcsApplicationService applicationService;
 
     /**
@@ -68,6 +69,7 @@ public class StoryNpcs {
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedOut);
         NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDamage);
+        NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDeath);
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
@@ -100,6 +102,14 @@ public class StoryNpcs {
 
     public void setProgressionRepository(ProgressionRepository progressionRepository) {
         this.progressionRepository = progressionRepository;
+    }
+
+    public com.storynpcs.persistence.BankRepository getBankRepository() {
+        return bankRepository;
+    }
+
+    public void setBankRepository(com.storynpcs.persistence.BankRepository bankRepository) {
+        this.bankRepository = bankRepository;
     }
 
     public StoryNpcsApplicationService getApplicationService() {

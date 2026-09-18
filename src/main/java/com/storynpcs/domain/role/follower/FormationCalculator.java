@@ -22,8 +22,14 @@ public final class FormationCalculator {
         if (slotIndex < 0) {
             slotIndex = 0;
         }
+        if (slotIndex > 64) {
+            slotIndex = 64;
+        }
         if (spacing <= 0.0) {
             spacing = 2.0;
+        }
+        if (spacing > 16.0) {
+            spacing = 16.0;
         }
         if (type == null) {
             type = FormationType.WEDGE;

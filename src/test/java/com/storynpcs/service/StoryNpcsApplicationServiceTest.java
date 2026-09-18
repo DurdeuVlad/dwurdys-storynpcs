@@ -195,4 +195,146 @@ class StoryNpcsApplicationServiceTest {
         // Reward delivered!
         assertThat(prog.getFactionScore(factionId, 500)).isEqualTo(650);
     }
+
+    @Test
+    void shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:simple_dialogue");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Simple", "start");
+        DialogueNode start = new DialogueNode("start", "Choose wisely.");
+        start.addOption(new DialogueEdge("Option 1", "end"));
+        graph.addNode(start);
+        graph.addNode(new DialogueNode("end", "Done."));
+        registry.registerDialogue(graph);
+
+        service.startDialogue(playerUuid, dialogueId);
+
+        // Negative index
+        DialogueView viewNeg = service.chooseDialogueOption(playerUuid, -1);
+        assertThat(viewNeg.isTerminal()).isTrue();
+
+        // Restart and try out of bounds positive index
+        service.startDialogue(playerUuid, dialogueId);
+        DialogueView viewHigh = service.chooseDialogueOption(playerUuid, 999);
+        assertThat(viewHigh.isTerminal()).isTrue();
+    }
+
+    @Test
+    void shouldSafelyHandleCorruptActionOrConditionWithoutCrashing() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:faulty_dialogue");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Faulty", "start");
+        DialogueNode start = new DialogueNode("start", "Here is your task.");
+        DialogueEdge edge = new DialogueEdge("Proceed", "end");
+        // Malformed action with nonexistent quest and non-numeric faction delta
+        edge.setActions(List.of(
+                new DialogueAction(DialogueAction.Type.START_QUEST, "storynpcs:ghost_quest", ""),
+                new DialogueAction(DialogueAction.Type.ADJUST_FACTION, "storynpcs:ghost_faction", "not_a_number")
+        ));
+        // Condition with malformed value
+        edge.setConditions(List.of(
+                new DialogueCondition(DialogueCondition.Type.FACTION_POINTS, "storynpcs:unknown", ">=", "not_int")
+        ));
+        start.addOption(edge);
+        graph.addNode(start);
+        graph.addNode(new DialogueNode("end", "End."));
+        registry.registerDialogue(graph);
+
+        service.startDialogue(playerUuid, dialogueId);
+        // Condition fails safely without throwing NumberFormatException
+        DialogueView view = service.chooseDialogueOption(playerUuid, 0);
+        // Since condition failed, available options was 0, so option 0 is out of bounds and safely closes
+        assertThat(view.isTerminal()).isTrue();
+    }
+
+    @Test
+    void shouldNotDuplicateQuestRewardsOnRepeatedCompletion() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId factionId = NamespacedId.of("storynpcs:town_guard");
+        Faction faction = new Faction(factionId, "Town Guard", 0, -500, 500);
+        registry.registerFaction(faction);
+
+        NamespacedId questId = NamespacedId.of("storynpcs:one_time_bounty");
+        Quest quest = new Quest(questId, "Bounty");
+        quest.setRepeatType(Quest.RepeatType.ONCE);
+        quest.setRewards(List.of(new QuestReward(QuestReward.Type.FACTION_POINTS, factionId.toString(), 100)));
+        registry.registerQuest(quest);
+
+        // First start and complete
+        service.startQuest(playerUuid, questId);
+        PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
+        assertThat(prog.getQuestState(questId).getStatus()).isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+
+        service.completeQuest(playerUuid, questId);
+        assertThat(prog.getQuestState(questId).getStatus()).isEqualTo(QuestProgressState.Status.COMPLETED);
+        assertThat(prog.getFactionScore(factionId, 0)).isEqualTo(100);
+
+        // Repeated completeQuest call must not duplicate rewards (VULN-22)
+        service.completeQuest(playerUuid, questId);
+        assertThat(prog.getFactionScore(factionId, 0)).isEqualTo(100);
+
+        // Non-repeatable quest cannot be restarted once completed
+        service.startQuest(playerUuid, questId);
+        assertThat(prog.getQuestState(questId).getStatus()).isEqualTo(QuestProgressState.Status.COMPLETED);
+    }
+
+    @Test
+    void shouldClampFactionPointsOnArithmeticOverflow() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId factionId = NamespacedId.of("storynpcs:town_guard");
+        Faction faction = new Faction(factionId, "Town Guard", 1000, 500, 1500);
+        registry.registerFaction(faction);
+
+        // Adjust by huge number -> clamped to 100,000, not overflowed to negative
+        service.adjustFactionPoints(playerUuid, factionId, 2_000_000_000);
+        PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
+        assertThat(prog.getFactionScore(factionId, 1000)).isEqualTo(100_000);
+
+        // Adjust negatively -> clamped to -100,000
+        service.adjustFactionPoints(playerUuid, factionId, -500_000);
+        assertThat(prog.getFactionScore(factionId, 1000)).isEqualTo(-100_000);
+    }
+
+    @Test
+    void shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:close_action_test");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Close Test", "start");
+        DialogueNode start = new DialogueNode("start", "Goodbye!");
+        DialogueEdge closeEdge = new DialogueEdge("Leave", "next_node");
+        closeEdge.setActions(List.of(new DialogueAction(DialogueAction.Type.CLOSE_DIALOGUE, "", "")));
+        start.addOption(closeEdge);
+        graph.addNode(start);
+        graph.addNode(new DialogueNode("next_node", "Should not see this"));
+        registry.registerDialogue(graph);
+
+        service.startDialogue(playerUuid, dialogueId);
+        DialogueView view = service.chooseDialogueOption(playerUuid, 0);
+
+        assertThat(view.isTerminal()).isTrue();
+        assertThat(service.getActiveSession(playerUuid)).isEmpty();
+    }
+
+    @Test
+    void shouldDeliverRemainingRewardsEvenIfOneFails() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId validFactionId = NamespacedId.of("storynpcs:valid_faction");
+        Faction faction = new Faction(validFactionId, "Valid", 0, -100, 100);
+        registry.registerFaction(faction);
+
+        NamespacedId questId = NamespacedId.of("storynpcs:mixed_rewards");
+        Quest quest = new Quest(questId, "Mixed Rewards");
+        quest.setRewards(List.of(
+                new QuestReward(QuestReward.Type.FACTION_POINTS, "storynpcs:unknown_faction", 50),
+                new QuestReward(QuestReward.Type.FACTION_POINTS, validFactionId.toString(), 100)
+        ));
+        registry.registerQuest(quest);
+
+        service.startQuest(playerUuid, questId);
+        service.completeQuest(playerUuid, questId);
+
+        PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
+        assertThat(prog.getQuestState(questId).getStatus()).isEqualTo(QuestProgressState.Status.COMPLETED);
+        assertThat(prog.getFactionScore(validFactionId, 0)).isEqualTo(100);
+    }
 }

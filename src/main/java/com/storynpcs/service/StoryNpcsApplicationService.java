@@ -105,10 +105,14 @@ public class StoryNpcsApplicationService {
     // ==========================================
 
     public DialogueView startDialogue(UUID playerUuid, NamespacedId dialogueId) {
+        return startDialogue(playerUuid, dialogueId, null, null, 0.0, 0.0, 0.0);
+    }
+
+    public DialogueView startDialogue(UUID playerUuid, NamespacedId dialogueId, UUID npcEntityUuid, String dimensionId, double originX, double originY, double originZ) {
         DialogueGraph graph = registry.getDialogue(dialogueId)
                 .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + dialogueId));
 
-        DialogueSession session = new DialogueSession(playerUuid, graph);
+        DialogueSession session = new DialogueSession(playerUuid, graph, npcEntityUuid, dimensionId, originX, originY, originZ);
         activeSessions.put(playerUuid, session);
 
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
@@ -116,6 +120,10 @@ public class StoryNpcsApplicationService {
 
         eventPublisher.publish(new DialogueOpenEvent(playerUuid, dialogueId, session.getCurrentNodeId()));
         return buildDialogueView(session, progression);
+    }
+
+    public Optional<DialogueSession> getActiveSession(UUID playerUuid) {
+        return Optional.ofNullable(activeSessions.get(playerUuid));
     }
 
     public DialogueView chooseDialogueOption(UUID playerUuid, int optionIndex) {
@@ -135,7 +143,8 @@ public class StoryNpcsApplicationService {
         List<DialogueEdge> availableEdges = getAvailableEdges(currentNode, progression);
 
         if (optionIndex < 0 || optionIndex >= availableEdges.size()) {
-            throw new IndexOutOfBoundsException("Invalid option index: " + optionIndex + " (available: " + availableEdges.size() + ")");
+            closeDialogue(playerUuid);
+            return DialogueView.closed(session.getDialogueId());
         }
 
         DialogueEdge chosen = availableEdges.get(optionIndex);
@@ -152,6 +161,10 @@ public class StoryNpcsApplicationService {
             for (DialogueAction action : chosen.getActions()) {
                 executeAction(playerUuid, action);
             }
+        }
+
+        if (!session.isActive()) {
+            return DialogueView.closed(session.getDialogueId());
         }
 
         eventPublisher.publish(new DialogueOptionSelectEvent(playerUuid, session.getDialogueId(), fromNodeId, toNodeId, optionIndex));
@@ -210,43 +223,80 @@ public class StoryNpcsApplicationService {
     }
 
     private boolean evalCondition(DialogueCondition cond, PlayerProgression progression) {
-        if (cond.getType() == DialogueCondition.Type.QUEST_STATUS) {
-            NamespacedId qid = NamespacedId.of(cond.getTarget());
-            QuestProgressState state = progression.getQuestState(qid);
-            return state.getStatus().name().equalsIgnoreCase(cond.getValue());
-        } else if (cond.getType() == DialogueCondition.Type.FACTION_STANDING) {
-            NamespacedId fid = NamespacedId.of(cond.getTarget());
-            Faction faction = registry.getFaction(fid).orElse(null);
-            if (faction == null) return false;
-            int pts = progression.getFactionScore(fid, faction.getDefaultPoints());
-            return faction.getStandingForPoints(pts).name().equalsIgnoreCase(cond.getValue());
-        } else if (cond.getType() == DialogueCondition.Type.FACTION_POINTS) {
-            NamespacedId fid = NamespacedId.of(cond.getTarget());
-            Faction faction = registry.getFaction(fid).orElse(null);
-            int defPts = faction != null ? faction.getDefaultPoints() : 1000;
-            int pts = progression.getFactionScore(fid, defPts);
-            int targetVal = Integer.parseInt(cond.getValue());
-            return switch (cond.getOperator()) {
-                case ">=" -> pts >= targetVal;
-                case "<=" -> pts <= targetVal;
-                case ">" -> pts > targetVal;
-                case "<" -> pts < targetVal;
-                default -> pts == targetVal;
-            };
+        if (cond == null || cond.getType() == null) return true;
+        try {
+            if (cond.getType() == DialogueCondition.Type.QUEST_STATUS) {
+                NamespacedId qid = NamespacedId.of(cond.getTarget());
+                QuestProgressState state = progression.getQuestState(qid);
+                return state.getStatus().name().equalsIgnoreCase(cond.getValue());
+            } else if (cond.getType() == DialogueCondition.Type.FACTION_STANDING) {
+                NamespacedId fid = NamespacedId.of(cond.getTarget());
+                Faction faction = registry.getFaction(fid).orElse(null);
+                if (faction == null) return false;
+                int pts = progression.getFactionScore(fid, faction.getDefaultPoints());
+                return faction.getStandingForPoints(pts).name().equalsIgnoreCase(cond.getValue());
+            } else if (cond.getType() == DialogueCondition.Type.FACTION_POINTS) {
+                NamespacedId fid = NamespacedId.of(cond.getTarget());
+                Faction faction = registry.getFaction(fid).orElse(null);
+                int defPts = faction != null ? faction.getDefaultPoints() : 1000;
+                int pts = progression.getFactionScore(fid, defPts);
+                int targetVal = Integer.parseInt(cond.getValue() != null ? cond.getValue().trim() : "0");
+                return switch (cond.getOperator()) {
+                    case ">=" -> pts >= targetVal;
+                    case "<=" -> pts <= targetVal;
+                    case ">" -> pts > targetVal;
+                    case "<" -> pts < targetVal;
+                    default -> pts == targetVal;
+                };
+            }
+        } catch (Exception e) {
+            System.err.println("Error evaluating dialogue condition " + cond.getType() + ": " + e.getMessage());
+            return false;
         }
         return true;
     }
 
     private void executeAction(UUID playerUuid, DialogueAction action) {
-        switch (action.getType()) {
-            case START_QUEST -> startQuest(playerUuid, NamespacedId.of(action.getTarget()));
-            case COMPLETE_QUEST -> completeQuest(playerUuid, NamespacedId.of(action.getTarget()));
-            case ADJUST_FACTION -> {
-                int delta = Integer.parseInt(action.getValue());
-                adjustFactionPoints(playerUuid, NamespacedId.of(action.getTarget()), delta);
+        if (action == null || action.getType() == null) return;
+        try {
+            switch (action.getType()) {
+                case START_QUEST -> {
+                    NamespacedId qid = NamespacedId.of(action.getTarget());
+                    if (registry.getQuest(qid).isPresent()) {
+                        startQuest(playerUuid, qid);
+                    } else {
+                        System.err.println("Warning: Dialogue action START_QUEST references unknown quest: " + action.getTarget());
+                    }
+                }
+                case ADVANCE_QUEST -> {
+                    NamespacedId qid = NamespacedId.of(action.getTarget());
+                    if (registry.getQuest(qid).isPresent()) {
+                        String obj = (action.getValue() != null && !action.getValue().isBlank()) ? action.getValue().trim() : "obj";
+                        progressQuest(playerUuid, qid, obj, 1);
+                    }
+                }
+                case COMPLETE_QUEST -> {
+                    NamespacedId qid = NamespacedId.of(action.getTarget());
+                    if (registry.getQuest(qid).isPresent()) {
+                        completeQuest(playerUuid, qid);
+                    } else {
+                        System.err.println("Warning: Dialogue action COMPLETE_QUEST references unknown quest: " + action.getTarget());
+                    }
+                }
+                case ADJUST_FACTION -> {
+                    NamespacedId fid = NamespacedId.of(action.getTarget());
+                    if (registry.getFaction(fid).isPresent()) {
+                        int delta = Integer.parseInt(action.getValue() != null ? action.getValue().trim() : "0");
+                        adjustFactionPoints(playerUuid, fid, delta);
+                    } else {
+                        System.err.println("Warning: Dialogue action ADJUST_FACTION references unknown faction: " + action.getTarget());
+                    }
+                }
+                case CLOSE_DIALOGUE -> closeDialogue(playerUuid);
+                default -> {}
             }
-            case CLOSE_DIALOGUE -> closeDialogue(playerUuid);
-            default -> {}
+        } catch (Exception e) {
+            System.err.println("Failed to execute dialogue action " + action.getType() + " for player " + playerUuid + ": " + e.getMessage());
         }
     }
 
@@ -267,10 +317,11 @@ public class StoryNpcsApplicationService {
         Faction faction = registry.getFaction(factionId)
                 .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
         int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-        progression.setFactionScore(factionId, points);
+        int clamped = Math.max(-100_000, Math.min(100_000, points));
+        progression.setFactionScore(factionId, clamped);
         saveProgression(playerUuid);
 
-        eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, points));
+        eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, clamped));
     }
 
     public void adjustFactionPoints(UUID playerUuid, NamespacedId factionId, int delta) {
@@ -278,7 +329,8 @@ public class StoryNpcsApplicationService {
         Faction faction = registry.getFaction(factionId)
                 .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
         int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-        int newPoints = oldPoints + delta;
+        long sum = (long) oldPoints + (long) delta;
+        int newPoints = (int) Math.max(-100_000, Math.min(100_000, sum));
         progression.setFactionScore(factionId, newPoints);
         saveProgression(playerUuid);
 
@@ -295,6 +347,11 @@ public class StoryNpcsApplicationService {
 
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
         QuestProgressState state = progression.getQuestState(questId);
+
+        // Guard against restarting completed non-repeatable quest (VULN-22)
+        if (state.getStatus() == QuestProgressState.Status.COMPLETED && quest.getRepeatType() == Quest.RepeatType.ONCE) {
+            return;
+        }
 
         // Check prerequisites
         if (quest.getPrerequisites() != null) {
@@ -349,14 +406,23 @@ public class StoryNpcsApplicationService {
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
         QuestProgressState state = progression.getQuestState(questId);
 
+        // Guard against duplicate completion and infinite rewards exploit (VULN-22)
+        if (state.getStatus() == QuestProgressState.Status.COMPLETED) {
+            return;
+        }
+
         state.setStatus(QuestProgressState.Status.COMPLETED);
         saveProgression(playerUuid);
 
         // Deliver rewards
         if (quest.getRewards() != null) {
             for (QuestReward reward : quest.getRewards()) {
-                if (reward.getType() == QuestReward.Type.FACTION_POINTS) {
-                    adjustFactionPoints(playerUuid, NamespacedId.of(reward.getTarget()), reward.getAmount());
+                try {
+                    if (reward.getType() == QuestReward.Type.FACTION_POINTS && reward.getTarget() != null) {
+                        adjustFactionPoints(playerUuid, NamespacedId.of(reward.getTarget()), reward.getAmount());
+                    }
+                } catch (Exception e) {
+                    System.err.println("Failed to deliver quest reward for quest " + questId + " to player " + playerUuid + ": " + e.getMessage());
                 }
             }
         }
@@ -425,6 +491,11 @@ public class StoryNpcsApplicationService {
         var vault = bankRepo.getOrCreate(playerUuid);
         boolean success = vault.deposit(tab, slot, itemId, count);
         if (success) {
+            try {
+                bankRepo.save(playerUuid);
+            } catch (IOException e) {
+                System.err.println("Failed to persist bank vault for " + playerUuid + ": " + e.getMessage());
+            }
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
                     playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
         }
@@ -437,6 +508,11 @@ public class StoryNpcsApplicationService {
         var vault = bankRepo.getOrCreate(playerUuid);
         var itemOpt = vault.withdraw(tab, slot, count);
         itemOpt.ifPresent(item -> {
+            try {
+                bankRepo.save(playerUuid);
+            } catch (IOException e) {
+                System.err.println("Failed to persist bank vault for " + playerUuid + ": " + e.getMessage());
+            }
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
                     playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW, tab, item.getItemId(), item.getCount()));
         });

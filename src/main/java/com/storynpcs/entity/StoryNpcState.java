@@ -68,6 +68,11 @@ public class StoryNpcState {
     }
 
     public Optional<DialogueView> interact(UUID playerUuid, StoryNpcsApplicationService service, DefinitionRegistry registry) {
+        return interact(playerUuid, service, registry, null, null, 0.0, 0.0, 0.0);
+    }
+
+    public Optional<DialogueView> interact(UUID playerUuid, StoryNpcsApplicationService service, DefinitionRegistry registry,
+                                           UUID npcUuid, String dimensionId, double x, double y, double z) {
         if (playerUuid == null || service == null || registry == null) {
             return Optional.empty();
         }
@@ -76,7 +81,7 @@ public class StoryNpcState {
             return Optional.empty();
         }
         try {
-            DialogueView view = service.startDialogue(playerUuid, dialogueIdOpt.get());
+            DialogueView view = service.startDialogue(playerUuid, dialogueIdOpt.get(), npcUuid, dimensionId, x, y, z);
             return Optional.ofNullable(view);
         } catch (Exception e) {
             return Optional.empty();

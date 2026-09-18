@@ -75,9 +75,9 @@ public class DialogueEditorScreen extends Screen {
             VisualNode dst = model.getLayout().getNodes().get(edge.getTargetNodeId());
             if (src != null && dst != null) {
                 int x1 = (int) DialogueGraphLayout.canvasToScreenX(src.getCenterX(), panX, zoom);
-                int y1 = (int) DialogueGraphLayout.canvasToScreenY(src.getCenterY(), panX, zoom);
+                int y1 = (int) DialogueGraphLayout.canvasToScreenY(src.getCenterY(), panY, zoom);
                 int x2 = (int) DialogueGraphLayout.canvasToScreenX(dst.getCenterX(), panX, zoom);
-                int y2 = (int) DialogueGraphLayout.canvasToScreenY(dst.getCenterY(), panX, zoom);
+                int y2 = (int) DialogueGraphLayout.canvasToScreenY(dst.getCenterY(), panY, zoom);
 
                 int color = edge.isCyclic() ? 0xFFFFA500 : 0xFF4ADE80; // Orange if cyclic, green otherwise
                 graphics.fill(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2) + 2, Math.max(y1, y2) + 2, color);
