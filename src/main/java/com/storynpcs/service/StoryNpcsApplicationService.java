@@ -68,6 +68,46 @@ public class StoryNpcsApplicationService {
         registry.registerNpc(definition);
     }
 
+    /**
+     * Persists an NPC definition: validates it against a snapshot of the live registry
+     * (so dialogueId/factionId references must resolve), writes YAML atomically, then
+     * registers it live. Canonical path for `/storynpcs npc create` and future NPC
+     * authoring surfaces — mirrors {@link #saveDialogue}.
+     *
+     * @return validation result; on errors nothing is written or registered.
+     */
+    public ValidationResult saveNpc(NpcDefinition definition) {
+        Objects.requireNonNull(definition, "definition");
+        ValidationResult result = ValidationResult.valid();
+
+        if (definition.getId() == null) {
+            result.addError("NPC_ID_MISSING", "NPC definition must have an ID");
+            return result;
+        }
+
+        DefinitionRegistry snapshot = new DefinitionRegistry();
+        snapshot.copyFrom(registry);
+        snapshot.registerNpc(definition);
+        result.merge(CrossReferenceValidator.validate(snapshot));
+        if (result.hasErrors()) {
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                new YamlDefinitionWriter().writeDefinition(
+                        loader.getLastLoadedRootPath(), "npcs",
+                        YamlDefinitionWriter.fileNameFor(definition.getId()), definition);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write NPC file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerNpc(definition);
+        return result;
+    }
+
     public boolean deleteNpc(NamespacedId id) {
         Objects.requireNonNull(id, "id");
         if (registry.getNpc(id).isPresent()) {
