@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.storynpcs.StoryNpcs;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.dialogue.DialogueGraph;
@@ -19,10 +20,14 @@ import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.entity.StoryNpcEntity;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.commands.arguments.coordinates.Vec3Argument;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -37,6 +42,39 @@ import java.util.List;
 public final class StoryNpcsCommands {
 
     private StoryNpcsCommands() {}
+
+    /**
+     * Registry-backed tab-completion for definition IDs — admins should never have to
+     * memorize or retype 'storynpcs:guard_captain'-style identifiers. Degrades to no
+     * suggestions when the registry isn't available (unit tests, early boot).
+     */
+    private static SuggestionProvider<CommandSourceStack> idSuggestions(
+            java.util.function.Function<DefinitionRegistry, java.util.stream.Stream<String>> extractor) {
+        return (ctx, builder) -> {
+            StoryNpcs mod = StoryNpcs.getInstance();
+            if (mod == null || mod.getRegistry() == null) {
+                return builder.buildFuture();
+            }
+            return SharedSuggestionProvider.suggest(
+                    extractor.apply(mod.getRegistry()).sorted().toList(), builder);
+        };
+    }
+
+    private static final SuggestionProvider<CommandSourceStack> NPC_IDS =
+            idSuggestions(reg -> reg.getAllNpcs().stream().map(n -> n.getId().toString()));
+    private static final SuggestionProvider<CommandSourceStack> DIALOGUE_IDS =
+            idSuggestions(reg -> reg.getAllDialogues().stream().map(d -> d.getId().toString()));
+    private static final SuggestionProvider<CommandSourceStack> QUEST_IDS =
+            idSuggestions(reg -> reg.getAllQuests().stream().map(q -> q.getId().toString()));
+    private static final SuggestionProvider<CommandSourceStack> FACTION_IDS =
+            idSuggestions(reg -> reg.getAllFactions().stream().map(f -> f.getId().toString()));
+
+    /** Builds a chat component that runs or suggests a command on click, with a hover hint. */
+    private static MutableComponent clickable(String text, String command, ClickEvent.Action action, String hover) {
+        return Component.literal(text).withStyle(style -> style
+                .withClickEvent(new ClickEvent(action, command))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(hover))));
+    }
 
     public static void register(RegisterCommandsEvent event) {
         register(event.getDispatcher());
@@ -55,10 +93,12 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listNpcs))
                         .then(Commands.literal("info")
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
                                         .executes(StoryNpcsCommands::infoNpc)))
                         .then(Commands.literal("spawn")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
                                         .executes(ctx -> spawnNpc(ctx, null))
                                         .then(Commands.argument("pos", Vec3Argument.vec3())
                                                 .executes(ctx -> spawnNpc(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
@@ -70,6 +110,7 @@ public final class StoryNpcsCommands {
                                         .then(Commands.argument("radius", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(1.0, 512.0))
                                                 .executes(ctx -> despawnNpc(ctx, null, com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius")))))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
                                         .executes(ctx -> despawnNpc(ctx, ResourceLocationArgument.getId(ctx, "npc_id"), 128.0))
                                         .then(Commands.argument("radius", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(1.0, 512.0))
                                                 .executes(ctx -> despawnNpc(ctx,
@@ -78,6 +119,7 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("delete")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
                                         .executes(StoryNpcsCommands::deleteNpc))))
                 // Dialogue commands
                 .then(Commands.literal("dialogue")
@@ -85,14 +127,17 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("list").executes(StoryNpcsCommands::listDialogues))
                         .then(Commands.literal("info")
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .suggests(DIALOGUE_IDS)
                                         .executes(StoryNpcsCommands::infoDialogue)))
                         .then(Commands.literal("edit")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .suggests(DIALOGUE_IDS)
                                         .executes(StoryNpcsCommands::editDialogue)))
                         .then(Commands.literal("start")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .suggests(DIALOGUE_IDS)
                                         .executes(ctx -> startDialogue(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> startDialogue(ctx, EntityArgument.getPlayer(ctx, "player")))))))
@@ -103,12 +148,14 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("start")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                                        .suggests(QUEST_IDS)
                                         .executes(ctx -> startQuest(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> startQuest(ctx, EntityArgument.getPlayer(ctx, "player"))))))
                         .then(Commands.literal("complete")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                                        .suggests(QUEST_IDS)
                                         .executes(ctx -> completeQuest(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> completeQuest(ctx, EntityArgument.getPlayer(ctx, "player")))))))
@@ -119,6 +166,7 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("set")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                                        .suggests(FACTION_IDS)
                                         .then(Commands.argument("points", IntegerArgumentType.integer())
                                                 .executes(ctx -> setFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
@@ -126,6 +174,7 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("adjust")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                                        .suggests(FACTION_IDS)
                                         .then(Commands.argument("delta", IntegerArgumentType.integer())
                                                 .executes(ctx -> adjustFaction(ctx, null))
                                                 .then(Commands.argument("player", EntityArgument.player())
@@ -197,8 +246,13 @@ public final class StoryNpcsCommands {
         Collection<NpcDefinition> npcs = reg.getAllNpcs();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- StoryNPCs (%d loaded) ---", npcs.size())), false);
         for (NpcDefinition npc : npcs) {
-            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" - %s ('%s') [Faction: %s, Dialogue: %s]",
-                    npc.getId(), npc.getDisplay().getName(), npc.getFactionId(), npc.getDialogueId())), false);
+            // One click on an entry opens its info + action buttons — no retyping the id
+            MutableComponent line = clickable(
+                    String.format(" - %s ('%s') [Faction: %s, Dialogue: %s]",
+                            npc.getId(), npc.getDisplay().getName(), npc.getFactionId(), npc.getDialogueId()),
+                    "/storynpcs npc info " + npc.getId(), ClickEvent.Action.RUN_COMMAND,
+                    "Click to view " + npc.getId() + " details and actions");
+            ctx.getSource().sendSuccess(() -> line, false);
         }
         return npcs.size();
     }
@@ -221,6 +275,20 @@ public final class StoryNpcsCommands {
                 npc.getAi().getMovementType(), npc.getAi().getWalkingRange(), npc.getAi().isDoorInteract())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Dialogue: %s | Faction: %s",
                 npc.getDialogueId(), npc.getFactionId())), false);
+        // Action row — one click instead of retyping the id into spawn/despawn/delete
+        if (ctx.getSource().hasPermission(2)) {
+            MutableComponent actions = Component.literal(" §7[ ")
+                    .append(clickable("§aSpawn Here", "/storynpcs npc spawn " + id,
+                            ClickEvent.Action.RUN_COMMAND, "Spawn '" + id + "' at your position"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§eDespawn", "/storynpcs npc despawn " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Despawn in-world '" + id + "' entities (choose radius)"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§cDelete", "/storynpcs npc delete " + id,
+                            ClickEvent.Action.SUGGEST_COMMAND, "Delete '" + id + "' definition (confirm with Enter)"))
+                    .append(Component.literal(" §7]"));
+            ctx.getSource().sendSuccess(() -> actions, false);
+        }
         return 1;
     }
 
@@ -280,8 +348,12 @@ public final class StoryNpcsCommands {
         Collection<DialogueGraph> dialogues = reg.getAllDialogues();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- Dialogues (%d loaded) ---", dialogues.size())), false);
         for (DialogueGraph d : dialogues) {
-            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" - %s: '%s' (Entry: %s, Nodes: %d)",
-                    d.getId(), d.getTitle(), d.getEntryNodeId(), d.getNodes().size())), false);
+            MutableComponent line = clickable(
+                    String.format(" - %s: '%s' (Entry: %s, Nodes: %d)",
+                            d.getId(), d.getTitle(), d.getEntryNodeId(), d.getNodes().size()),
+                    "/storynpcs dialogue info " + d.getId(), ClickEvent.Action.RUN_COMMAND,
+                    "Click to view " + d.getId() + " details and actions");
+            ctx.getSource().sendSuccess(() -> line, false);
         }
         return dialogues.size();
     }
@@ -298,6 +370,16 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("=== Dialogue: %s ('%s') ===", d.getId(), d.getTitle())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Entry Node: %s", d.getEntryNodeId())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Total Nodes: %d", d.getNodes().size())), false);
+        if (ctx.getSource().hasPermission(2)) {
+            MutableComponent actions = Component.literal(" §7[ ")
+                    .append(clickable("§bOpen Editor", "/storynpcs dialogue edit " + id,
+                            ClickEvent.Action.RUN_COMMAND, "Open the visual editor for '" + id + "'"))
+                    .append(Component.literal(" §7| "))
+                    .append(clickable("§aStart", "/storynpcs dialogue start " + id + " ",
+                            ClickEvent.Action.SUGGEST_COMMAND, "Start dialogue '" + id + "' (pick a player)"))
+                    .append(Component.literal(" §7]"));
+            ctx.getSource().sendSuccess(() -> actions, false);
+        }
         return 1;
     }
 
@@ -356,8 +438,12 @@ public final class StoryNpcsCommands {
         Collection<Quest> quests = reg.getAllQuests();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- Quests (%d loaded) ---", quests.size())), false);
         for (Quest q : quests) {
-            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" - %s: '%s' (%s, Objectives: %d)",
-                    q.getId(), q.getTitle(), q.getCategory(), q.getObjectives().size())), false);
+            MutableComponent line = clickable(
+                    String.format(" - %s: '%s' (%s, Objectives: %d)",
+                            q.getId(), q.getTitle(), q.getCategory(), q.getObjectives().size()),
+                    "/storynpcs quest start " + q.getId() + " ", ClickEvent.Action.SUGGEST_COMMAND,
+                    "Click to start quest " + q.getId() + " (pick a player)");
+            ctx.getSource().sendSuccess(() -> line, false);
         }
         return quests.size();
     }
@@ -412,8 +498,12 @@ public final class StoryNpcsCommands {
         Collection<Faction> factions = reg.getAllFactions();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- Factions (%d loaded) ---", factions.size())), false);
         for (Faction f : factions) {
-            ctx.getSource().sendSuccess(() -> Component.literal(String.format(" - %s: '%s' (Default: %d, Hostile: <%d, Friendly: >=%d)",
-                    f.getId(), f.getName(), f.getDefaultPoints(), f.getHostileThreshold(), f.getFriendlyThreshold())), false);
+            MutableComponent line = clickable(
+                    String.format(" - %s: '%s' (Default: %d, Hostile: <%d, Friendly: >=%d)",
+                            f.getId(), f.getName(), f.getDefaultPoints(), f.getHostileThreshold(), f.getFriendlyThreshold()),
+                    "/storynpcs faction adjust " + f.getId() + " ", ClickEvent.Action.SUGGEST_COMMAND,
+                    "Click to adjust reputation with " + f.getId());
+            ctx.getSource().sendSuccess(() -> line, false);
         }
         return factions.size();
     }
@@ -608,7 +698,8 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs dialogue <list|info|edit|start> §7- Manage Dialogues\n" +
                 "§e/storynpcs quest <list|start|complete> §7- Manage Quests\n" +
                 "§e/storynpcs faction <list|set|adjust> §7- Manage Factions\n" +
-                "§e/storynpcs follower <recall|formation|state> §7- Command Followers"), false);
+                "§e/storynpcs follower <recall|formation|state> §7- Command Followers\n" +
+                "§7Alias: /sn · IDs tab-complete · list entries are clickable"), false);
         return 1;
     }
 

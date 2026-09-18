@@ -66,4 +66,34 @@ class StoryNpcsCommandsTest {
         assertNotNull(follower.getChild("formation"), "follower formation must exist");
         assertNotNull(follower.getChild("state"), "follower state must exist");
     }
+
+    @Test
+    @DisplayName("Definition ID arguments expose tab-completion suggestion providers")
+    void testIdArgumentSuggestions() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandNode<CommandSourceStack> storynpcs = dispatcher.getRoot().getChild("storynpcs");
+
+        assertSuggestions(storynpcs.getChild("npc").getChild("info"), "npc_id");
+        assertSuggestions(storynpcs.getChild("npc").getChild("spawn"), "npc_id");
+        assertSuggestions(storynpcs.getChild("npc").getChild("despawn"), "npc_id");
+        assertSuggestions(storynpcs.getChild("npc").getChild("delete"), "npc_id");
+        assertSuggestions(storynpcs.getChild("dialogue").getChild("info"), "dialogue_id");
+        assertSuggestions(storynpcs.getChild("dialogue").getChild("edit"), "dialogue_id");
+        assertSuggestions(storynpcs.getChild("dialogue").getChild("start"), "dialogue_id");
+        assertSuggestions(storynpcs.getChild("quest").getChild("start"), "quest_id");
+        assertSuggestions(storynpcs.getChild("quest").getChild("complete"), "quest_id");
+        assertSuggestions(storynpcs.getChild("faction").getChild("set"), "faction_id");
+        assertSuggestions(storynpcs.getChild("faction").getChild("adjust"), "faction_id");
+    }
+
+    private static void assertSuggestions(CommandNode<CommandSourceStack> parent, String argName) {
+        assertNotNull(parent, "Parent node must exist for arg " + argName);
+        CommandNode<CommandSourceStack> arg = parent.getChild(argName);
+        assertNotNull(arg, "Argument '" + argName + "' must exist under " + parent.getName());
+        assertTrue(arg instanceof com.mojang.brigadier.tree.ArgumentCommandNode,
+                argName + " must be an argument node");
+        assertNotNull(((com.mojang.brigadier.tree.ArgumentCommandNode<?, ?>) arg).getCustomSuggestions(),
+                argName + " must provide tab-completion suggestions");
+    }
 }
