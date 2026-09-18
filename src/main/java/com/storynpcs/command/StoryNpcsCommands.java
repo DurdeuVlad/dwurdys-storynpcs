@@ -231,10 +231,23 @@ public final class StoryNpcsCommands {
 
             if (result.isValid()) {
                 mod.getRegistry().copyFrom(staging);
-                source.sendSuccess(() -> Component.literal("[StoryNPCs] Definitions reloaded successfully: " + result.formatReport()), true);
+                // Surface diagnostics to online ops too — a reload run by one admin shouldn't
+                // leave the others blind to warnings.
+                mod.setLastLoadDiagnostics(result);
+                source.sendSuccess(() -> Component.literal("[StoryNPCs] Definitions reloaded successfully: " + result.formatReport(10)), true);
                 return 1;
             } else {
-                source.sendFailure(Component.literal("[StoryNPCs] Validation errors during reload (previous definitions retained):\n" + result.formatReport()));
+                mod.setLastLoadDiagnostics(result);
+                source.sendFailure(Component.literal("[StoryNPCs] Validation errors during reload (previous definitions retained):\n" + result.formatReport(10)));
+                // Other online ops get a heads-up too — sendFailure only reaches the caller
+                Component summary = Component.literal("[StoryNPCs] Reload by " + source.getTextName()
+                        + " failed validation: " + result.getErrors().size()
+                        + " error(s) — previous definitions retained. Check the server log.");
+                for (var p : source.getServer().getPlayerList().getPlayers()) {
+                    if (p.hasPermissions(2) && p != source.getEntity()) {
+                        p.sendSystemMessage(summary);
+                    }
+                }
                 return 0;
             }
         } catch (Exception e) {

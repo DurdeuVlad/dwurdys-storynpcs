@@ -32,6 +32,8 @@ public class StoryNpcs {
     private ProgressionRepository progressionRepository;
     private com.storynpcs.persistence.BankRepository bankRepository;
     private StoryNpcsApplicationService applicationService;
+    /** Diagnostics from the most recent definitions load — surfaced to ops in-game on login. */
+    private com.storynpcs.domain.common.ValidationResult lastLoadDiagnostics;
 
     /**
      * Test / headless constructor.
@@ -119,5 +121,13 @@ public class StoryNpcs {
 
     public void setApplicationService(StoryNpcsApplicationService applicationService) {
         this.applicationService = applicationService;
+    }
+
+    public com.storynpcs.domain.common.ValidationResult getLastLoadDiagnostics() {
+        return lastLoadDiagnostics;
+    }
+
+    public void setLastLoadDiagnostics(com.storynpcs.domain.common.ValidationResult lastLoadDiagnostics) {
+        this.lastLoadDiagnostics = lastLoadDiagnostics;
     }
 }

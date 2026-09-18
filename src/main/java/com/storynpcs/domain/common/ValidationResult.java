@@ -56,14 +56,25 @@ public final class ValidationResult {
     }
 
     public String formatReport() {
+        return formatReport(Integer.MAX_VALUE);
+    }
+
+    /**
+     * Bounded report for chat surfaces: shows at most {@code maxDiagnostics} lines,
+     * then an overflow count pointing at the server log for the remainder.
+     */
+    public String formatReport(int maxDiagnostics) {
         if (isValid() && !hasWarnings()) {
             return "Validation PASSED (0 diagnostics).";
         }
+        int max = Math.max(0, maxDiagnostics);
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("Validation result: %d error(s), %d warning(s):\n",
                 getErrors().size(), diagnostics.size() - getErrors().size()));
-        for (DiagnosticError d : diagnostics) {
-            sb.append("  - ").append(d.toString()).append("\n");
+        diagnostics.stream().limit(max).forEach(d -> sb.append("  - ").append(d).append("\n"));
+        int hidden = diagnostics.size() - Math.min(diagnostics.size(), max);
+        if (hidden > 0) {
+            sb.append("  …and ").append(hidden).append(" more — see server log for the full report\n");
         }
         return sb.toString();
     }
