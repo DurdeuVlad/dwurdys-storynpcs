@@ -184,6 +184,10 @@ public class StoryNpcsNetwork {
                 ? view.options().stream().map(s -> s != null ? s : "").toList()
                 : java.util.List.of();
 
+        List<String> sanitizedHints = view.optionHints() != null
+                ? view.optionHints().stream().map(s -> s != null ? s : "").toList()
+                : java.util.List.of();
+
         PacketDistributor.sendToPlayer(
                 player,
                 new ClientboundDialogueOpenPayload(
@@ -192,7 +196,9 @@ public class StoryNpcsNetwork {
                         view.text() != null ? view.text() : "",
                         view.sound() != null ? view.sound() : "",
                         sanitizedOptions,
-                        view.isTerminal()
+                        view.isTerminal(),
+                        view.npcName() != null ? view.npcName() : "",
+                        sanitizedHints
                 )
         );
     }

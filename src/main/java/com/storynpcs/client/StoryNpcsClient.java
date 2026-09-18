@@ -26,7 +26,9 @@ public final class StoryNpcsClient {
                     payload.text(),
                     payload.sound(),
                     payload.options(),
-                    payload.isTerminal()
+                    payload.isTerminal(),
+                    payload.npcName(),
+                    payload.optionHints()
             );
             mc.setScreen(screen);
         });

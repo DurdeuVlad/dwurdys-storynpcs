@@ -21,6 +21,8 @@ public class DialogueSession {
     private final double originX;
     private final double originY;
     private final double originZ;
+    /** Display name of the speaking NPC (resolved at session start), or null when unavailable. */
+    private String npcDisplayName;
 
     public DialogueSession(UUID playerUuid, DialogueGraph graph) {
         this(playerUuid, graph, null, null, 0.0, 0.0, 0.0);
@@ -50,6 +52,8 @@ public class DialogueSession {
     public double getOriginY() { return originY; }
     public double getOriginZ() { return originZ; }
     public boolean hasLocation() { return dimensionId != null; }
+    public String getNpcDisplayName() { return npcDisplayName; }
+    public void setNpcDisplayName(String npcDisplayName) { this.npcDisplayName = npcDisplayName; }
 
     public DialogueNode getCurrentNode() {
         return graph.getNode(currentNodeId).orElse(null);

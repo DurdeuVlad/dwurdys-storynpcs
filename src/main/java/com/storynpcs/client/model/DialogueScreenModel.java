@@ -14,6 +14,8 @@ public class DialogueScreenModel {
     private final List<String> options;
     private final boolean terminal;
     private final Consumer<Integer> optionChooser;
+    private final String npcName;
+    private final List<String> optionHints;
 
     private int hoveredOptionIndex = -1;
     private boolean closed = false;
@@ -27,6 +29,20 @@ public class DialogueScreenModel {
             boolean terminal,
             Consumer<Integer> optionChooser
     ) {
+        this(dialogueId, nodeId, text, sound, options, terminal, optionChooser, "", null);
+    }
+
+    public DialogueScreenModel(
+            String dialogueId,
+            String nodeId,
+            String text,
+            String sound,
+            List<String> options,
+            boolean terminal,
+            Consumer<Integer> optionChooser,
+            String npcName,
+            List<String> optionHints
+    ) {
         this.dialogueId = dialogueId != null ? dialogueId : "";
         this.nodeId = nodeId != null ? nodeId : "";
         this.text = text != null ? text : "";
@@ -34,6 +50,8 @@ public class DialogueScreenModel {
         this.options = options != null ? new ArrayList<>(options) : Collections.emptyList();
         this.terminal = terminal;
         this.optionChooser = optionChooser;
+        this.npcName = npcName != null ? npcName : "";
+        this.optionHints = optionHints != null ? new ArrayList<>(optionHints) : Collections.emptyList();
     }
 
     public String getDialogueId() {
@@ -50,6 +68,18 @@ public class DialogueScreenModel {
 
     public String getSound() {
         return sound;
+    }
+
+    public String getNpcName() {
+        return npcName;
+    }
+
+    /** Consequence hint for option {@code index} ("" when none or out of range). */
+    public String getOptionHint(int index) {
+        if (index < 0 || index >= optionHints.size()) {
+            return "";
+        }
+        return optionHints.get(index);
     }
 
     public List<String> getOptions() {
