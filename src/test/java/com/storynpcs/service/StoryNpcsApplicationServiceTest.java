@@ -337,4 +337,91 @@ class StoryNpcsApplicationServiceTest {
         assertThat(prog.getQuestState(questId).getStatus()).isEqualTo(QuestProgressState.Status.COMPLETED);
         assertThat(prog.getFactionScore(validFactionId, 0)).isEqualTo(100);
     }
+
+    @Test
+    void saveDialogueShouldValidatePersistAndUpdateRegistry() {
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:editor_saved");
+        DialogueGraph original = new DialogueGraph(dialogueId, "Original", "a");
+        original.addNode(new DialogueNode("a", "Old text."));
+        registry.registerDialogue(original);
+
+        // Admin edits: new text on 'a' plus a new node + edge
+        DialogueGraph edited = new DialogueGraph(dialogueId, "Edited", "a");
+        DialogueNode a = new DialogueNode("a", "New text.");
+        a.addOption(new DialogueEdge("Continue", "b"));
+        edited.addNode(a);
+        edited.addNode(new DialogueNode("b", "Second node."));
+
+        var result = service.saveDialogue(dialogueId, edited);
+
+        assertThat(result.hasErrors()).isFalse();
+        DialogueGraph live = registry.getDialogue(dialogueId).orElseThrow();
+        assertThat(live.getTitle()).isEqualTo("Edited");
+        assertThat(live.getNode("a").orElseThrow().getText()).isEqualTo("New text.");
+        assertThat(live.getNode("b")).isPresent();
+    }
+
+    @Test
+    void saveDialogueShouldRejectDanglingEdgeTargetAndNotMutateRegistry() {
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:broken_save");
+        DialogueGraph original = new DialogueGraph(dialogueId, "Original", "a");
+        original.addNode(new DialogueNode("a", "Old text."));
+        registry.registerDialogue(original);
+
+        DialogueGraph broken = new DialogueGraph(dialogueId, "Broken", "a");
+        DialogueNode a = new DialogueNode("a", "Text.");
+        a.addOption(new DialogueEdge("Nowhere", "missing_node"));
+        broken.addNode(a);
+
+        var result = service.saveDialogue(dialogueId, broken);
+
+        assertThat(result.hasErrors()).isTrue();
+        // Live registry untouched — still the original graph
+        DialogueGraph live = registry.getDialogue(dialogueId).orElseThrow();
+        assertThat(live.getTitle()).isEqualTo("Original");
+        assertThat(live.getNode("a").orElseThrow().getOptions()).isEmpty();
+    }
+
+    @Test
+    void saveDialogueShouldRejectIdMismatchAndMissingEntryNode() {
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:mismatch");
+        DialogueGraph wrong = new DialogueGraph(NamespacedId.of("storynpcs:other"), "Wrong", "a");
+        wrong.addNode(new DialogueNode("a", "Text."));
+
+        var mismatch = service.saveDialogue(dialogueId, wrong);
+        assertThat(mismatch.hasErrors()).isTrue();
+        assertThat(registry.getDialogue(dialogueId)).isEmpty();
+
+        DialogueGraph noEntry = new DialogueGraph(dialogueId, "NoEntry", "ghost");
+        noEntry.addNode(new DialogueNode("a", "Text."));
+        var entryResult = service.saveDialogue(dialogueId, noEntry);
+        assertThat(entryResult.hasErrors()).isTrue();
+        assertThat(registry.getDialogue(dialogueId)).isEmpty();
+    }
+
+    @Test
+    void saveDialogueShouldWriteYamlFileWhenLoaderIsBound() throws Exception {
+        com.storynpcs.yaml.YamlDefinitionLoader loader =
+                new com.storynpcs.yaml.YamlDefinitionLoader(registry);
+        loader.loadDirectory(tempDir); // binds root path for persistence
+        service.setLoader(loader);
+
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:persisted_dialogue");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Persisted", "a");
+        DialogueNode a = new DialogueNode("a", "Saved from editor.");
+        a.addOption(new DialogueEdge("Go", "b"));
+        graph.addNode(a);
+        graph.addNode(new DialogueNode("b", "End."));
+
+        var result = service.saveDialogue(dialogueId, graph);
+        assertThat(result.hasErrors()).isFalse();
+
+        Path expected = tempDir.resolve("dialogues").resolve("persisted_dialogue.yaml");
+        assertThat(expected).exists();
+        // And it loads back cleanly
+        DefinitionRegistry fresh = new DefinitionRegistry();
+        var loadResult = new com.storynpcs.yaml.YamlDefinitionLoader(fresh).loadDirectory(tempDir);
+        assertThat(loadResult.isValid()).isTrue();
+        assertThat(fresh.getDialogue(dialogueId)).isPresent();
+    }
 }

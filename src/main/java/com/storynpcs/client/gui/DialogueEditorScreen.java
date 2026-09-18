@@ -21,33 +21,6 @@ public class DialogueEditorScreen extends Screen {
         this.model = model;
     }
 
-    /**
-     * VULN-49: Convenience constructor called by StoryNpcsClient.openDialogueEditor() when the
-     * server sends the editor-open packet. Builds the model from the locally cached dialogue registry.
-     */
-    public DialogueEditorScreen(String dialogueId) {
-        this(buildModelForId(dialogueId));
-    }
-
-    private static DialogueEditorScreenModel buildModelForId(String dialogueId) {
-        // Attempt to fetch the dialogue graph that was previously synced to the client.
-        // If not available, open an empty model so the editor at least opens rather than crashing.
-        var mod = com.storynpcs.StoryNpcs.getInstance();
-        if (mod != null && mod.getRegistry() != null && dialogueId != null && !dialogueId.isBlank()) {
-            try {
-                var nsId = com.storynpcs.domain.common.NamespacedId.of(dialogueId);
-                var graphOpt = mod.getRegistry().getDialogue(nsId);
-                if (graphOpt.isPresent()) {
-                    return new DialogueEditorScreenModel(graphOpt.get(), null);
-                }
-            } catch (Exception e) {
-                // Fall through to empty model
-                System.err.println("[StoryNPCs] Could not build editor model for dialogue '" + dialogueId + "': " + e.getMessage());
-            }
-        }
-        return new DialogueEditorScreenModel(null, null);
-    }
-
     public DialogueEditorScreenModel getModel() {
         return model;
     }
@@ -120,7 +93,7 @@ public class DialogueEditorScreen extends Screen {
         // Render Nodes
         for (VisualNode node : model.getLayout().getNodes().values()) {
             int sx = (int) DialogueGraphLayout.canvasToScreenX(node.getX(), panX, zoom);
-            int sy = (int) DialogueGraphLayout.canvasToScreenY(node.getY(), panX, zoom);
+            int sy = (int) DialogueGraphLayout.canvasToScreenY(node.getY(), panY, zoom);
             int sw = (int) (node.getWidth() * zoom);
             int sh = (int) (node.getHeight() * zoom);
 

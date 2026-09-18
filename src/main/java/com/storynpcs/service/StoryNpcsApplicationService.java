@@ -2,6 +2,7 @@ package com.storynpcs.service;
 
 import com.storynpcs.api.event.*;
 import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.common.ValidationResult;
 import com.storynpcs.domain.dialogue.*;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.npc.*;
@@ -11,8 +12,10 @@ import com.storynpcs.domain.quest.Quest;
 import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.domain.quest.QuestReward;
 import com.storynpcs.persistence.ProgressionRepository;
+import com.storynpcs.yaml.CrossReferenceValidator;
 import com.storynpcs.yaml.DefinitionRegistry;
 import com.storynpcs.yaml.YamlDefinitionLoader;
+import com.storynpcs.yaml.YamlDefinitionWriter;
 
 import java.io.IOException;
 import java.util.*;
@@ -210,6 +213,46 @@ public class StoryNpcsApplicationService {
         if (session != null) {
             session.close();
         }
+    }
+
+    /**
+     * Persists an edited dialogue graph: validates it against a snapshot of the live
+     * registry (so cross-references to quests/factions resolve), writes it to YAML
+     * atomically, then updates the live registry. Canonical mutation path for the
+     * GUI editor's Save — packets/commands stay thin adapters over this.
+     *
+     * @return validation result; on errors nothing is written or registered.
+     */
+    public ValidationResult saveDialogue(NamespacedId expectedId, DialogueGraph graph) {
+        Objects.requireNonNull(expectedId, "expectedId");
+        Objects.requireNonNull(graph, "graph");
+        ValidationResult result = ValidationResult.valid();
+
+        if (graph.getId() == null || !graph.getId().equals(expectedId)) {
+            result.addError("GRAPH_ID_MISMATCH",
+                    "Graph id '" + graph.getId() + "' does not match requested dialogue '" + expectedId + "'");
+            return result;
+        }
+
+        DefinitionRegistry snapshot = new DefinitionRegistry();
+        snapshot.copyFrom(registry);
+        snapshot.registerDialogue(graph);
+        result.merge(CrossReferenceValidator.validate(snapshot));
+        if (result.hasErrors()) {
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                new YamlDefinitionWriter().writeDialogue(loader.getLastLoadedRootPath(), graph);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write dialogue file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerDialogue(graph);
+        return result;
     }
 
     private DialogueView buildDialogueView(DialogueSession session, PlayerProgression progression) {

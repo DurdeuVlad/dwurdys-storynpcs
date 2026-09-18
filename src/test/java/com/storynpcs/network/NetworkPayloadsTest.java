@@ -71,4 +71,48 @@ class NetworkPayloadsTest {
         ClientboundDialogueClosePayload decoded = ClientboundDialogueClosePayload.STREAM_CODEC.decode(buf);
         assertSame(ClientboundDialogueClosePayload.INSTANCE, decoded);
     }
+
+    @Test
+    @DisplayName("ClientboundDialogueEditorOpenPayload carries graph JSON through codec")
+    void testClientboundDialogueEditorOpenPayloadCodec() {
+        ClientboundDialogueEditorOpenPayload payload = new ClientboundDialogueEditorOpenPayload(
+                "storynpcs:captain_dialogue", "{\"id\":\"storynpcs:captain_dialogue\",\"nodes\":{}}");
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundDialogueEditorOpenPayload.STREAM_CODEC.encode(buf, payload);
+        ClientboundDialogueEditorOpenPayload decoded = ClientboundDialogueEditorOpenPayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload.dialogueId(), decoded.dialogueId());
+        assertEquals(payload.graphJson(), decoded.graphJson());
+        assertEquals(payload, decoded);
+        assertEquals(ClientboundDialogueEditorOpenPayload.TYPE, payload.type());
+    }
+
+    @Test
+    @DisplayName("ServerboundDialogueSavePayload encode and decode matches")
+    void testServerboundDialogueSavePayloadCodec() {
+        ServerboundDialogueSavePayload payload = new ServerboundDialogueSavePayload(
+                "storynpcs:captain_dialogue", "{\"id\":\"storynpcs:captain_dialogue\"}");
+
+        ByteBuf buf = Unpooled.buffer();
+        ServerboundDialogueSavePayload.STREAM_CODEC.encode(buf, payload);
+        ServerboundDialogueSavePayload decoded = ServerboundDialogueSavePayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals(ServerboundDialogueSavePayload.TYPE, payload.type());
+    }
+
+    @Test
+    @DisplayName("ClientboundDialogueSaveResultPayload encode and decode matches")
+    void testClientboundDialogueSaveResultPayloadCodec() {
+        ClientboundDialogueSaveResultPayload payload =
+                new ClientboundDialogueSaveResultPayload(true, "Saved.");
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundDialogueSaveResultPayload.STREAM_CODEC.encode(buf, payload);
+        ClientboundDialogueSaveResultPayload decoded = ClientboundDialogueSaveResultPayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals(ClientboundDialogueSaveResultPayload.TYPE, payload.type());
+    }
 }

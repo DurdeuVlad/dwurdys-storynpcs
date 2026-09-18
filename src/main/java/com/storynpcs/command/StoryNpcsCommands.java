@@ -340,9 +340,13 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] The dialogue editor can only be opened by a player, not the console."));
             return 0;
         }
-        // VULN-49: send the editor-open packet so the client actually opens DialogueEditorScreen
+        // VULN-49: send the editor-open packet so the client actually opens DialogueEditorScreen.
+        // The full graph travels with the packet — the client has no definition registry
+        // on a dedicated server, so sending only the id would open an empty editor.
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
-                new com.storynpcs.network.ClientboundDialogueEditorOpenPayload(id.toString()));
+                new com.storynpcs.network.ClientboundDialogueEditorOpenPayload(
+                        id.toString(),
+                        com.storynpcs.domain.dialogue.DialogueGraphSerde.toJson(dialogueOpt.get())));
         ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Opening visual dialogue editor for '" + id + "'."), false);
         return 1;
     }

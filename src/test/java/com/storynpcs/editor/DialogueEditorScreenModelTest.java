@@ -98,8 +98,8 @@ class DialogueEditorScreenModelTest {
 
         model.save();
 
-        assertFalse(model.hasUnsavedChanges(), "Dirty flag must be cleared after save");
         assertNotNull(saved.get(), "Save callback must have received exported graph");
+        assertTrue(model.hasUnsavedChanges(), "Dirty flag stays set until the server confirms the save");
 
         DialogueGraph exported = saved.get();
         assertEquals(NamespacedId.of("storynpcs:save_test"), exported.getId());
@@ -107,5 +107,16 @@ class DialogueEditorScreenModelTest {
         assertTrue(exported.getNode("start").isPresent());
         assertEquals(1, exported.getNode("start").get().getOptions().size());
         assertEquals("next", exported.getNode("start").get().getOptions().get(0).getTargetNodeId());
+
+        model.onSaveResult(true, "Saved.");
+        assertFalse(model.hasUnsavedChanges(), "Dirty flag clears only on confirmed save");
+        assertEquals("Saved.", model.getStatusMessage());
+
+        // A rejected save keeps the dirty flag so no work is silently lost
+        model.addNode("extra", "More", 400, 0);
+        model.save();
+        model.onSaveResult(false, "Rejected.");
+        assertTrue(model.hasUnsavedChanges());
+        assertEquals("Rejected.", model.getStatusMessage());
     }
 }

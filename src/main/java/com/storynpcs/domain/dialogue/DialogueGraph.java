@@ -1,5 +1,6 @@
 package com.storynpcs.domain.dialogue;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.storynpcs.domain.common.NamespacedId;
 
@@ -50,6 +51,7 @@ public class DialogueGraph {
         return Optional.ofNullable(nodes.get(nodeId));
     }
 
+    @JsonIgnore // derived convenience accessor — not serialized state; also avoids Optional serialization
     public Optional<DialogueNode> getEntryNode() {
         return getNode(entryNodeId);
     }
