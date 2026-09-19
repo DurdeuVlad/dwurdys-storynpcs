@@ -133,6 +133,53 @@ public final class StoryNpcsCommands {
                                                         com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius"))))))
                         .then(Commands.literal("set")
                                 .requires(source -> source.hasPermission(2))
+                                .then(Commands.literal("name")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", StringArgumentType.greedyString())
+                                                        .executes(StoryNpcsCommands::setNpcName))))
+                                .then(Commands.literal("title")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", StringArgumentType.greedyString())
+                                                        .executes(StoryNpcsCommands::setNpcTitle))))
+                                .then(Commands.literal("skin")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("texture", StringArgumentType.string())
+                                                        .executes(StoryNpcsCommands::setNpcSkin))))
+                                .then(Commands.literal("health")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(1.0, 100000.0))
+                                                        .executes(StoryNpcsCommands::setNpcHealth))))
+                                .then(Commands.literal("damage")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.0, 10000.0))
+                                                        .executes(StoryNpcsCommands::setNpcDamage))))
+                                .then(Commands.literal("speed")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.01, 5.0))
+                                                        .executes(StoryNpcsCommands::setNpcSpeed))))
+                                .then(Commands.literal("range")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", IntegerArgumentType.integer(0, 256))
+                                                        .executes(StoryNpcsCommands::setNpcRange))))
+                                .then(Commands.literal("movement")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("type", StringArgumentType.word())
+                                                        .suggests((c, b) -> SharedSuggestionProvider.suggest(List.of("standing", "wandering", "pathing"), b))
+                                                        .executes(StoryNpcsCommands::setNpcMovement))))
+                                .then(Commands.literal("stance")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("type", StringArgumentType.word())
+                                                        .suggests((c, b) -> SharedSuggestionProvider.suggest(List.of("guard", "passive", "neutral", "aggressive", "evasive"), b))
+                                                        .executes(StoryNpcsCommands::setNpcStance))))
                                 .then(Commands.literal("dialogue")
                                         .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                                 .suggests(NPC_IDS)
@@ -359,6 +406,256 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    private static void refreshLoadedEntities(CommandSourceStack source, NamespacedId id) {
+        if (source == null || source.getServer() == null || id == null) return;
+        for (ServerLevel level : source.getServer().getAllLevels()) {
+            for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
+                if (entity instanceof StoryNpcEntity npc && id.toString().equals(npc.getDefinitionId())) {
+                    npc.applyDefinition();
+                }
+            }
+        }
+    }
+
+    private static int setNpcName(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String value = StringArgumentType.getString(ctx, "value").trim();
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getDisplay().setName(value);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Set name of '" + npcId + "' to '" + value + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    private static int setNpcTitle(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String value = StringArgumentType.getString(ctx, "value").trim();
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getDisplay().setTitle(value);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Set title of '" + npcId + "' to '" + value + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    private static int setNpcSkin(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String texture = StringArgumentType.getString(ctx, "texture").trim();
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getDisplay().setSkinTexture(texture);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Set skin of '" + npcId + "' to '" + texture + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    private static int setNpcHealth(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getStats().setMaxHealth(value);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set health of '%s' to %.1f (persisted to YAML).", npcId, value)), true);
+        return 1;
+    }
+
+    private static int setNpcDamage(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getStats().setAttackDamage(value);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set attack damage of '%s' to %.1f (persisted to YAML).", npcId, value)), true);
+        return 1;
+    }
+
+    private static int setNpcSpeed(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getStats().setMovementSpeed(value);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set speed of '%s' to %.2f (persisted to YAML).", npcId, value)), true);
+        return 1;
+    }
+
+    private static int setNpcRange(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        int value = IntegerArgumentType.getInteger(ctx, "value");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getAi().setWalkingRange(value);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set walking range of '%s' to %d (persisted to YAML).", npcId, value)), true);
+        return 1;
+    }
+
+    private static int setNpcMovement(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String typeStr = StringArgumentType.getString(ctx, "type").toUpperCase();
+        com.storynpcs.domain.npc.NpcAi.MovementType type;
+        try {
+            type = com.storynpcs.domain.npc.NpcAi.MovementType.valueOf(typeStr);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Invalid movement type: " + typeStr + ". Valid: STANDING, WANDERING, PATHING"));
+            return 0;
+        }
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getAi().setMovementType(type);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set movement of '%s' to %s (persisted to YAML).", npcId, type)), true);
+        return 1;
+    }
+
+    private static int setNpcStance(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String stanceStr = StringArgumentType.getString(ctx, "type").toUpperCase();
+        com.storynpcs.domain.npc.TacticalStance stance;
+        try {
+            stance = com.storynpcs.domain.npc.TacticalStance.valueOf(stanceStr);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Invalid tactical stance: " + stanceStr + ". Valid: PASSIVE, NEUTRAL, GUARD, AGGRESSIVE, EVASIVE"));
+            return 0;
+        }
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        NpcDefinition def = npcOpt.get();
+        def.getAi().setTacticalStance(stance);
+        var result = mod.getApplicationService().saveNpc(def);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set tactical stance of '%s' to %s (persisted to YAML).", npcId, stance)), true);
+        return 1;
+    }
+
     private static int setNpcDialogue(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         NamespacedId dialogueId = getNamespacedId(ctx, "dialogue_id");
@@ -373,6 +670,7 @@ public final class StoryNpcsCommands {
                 ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to assign dialogue:\n" + result.formatReport(5)));
                 return 0;
             }
+            refreshLoadedEntities(ctx.getSource(), npcId);
             ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Assigned dialogue '" + dialogueId + "' to NPC '" + npcId + "' (persisted to YAML)."), true);
             return 1;
         } catch (NoSuchElementException e) {
@@ -395,6 +693,7 @@ public final class StoryNpcsCommands {
                 ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to assign faction:\n" + result.formatReport(5)));
                 return 0;
             }
+            refreshLoadedEntities(ctx.getSource(), npcId);
             ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Assigned faction '" + factionId + "' to NPC '" + npcId + "' (persisted to YAML)."), true);
             return 1;
         } catch (NoSuchElementException e) {
@@ -1109,14 +1408,23 @@ public final class StoryNpcsCommands {
     private static int sendNpcHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- StoryNPCs NPC Commands ---§r\n" +
-                "§e/storynpcs npc create <npc_id> [name] §7- Scaffold a new NPC (writes YAML, spawns it)\n" +
-                "§e/storynpcs npc list §7- List all registered NPC definitions\n" +
-                "§e/storynpcs npc info <npc_id> §7- View details & action buttons for an NPC\n" +
-                "§e/storynpcs npc set dialogue <npc_id> <dialogue_id> §7- Assign dialogue to an NPC\n" +
-                "§e/storynpcs npc set faction <npc_id> <faction_id> §7- Assign faction to an NPC\n" +
-                "§e/storynpcs npc spawn <npc_id> [pos] §7- Spawn an NPC into the world\n" +
-                "§e/storynpcs npc despawn [npc_id] [radius] §7- Remove spawned NPCs from the world\n" +
-                "§e/storynpcs npc delete <npc_id> §7- Delete NPC definition from registry & disk"), false);
+                "  §e/storynpcs npc create <npc_id> [name]  §7- Scaffold a new NPC (writes YAML, spawns it)\n" +
+                "  §e/storynpcs npc list  §7- List all registered NPC definitions\n" +
+                "  §e/storynpcs npc info <npc_id>  §7- View details & action buttons for an NPC\n" +
+                "  §e/storynpcs npc set name <npc_id> <name>  §7- Set NPC display name\n" +
+                "  §e/storynpcs npc set title <npc_id> <title>  §7- Set NPC title / role\n" +
+                "  §e/storynpcs npc set skin <npc_id> <skin_texture>  §7- Set NPC skin texture\n" +
+                "  §e/storynpcs npc set health <npc_id> <health>  §7- Set NPC max health\n" +
+                "  §e/storynpcs npc set damage <npc_id> <damage>  §7- Set NPC attack damage\n" +
+                "  §e/storynpcs npc set speed <npc_id> <speed>  §7- Set NPC movement speed\n" +
+                "  §e/storynpcs npc set range <npc_id> <range>  §7- Set NPC wander range\n" +
+                "  §e/storynpcs npc set movement <npc_id> <standing|wandering|pathing>  §7- Set AI movement\n" +
+                "  §e/storynpcs npc set stance <npc_id> <guard|passive|neutral|aggressive|evasive>  §7- Set combat stance\n" +
+                "  §e/storynpcs npc set dialogue <npc_id> <dialogue_id>  §7- Assign dialogue to an NPC\n" +
+                "  §e/storynpcs npc set faction <npc_id> <faction_id>  §7- Assign faction to an NPC\n" +
+                "  §e/storynpcs npc spawn <npc_id> [pos]  §7- Spawn an NPC into the world\n" +
+                "  §e/storynpcs npc despawn [npc_id] [radius]  §7- Remove spawned NPCs from the world\n" +
+                "  §e/storynpcs npc delete <npc_id>  §7- Delete NPC definition from registry & disk"), false);
         return 1;
     }
 

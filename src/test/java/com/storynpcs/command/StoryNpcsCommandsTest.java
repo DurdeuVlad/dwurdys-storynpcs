@@ -45,6 +45,21 @@ class StoryNpcsCommandsTest {
         assertNotNull(createId, "npc create npc_id argument must exist");
         assertNotNull(createId.getChild("name"), "npc create optional name argument must exist");
 
+        // npc set subcommands
+        CommandNode<CommandSourceStack> set = npc.getChild("set");
+        assertNotNull(set, "npc set must exist");
+        assertNotNull(set.getChild("name"), "npc set name must exist");
+        assertNotNull(set.getChild("title"), "npc set title must exist");
+        assertNotNull(set.getChild("skin"), "npc set skin must exist");
+        assertNotNull(set.getChild("health"), "npc set health must exist");
+        assertNotNull(set.getChild("damage"), "npc set damage must exist");
+        assertNotNull(set.getChild("speed"), "npc set speed must exist");
+        assertNotNull(set.getChild("range"), "npc set range must exist");
+        assertNotNull(set.getChild("movement"), "npc set movement must exist");
+        assertNotNull(set.getChild("stance"), "npc set stance must exist");
+        assertNotNull(set.getChild("dialogue"), "npc set dialogue must exist");
+        assertNotNull(set.getChild("faction"), "npc set faction must exist");
+
         // Dialogue subcommands
         CommandNode<CommandSourceStack> dialogue = storynpcs.getChild("dialogue");
         assertNotNull(dialogue, "Subcommand 'dialogue' must exist");
