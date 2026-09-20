@@ -93,6 +93,8 @@ public final class StoryNpcsClient {
         mc.tell(() -> {
             if (mc.screen instanceof NpcEditorScreen editor) {
                 editor.onSaveResult(payload.success(), payload.message());
+            } else if (mc.screen instanceof com.storynpcs.client.gui.NpcRulesScreen rulesEditor) {
+                rulesEditor.onSaveResult(payload.success(), payload.message());
             }
         });
     }

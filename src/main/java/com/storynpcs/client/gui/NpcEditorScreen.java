@@ -143,6 +143,14 @@ public class NpcEditorScreen extends Screen {
             }
         }).bounds(rightX, startY + 168, colWidth, 20).build());
 
+        // Behavior rules sub-screen (issue #26)
+        int ruleCount = definition.getRules() != null ? definition.getRules().size() : 0;
+        this.addRenderableWidget(Button.builder(
+                Component.literal("§bRules (" + ruleCount + ")"), b -> {
+                    saveCurrentState();
+                    Minecraft.getInstance().setScreen(new NpcRulesScreen(definition));
+                }).bounds(rightX, startY + 190, colWidth, 14).build());
+
         // Bottom Action Bar
         this.addRenderableWidget(Button.builder(Component.literal("§aSave Changes"), b -> {
             saveCurrentState();
