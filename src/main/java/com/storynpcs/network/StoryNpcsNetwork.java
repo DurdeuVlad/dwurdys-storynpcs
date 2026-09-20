@@ -1,6 +1,7 @@
 package com.storynpcs.network;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.domain.common.DiagnosticHints;
 import com.storynpcs.service.DialogueView;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -184,7 +185,8 @@ public class StoryNpcsNetwork {
         }
         var result = service.saveFaction(factionOpt.get());
         if (result.hasErrors()) {
-            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            String first = result.getErrors().isEmpty() ? "validation failed"
+                    : result.getErrors().get(0).toString() + " — " + DiagnosticHints.hintFor(result.getErrors().get(0));
             sendFactionSaveResult(player, false, "Save rejected: " + first + (result.getErrors().size() > 1
                     ? " (+" + (result.getErrors().size() - 1) + " more)" : ""));
         } else {
@@ -246,7 +248,8 @@ public class StoryNpcsNetwork {
         }
         var result = service.saveQuest(questOpt.get());
         if (result.hasErrors()) {
-            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            String first = result.getErrors().isEmpty() ? "validation failed"
+                    : result.getErrors().get(0).toString() + " — " + DiagnosticHints.hintFor(result.getErrors().get(0));
             sendQuestSaveResult(player, false, "Save rejected: " + first + (result.getErrors().size() > 1
                     ? " (+" + (result.getErrors().size() - 1) + " more)" : ""));
         } else {
@@ -316,7 +319,8 @@ public class StoryNpcsNetwork {
         }
         var result = service.saveDialogue(id, graphOpt.get());
         if (result.hasErrors()) {
-            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            String first = result.getErrors().isEmpty() ? "validation failed"
+                    : result.getErrors().get(0).toString() + " — " + DiagnosticHints.hintFor(result.getErrors().get(0));
             sendSaveResult(player, false, "Save rejected: " + first + (result.getErrors().size() > 1
                     ? " (+" + (result.getErrors().size() - 1) + " more)" : ""));
         } else {
@@ -355,7 +359,8 @@ public class StoryNpcsNetwork {
         def.setId(id);
         var result = service.saveNpc(def);
         if (result.hasErrors()) {
-            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            String first = result.getErrors().isEmpty() ? "validation failed"
+                    : result.getErrors().get(0).toString() + " — " + DiagnosticHints.hintFor(result.getErrors().get(0));
             sendNpcSaveResult(player, false, "Save rejected: " + first);
         } else {
             // Live refresh all in-world entities of this definition
