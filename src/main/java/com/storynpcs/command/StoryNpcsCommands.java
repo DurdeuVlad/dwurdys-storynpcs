@@ -1,6 +1,9 @@
 package com.storynpcs.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.StringReader;
+import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -17,6 +20,7 @@ import com.storynpcs.domain.progression.PlayerProgression;
 import com.storynpcs.domain.progression.QuestProgressState;
 import com.storynpcs.domain.quest.Quest;
 import com.storynpcs.domain.quest.QuestObjective;
+import com.storynpcs.domain.quest.QuestReward;
 import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
 import com.storynpcs.service.StoryNpcsApplicationService;
@@ -46,7 +50,10 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 public final class StoryNpcsCommands {
 
@@ -237,27 +244,7 @@ public final class StoryNpcsCommands {
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(ctx -> startDialogue(ctx, EntityArgument.getPlayer(ctx, "player")))))))
                 // Quest commands
-                .then(Commands.literal("quest")
-                        .executes(StoryNpcsCommands::sendQuestHelp)
-                        .then(Commands.literal("list").executes(StoryNpcsCommands::listQuests))
-                        .then(Commands.literal("info")
-                                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
-                                        .suggests(QUEST_IDS)
-                                        .executes(StoryNpcsCommands::infoQuest)))
-                        .then(Commands.literal("start")
-                                .requires(source -> source.hasPermission(2))
-                                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
-                                        .suggests(QUEST_IDS)
-                                        .executes(ctx -> startQuest(ctx, null))
-                                        .then(Commands.argument("player", EntityArgument.player())
-                                                .executes(ctx -> startQuest(ctx, EntityArgument.getPlayer(ctx, "player"))))))
-                        .then(Commands.literal("complete")
-                                .requires(source -> source.hasPermission(2))
-                                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
-                                        .suggests(QUEST_IDS)
-                                        .executes(ctx -> completeQuest(ctx, null))
-                                        .then(Commands.argument("player", EntityArgument.player())
-                                                .executes(ctx -> completeQuest(ctx, EntityArgument.getPlayer(ctx, "player")))))))
+                .then(questCommands())
                 // Faction commands
                 .then(Commands.literal("faction")
                         .executes(StoryNpcsCommands::sendFactionHelp)
@@ -303,6 +290,136 @@ public final class StoryNpcsCommands {
         dispatcher.register(root);
         // Register alias /sn (inherits subcommand permissions from root and executes help when called alone)
         dispatcher.register(Commands.literal("sn").executes(StoryNpcsCommands::sendHelp).redirect(dispatcher.getRoot().getChild("storynpcs")));
+    }
+
+    /**
+     * The `quest` subtree, built imperatively — the nested-brace registration style
+     * used above is too error-prone at this depth (an earlier draft mis-attached
+     * argument nodes). Reads, lifecycle, and authoring subcommands in one place.
+     */
+    /**
+     * Free-form quest target argument. Unlike {@link StringArgumentType#word()},
+     * accepts ':' so unquoted ids like {@code minecraft:zombie} parse as one token;
+     * quoted strings allow spaces for location descriptions like {@code "market square"}.
+     */
+    public static final class TargetArgument implements ArgumentType<String> {
+        private static final TargetArgument INSTANCE = new TargetArgument();
+
+        public static TargetArgument target() {
+            return INSTANCE;
+        }
+
+        @Override
+        public String parse(StringReader reader) throws CommandSyntaxException {
+            if (reader.canRead() && StringReader.isQuotedStringStart(reader.peek())) {
+                char quote = reader.read();
+                return reader.readStringUntil(quote);
+            }
+            int start = reader.getCursor();
+            while (reader.canRead() && isTargetChar(reader.peek())) {
+                reader.skip();
+            }
+            String value = reader.getString().substring(start, reader.getCursor());
+            if (value.isEmpty()) {
+                throw CommandSyntaxException.BUILT_IN_EXCEPTIONS.dispatcherParseException()
+                        .createWithContext(reader, "Expected a target value");
+            }
+            return value;
+        }
+
+        private static boolean isTargetChar(char c) {
+            return c >= '0' && c <= '9'
+                    || c >= 'a' && c <= 'z'
+                    || c >= 'A' && c <= 'Z'
+                    || c == '_' || c == '-' || c == '.' || c == '+'
+                    || c == ':' || c == '/' || c == ',';
+        }
+
+        @Override
+        public java.util.Collection<String> getExamples() {
+            return java.util.List.of("minecraft:zombie", "minecraft:diamond", "\"town square\"");
+        }
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> questCommands() {
+        var quest = Commands.literal("quest")
+                .executes(StoryNpcsCommands::sendQuestHelp)
+                .then(Commands.literal("list").executes(StoryNpcsCommands::listQuests))
+                .then(Commands.literal("info")
+                        .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                                .suggests(QUEST_IDS)
+                                .executes(StoryNpcsCommands::infoQuest)));
+
+        var questIdStart = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .suggests(QUEST_IDS)
+                .executes(ctx -> startQuest(ctx, null))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> startQuest(ctx, EntityArgument.getPlayer(ctx, "player"))));
+        quest.then(Commands.literal("start").requires(s -> s.hasPermission(2)).then(questIdStart));
+
+        var questIdComplete = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .suggests(QUEST_IDS)
+                .executes(ctx -> completeQuest(ctx, null))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> completeQuest(ctx, EntityArgument.getPlayer(ctx, "player"))));
+        quest.then(Commands.literal("complete").requires(s -> s.hasPermission(2)).then(questIdComplete));
+
+        // Authoring — create / set / objective / reward (issue #17)
+        var questIdCreate = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .executes(ctx -> createQuest(ctx, null))
+                .then(Commands.argument("title", StringArgumentType.greedyString())
+                        .executes(ctx -> createQuest(ctx, StringArgumentType.getString(ctx, "title"))));
+        quest.then(Commands.literal("create").requires(s -> s.hasPermission(2)).then(questIdCreate));
+
+        var questIdSet = Commands.argument("quest_id", ResourceLocationArgument.id()).suggests(QUEST_IDS);
+        questIdSet.then(Commands.literal("description")
+                .then(Commands.argument("value", StringArgumentType.greedyString())
+                        .executes(ctx -> setQuestField(ctx, "description"))));
+        questIdSet.then(Commands.literal("category")
+                .then(Commands.argument("value", StringArgumentType.word())
+                        .executes(ctx -> setQuestField(ctx, "category"))));
+        questIdSet.then(Commands.literal("repeatType")
+                .then(Commands.argument("value", StringArgumentType.word())
+                        .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                List.of("ONCE", "REPEATABLE", "DAILY"), b))
+                        .executes(ctx -> setQuestField(ctx, "repeatType"))));
+        quest.then(Commands.literal("set").requires(s -> s.hasPermission(2)).then(questIdSet));
+
+        var objectiveAdd = Commands.literal("add")
+                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                        .suggests(QUEST_IDS)
+                        .then(Commands.argument("type", StringArgumentType.word())
+                                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                        List.of("KILL_ENTITY", "COLLECT_ITEM", "VISIT_LOCATION", "TALK_TO_NPC", "CUSTOM"), b))
+                                .then(Commands.argument("target", TargetArgument.target())
+                                        .then(Commands.argument("requiredCount", IntegerArgumentType.integer(1, 100000))
+                                                .executes(StoryNpcsCommands::addQuestObjective)))));
+        var objectiveRemove = Commands.literal("remove")
+                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                        .suggests(QUEST_IDS)
+                        .then(Commands.argument("objective_id", StringArgumentType.word())
+                                .executes(StoryNpcsCommands::removeQuestObjective)));
+        quest.then(Commands.literal("objective").requires(s -> s.hasPermission(2))
+                .then(objectiveAdd).then(objectiveRemove));
+
+        var rewardAdd = Commands.literal("add")
+                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                        .suggests(QUEST_IDS)
+                        .then(Commands.argument("type", StringArgumentType.word())
+                                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                        List.of("EXPERIENCE", "ITEM", "FACTION_POINTS", "COMMAND"), b))
+                                .then(Commands.argument("target", TargetArgument.target())
+                                        .then(Commands.argument("amount", IntegerArgumentType.integer(1, 100000))
+                                                .executes(StoryNpcsCommands::addQuestReward)))));
+        var rewardRemove = Commands.literal("remove")
+                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                        .suggests(QUEST_IDS)
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .executes(StoryNpcsCommands::removeQuestReward)));
+        quest.then(Commands.literal("reward").requires(s -> s.hasPermission(2))
+                .then(rewardAdd).then(rewardRemove));
+
+        return quest;
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {
@@ -1213,6 +1330,249 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("Failed to complete quest: " + e.getMessage()));
             return 0;
         }
+    }
+
+    /**
+     * /storynpcs quest create — scaffolds a minimal valid quest (one placeholder
+     * CUSTOM objective, required by the validator) through the service layer.
+     */
+    private static int createQuest(CommandContext<CommandSourceStack> ctx, String title) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var result = mod.getApplicationService().createQuest(id, title);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest creation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Created quest '" + id + "'" + (title != null ? " ('" + title + "')" : "")
+                        + " — persisted to YAML. Add real objectives via /storynpcs quest objective add "
+                        + id + " <type> <target> <count>."), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs quest set — description/category/repeatType. repeatType is validated
+     * against the domain enum; category is a free-form label per the domain model.
+     */
+    private static int setQuestField(CommandContext<CommandSourceStack> ctx, String field) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        String value = StringArgumentType.getString(ctx, "value").trim();
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var questOpt = mod.getRegistry().getQuest(id);
+        if (questOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
+            return 0;
+        }
+        Quest quest = questOpt.get();
+        switch (field) {
+            case "description" -> quest.setDescription(value);
+            case "category" -> quest.setCategory(value);
+            case "repeatType" -> {
+                Quest.RepeatType rt;
+                try {
+                    rt = Quest.RepeatType.valueOf(value.toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    ctx.getSource().sendFailure(Component.literal(
+                            "[StoryNPCs] Invalid repeatType '" + value + "' — expected ONCE, REPEATABLE, or DAILY."));
+                    return 0;
+                }
+                quest.setRepeatType(rt);
+            }
+            default -> {
+                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown quest field: " + field));
+                return 0;
+            }
+        }
+        var result = mod.getApplicationService().saveQuest(quest);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Set " + field + " of '" + id + "' to '" + value + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs quest objective add — objective ids are auto-generated as
+     * obj_1, obj_2, ... unique within the quest (the issue's grammar carries no
+     * explicit id argument).
+     */
+    private static int addQuestObjective(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        String typeRaw = StringArgumentType.getString(ctx, "type");
+        String target = StringArgumentType.getString(ctx, "target").trim();
+        int count = IntegerArgumentType.getInteger(ctx, "requiredCount");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        QuestObjective.Type type;
+        try {
+            type = QuestObjective.Type.valueOf(typeRaw.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Invalid objective type '" + typeRaw
+                            + "' — expected KILL_ENTITY, COLLECT_ITEM, VISIT_LOCATION, TALK_TO_NPC, or CUSTOM."));
+            return 0;
+        }
+        if (target.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Objective target must not be blank."));
+            return 0;
+        }
+        var questOpt = mod.getRegistry().getQuest(id);
+        if (questOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
+            return 0;
+        }
+        Quest quest = questOpt.get();
+        String objId = nextObjectiveId(quest);
+        quest.getObjectives().add(new QuestObjective(objId, type, target, count));
+        var result = mod.getApplicationService().saveQuest(quest);
+        if (result.hasErrors()) {
+            quest.getObjectives().removeIf(o -> o.getId().equals(objId));
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Added objective '%s' (%s %s x%d) to quest '%s' (persisted to YAML).",
+                objId, type, target, count, id)), true);
+        return 1;
+    }
+
+    private static String nextObjectiveId(Quest quest) {
+        int n = 1;
+        Set<String> existing = new HashSet<>();
+        for (QuestObjective o : quest.getObjectives()) existing.add(o.getId());
+        while (existing.contains("objective_" + n)) n++;
+        return "objective_" + n;
+    }
+
+    /** /storynpcs quest objective remove — removes an objective by its generated id. */
+    private static int removeQuestObjective(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        String objectiveId = StringArgumentType.getString(ctx, "objective_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var questOpt = mod.getRegistry().getQuest(id);
+        if (questOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
+            return 0;
+        }
+        Quest quest = questOpt.get();
+        QuestObjective removed = null;
+        for (var o : quest.getObjectives()) {
+            if (o.getId().equals(objectiveId)) { removed = o; break; }
+        }
+        if (removed == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Quest '" + id + "' has no objective '" + objectiveId + "'."));
+            return 0;
+        }
+        quest.getObjectives().remove(removed);
+        var result = mod.getApplicationService().saveQuest(quest);
+        if (result.hasErrors()) {
+            quest.getObjectives().add(removed);
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Validation failed (a quest needs at least one objective):\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Removed objective '" + objectiveId + "' from quest '" + id + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs quest reward add — rewards have no id field in the domain model;
+     * removal is by 1-based list index as shown by `quest info`.
+     */
+    private static int addQuestReward(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        String typeRaw = StringArgumentType.getString(ctx, "type");
+        String target = StringArgumentType.getString(ctx, "target").trim();
+        int amount = IntegerArgumentType.getInteger(ctx, "amount");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        QuestReward.Type type;
+        try {
+            type = QuestReward.Type.valueOf(typeRaw.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Invalid reward type '" + typeRaw
+                            + "' — expected EXPERIENCE, ITEM, FACTION_POINTS, or COMMAND."));
+            return 0;
+        }
+        if (target.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Reward target must not be blank."));
+            return 0;
+        }
+        var questOpt = mod.getRegistry().getQuest(id);
+        if (questOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
+            return 0;
+        }
+        Quest quest = questOpt.get();
+        quest.getRewards().add(new QuestReward(type, target, amount));
+        var result = mod.getApplicationService().saveQuest(quest);
+        if (result.hasErrors()) {
+            quest.getRewards().remove(quest.getRewards().size() - 1);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Added reward #%d (%s %s x%d) to quest '%s' (persisted to YAML).",
+                quest.getRewards().size(), type, target, amount, id)), true);
+        return 1;
+    }
+
+    /** /storynpcs quest reward remove — removes a reward by its 1-based index. */
+    private static int removeQuestReward(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        int index = IntegerArgumentType.getInteger(ctx, "index");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var questOpt = mod.getRegistry().getQuest(id);
+        if (questOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
+            return 0;
+        }
+        Quest quest = questOpt.get();
+        if (index > quest.getRewards().size()) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] Quest '%s' only has %d reward(s) — index %d out of range.",
+                    id, quest.getRewards().size(), index)));
+            return 0;
+        }
+        QuestReward removed = quest.getRewards().remove(index - 1);
+        var result = mod.getApplicationService().saveQuest(quest);
+        if (result.hasErrors()) {
+            quest.getRewards().add(index - 1, removed);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Removed reward #%d (%s %s) from quest '%s' (persisted to YAML).",
+                index, removed.getType(), removed.getTarget(), id)), true);
+        return 1;
     }
 
     // Faction Handlers

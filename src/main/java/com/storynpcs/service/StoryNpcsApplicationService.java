@@ -313,6 +313,65 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Persists a quest definition: validates it against a snapshot of the live registry
+     * (so prerequisite/faction references must resolve), writes YAML atomically, then
+     * registers it live. Canonical mutation path for `/storynpcs quest create/set/
+     * objective/reward` — mirrors {@link #saveNpc}.
+     *
+     * @return validation result; on errors nothing is written or registered.
+     */
+    public ValidationResult saveQuest(Quest quest) {
+        Objects.requireNonNull(quest, "quest");
+        ValidationResult result = ValidationResult.valid();
+
+        if (quest.getId() == null) {
+            result.addError("QUEST_ID_MISSING", "Quest definition must have an ID");
+            return result;
+        }
+
+        DefinitionRegistry snapshot = new DefinitionRegistry();
+        snapshot.copyFrom(registry);
+        snapshot.registerQuest(quest);
+        result.merge(CrossReferenceValidator.validate(snapshot));
+        if (result.hasErrors()) {
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                new YamlDefinitionWriter().writeDefinition(
+                        loader.getLastLoadedRootPath(), "quests",
+                        YamlDefinitionWriter.fileNameFor(quest.getId()), quest);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write quest file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerQuest(quest);
+        return result;
+    }
+
+    /**
+     * Scaffolds a minimal-but-valid quest and persists it. The cross-reference
+     * validator rejects quests with no objectives, so the scaffold ships one
+     * placeholder CUSTOM objective the admin replaces via `quest objective`.
+     */
+    public ValidationResult createQuest(NamespacedId id, String title) {
+        Objects.requireNonNull(id, "id");
+        if (registry.getQuest(id).isPresent()) {
+            ValidationResult res = ValidationResult.valid();
+            res.addError("QUEST_ALREADY_EXISTS", "Quest '" + id + "' already exists");
+            return res;
+        }
+        String questTitle = (title != null && !title.isBlank()) ? title.trim() : id.getPath();
+        Quest quest = new Quest(id, questTitle);
+        quest.setObjectives(List.of(new QuestObjective("objective_1",
+                QuestObjective.Type.CUSTOM, "describe_the_objective", 1)));
+        return saveQuest(quest);
+    }
+
+    /**
      * Scaffolds a valid starter dialogue graph, validates and persists it to YAML, and
      * registers it live in the registry. Canonical creation path for `/storynpcs dialogue create`.
      */

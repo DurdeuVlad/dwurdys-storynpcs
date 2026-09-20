@@ -76,6 +76,49 @@ class StoryNpcsCommandsTest {
         assertNotNull(quest.getChild("start"), "quest start must exist");
         assertNotNull(quest.getChild("complete"), "quest complete must exist");
 
+        // Quest authoring subcommands (issue #17)
+        assertNotNull(quest.getChild("create").getChild("quest_id"), "quest create quest_id arg");
+        assertNotNull(quest.getChild("create").getChild("quest_id").getChild("title"),
+                "quest create optional title arg");
+
+        CommandNode<CommandSourceStack> qset = quest.getChild("set");
+        assertNotNull(qset, "quest set must exist");
+        CommandNode<CommandSourceStack> qsetId = qset.getChild("quest_id");
+        assertNotNull(qsetId, "quest set quest_id arg");
+        assertNotNull(qsetId.getChild("description"), "quest set description");
+        assertNotNull(qsetId.getChild("category"), "quest set category");
+        assertNotNull(qsetId.getChild("repeatType"), "quest set repeatType");
+
+        CommandNode<CommandSourceStack> objective = quest.getChild("objective");
+        assertNotNull(objective, "quest objective must exist");
+        CommandNode<CommandSourceStack> objAdd = objective.getChild("add");
+        assertNotNull(objAdd, "quest objective add");
+        CommandNode<CommandSourceStack> objAddId = objAdd.getChild("quest_id");
+        assertNotNull(objAddId, "objective add quest_id");
+        CommandNode<CommandSourceStack> objType = objAddId.getChild("type");
+        assertNotNull(objType, "objective add type arg");
+        CommandNode<CommandSourceStack> objTarget = objType.getChild("target");
+        assertNotNull(objTarget, "objective add target arg");
+        assertNotNull(objTarget.getChild("requiredCount"), "objective add requiredCount arg");
+        CommandNode<CommandSourceStack> objRemove = objective.getChild("remove");
+        assertNotNull(objRemove, "quest objective remove");
+        assertNotNull(objRemove.getChild("quest_id"), "objective remove quest_id");
+        assertNotNull(objRemove.getChild("quest_id").getChild("objective_id"), "objective remove objective_id");
+
+        CommandNode<CommandSourceStack> reward = quest.getChild("reward");
+        assertNotNull(reward, "quest reward must exist");
+        CommandNode<CommandSourceStack> rewAdd = reward.getChild("add");
+        assertNotNull(rewAdd, "quest reward add");
+        CommandNode<CommandSourceStack> rewType = rewAdd.getChild("quest_id").getChild("type");
+        assertNotNull(rewType, "reward add type arg");
+        CommandNode<CommandSourceStack> rewTarget = rewType.getChild("target");
+        assertNotNull(rewTarget, "reward add target arg");
+        assertNotNull(rewTarget.getChild("amount"), "reward add amount arg");
+        CommandNode<CommandSourceStack> rewRemove = reward.getChild("remove");
+        assertNotNull(rewRemove, "quest reward remove");
+        assertNotNull(rewRemove.getChild("quest_id"), "reward remove quest_id");
+        assertNotNull(rewRemove.getChild("quest_id").getChild("index"), "reward remove index arg");
+
         // Faction subcommands
         CommandNode<CommandSourceStack> faction = storynpcs.getChild("faction");
         assertNotNull(faction, "Subcommand 'faction' must exist");
@@ -109,6 +152,37 @@ class StoryNpcsCommandsTest {
         assertSuggestions(storynpcs.getChild("quest").getChild("complete"), "quest_id");
         assertSuggestions(storynpcs.getChild("faction").getChild("set"), "faction_id");
         assertSuggestions(storynpcs.getChild("faction").getChild("adjust"), "faction_id");
+    }
+
+    @Test
+    @DisplayName("quest objective/reward add commands parse to the final count argument")
+    void testQuestAddCommandsParse() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+
+        CommandSourceStack source = opSource();
+
+        var objParse = dispatcher.parse(
+                "storynpcs quest objective add storynpcs:m3test KILL_ENTITY minecraft:zombie 3",
+                source);
+        assertTrue(objParse.getExceptions().isEmpty(),
+                "objective add parse failed: " + objParse.getExceptions());
+        assertFalse(objParse.getReader().canRead(),
+                "unconsumed input after objective add: " + objParse.getReader().getRemaining());
+
+        var rewParse = dispatcher.parse(
+                "storynpcs quest reward add storynpcs:m3test ITEM minecraft:diamond 2",
+                source);
+        assertTrue(rewParse.getExceptions().isEmpty(),
+                "reward add parse failed: " + rewParse.getExceptions());
+        assertFalse(rewParse.getReader().canRead(),
+                "unconsumed input after reward add: " + rewParse.getReader().getRemaining());
+    }
+
+    private static CommandSourceStack opSource() {
+        return new CommandSourceStack(net.minecraft.commands.CommandSource.NULL,
+                net.minecraft.world.phys.Vec3.ZERO, net.minecraft.world.phys.Vec2.ZERO,
+                null, 4, "test", null, null, null);
     }
 
     private static void assertSuggestions(CommandNode<CommandSourceStack> parent, String argName) {
