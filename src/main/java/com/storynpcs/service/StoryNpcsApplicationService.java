@@ -372,6 +372,66 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Persists a faction definition: validates, writes YAML atomically, then registers
+     * it live. Canonical mutation path for `/storynpcs faction create/configure` —
+     * mirrors {@link #saveQuest}.
+     *
+     * @return validation result; on errors nothing is written or registered.
+     */
+    public ValidationResult saveFaction(Faction faction) {
+        Objects.requireNonNull(faction, "faction");
+        ValidationResult result = ValidationResult.valid();
+
+        if (faction.getId() == null) {
+            result.addError("FACTION_ID_MISSING", "Faction definition must have an ID");
+            return result;
+        }
+        if (faction.getHostileThreshold() >= faction.getFriendlyThreshold()) {
+            result.addError("FACTION_THRESHOLDS_INCONSISTENT", String.format(
+                    "Faction '%s': hostileThreshold (%d) must be below friendlyThreshold (%d)",
+                    faction.getId(), faction.getHostileThreshold(), faction.getFriendlyThreshold()));
+            return result;
+        }
+
+        DefinitionRegistry snapshot = new DefinitionRegistry();
+        snapshot.copyFrom(registry);
+        snapshot.registerFaction(faction);
+        result.merge(CrossReferenceValidator.validate(snapshot));
+        if (result.hasErrors()) {
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                new YamlDefinitionWriter().writeDefinition(
+                        loader.getLastLoadedRootPath(), "factions",
+                        YamlDefinitionWriter.fileNameFor(faction.getId()), faction);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write faction file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerFaction(faction);
+        return result;
+    }
+
+    /**
+     * Scaffolds a faction with domain defaults (defaultPoints 1000, hostile 500,
+     * friendly 1500) and persists it. Canonical path for `/storynpcs faction create`.
+     */
+    public ValidationResult createFaction(NamespacedId id, String name) {
+        Objects.requireNonNull(id, "id");
+        if (registry.getFaction(id).isPresent()) {
+            ValidationResult res = ValidationResult.valid();
+            res.addError("FACTION_ALREADY_EXISTS", "Faction '" + id + "' already exists");
+            return res;
+        }
+        String factionName = (name != null && !name.isBlank()) ? name.trim() : id.getPath();
+        return saveFaction(new Faction(id, factionName, 1000, 500, 1500));
+    }
+
+    /**
      * Scaffolds a valid starter dialogue graph, validates and persists it to YAML, and
      * registers it live in the registry. Canonical creation path for `/storynpcs dialogue create`.
      */

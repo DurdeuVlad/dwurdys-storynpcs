@@ -246,29 +246,7 @@ public final class StoryNpcsCommands {
                 // Quest commands
                 .then(questCommands())
                 // Faction commands
-                .then(Commands.literal("faction")
-                        .executes(StoryNpcsCommands::sendFactionHelp)
-                        .then(Commands.literal("list").executes(StoryNpcsCommands::listFactions))
-                        .then(Commands.literal("info")
-                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
-                                        .suggests(FACTION_IDS)
-                                        .executes(StoryNpcsCommands::infoFaction)))
-                        .then(Commands.literal("set")
-                                .requires(source -> source.hasPermission(2))
-                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
-                                        .suggests(FACTION_IDS)
-                                        .then(Commands.argument("points", IntegerArgumentType.integer())
-                                                .executes(ctx -> setFaction(ctx, null))
-                                                .then(Commands.argument("player", EntityArgument.player())
-                                                        .executes(ctx -> setFaction(ctx, EntityArgument.getPlayer(ctx, "player")))))))
-                        .then(Commands.literal("adjust")
-                                .requires(source -> source.hasPermission(2))
-                                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
-                                        .suggests(FACTION_IDS)
-                                        .then(Commands.argument("delta", IntegerArgumentType.integer())
-                                                .executes(ctx -> adjustFaction(ctx, null))
-                                                .then(Commands.argument("player", EntityArgument.player())
-                                                        .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player"))))))))
+                .then(factionCommands())
                 // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
                         .executes(StoryNpcsCommands::sendFollowerHelp)
@@ -420,6 +398,54 @@ public final class StoryNpcsCommands {
                 .then(rewardAdd).then(rewardRemove));
 
         return quest;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> factionCommands() {
+        var faction = Commands.literal("faction")
+                .executes(StoryNpcsCommands::sendFactionHelp)
+                .then(Commands.literal("list").executes(StoryNpcsCommands::listFactions))
+                .then(Commands.literal("info")
+                        .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                                .suggests(FACTION_IDS)
+                                .executes(StoryNpcsCommands::infoFaction)));
+
+        var factionIdSet = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .suggests(FACTION_IDS)
+                .then(Commands.argument("points", IntegerArgumentType.integer())
+                        .executes(ctx -> setFaction(ctx, null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(ctx -> setFaction(ctx, EntityArgument.getPlayer(ctx, "player")))));
+        faction.then(Commands.literal("set").requires(s -> s.hasPermission(2)).then(factionIdSet));
+
+        var factionIdAdjust = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .suggests(FACTION_IDS)
+                .then(Commands.argument("delta", IntegerArgumentType.integer())
+                        .executes(ctx -> adjustFaction(ctx, null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player")))));
+        faction.then(Commands.literal("adjust").requires(s -> s.hasPermission(2)).then(factionIdAdjust));
+
+        // Authoring — create / configure (issue #18)
+        var factionIdCreate = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .executes(ctx -> createFaction(ctx, null))
+                .then(Commands.argument("name", StringArgumentType.greedyString())
+                        .executes(ctx -> createFaction(ctx, StringArgumentType.getString(ctx, "name"))));
+        faction.then(Commands.literal("create").requires(s -> s.hasPermission(2)).then(factionIdCreate));
+
+        var factionIdConfigure = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .suggests(FACTION_IDS);
+        factionIdConfigure.then(Commands.literal("defaultPoints")
+                .then(Commands.argument("value", IntegerArgumentType.integer())
+                        .executes(ctx -> configureFaction(ctx, "defaultPoints"))));
+        factionIdConfigure.then(Commands.literal("hostileThreshold")
+                .then(Commands.argument("value", IntegerArgumentType.integer())
+                        .executes(ctx -> configureFaction(ctx, "hostileThreshold"))));
+        factionIdConfigure.then(Commands.literal("friendlyThreshold")
+                .then(Commands.argument("value", IntegerArgumentType.integer())
+                        .executes(ctx -> configureFaction(ctx, "friendlyThreshold"))));
+        faction.then(Commands.literal("configure").requires(s -> s.hasPermission(2)).then(factionIdConfigure));
+
+        return faction;
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {
@@ -1575,6 +1601,71 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    /** /storynpcs faction create — scaffolds a faction with domain defaults. */
+    private static int createFaction(CommandContext<CommandSourceStack> ctx, String name) {
+        NamespacedId id = getNamespacedId(ctx, "faction_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var result = mod.getApplicationService().createFaction(id, name);
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction creation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Created faction '" + id + "'" + (name != null ? " ('" + name + "')" : "")
+                        + " — persisted to YAML. Tune thresholds via /storynpcs faction configure "
+                        + id + " defaultPoints|hostileThreshold|friendlyThreshold <value>."), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs faction configure — defaultPoints/hostileThreshold/friendlyThreshold.
+     * Threshold consistency (hostile &lt; friendly) is enforced by the service so the
+     * GUI authoring path gets the same guarantee.
+     */
+    private static int configureFaction(CommandContext<CommandSourceStack> ctx, String field) {
+        NamespacedId id = getNamespacedId(ctx, "faction_id");
+        int value = IntegerArgumentType.getInteger(ctx, "value");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var factionOpt = mod.getRegistry().getFaction(id);
+        if (factionOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction not found: " + id));
+            return 0;
+        }
+        Faction faction = factionOpt.get();
+        int previous;
+        switch (field) {
+            case "defaultPoints" -> { previous = faction.getDefaultPoints(); faction.setDefaultPoints(value); }
+            case "hostileThreshold" -> { previous = faction.getHostileThreshold(); faction.setHostileThreshold(value); }
+            case "friendlyThreshold" -> { previous = faction.getFriendlyThreshold(); faction.setFriendlyThreshold(value); }
+            default -> {
+                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown faction field: " + field));
+                return 0;
+            }
+        }
+        var result = mod.getApplicationService().saveFaction(faction);
+        if (result.hasErrors()) {
+            switch (field) {
+                case "defaultPoints" -> faction.setDefaultPoints(previous);
+                case "hostileThreshold" -> faction.setHostileThreshold(previous);
+                case "friendlyThreshold" -> faction.setFriendlyThreshold(previous);
+                default -> { }
+            }
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Set " + field + " of '" + id + "' to " + value + " (persisted to YAML)."), true);
+        return 1;
+    }
+
     // Faction Handlers
     private static int listFactions(CommandContext<CommandSourceStack> ctx) {
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
@@ -1957,7 +2048,9 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs faction list §7- List all factions\n" +
                 "§e/storynpcs faction info <faction_id> §7- View faction thresholds & standing\n" +
                 "§e/storynpcs faction set <faction_id> <points> [player] §7- Set player faction reputation\n" +
-                "§e/storynpcs faction adjust <faction_id> <delta> [player] §7- Adjust player faction reputation"), false);
+                "§e/storynpcs faction adjust <faction_id> <delta> [player] §7- Adjust player faction reputation\n" +
+                "§e/storynpcs faction create <faction_id> [name] §7- Scaffold a new faction definition\n" +
+                "§e/storynpcs faction configure <faction_id> <field> <value> §7- Tune thresholds"), false);
         return 1;
     }
 
