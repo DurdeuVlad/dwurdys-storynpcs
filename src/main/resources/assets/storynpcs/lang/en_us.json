@@ -1,8 +1,17 @@
 {
   "itemGroup.storynpcs": "StoryNPCs",
   "item.storynpcs.npc_wand": "NPC Wand",
+  "item.storynpcs.npc_wand.tooltip.1": "Right-click a block: create an NPC and open its editor",
+  "item.storynpcs.npc_wand.tooltip.2": "Right-click an NPC: edit it · Left-click an NPC: remove it",
   "item.storynpcs.npc_cloner": "NPC Cloner",
+  "item.storynpcs.npc_cloner.tooltip.1": "Right-click an NPC: copy it as a template",
+  "item.storynpcs.npc_cloner.tooltip.2": "Right-click a block: stamp a copy",
   "item.storynpcs.npc_path": "NPC Moving Path",
+  "item.storynpcs.npc_path.tooltip.1": "Right-click an NPC to select it, then right-click blocks to add waypoints",
+  "item.storynpcs.npc_path.tooltip.2": "Sneak + right-click air: clear the path",
   "item.storynpcs.npc_mounter": "NPC Mounter",
-  "item.storynpcs.npc_dialogue_wand": "NPC Dialogue Wand"
+  "item.storynpcs.npc_mounter.tooltip.1": "Right-click an entity, then right-click another to mount them",
+  "item.storynpcs.npc_mounter.tooltip.2": "Sneak + right-click: dismount",
+  "item.storynpcs.npc_dialogue_wand": "NPC Dialogue Wand",
+  "item.storynpcs.npc_dialogue_wand.tooltip.1": "Right-click an NPC: open its dialogue editor (creates one if needed)"
 }
