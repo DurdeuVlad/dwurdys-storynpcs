@@ -4,10 +4,13 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.storynpcs.StoryNpcs;
 import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.dialogue.DialogueEdge;
 import com.storynpcs.domain.dialogue.DialogueGraph;
+import com.storynpcs.domain.dialogue.DialogueNode;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.progression.PlayerProgression;
@@ -21,6 +24,7 @@ import com.storynpcs.yaml.DefinitionRegistry;
 import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.entity.StoryNpcEntity;
+import com.storynpcs.item.StoryNpcsItems;
 import java.util.NoSuchElementException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -35,6 +39,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -96,6 +101,9 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("reload")
                         .requires(source -> source.hasPermission(2))
                         .executes(StoryNpcsCommands::reload))
+                .then(Commands.literal("quickstart")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(StoryNpcsCommands::quickstart))
                 // NPC commands
                 .then(Commands.literal("npc")
                         .executes(StoryNpcsCommands::sendNpcHelp)
@@ -810,6 +818,138 @@ public final class StoryNpcsCommands {
         return sb.length() > 0 ? sb.toString() : path;
     }
 
+    // ---------------------------------------------------------------------------
+    // /storynpcs quickstart — zero-reading on-ramp: one demo NPC + all five wands.
+    // ---------------------------------------------------------------------------
+
+    /** Bundled starter NPC — preferred demo target when it has a working dialogue. */
+    private static final NamespacedId QUICKSTART_SEEDED_NPC = NamespacedId.of("storynpcs:guard_captain");
+    /** Throwaway NPC scaffolded when the bundled starter content is absent. */
+    static final NamespacedId QUICKSTART_DEMO_NPC = NamespacedId.of("storynpcs:quickstart_demo");
+    static final NamespacedId QUICKSTART_DEMO_DIALOGUE = NamespacedId.of("storynpcs:quickstart_dialogue");
+    /** Reuse radius in blocks — a prior quickstart NPC within range is reused, never duplicated. */
+    static final double QUICKSTART_REUSE_RADIUS = 32.0;
+    /** Spawn distance in front of the sender. */
+    private static final double QUICKSTART_SPAWN_OFFSET = 2.5;
+
+    /**
+     * Picks the NPC definition the demo should use, or {@code null} when neither the
+     * seeded captain nor an already-scaffolded demo NPC is usable and scaffolding
+     * is required.
+     */
+    static NamespacedId resolveDemoNpcId(DefinitionRegistry reg) {
+        if (isTalkableDemo(reg, QUICKSTART_SEEDED_NPC)) return QUICKSTART_SEEDED_NPC;
+        if (isTalkableDemo(reg, QUICKSTART_DEMO_NPC)) return QUICKSTART_DEMO_NPC;
+        return null;
+    }
+
+    private static boolean isTalkableDemo(DefinitionRegistry reg, NamespacedId id) {
+        return reg.getNpc(id)
+                .filter(n -> n.getDialogueId() != null && reg.getDialogue(n.getDialogueId()).isPresent())
+                .isPresent();
+    }
+
+    /**
+     * A minimal but real directed-graph dialogue for the fallback demo NPC:
+     * an entry node branching to two reachable terminal nodes.
+     */
+    static DialogueGraph buildQuickstartDialogue() {
+        DialogueGraph graph = new DialogueGraph(QUICKSTART_DEMO_DIALOGUE, "Quickstart Demo", "greeting");
+        DialogueNode greeting = new DialogueNode("greeting",
+                "Hey there! I'm a StoryNPCs demo — right-click me with the Dialogue Wand to see my graph.");
+        greeting.addOption(new DialogueEdge("What can this mod do?", "about"));
+        greeting.addOption(new DialogueEdge("Just saying hi.", "farewell"));
+        graph.addNode(greeting);
+        DialogueNode about = new DialogueNode("about",
+                "NPCs like me get branching dialogue, quests, factions and behavior rules — all editable in-game.");
+        about.addOption(new DialogueEdge("Neat. Bye!", "farewell"));
+        graph.addNode(about);
+        graph.addNode(new DialogueNode("farewell", "See you around!"));
+        return graph;
+    }
+
+    private static int quickstart(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player;
+        try {
+            player = source.getPlayerOrException();
+        } catch (CommandSyntaxException e) {
+            source.sendFailure(Component.literal("[StoryNPCs] /storynpcs quickstart must be run by a player in-game"));
+            return 0;
+        }
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        DefinitionRegistry reg = mod.getRegistry();
+
+        // 1. Demo definition: bundled starter NPC if talkable, else scaffold a throwaway one
+        NamespacedId demoId = resolveDemoNpcId(reg);
+        if (demoId == null) {
+            if (reg.getDialogue(QUICKSTART_DEMO_DIALOGUE).isEmpty()) {
+                var dialogueResult = mod.getApplicationService()
+                        .saveDialogue(QUICKSTART_DEMO_DIALOGUE, buildQuickstartDialogue());
+                if (dialogueResult.hasErrors()) {
+                    source.sendFailure(Component.literal("[StoryNPCs] Demo dialogue scaffold rejected (nothing written):\n"
+                            + dialogueResult.formatReport(10)));
+                    return 0;
+                }
+            }
+            NpcDefinition def = new NpcDefinition(QUICKSTART_DEMO_NPC, "Demo NPC");
+            def.setDialogueId(QUICKSTART_DEMO_DIALOGUE);
+            var npcResult = mod.getApplicationService().saveNpc(def);
+            if (npcResult.hasErrors()) {
+                source.sendFailure(Component.literal("[StoryNPCs] Demo NPC scaffold rejected (nothing written):\n"
+                        + npcResult.formatReport(10)));
+                return 0;
+            }
+            demoId = QUICKSTART_DEMO_NPC;
+        }
+
+        // 2. Spawn-or-reuse: a living quickstart NPC within radius is reused, never duplicated
+        final NamespacedId finalDemoId = demoId;
+        boolean alreadyNearby = !source.getLevel().getEntitiesOfClass(StoryNpcEntity.class,
+                player.getBoundingBox().inflate(QUICKSTART_REUSE_RADIUS),
+                e -> finalDemoId.toString().equals(e.getDefinitionId())).isEmpty();
+        if (!alreadyNearby) {
+            StoryNpcEntity entity = com.storynpcs.entity.StoryNpcRegistry.STORY_NPC.get().create(source.getLevel());
+            if (entity == null) {
+                source.sendFailure(Component.literal("[StoryNPCs] Failed to create NPC entity"));
+                return 0;
+            }
+            Vec3 look = player.getLookAngle();
+            Vec3 pos = player.position().add(look.x * QUICKSTART_SPAWN_OFFSET, 0.0, look.z * QUICKSTART_SPAWN_OFFSET);
+            entity.setPos(pos.x, pos.y, pos.z);
+            entity.setDefinitionId(demoId.toString());
+            entity.setStartPosition(entity.blockPosition());
+            source.getLevel().addFreshEntity(entity);
+        }
+
+        // 3. One of each wand — skip what the sender already carries (offhand included)
+        int wandsGiven = 0;
+        for (var wand : List.of(StoryNpcsItems.NPC_WAND, StoryNpcsItems.NPC_CLONER, StoryNpcsItems.NPC_PATH,
+                StoryNpcsItems.NPC_MOUNTER, StoryNpcsItems.NPC_DIALOGUE_WAND)) {
+            if (player.getInventory().hasAnyMatching(s -> s.is(wand.get()))) continue;
+            ItemStack stack = new ItemStack(wand.get());
+            if (!player.getInventory().add(stack)) player.drop(stack, false);
+            wandsGiven++;
+        }
+
+        // 4. Fixed three-step guide — sender only
+        String npcName = reg.getNpc(demoId).map(n -> n.getDisplay().getName()).orElse(demoId.toString());
+        String status = alreadyNearby
+                ? "reused the '" + npcName + "' already nearby"
+                : "spawned '" + npcName + "' next to you";
+        final String header = "§6[StoryNPCs] Quickstart ready — " + status + "."
+                + (wandsGiven == 0 ? " Wands already in your inventory." : "");
+        source.sendSuccess(() -> Component.literal(header), false);
+        source.sendSuccess(() -> Component.literal("§e 1. §fRight-click the NPC to talk — its dialogue is live."), false);
+        source.sendSuccess(() -> Component.literal("§e 2. §fRight-click it with the §bDialogue Wand§f to open the graph editor."), false);
+        source.sendSuccess(() -> Component.literal("§e 3. §f/storynpcs help lists every command."), false);
+        return 1;
+    }
+
     // Dialogue Handlers
     private static int listDialogues(CommandContext<CommandSourceStack> ctx) {
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
@@ -1394,6 +1534,7 @@ public final class StoryNpcsCommands {
     private static int sendHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- Dwurdy's StoryNPCs Help ---§r\n" +
+                "§e/storynpcs quickstart §7- One-command demo: NPC + all wands\n" +
                 "§e/storynpcs me [player] §7- Your quests & faction standing\n" +
                 "§e/storynpcs reload §7- Reload YAML definitions\n" +
                 "§e/storynpcs npc <create|list|info|set|spawn|despawn|delete> §7- Manage NPCs\n" +
