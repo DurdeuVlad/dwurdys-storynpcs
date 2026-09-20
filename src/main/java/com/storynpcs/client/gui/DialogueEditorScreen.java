@@ -6,15 +6,25 @@ import com.storynpcs.editor.VisualEdge;
 import com.storynpcs.editor.VisualNode;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 public class DialogueEditorScreen extends Screen {
 
+    private static final int INSPECTOR_W = 200;
+    private static final int INSPECTOR_H = 200;
+    private static final int INSPECTOR_Y = 50;
+
     private final DialogueEditorScreenModel model;
     private boolean isPanning = false;
     private double lastMouseX;
     private double lastMouseY;
+
+    /** Node-text editor inside the inspector — visible only while a node is selected. */
+    private MultiLineEditBox nodeTextBox;
+    /** Guards programmatic setValue during selection sync so it doesn't mark the graph dirty. */
+    private boolean syncingInspector;
 
     public DialogueEditorScreen(DialogueEditorScreenModel model) {
         super(Component.literal("Dialogue Editor: " + model.getTitle()));
@@ -34,6 +44,7 @@ public class DialogueEditorScreen extends Screen {
             double cx = DialogueGraphLayout.screenToCanvasX(width / 2.0, model.getEditorState().getPanX(), model.getEditorState().getZoom());
             double cy = DialogueGraphLayout.screenToCanvasY(height / 2.0, model.getEditorState().getPanY(), model.getEditorState().getZoom());
             model.addNode(null, "New node content", cx - 80, cy - 40);
+            syncInspectorWidgets();
         }).bounds(10, 10, 60, 20).build());
 
         this.addRenderableWidget(Button.builder(Component.literal("Zoom +"), b -> {
@@ -55,6 +66,50 @@ public class DialogueEditorScreen extends Screen {
         this.addRenderableWidget(Button.builder(Component.literal("Close"), b -> {
             this.onClose();
         }).bounds(width - 70, 10, 60, 20).build());
+
+        // Inspector text box — created hidden; shown/populated by syncInspectorWidgets().
+        // Edits commit live on every keystroke (auto-commit model: selection changes
+        // can never silently drop text because the model already holds it).
+        int panelX = width - INSPECTOR_W - 10;
+        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 86,
+                INSPECTOR_W - 16, 104,
+                Component.literal("Node text…"), Component.literal("Node text"));
+        nodeTextBox.setCharacterLimit(2000);
+        nodeTextBox.setValueListener(v -> {
+            if (!syncingInspector) {
+                model.updateSelectedNodeText(v);
+            }
+        });
+        nodeTextBox.visible = false;
+        this.addRenderableWidget(nodeTextBox);
+        syncInspectorWidgets();
+    }
+
+    /** Shows the inspector text box for the selected node, or hides it. Repopulates on selection change. */
+    private void syncInspectorWidgets() {
+        if (nodeTextBox == null) return;
+        String selectedId = model.getEditorState().getSelectedNodeId();
+        VisualNode node = selectedId != null ? model.getLayout().getNodes().get(selectedId) : null;
+        if (node == null) {
+            nodeTextBox.visible = false;
+            nodeTextBox.setFocused(false);
+        } else {
+            nodeTextBox.visible = true;
+            syncingInspector = true;
+            try {
+                nodeTextBox.setValue(node.getText() != null ? node.getText() : "");
+            } finally {
+                syncingInspector = false;
+            }
+        }
+    }
+
+    /** Inspector occupies the right side only while a node is selected — canvas clicks there must not deselect. */
+    private boolean insideInspector(double mouseX, double mouseY) {
+        if (model.getEditorState().getSelectedNodeId() == null) return false;
+        int panelX = width - INSPECTOR_W - 10;
+        return mouseX >= panelX && mouseX <= panelX + INSPECTOR_W
+                && mouseY >= INSPECTOR_Y && mouseY <= INSPECTOR_Y + INSPECTOR_H;
     }
 
     @Override
@@ -150,29 +205,30 @@ public class DialogueEditorScreen extends Screen {
         VisualNode node = model.getLayout().getNodes().get(selectedId);
         if (node == null) return;
 
-        int panelW = 200;
-        int panelX = width - panelW - 10;
-        int panelY = 50;
-        int panelH = 160;
+        int panelX = width - INSPECTOR_W - 10;
+        int panelY = INSPECTOR_Y;
 
-        graphics.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xEE0F172A);
-        graphics.renderOutline(panelX, panelY, panelW, panelH, 0xFF38BDF8);
+        graphics.fill(panelX, panelY, panelX + INSPECTOR_W, panelY + INSPECTOR_H, 0xEE0F172A);
+        graphics.renderOutline(panelX, panelY, INSPECTOR_W, INSPECTOR_H, 0xFF38BDF8);
 
         graphics.drawString(this.font, "Node Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
         graphics.drawString(this.font, "ID: " + node.getId(), panelX + 10, panelY + 28, 0xFFE2E8F0, false);
         graphics.drawString(this.font, "Pos: (" + (int)node.getX() + ", " + (int)node.getY() + ")", panelX + 10, panelY + 44, 0xFF94A3B8, false);
         graphics.drawString(this.font, "Entry: " + node.isEntryNode(), panelX + 10, panelY + 60, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 74, 0xFF94A3B8, false);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (mouseY > 40) {
+        // Inspector clicks must reach its widgets, not the canvas — otherwise they would deselect
+        if (mouseY > 40 && !insideInspector(mouseX, mouseY)) {
             VisualNode hit = model.getEditorState().findNodeAtScreen(mouseX, mouseY);
             if (hit != null) {
                 if (model.getEditorState().getConnectingSourceNodeId() != null) {
                     model.completeConnectingEdge(hit.getId(), "Option");
                 } else {
                     model.getEditorState().setSelectedNodeId(hit.getId());
+                    syncInspectorWidgets();
                     model.getEditorState().startDragNode(hit.getId(), mouseX, mouseY);
                 }
                 return true;
@@ -184,6 +240,7 @@ public class DialogueEditorScreen extends Screen {
                     return true;
                 } else if (button == 0) {
                     model.getEditorState().setSelectedNodeId(null);
+                    syncInspectorWidgets();
                     model.cancelConnectingEdge();
                 }
             }
