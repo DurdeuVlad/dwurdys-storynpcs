@@ -2101,65 +2101,11 @@ public final class StoryNpcsCommands {
     }
 
     private static String describeRuleConditions(com.storynpcs.domain.rule.BehaviorRule rule) {
-        if (rule.getConditions() == null || rule.getConditions().isEmpty()) {
-            return "always";
-        }
-        List<String> parts = new ArrayList<>();
-        for (var c : rule.getConditions()) {
-            parts.add(describeCondition(c));
-        }
-        return String.join(" & ", parts);
-    }
-
-    private static String describeCondition(com.storynpcs.domain.rule.condition.RuleCondition c) {
-        if (c instanceof com.storynpcs.domain.rule.condition.ActorIsPlayerCondition) {
-            return "actor_is_player";
-        }
-        if (c instanceof com.storynpcs.domain.rule.condition.FactionStandingCondition f) {
-            return "faction_standing(" + f.getFactionId() + " " + f.getExpectedStanding() + ")";
-        }
-        if (c instanceof com.storynpcs.domain.rule.condition.HealthPercentCondition h) {
-            return "health_percent(" + (h.getOperator() == com.storynpcs.domain.rule.condition.HealthPercentCondition.Operator.GREATER_THAN ? "gt" : "le")
-                    + " " + h.getThreshold() + ")";
-        }
-        if (c instanceof com.storynpcs.domain.rule.condition.StrikeCountCondition s) {
-            return "strike_count(" + (s.getOperator() == com.storynpcs.domain.rule.condition.StrikeCountCondition.Operator.GREATER_THAN ? "gt" : "le")
-                    + " " + s.getThreshold() + ")";
-        }
-        return String.valueOf(c);
+        return com.storynpcs.editor.RuleSummaries.describeConditions(rule);
     }
 
     private static String describeRuleActions(com.storynpcs.domain.rule.BehaviorRule rule) {
-        if (rule.getActions() == null || rule.getActions().isEmpty()) {
-            return "(no action)";
-        }
-        List<String> parts = new ArrayList<>();
-        for (var a : rule.getActions()) {
-            parts.add(describeAction(a));
-        }
-        return String.join(" & ", parts);
-    }
-
-    private static String describeAction(com.storynpcs.domain.rule.action.RuleAction a) {
-        if (a instanceof com.storynpcs.domain.rule.action.SendMessageAction s) {
-            return "send_message(\"" + s.getMessage() + "\")";
-        }
-        if (a instanceof com.storynpcs.domain.rule.action.AddThreatAction t) {
-            return "add_threat(" + t.getThreat() + ")";
-        }
-        if (a instanceof com.storynpcs.domain.rule.action.ShoutAlertAction s) {
-            return "shout_alert(" + s.getRadius() + ",\"" + s.getAlertMessage() + "\")";
-        }
-        if (a instanceof com.storynpcs.domain.rule.action.YieldCombatAction y) {
-            return "yield_combat(" + y.getResetHealthFraction() + ")";
-        }
-        if (a instanceof com.storynpcs.domain.rule.action.ChangeStanceAction c) {
-            return "change_stance(" + c.getStance() + ")";
-        }
-        if (a instanceof com.storynpcs.domain.rule.action.AdjustFactionAction f) {
-            return "adjust_faction(" + f.getFactionId() + " " + f.getDelta() + ")";
-        }
-        return String.valueOf(a);
+        return com.storynpcs.editor.RuleSummaries.describeActions(rule);
     }
 
     // Faction Handlers
