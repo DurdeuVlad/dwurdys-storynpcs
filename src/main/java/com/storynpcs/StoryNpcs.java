@@ -61,6 +61,7 @@ public class StoryNpcs {
 
         StoryNpcRegistry.register(modEventBus);
         com.storynpcs.item.StoryNpcsItems.register(modEventBus);
+        com.storynpcs.command.StoryNpcsArgumentTypes.register(modEventBus);
         modEventBus.addListener(StoryNpcsNetwork::register);
         if (net.neoforged.fml.loading.FMLEnvironment.dist.isClient()) {
             modEventBus.addListener(com.storynpcs.client.StoryNpcsClient::registerRenderers);
