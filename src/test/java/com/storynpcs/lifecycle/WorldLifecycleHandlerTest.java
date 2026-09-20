@@ -132,6 +132,67 @@ class WorldLifecycleHandlerTest {
     }
 
     @Test
+    @DisplayName("Seeding with no operator online parks a pending announcement marker")
+    void testSeedingWritesPendingAnnouncementMarker(@TempDir Path worldDir) {
+        // No server instance -> nobody can be notified live, so the marker must be parked
+        handler.initializeWorld(worldDir);
+
+        Path marker = worldDir.resolve("storynpcs").resolve(".starter_seed_pending");
+        assertTrue(Files.exists(marker), "seed with nobody to tell must leave a pending marker");
+    }
+
+    @Test
+    @DisplayName("Pending marker names the seeded starter NPC")
+    void testPendingMarkerContainsStarterNpcId(@TempDir Path worldDir) throws IOException {
+        handler.initializeWorld(worldDir);
+
+        Path marker = worldDir.resolve("storynpcs").resolve(".starter_seed_pending");
+        assertEquals("storynpcs:guard_captain", Files.readString(marker).trim());
+    }
+
+    @Test
+    @DisplayName("Announcement is consumed exactly once — first op gets it, later joins do not")
+    void testAnnouncementConsumedExactlyOnce(@TempDir Path worldDir) {
+        handler.initializeWorld(worldDir);
+
+        assertTrue(handler.consumePendingSeedAnnouncement().isPresent(),
+                "first operator join must claim the pending announcement");
+        assertTrue(handler.consumePendingSeedAnnouncement().isEmpty(),
+                "marker is gone after first delivery — no repeat announcements");
+        assertTrue(handler.consumePendingSeedAnnouncement().isEmpty(),
+                "still quiet on the third join");
+    }
+
+    @Test
+    @DisplayName("Skipped seeding (existing admin YAML) leaves no pending announcement")
+    void testNoMarkerWhenSeedingSkipped(@TempDir Path worldDir) throws IOException {
+        Path npcDir = worldDir.resolve("storynpcs").resolve("definitions").resolve("npcs");
+        Files.createDirectories(npcDir);
+        Files.writeString(npcDir.resolve("admin.yaml"), "id: \"storynpcs:admin\"\n");
+
+        handler.initializeWorld(worldDir);
+
+        assertFalse(Files.exists(worldDir.resolve("storynpcs").resolve(".starter_seed_pending")));
+        assertTrue(handler.consumePendingSeedAnnouncement().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Pending announcement survives a restart when nobody ever claimed it")
+    void testMarkerSurvivesRestartUntilDelivered(@TempDir Path worldDir) {
+        handler.initializeWorld(worldDir); // server 1: seeds, no ops -> marker parked
+
+        // Fresh handler instance over the SAME world dir simulates a restart:
+        // seeding is skipped (YAML now exists) but the undelivered marker must persist.
+        StoryNpcs mod2 = StoryNpcs.createForTesting();
+        WorldLifecycleHandler handler2 = mod2.getLifecycleHandler();
+        handler2.initializeWorld(worldDir);
+
+        assertTrue(handler2.consumePendingSeedAnnouncement().isPresent(),
+                "restart must not lose an undelivered announcement");
+        assertTrue(handler2.consumePendingSeedAnnouncement().isEmpty());
+    }
+
+    @Test
     @DisplayName("Load diagnostics are stored on the mod so ops can be notified in-game")
     void testLoadDiagnosticsStoredForInGameSurfacing(@TempDir Path worldDir) throws IOException {
         Path defDir = worldDir.resolve("storynpcs").resolve("definitions").resolve("quests");

@@ -4,7 +4,9 @@ import com.storynpcs.StoryNpcs;
 import com.storynpcs.domain.common.ValidationResult;
 import com.storynpcs.persistence.ProgressionRepository;
 import com.storynpcs.service.StoryNpcsApplicationService;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.storage.LevelResource;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -15,9 +17,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -36,8 +41,20 @@ public class WorldLifecycleHandler {
             "quests/bounty_goblins.yaml"
     );
 
+    /** Namespaced id of the seeded example NPC, named in the admin announcement. */
+    private static final String STARTER_NPC_ID = "storynpcs:guard_captain";
+
+    /**
+     * Marker file inside {@code world/storynpcs/} meaning "starter content was seeded but no
+     * operator has been told in-game yet". Written at seed time and deleted the moment the
+     * announcement reaches an operator — persisting it in the world dir is what guarantees
+     * the first operator who joins after a headless seed gets told exactly once.
+     */
+    private static final String PENDING_SEED_MARKER = ".starter_seed_pending";
+
     private final StoryNpcs mod;
     private MinecraftServer currentServer;
+    private Path worldDir;
 
     public WorldLifecycleHandler(StoryNpcs mod) {
         this.mod = mod;
@@ -84,6 +101,7 @@ public class WorldLifecycleHandler {
     }
 
     public void initializeWorld(Path worldDir, MinecraftServer server) {
+        this.worldDir = worldDir;
         Path storyNpcsDir = worldDir.resolve("storynpcs");
         Path progressionDir = storyNpcsDir.resolve("progression");
         Path bankDir = storyNpcsDir.resolve("bank");
@@ -106,7 +124,16 @@ public class WorldLifecycleHandler {
         // First-run effort reduction: an empty definitions dir means a brand-new install,
         // so seed the bundled starter content — the admin gets a working NPC out of the box
         // instead of facing an empty mod. Never overwrites existing YAML.
-        seedStarterDefinitions(definitionsDir);
+        boolean seeded = seedStarterDefinitions(definitionsDir);
+        if (seeded) {
+            // Record the pending announcement before anyone is told: if the server dies
+            // between seeding and delivery, the marker survives and the next op who joins
+            // still hears about it exactly once.
+            writePendingSeedMarker(storyNpcsDir);
+            if (notifyOnlineOperators(server) > 0) {
+                deletePendingSeedMarker();
+            }
+        }
 
         ProgressionRepository progressionRepo = new ProgressionRepository(progressionDir);
         mod.setProgressionRepository(progressionRepo);
@@ -143,17 +170,19 @@ public class WorldLifecycleHandler {
     /**
      * Copies the bundled starter definitions into {@code definitionsDir} — but only when
      * the directory contains no YAML at all, so existing admin content is never touched.
+     *
+     * @return true when starter content was actually written this run
      */
-    private void seedStarterDefinitions(Path definitionsDir) {
+    private boolean seedStarterDefinitions(Path definitionsDir) {
         try (Stream<Path> existing = Files.walk(definitionsDir)) {
             boolean hasYaml = existing.anyMatch(p ->
                     p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"));
             if (hasYaml) {
-                return; // admin already has content — never overwrite
+                return false; // admin already has content — never overwrite
             }
         } catch (IOException e) {
             LOGGER.warn("Could not scan definitions directory for starter seeding: {}", e.getMessage());
-            return;
+            return false;
         }
 
         int seeded = 0;
@@ -173,8 +202,85 @@ public class WorldLifecycleHandler {
             }
         }
         if (seeded > 0) {
-            LOGGER.info("Seeded {} starter definitions into {} — try /storynpcs npc spawn storynpcs:guard_captain",
-                    seeded, definitionsDir);
+            LOGGER.info("Seeded {} starter definitions into {} — try /storynpcs npc spawn {}",
+                    seeded, definitionsDir, STARTER_NPC_ID);
+        }
+        return seeded > 0;
+    }
+
+    /**
+     * Sends the starter-content announcement to every operator currently online.
+     *
+     * @return how many operators were notified (0 when no server or no ops online)
+     */
+    private int notifyOnlineOperators(MinecraftServer server) {
+        if (server == null) {
+            return 0;
+        }
+        int notified = 0;
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.hasPermissions(2)) {
+                sendStarterAnnouncement(player, STARTER_NPC_ID);
+                notified++;
+            }
+        }
+        return notified;
+    }
+
+    private void sendStarterAnnouncement(ServerPlayer player, String npcId) {
+        player.sendSystemMessage(Component.literal(
+                "§a[StoryNPCs] Starter content installed — example NPC ready: §e" + npcId
+                        + "§a. Run §e/storynpcs npc spawn " + npcId
+                        + "§a to meet them, or §e/storynpcs help§a for all commands."));
+    }
+
+    private Path pendingSeedMarkerPath() {
+        return worldDir == null ? null : worldDir.resolve("storynpcs").resolve(PENDING_SEED_MARKER);
+    }
+
+    private void writePendingSeedMarker(Path storyNpcsDir) {
+        Path marker = storyNpcsDir.resolve(PENDING_SEED_MARKER);
+        Path tmp = marker.resolveSibling(PENDING_SEED_MARKER + ".tmp");
+        try {
+            Files.writeString(tmp, STARTER_NPC_ID);
+            try {
+                Files.move(tmp, marker, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tmp, marker, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            LOGGER.warn("Could not write pending seed-announcement marker {}: {}", marker, e.getMessage());
+        }
+    }
+
+    private void deletePendingSeedMarker() {
+        Path marker = pendingSeedMarkerPath();
+        if (marker == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(marker);
+        } catch (IOException e) {
+            LOGGER.warn("Could not delete seed-announcement marker {}: {}", marker, e.getMessage());
+        }
+    }
+
+    /**
+     * Reads and removes the pending seed announcement, if any. Package-private for tests;
+     * synchronized so two operators logging in on the same tick cannot both claim it.
+     */
+    synchronized Optional<String> consumePendingSeedAnnouncement() {
+        Path marker = pendingSeedMarkerPath();
+        if (marker == null || !Files.exists(marker)) {
+            return Optional.empty();
+        }
+        try {
+            String npcId = Files.readString(marker).trim();
+            Files.delete(marker);
+            return Optional.of(npcId.isEmpty() ? STARTER_NPC_ID : npcId);
+        } catch (IOException e) {
+            LOGGER.warn("Could not consume seed-announcement marker {}: {}", marker, e.getMessage());
+            return Optional.empty();
         }
     }
 
@@ -206,7 +312,21 @@ public class WorldLifecycleHandler {
         if (event.getEntity() != null) {
             handlePlayerLogin(event.getEntity().getUUID());
             notifyOperatorOfLoadErrors(event.getEntity());
+            announcePendingSeedToOperator(event.getEntity());
         }
+    }
+
+    /**
+     * A headless server seeds starter content before anyone can be online, so the chat
+     * announcement is parked in a world-dir marker. The first operator who joins claims
+     * it (marker deleted before send would still be safe — the send is on the same tick);
+     * non-operators and subsequent joins never see it.
+     */
+    private void announcePendingSeedToOperator(Player player) {
+        if (!(player instanceof ServerPlayer sp) || !sp.hasPermissions(2)) {
+            return;
+        }
+        consumePendingSeedAnnouncement().ifPresent(npcId -> sendStarterAnnouncement(sp, npcId));
     }
 
     public void handlePlayerLogin(UUID uuid) {
