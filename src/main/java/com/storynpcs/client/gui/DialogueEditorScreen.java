@@ -17,6 +17,8 @@ public class DialogueEditorScreen extends Screen {
 
     private static final int INSPECTOR_W = 200;
     private static final int INSPECTOR_MAX_H = 240;
+    /** Smallest inspector height that still clears every widget pair (issue #20). */
+    private static final int INSPECTOR_MIN_H = 154;
     private static final int INSPECTOR_Y = 50;
     /** How long a delete button stays in its "Confirm?" state before reverting. */
     private static final long DELETE_CONFIRM_MS = 4000;
@@ -93,8 +95,8 @@ public class DialogueEditorScreen extends Screen {
         int panelH = inspectorHeight();
 
         // Speaker + sound — single-line fields, live-commit like the text box
-        speakerBox = new EditBox(this.font, panelX + 62, INSPECTOR_Y + 66,
-                INSPECTOR_W - 72, 16, Component.literal("Speaker"));
+        speakerBox = new EditBox(this.font, panelX + 58, INSPECTOR_Y + 52,
+                INSPECTOR_W - 68, 14, Component.literal("Speaker"));
         speakerBox.setMaxLength(60);
         speakerBox.setHint(Component.literal("blank = NPC name"));
         speakerBox.setResponder(v -> {
@@ -103,8 +105,8 @@ public class DialogueEditorScreen extends Screen {
         speakerBox.visible = false;
         this.addRenderableWidget(speakerBox);
 
-        soundBox = new EditBox(this.font, panelX + 62, INSPECTOR_Y + 88,
-                INSPECTOR_W - 72, 16, Component.literal("Sound"));
+        soundBox = new EditBox(this.font, panelX + 58, INSPECTOR_Y + 68,
+                INSPECTOR_W - 68, 14, Component.literal("Sound"));
         soundBox.setMaxLength(160);
         soundBox.setHint(Component.literal("sound event id"));
         soundBox.setResponder(v -> {
@@ -116,8 +118,8 @@ public class DialogueEditorScreen extends Screen {
         soundBox.visible = false;
         this.addRenderableWidget(soundBox);
 
-        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 126,
-                INSPECTOR_W - 16, Math.max(12, panelH - 166),
+        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 108,
+                INSPECTOR_W - 16, Math.max(10, panelH - 140),
                 Component.literal("Node text…"), Component.literal("Node text"));
         nodeTextBox.setCharacterLimit(2000);
         nodeTextBox.setValueListener(v -> {
@@ -133,7 +135,7 @@ public class DialogueEditorScreen extends Screen {
         // silently drop a node or edge.
         deleteNodeButton = this.addRenderableWidget(Button.builder(
                 Component.literal("Delete Node"), b -> onDeleteNodePressed())
-                .bounds(panelX + 8, INSPECTOR_Y + panelH - 30, 90, 20).build());
+                .bounds(panelX + 8, INSPECTOR_Y + panelH - 28, 90, 20).build());
         deleteNodeButton.visible = false;
 
         setEntryButton = this.addRenderableWidget(Button.builder(
@@ -143,18 +145,18 @@ public class DialogueEditorScreen extends Screen {
                         model.setAsEntryNode(sel);
                         syncInspectorWidgets();
                     }
-                }).bounds(panelX + 102, INSPECTOR_Y + panelH - 30, 90, 20).build());
+                }).bounds(panelX + 102, INSPECTOR_Y + panelH - 28, 90, 20).build());
         setEntryButton.visible = false;
 
         deleteEdgeButton = this.addRenderableWidget(Button.builder(
                 Component.literal("Delete Edge"), b -> onDeleteEdgePressed())
-                .bounds(panelX + 8, INSPECTOR_Y + 64, 90, 20).build());
+                .bounds(panelX + 8, INSPECTOR_Y + panelH - 28, 90, 20).build());
         deleteEdgeButton.visible = false;
 
         // Edge actions — START_QUEST target. Blank clears the action; unknown
         // quest ids are rejected by the server's save validation with a message.
-        questActionBox = new EditBox(this.font, panelX + 10, INSPECTOR_Y + 98,
-                INSPECTOR_W - 20, 16, Component.literal("Quest id"));
+        questActionBox = new EditBox(this.font, panelX + 10, INSPECTOR_Y + 92,
+                INSPECTOR_W - 20, 14, Component.literal("Quest id"));
         questActionBox.setMaxLength(160);
         questActionBox.setHint(Component.literal("namespace:quest_id (blank = none)"));
         questActionBox.setResponder(v -> {
@@ -223,7 +225,7 @@ public class DialogueEditorScreen extends Screen {
 
     /** Panel height adapts to the window — on short screens the buttons must stay reachable. */
     private int inspectorHeight() {
-        return Math.min(INSPECTOR_MAX_H, Math.max(130, height - INSPECTOR_Y - 16));
+        return Math.min(INSPECTOR_MAX_H, Math.max(INSPECTOR_MIN_H, height - INSPECTOR_Y - 16));
     }
 
     /** Inspector occupies the right side while a node OR an edge is selected — canvas clicks there must not deselect. */
@@ -347,11 +349,24 @@ public class DialogueEditorScreen extends Screen {
         // Render Top Bar
         graphics.fill(0, 0, width, 40, 0xDD0F172A);
         graphics.renderOutline(0, 0, width, 40, 0xFF334155);
-        graphics.drawString(this.font, String.format("Dialogue: %s (%s)", model.getDialogueId(), model.getTitle()), 260, 16, 0xFFF8FAFC, false);
+        // Title sits in the gap between the two button groups — cap it so it
+        // can never render underneath the Save/Close buttons on narrow windows.
+        int titleMaxW = Math.max(0, width - 130 - 6 - 250);
+        if (titleMaxW > 10) {
+            graphics.drawString(this.font,
+                    this.font.plainSubstrByWidth(
+                            String.format("Dialogue: %s (%s)", model.getDialogueId(), model.getTitle()), titleMaxW),
+                    250, 16, 0xFFF8FAFC, false);
+        }
 
-        // Status bar
+        // Status bar — capped so a long message can't slide under the inspector panel
         if (!model.getStatusMessage().isEmpty()) {
-            graphics.drawString(this.font, model.getStatusMessage(), 10, height - 20, 0xFF94A3B8, false);
+            boolean inspectorOpen = model.getEditorState().getSelectedNodeId() != null
+                    || model.getEditorState().getSelectedEdge() != null;
+            int statusMaxW = inspectorOpen ? width - INSPECTOR_W - 30 : width - 16;
+            graphics.drawString(this.font,
+                    this.font.plainSubstrByWidth(model.getStatusMessage(), Math.max(60, statusMaxW)),
+                    10, height - 20, 0xFF94A3B8, false);
         }
 
         // Inspector panel for selected node
@@ -394,13 +409,16 @@ public class DialogueEditorScreen extends Screen {
             String endpoints = selEdge.getSourceNodeId() + " -> " + selEdge.getTargetNodeId();
             graphics.drawString(this.font,
                     this.font.plainSubstrByWidth(endpoints, INSPECTOR_W - 20),
-                    panelX + 10, panelY + 28, 0xFFE2E8F0, false);
-            graphics.drawString(this.font, "Option text:", panelX + 10, panelY + 44, 0xFF94A3B8, false);
+                    panelX + 10, panelY + 24, 0xFFE2E8F0, false);
+            graphics.drawString(this.font, "Option text:", panelX + 10, panelY + 38, 0xFF94A3B8, false);
+            // Long option text must not wrap down into the action widgets below
+            graphics.enableScissor(panelX, panelY + 46, panelX + INSPECTOR_W, panelY + 78);
             graphics.drawWordWrap(this.font, Component.literal(selEdge.getText()),
-                    panelX + 10, panelY + 56, INSPECTOR_W - 20, 0xFFCBD5E1);
-            graphics.drawString(this.font, "Actions — START_QUEST:", panelX + 10, panelY + 88, 0xFF94A3B8, false);
+                    panelX + 10, panelY + 48, INSPECTOR_W - 20, 0xFFCBD5E1);
+            graphics.disableScissor();
+            graphics.drawString(this.font, "Actions — START_QUEST:", panelX + 10, panelY + 82, 0xFF94A3B8, false);
             if (questWarning != null) {
-                graphics.drawString(this.font, questWarning, panelX + 10, panelY + 118, 0xFFFBBF24, false);
+                graphics.drawString(this.font, questWarning, panelX + 10, panelY + 110, 0xFFFBBF24, false);
             }
             return;
         }
@@ -409,15 +427,15 @@ public class DialogueEditorScreen extends Screen {
         if (node == null) return;
 
         graphics.drawString(this.font, "Node Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
-        graphics.drawString(this.font, "ID: " + node.getId(), panelX + 10, panelY + 28, 0xFFE2E8F0, false);
-        graphics.drawString(this.font, "Pos: (" + (int)node.getX() + ", " + (int)node.getY() + ")", panelX + 10, panelY + 44, 0xFF94A3B8, false);
-        graphics.drawString(this.font, "Entry: " + node.isEntryNode(), panelX + 10, panelY + 60, 0xFF94A3B8, false);
-        graphics.drawString(this.font, "Speaker:", panelX + 10, panelY + 70, 0xFF94A3B8, false);
-        graphics.drawString(this.font, "Sound:", panelX + 10, panelY + 92, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "ID: " + node.getId(), panelX + 10, panelY + 26, 0xFFE2E8F0, false);
+        graphics.drawString(this.font, "Pos: (" + (int)node.getX() + ", " + (int)node.getY() + ")   Entry: " + node.isEntryNode(),
+                panelX + 10, panelY + 40, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Speaker:", panelX + 10, panelY + 56, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Sound:", panelX + 10, panelY + 72, 0xFF94A3B8, false);
         if (soundWarning != null) {
-            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 107, 0xFFFBBF24, false);
+            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 88, 0xFFFBBF24, false);
         }
-        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 118, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 100, 0xFF94A3B8, false);
     }
 
     /**

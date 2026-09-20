@@ -157,4 +157,28 @@ class QuestEditorScreenModelTest {
         assertThat(back.getTitle()).isEqualTo("Round Trip");
         assertThat(back.getObjectives()).hasSize(1);
     }
+
+    @Test
+    void filterMatchesIdAndTitleCaseInsensitively() {
+        model.setListFilter("BOUNTY");
+        assertThat(model.getFilteredQuests()).hasSize(1);
+        assertThat(model.getFilteredQuests().get(0).getId().toString()).isEqualTo("storynpcs:bounty_goblins");
+
+        model.setListFilter("authoring");
+        assertThat(model.getFilteredQuests()).hasSize(1);
+        assertThat(model.getFilteredQuests().get(0).getId().toString()).isEqualTo("storynpcs:m3test");
+
+        model.setListFilter("storynpcs:");
+        assertThat(model.getFilteredQuests()).hasSize(2);
+    }
+
+    @Test
+    void clearingFilterRestoresFullListAndResetsScroll() {
+        model.setListScroll(1);
+        model.setListFilter("zzz_no_match");
+        assertThat(model.getFilteredQuests()).isEmpty();
+        assertThat(model.getListScroll()).isZero();
+        model.setListFilter("");
+        assertThat(model.getFilteredQuests()).hasSize(2);
+    }
 }

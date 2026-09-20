@@ -34,6 +34,7 @@ public final class QuestEditorScreenModel {
     private boolean statusError;
 
     private int listScroll;
+    private String listFilter = "";
 
     // Row-editor modal state
     private RowKind rowKind = RowKind.NONE;
@@ -49,6 +50,29 @@ public final class QuestEditorScreenModel {
 
     public List<Quest> getQuests() { return List.copyOf(quests); }
     public int questCount() { return quests.size(); }
+
+    /** Substring filter text for the list view (issue #21). */
+    public String getListFilter() { return listFilter; }
+    public void setListFilter(String f) {
+        this.listFilter = f != null ? f : "";
+        this.listScroll = 0;
+    }
+
+    /** Quests matching the filter — case-insensitive substring on id or title. */
+    public List<Quest> getFilteredQuests() {
+        String needle = listFilter.trim().toLowerCase(java.util.Locale.ROOT);
+        if (needle.isEmpty()) return getQuests();
+        List<Quest> out = new ArrayList<>();
+        for (Quest q : quests) {
+            String id = q.getId() != null ? q.getId().toString() : "";
+            String title = q.getTitle() != null ? q.getTitle() : "";
+            if (id.toLowerCase(java.util.Locale.ROOT).contains(needle)
+                    || title.toLowerCase(java.util.Locale.ROOT).contains(needle)) {
+                out.add(q);
+            }
+        }
+        return out;
+    }
 
     public Mode getMode() { return mode; }
     public boolean isEditingNew() { return isNew; }

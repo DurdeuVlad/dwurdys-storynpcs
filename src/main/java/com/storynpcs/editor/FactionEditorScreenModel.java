@@ -29,6 +29,7 @@ public final class FactionEditorScreenModel {
     private boolean statusError;
 
     private int listScroll;
+    private String listFilter = "";
     private boolean deleteArmed;
 
     public void loadFactions(List<Faction> loaded) {
@@ -38,6 +39,29 @@ public final class FactionEditorScreenModel {
 
     public List<Faction> getFactions() { return List.copyOf(factions); }
     public int factionCount() { return factions.size(); }
+
+    /** Substring filter text for the list view (issue #21). */
+    public String getListFilter() { return listFilter; }
+    public void setListFilter(String f) {
+        this.listFilter = f != null ? f : "";
+        this.listScroll = 0;
+    }
+
+    /** Factions matching the filter — case-insensitive substring on id or name. */
+    public List<Faction> getFilteredFactions() {
+        String needle = listFilter.trim().toLowerCase(java.util.Locale.ROOT);
+        if (needle.isEmpty()) return getFactions();
+        List<Faction> out = new ArrayList<>();
+        for (Faction f : factions) {
+            String id = f.getId() != null ? f.getId().toString() : "";
+            String name = f.getName() != null ? f.getName() : "";
+            if (id.toLowerCase(java.util.Locale.ROOT).contains(needle)
+                    || name.toLowerCase(java.util.Locale.ROOT).contains(needle)) {
+                out.add(f);
+            }
+        }
+        return out;
+    }
 
     public Mode getMode() { return mode; }
     public boolean isEditingNew() { return isNew; }
