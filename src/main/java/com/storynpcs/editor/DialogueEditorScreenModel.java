@@ -1,8 +1,10 @@
 package com.storynpcs.editor;
 
 import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.dialogue.DialogueAction;
 import com.storynpcs.domain.dialogue.DialogueGraph;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -96,6 +98,42 @@ public class DialogueEditorScreenModel {
                 unsavedChanges = true;
             }
         }
+    }
+
+    /** Quest id targeted by the selected edge's START_QUEST action, or "" if it has none. */
+    public String getSelectedEdgeStartQuest() {
+        VisualEdge edge = editorState.getSelectedEdge();
+        if (edge == null) return "";
+        for (DialogueAction a : edge.getActions()) {
+            if (a.getType() == DialogueAction.Type.START_QUEST) {
+                return a.getTarget() != null ? a.getTarget() : "";
+            }
+        }
+        return "";
+    }
+
+    /**
+     * Sets (or clears, when blank) the selected edge's START_QUEST quest target.
+     * An existing action is replaced in place so its position among the edge's
+     * other actions — and its value payload — is preserved.
+     */
+    public void setSelectedEdgeStartQuest(String questId) {
+        VisualEdge edge = editorState.getSelectedEdge();
+        if (edge == null) return;
+        String q = questId != null ? questId.trim() : "";
+        List<DialogueAction> actions = edge.getActions();
+        int idx = -1;
+        for (int i = 0; i < actions.size(); i++) {
+            if (actions.get(i).getType() == DialogueAction.Type.START_QUEST) { idx = i; break; }
+        }
+        if (q.isEmpty()) {
+            if (idx >= 0) actions.remove(idx);
+        } else if (idx >= 0) {
+            actions.set(idx, new DialogueAction(DialogueAction.Type.START_QUEST, q, actions.get(idx).getValue()));
+        } else {
+            actions.add(0, new DialogueAction(DialogueAction.Type.START_QUEST, q, ""));
+        }
+        unsavedChanges = true;
     }
 
     /** Per-node speaker override; blank restores the NPC-name/title fallback at runtime. */

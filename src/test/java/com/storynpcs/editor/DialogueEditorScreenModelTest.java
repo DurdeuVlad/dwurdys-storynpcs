@@ -227,4 +227,44 @@ class DialogueEditorScreenModelTest {
         assertEquals("Innkeeper Mara", exported.getSpeaker());
         assertEquals("minecraft:entity.villager.yes", exported.getSound());
     }
+
+    @Test
+    @DisplayName("START_QUEST action: set, prefill, replace-in-place, and clear")
+    void testStartQuestActionEditing() {
+        AtomicReference<DialogueGraph> saved = new AtomicReference<>();
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, saved::set);
+        model.addNode("a", "A", 0, 0);
+        model.addNode("b", "B", 200, 0);
+        model.startConnectingEdge("a");
+        model.completeConnectingEdge("b", "Take the bounty");
+        VisualEdge edge = model.getLayout().getEdges().get(0);
+        model.getEditorState().setSelectedEdge(edge);
+
+        assertEquals("", model.getSelectedEdgeStartQuest(), "no action initially");
+
+        model.setSelectedEdgeStartQuest("storynpcs:bounty_goblins");
+        assertTrue(model.hasUnsavedChanges());
+        assertEquals("storynpcs:bounty_goblins", model.getSelectedEdgeStartQuest());
+
+        // Replacing the target keeps the action's position and value payload
+        edge.getActions().add(new com.storynpcs.domain.dialogue.DialogueAction(
+                com.storynpcs.domain.dialogue.DialogueAction.Type.GIVE_ITEM, "minecraft:paper", "1"));
+        model.setSelectedEdgeStartQuest("storynpcs:other_quest");
+        assertEquals(2, edge.getActions().size());
+        assertEquals(com.storynpcs.domain.dialogue.DialogueAction.Type.START_QUEST,
+                edge.getActions().get(0).getType(), "START_QUEST stays first");
+        assertEquals("storynpcs:other_quest", edge.getActions().get(0).getTarget());
+
+        model.save();
+        DialogueEdge exported = saved.get().getNode("a").orElseThrow().getOptions().get(0);
+        assertEquals(2, exported.getActions().size());
+        assertEquals("storynpcs:other_quest", exported.getActions().get(0).getTarget());
+
+        // Blank clears the action but leaves the rest of the list alone
+        model.setSelectedEdgeStartQuest("   ");
+        assertEquals("", model.getSelectedEdgeStartQuest());
+        assertEquals(1, edge.getActions().size());
+        assertEquals(com.storynpcs.domain.dialogue.DialogueAction.Type.GIVE_ITEM,
+                edge.getActions().get(0).getType());
+    }
 }
