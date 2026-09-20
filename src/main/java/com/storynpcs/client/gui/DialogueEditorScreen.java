@@ -38,6 +38,9 @@ public class DialogueEditorScreen extends Screen {
     private Button deleteNodeButton;
     private Button deleteEdgeButton;
     private Button setEntryButton;
+    private EditBox questActionBox;
+    /** Inline warning under the quest field — format errors only; unknown quests are rejected at save. */
+    private String questWarning;
     /** "node"/"edge" while a delete is armed for confirmation, else null. */
     private String deleteArmed;
     private long deleteArmUntil;
@@ -148,6 +151,21 @@ public class DialogueEditorScreen extends Screen {
                 .bounds(panelX + 8, INSPECTOR_Y + 64, 90, 20).build());
         deleteEdgeButton.visible = false;
 
+        // Edge actions — START_QUEST target. Blank clears the action; unknown
+        // quest ids are rejected by the server's save validation with a message.
+        questActionBox = new EditBox(this.font, panelX + 10, INSPECTOR_Y + 98,
+                INSPECTOR_W - 20, 16, Component.literal("Quest id"));
+        questActionBox.setMaxLength(160);
+        questActionBox.setHint(Component.literal("namespace:quest_id (blank = none)"));
+        questActionBox.setResponder(v -> {
+            if (!syncingInspector) {
+                model.setSelectedEdgeStartQuest(v);
+                questWarning = questWarningFor(v);
+            }
+        });
+        questActionBox.visible = false;
+        this.addRenderableWidget(questActionBox);
+
         syncInspectorWidgets();
     }
 
@@ -180,6 +198,21 @@ public class DialogueEditorScreen extends Screen {
                 soundWarning = soundWarningFor(node.getSound());
             }
         }
+        if (questActionBox != null) {
+            questActionBox.visible = node == null && edge != null;
+            if (edge == null) {
+                questActionBox.setFocused(false);
+                questWarning = null;
+            } else {
+                syncingInspector = true;
+                try {
+                    questActionBox.setValue(model.getSelectedEdgeStartQuest());
+                } finally {
+                    syncingInspector = false;
+                }
+                questWarning = questWarningFor(model.getSelectedEdgeStartQuest());
+            }
+        }
         if (deleteNodeButton != null) {
             deleteNodeButton.visible = node != null;
             setEntryButton.visible = node != null;
@@ -190,7 +223,7 @@ public class DialogueEditorScreen extends Screen {
 
     /** Panel height adapts to the window — on short screens the buttons must stay reachable. */
     private int inspectorHeight() {
-        return Math.min(INSPECTOR_MAX_H, Math.max(120, height - INSPECTOR_Y - 16));
+        return Math.min(INSPECTOR_MAX_H, Math.max(130, height - INSPECTOR_Y - 16));
     }
 
     /** Inspector occupies the right side while a node OR an edge is selected — canvas clicks there must not deselect. */
@@ -365,6 +398,10 @@ public class DialogueEditorScreen extends Screen {
             graphics.drawString(this.font, "Option text:", panelX + 10, panelY + 44, 0xFF94A3B8, false);
             graphics.drawWordWrap(this.font, Component.literal(selEdge.getText()),
                     panelX + 10, panelY + 56, INSPECTOR_W - 20, 0xFFCBD5E1);
+            graphics.drawString(this.font, "Actions — START_QUEST:", panelX + 10, panelY + 88, 0xFF94A3B8, false);
+            if (questWarning != null) {
+                graphics.drawString(this.font, questWarning, panelX + 10, panelY + 118, 0xFFFBBF24, false);
+            }
             return;
         }
 
@@ -394,6 +431,17 @@ public class DialogueEditorScreen extends Screen {
         if (!BuiltInRegistries.SOUND_EVENT.containsKey(ResourceLocation.parse(raw))) {
             return "! unknown sound event — won't play";
         }
+        return null;
+    }
+
+    /**
+     * Quest ids aren't resolvable client-side (quests live in server-side YAML),
+     * so this only checks id format. An unknown-but-wellformed id is rejected by
+     * the server's save validation and surfaces in the status bar.
+     */
+    private String questWarningFor(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        if (ResourceLocation.tryParse(raw) == null) return "! not a valid id (namespace:path)";
         return null;
     }
 
