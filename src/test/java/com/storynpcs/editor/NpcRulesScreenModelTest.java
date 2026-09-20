@@ -25,9 +25,10 @@ class NpcRulesScreenModelTest {
     }
 
     private static void cycleTo(NpcRulesScreenModel m, String target, String[] options,
-                                java.util.function.IntConsumer cycler) {
+                                java.util.function.IntConsumer cycler,
+                                java.util.function.Supplier<Integer> currentIdx) {
         for (int i = 0; i < options.length; i++) {
-            if (options[i].equals(target)) return;
+            if (options[currentIdx.get()].equals(target)) return;
             cycler.accept(1);
         }
     }
@@ -53,9 +54,9 @@ class NpcRulesScreenModelTest {
     void testHealthPercentYield() {
         var m = newModel();
         m.beginAdd();
-        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition);
+        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition, m::getCondIdx);
         m.setCondThreshold("0.5");
-        cycleTo(m, "yield_combat", NpcRulesScreenModel.ACTIONS, m::cycleAction);
+        cycleTo(m, "yield_combat", NpcRulesScreenModel.ACTIONS, m::cycleAction, m::getActionIdx);
         assertNull(m.commitAdd());
         BehaviorRule r = m.getRules().get(0);
         var cond = (HealthPercentCondition) r.getConditions().get(0);
@@ -69,7 +70,7 @@ class NpcRulesScreenModelTest {
     void testStrikeCountGt() {
         var m = newModel();
         m.beginAdd();
-        cycleTo(m, "strike_count", NpcRulesScreenModel.CONDITIONS, m::cycleCondition);
+        cycleTo(m, "strike_count", NpcRulesScreenModel.CONDITIONS, m::cycleCondition, m::getCondIdx);
         m.cycleCondOp(1); // le -> gt
         m.setCondThreshold("2");
         m.setActText("Enough!");
@@ -84,7 +85,7 @@ class NpcRulesScreenModelTest {
     void testAdjustFactionValidation() {
         var m = newModel();
         m.beginAdd();
-        cycleTo(m, "adjust_faction", NpcRulesScreenModel.ACTIONS, m::cycleAction);
+        cycleTo(m, "adjust_faction", NpcRulesScreenModel.ACTIONS, m::cycleAction, m::getActionIdx);
         m.setActFaction("not an id!!");
         m.setActDelta("-50");
         String err = m.commitAdd();
@@ -99,7 +100,7 @@ class NpcRulesScreenModelTest {
     void testBadNumeric() {
         var m = newModel();
         m.beginAdd();
-        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition);
+        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition, m::getCondIdx);
         m.setCondThreshold("abc");
         assertNotNull(m.commitAdd());
         assertTrue(m.getRules().isEmpty());
@@ -137,13 +138,41 @@ class NpcRulesScreenModelTest {
     void testDescribeFormat() {
         var m = newModel();
         m.beginAdd();
-        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition);
+        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition, m::getCondIdx);
         m.setCondThreshold("0.5");
-        cycleTo(m, "adjust_faction", NpcRulesScreenModel.ACTIONS, m::cycleAction);
+        cycleTo(m, "adjust_faction", NpcRulesScreenModel.ACTIONS, m::cycleAction, m::getActionIdx);
         m.setActFaction("storynpcs:town_guard");
         m.setActDelta("-50");
         assertNull(m.commitAdd());
         String desc = m.describe(m.getRules().get(0));
         assertEquals("ON_DAMAGED if health_percent(le 0.5) → adjust_faction(storynpcs:town_guard -50)", desc);
+    }
+
+    @Test
+    @DisplayName("filteredRuleIndices maps to real rule indexes for removal")
+    void testFilterIndices() {
+        var m = newModel();
+        // rule 1: yield rule; rule 2: send_message rule
+        m.beginAdd();
+        cycleTo(m, "health_percent", NpcRulesScreenModel.CONDITIONS, m::cycleCondition, m::getCondIdx);
+        m.setCondThreshold("0.9");
+        cycleTo(m, "yield_combat", NpcRulesScreenModel.ACTIONS, m::cycleAction, m::getActionIdx);
+        assertNull(m.commitAdd());
+        m.beginAdd();
+        cycleTo(m, "send_message", NpcRulesScreenModel.ACTIONS, m::cycleAction, m::getActionIdx);
+        m.setActText("Stay back.");
+        assertNull(m.commitAdd());
+        assertEquals(2, m.getRules().size());
+
+        m.setListFilter("YIELD");
+        assertEquals(java.util.List.of(0), m.filteredRuleIndices());
+
+        // Removing via the filtered index must hit the real rule slot
+        m.removeRule(m.filteredRuleIndices().get(0));
+        assertEquals(1, m.getRules().size());
+        assertTrue(m.describe(m.getRules().get(0)).contains("send_message"));
+
+        m.setListFilter("");
+        assertEquals(java.util.List.of(0), m.filteredRuleIndices());
     }
 }

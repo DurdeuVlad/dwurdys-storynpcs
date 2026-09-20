@@ -33,6 +33,7 @@ public class FactionEditorScreen extends Screen {
     // LIST widgets
     private EditBox newIdField;
     private EditBox newNameField;
+    private EditBox filterField;
 
     // EDIT widgets
     private EditBox idField;
@@ -72,12 +73,15 @@ public class FactionEditorScreen extends Screen {
 
     private void initListWidgets() {
         int bottom = this.height - 30;
-        newIdField = new EditBox(this.font, 12, bottom, 170, 16, Component.literal("Faction id"));
+        // Adaptive widths — fixed 170+130+46 layout overflowed the right edge on narrow windows
+        newIdField = new EditBox(this.font, 12, bottom, Math.max(60, Math.min(170, this.width - 246)), 16, Component.literal("Faction id"));
         newIdField.setHint(Component.literal("storynpcs:faction_id"));
         newIdField.setMaxLength(64);
         addRenderableWidget(newIdField);
 
-        newNameField = new EditBox(this.font, 188, bottom, 130, 16, Component.literal("Name"));
+        int nameX = 12 + newIdField.getWidth() + 6;
+        newNameField = new EditBox(this.font, nameX, bottom,
+                Math.max(60, this.width - 66 - nameX), 16, Component.literal("Name"));
         newNameField.setHint(Component.literal("Name (optional)"));
         newNameField.setMaxLength(64);
         addRenderableWidget(newNameField);
@@ -94,7 +98,22 @@ public class FactionEditorScreen extends Screen {
             if (model.beginNew(id, newNameField.getValue().trim())) {
                 rebuildWidgets();
             }
-        }).bounds(322, bottom, 46, 16).build());
+        }).bounds(this.width - 60, bottom, 48, 16).build());
+
+        // Search/filter (issue #21) — typing filters the list live; clearing restores it
+        boolean hadFocus = filterField != null
+                && (filterField.isFocused() || this.getFocused() == filterField);
+        filterField = new EditBox(this.font, this.width - 190, 4, 128, 14, Component.literal("Filter"));
+        filterField.setHint(Component.literal("filter…"));
+        filterField.setMaxLength(48);
+        filterField.setValue(model.getListFilter());
+        if (hadFocus || !model.getListFilter().isEmpty()) {
+            filterField.setFocused(true);
+            this.setFocused(filterField);
+            filterField.moveCursorToEnd(false);
+        }
+        filterField.setResponder(model::setListFilter);
+        addRenderableWidget(filterField);
 
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(this.width - 50, 4, 42, 14).build());
@@ -179,14 +198,16 @@ public class FactionEditorScreen extends Screen {
 
     private void renderList(GuiGraphics g, int mouseX, int mouseY) {
         g.drawString(this.font, "§6StoryNPCs — Factions", 12, 8, 0xFFFFFFFF);
-        List<Faction> factions = model.getFactions();
+        List<Faction> factions = model.getFilteredFactions();
         int top = 22;
-        int bottom = this.height - 36;
+        int bottom = this.height - 56;
         int maxRows = Math.max(1, (bottom - top) / ROW_H);
         model.setListScroll(Math.min(model.getListScroll(), Math.max(0, factions.size() - maxRows)));
 
         if (factions.isEmpty()) {
-            g.drawString(this.font, "§7No factions defined yet — create one below.", 12, top + 4, COLOR_LABEL);
+            g.drawString(this.font, model.factionCount() > 0
+                    ? "§7No factions match the filter."
+                    : "§7No factions defined yet — create one below.", 12, top + 4, COLOR_LABEL);
         }
         g.enableScissor(0, top, this.width, bottom);
         for (int i = 0; i < maxRows && i + model.getListScroll() < factions.size(); i++) {
@@ -202,10 +223,12 @@ public class FactionEditorScreen extends Screen {
                     hover ? 0xFFFFFFFF : 0xFFD4D4D8);
         }
         g.disableScissor();
+        g.drawString(this.font, "§7New faction id:", 12, bottom + 8, COLOR_LABEL);
         if (factions.size() > maxRows) {
-            g.drawString(this.font, "§7(scroll — " + factions.size() + " factions)", 12, bottom + 2, COLOR_LABEL);
+            g.drawString(this.font, "§7(scroll — " + factions.size() + " factions)", 200, bottom + 8, COLOR_LABEL);
+        } else if (!model.getListFilter().isBlank() && factions.size() < model.factionCount()) {
+            g.drawString(this.font, "§7(" + factions.size() + " of " + model.factionCount() + ")", 200, bottom + 8, COLOR_LABEL);
         }
-        g.drawString(this.font, "§7New faction id:", 12, bottom - 10, COLOR_LABEL);
         drawStatus(g, this.height - 12);
     }
 
@@ -246,9 +269,9 @@ public class FactionEditorScreen extends Screen {
     }
 
     private boolean listClick(double mx, double my) {
-        List<Faction> factions = model.getFactions();
+        List<Faction> factions = model.getFilteredFactions();
         int top = 22;
-        int bottom = this.height - 36;
+        int bottom = this.height - 56;
         int maxRows = Math.max(1, (bottom - top) / ROW_H);
         if (my < top || my >= bottom) return false;
         int idx = (int) ((my - top) / ROW_H) + model.getListScroll();

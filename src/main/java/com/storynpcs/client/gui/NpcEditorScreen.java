@@ -54,27 +54,27 @@ public class NpcEditorScreen extends Screen {
     protected void init() {
         super.init();
 
-        int panelWidth = 400;
-        int panelHeight = 245;
+        int panelWidth = Math.min(400, this.width - 8);
+        int panelHeight = Math.min(245, this.height - 8);
         int startX = (this.width - panelWidth) / 2;
-        int startY = (this.height - panelHeight) / 2;
+        int startY = Math.max(4, (this.height - panelHeight) / 2);
 
         int leftX = startX + 12;
         int rightX = startX + 210;
-        int colWidth = 178;
+        int colWidth = Math.min(178, panelWidth - 222);
 
         // Left Column: Identity & Appearance
-        nameField = new EditBox(this.font, leftX, startY + 38, colWidth, 18, Component.literal("Name"));
+        nameField = new EditBox(this.font, leftX, startY + 34, colWidth, 16, Component.literal("Name"));
         nameField.setValue(definition.getDisplay() != null ? definition.getDisplay().getName() : "StoryNPC");
         nameField.setMaxLength(64);
         this.addRenderableWidget(nameField);
 
-        titleField = new EditBox(this.font, leftX, startY + 74, colWidth, 18, Component.literal("Title"));
+        titleField = new EditBox(this.font, leftX, startY + 62, colWidth, 16, Component.literal("Title"));
         titleField.setValue(definition.getDisplay() != null && definition.getDisplay().getTitle() != null ? definition.getDisplay().getTitle() : "");
         titleField.setMaxLength(64);
         this.addRenderableWidget(titleField);
 
-        skinField = new EditBox(this.font, leftX, startY + 110, colWidth, 18, Component.literal("Skin"));
+        skinField = new EditBox(this.font, leftX, startY + 90, colWidth, 16, Component.literal("Skin"));
         skinField.setValue(definition.getDisplay() != null && definition.getDisplay().getSkinTexture() != null ? definition.getDisplay().getSkinTexture() : "minecraft:textures/entity/player/wide/steve.png");
         skinField.setMaxLength(128);
         this.addRenderableWidget(skinField);
@@ -82,33 +82,33 @@ public class NpcEditorScreen extends Screen {
         // Skin presets row
         int presetW = 42;
         this.addRenderableWidget(Button.builder(Component.literal("Steve"), b -> skinField.setValue("minecraft:textures/entity/player/wide/steve.png"))
-                .bounds(leftX, startY + 132, presetW, 16).build());
+                .bounds(leftX, startY + 108, presetW, 14).build());
         this.addRenderableWidget(Button.builder(Component.literal("Alex"), b -> skinField.setValue("minecraft:textures/entity/player/wide/alex.png"))
-                .bounds(leftX + 45, startY + 132, presetW, 16).build());
+                .bounds(leftX + 45, startY + 108, presetW, 14).build());
         this.addRenderableWidget(Button.builder(Component.literal("Guard"), b -> skinField.setValue("storynpcs:textures/entity/guard.png"))
-                .bounds(leftX + 90, startY + 132, presetW, 16).build());
+                .bounds(leftX + 90, startY + 108, presetW, 14).build());
         this.addRenderableWidget(Button.builder(Component.literal("Villager"), b -> skinField.setValue("minecraft:textures/entity/villager/villager.png"))
-                .bounds(leftX + 135, startY + 132, presetW, 16).build());
+                .bounds(leftX + 135, startY + 108, presetW, 14).build());
 
-        factionField = new EditBox(this.font, leftX, startY + 168, colWidth, 18, Component.literal("Faction"));
+        factionField = new EditBox(this.font, leftX, startY + 134, colWidth, 16, Component.literal("Faction"));
         factionField.setValue(definition.getFactionId() != null ? definition.getFactionId().toString() : "");
         factionField.setMaxLength(64);
         this.addRenderableWidget(factionField);
 
         // Right Column: Stats & AI
-        healthField = new EditBox(this.font, rightX, startY + 38, 85, 18, Component.literal("Health"));
+        healthField = new EditBox(this.font, rightX, startY + 34, 85, 16, Component.literal("Health"));
         healthField.setValue(String.format("%.1f", definition.getStats() != null ? definition.getStats().getMaxHealth() : 20.0));
         this.addRenderableWidget(healthField);
 
-        damageField = new EditBox(this.font, rightX + 93, startY + 38, 85, 18, Component.literal("Damage"));
+        damageField = new EditBox(this.font, rightX + 93, startY + 34, 85, 16, Component.literal("Damage"));
         damageField.setValue(String.format("%.1f", definition.getStats() != null ? definition.getStats().getAttackDamage() : 5.0));
         this.addRenderableWidget(damageField);
 
-        speedField = new EditBox(this.font, rightX, startY + 74, 85, 18, Component.literal("Speed"));
+        speedField = new EditBox(this.font, rightX, startY + 62, 85, 16, Component.literal("Speed"));
         speedField.setValue(String.format("%.2f", definition.getStats() != null ? definition.getStats().getMovementSpeed() : 0.25));
         this.addRenderableWidget(speedField);
 
-        rangeField = new EditBox(this.font, rightX + 93, startY + 74, 85, 18, Component.literal("Range"));
+        rangeField = new EditBox(this.font, rightX + 93, startY + 62, 85, 16, Component.literal("Range"));
         rangeField.setValue(String.valueOf(definition.getAi() != null ? definition.getAi().getWalkingRange() : 10));
         this.addRenderableWidget(rangeField);
 
@@ -117,7 +117,7 @@ public class NpcEditorScreen extends Screen {
             NpcAi.MovementType[] vals = NpcAi.MovementType.values();
             currentMovement = vals[(currentMovement.ordinal() + 1) % vals.length];
             movementButton.setMessage(Component.literal("Move: " + currentMovement.name()));
-        }).bounds(rightX, startY + 110, colWidth, 20).build();
+        }).bounds(rightX, startY + 90, colWidth, 16).build();
         this.addRenderableWidget(movementButton);
 
         // Stance button (cycles GUARD -> PASSIVE -> NEUTRAL -> AGGRESSIVE -> EVASIVE)
@@ -125,7 +125,7 @@ public class NpcEditorScreen extends Screen {
             TacticalStance[] vals = TacticalStance.values();
             currentStance = vals[(currentStance.ordinal() + 1) % vals.length];
             stanceButton.setMessage(Component.literal("Stance: " + currentStance.name()));
-        }).bounds(rightX, startY + 135, colWidth, 20).build();
+        }).bounds(rightX, startY + 108, colWidth, 16).build();
         this.addRenderableWidget(stanceButton);
 
         // Dialogue editor shortcut button
@@ -141,7 +141,7 @@ public class NpcEditorScreen extends Screen {
                     Minecraft.getInstance().player.connection.sendCommand("storynpcs dialogue edit " + dialogueId);
                 }
             }
-        }).bounds(rightX, startY + 168, colWidth, 20).build());
+        }).bounds(rightX, startY + 134, colWidth, 16).build());
 
         // Behavior rules sub-screen (issue #26)
         int ruleCount = definition.getRules() != null ? definition.getRules().size() : 0;
@@ -149,9 +149,11 @@ public class NpcEditorScreen extends Screen {
                 Component.literal("§bRules (" + ruleCount + ")"), b -> {
                     saveCurrentState();
                     Minecraft.getInstance().setScreen(new NpcRulesScreen(definition));
-                }).bounds(rightX, startY + 190, colWidth, 14).build());
+                }).bounds(rightX, startY + 154, colWidth, 14).build());
 
-        // Bottom Action Bar
+        // Bottom Action Bar — anchored to the panel bottom so it stays inside
+        // the frame when the panel shrinks on short windows
+        int actionY = startY + panelHeight - 52;
         this.addRenderableWidget(Button.builder(Component.literal("§aSave Changes"), b -> {
             saveCurrentState();
             statusMessage = "Saving...";
@@ -160,18 +162,18 @@ public class NpcEditorScreen extends Screen {
                     definition.getId().toString(),
                     NpcDefinitionSerde.toJson(definition)
             ));
-        }).bounds(startX + 12, startY + 205, 140, 22).build());
+        }).bounds(startX + 12, actionY, 140, 18).build());
 
         this.addRenderableWidget(Button.builder(Component.literal("§cDespawn NPC"), b -> {
             if (Minecraft.getInstance().player != null && definition.getId() != null) {
                 Minecraft.getInstance().player.connection.sendCommand("storynpcs npc despawn " + definition.getId());
                 this.onClose();
             }
-        }).bounds(startX + 160, startY + 205, 110, 22).build());
+        }).bounds(startX + 160, actionY, 110, 18).build());
 
         this.addRenderableWidget(Button.builder(Component.literal("Close"), b -> {
             this.onClose();
-        }).bounds(startX + 280, startY + 205, 108, 22).build());
+        }).bounds(startX + 280, actionY, 108, 18).build());
     }
 
     private void saveCurrentState() {
@@ -214,10 +216,10 @@ public class NpcEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        int panelWidth = 400;
-        int panelHeight = 245;
+        int panelWidth = Math.min(400, this.width - 8);
+        int panelHeight = Math.min(245, this.height - 8);
         int startX = (this.width - panelWidth) / 2;
-        int startY = (this.height - panelHeight) / 2;
+        int startY = Math.max(4, (this.height - panelHeight) / 2);
 
         // Dark background and border
         graphics.fill(startX, startY, startX + panelWidth, startY + panelHeight, 0xF0121216);
@@ -228,20 +230,22 @@ public class NpcEditorScreen extends Screen {
         graphics.drawString(this.font, "§6StoryNPCs — NPC Editor: §e" + (definition.getId() != null ? definition.getId() : "New"), startX + 12, startY + 7, 0xFFFFFFFF);
 
         // Labels Left Column
-        graphics.drawString(this.font, "§7Display Name", startX + 12, startY + 28, 0xFFA1A1AA);
-        graphics.drawString(this.font, "§7Title / Role", startX + 12, startY + 64, 0xFFA1A1AA);
-        graphics.drawString(this.font, "§7Skin Texture Path", startX + 12, startY + 100, 0xFFA1A1AA);
-        graphics.drawString(this.font, "§7Faction ID", startX + 12, startY + 156, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Display Name", startX + 12, startY + 26, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Title / Role", startX + 12, startY + 54, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Skin Texture Path", startX + 12, startY + 82, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Faction ID", startX + 12, startY + 126, 0xFFA1A1AA);
 
         // Labels Right Column
-        graphics.drawString(this.font, "§7Health / Damage", startX + 210, startY + 28, 0xFFA1A1AA);
-        graphics.drawString(this.font, "§7Speed / Range", startX + 210, startY + 64, 0xFFA1A1AA);
-        graphics.drawString(this.font, "§7AI Movement & Stance", startX + 210, startY + 100, 0xFFA1A1AA);
-        graphics.drawString(this.font, "§7Dialogue Graph", startX + 210, startY + 156, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Health / Damage", startX + 210, startY + 26, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Speed / Range", startX + 210, startY + 54, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7AI Movement & Stance", startX + 210, startY + 82, 0xFFA1A1AA);
+        graphics.drawString(this.font, "§7Dialogue Graph", startX + 210, startY + 126, 0xFFA1A1AA);
 
-        // Status message
+        // Status message — inside the panel, below the action row
         if (!statusMessage.isEmpty()) {
-            graphics.drawString(this.font, statusMessage, startX + 12, startY + 233, statusColor);
+            graphics.drawString(this.font,
+                    this.font.plainSubstrByWidth(statusMessage, panelWidth - 24),
+                    startX + 12, startY + panelHeight - 14, statusColor);
         }
 
         super.render(graphics, mouseX, mouseY, partialTick);

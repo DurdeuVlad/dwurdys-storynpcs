@@ -65,6 +65,7 @@ public final class NpcRulesScreenModel {
 
     private String statusMessage = "";
     private boolean statusError;
+    private String listFilter = "";
 
     public NpcRulesScreenModel(NpcDefinition npc) {
         this.npc = npc;
@@ -73,6 +74,28 @@ public final class NpcRulesScreenModel {
     public NpcDefinition getNpc() { return npc; }
     public List<BehaviorRule> getRules() { return npc.getRules(); }
     public boolean isAddMode() { return addMode; }
+
+    /** Substring filter text for the rules list (issue #21). */
+    public String getListFilter() { return listFilter; }
+    public void setListFilter(String f) { this.listFilter = f != null ? f : ""; }
+
+    /**
+     * Indices into the live rule list matching the filter — case-insensitive
+     * substring on the human-readable rule summary, so remove buttons still
+     * address real rule positions.
+     */
+    public List<Integer> filteredRuleIndices() {
+        String needle = listFilter.trim().toLowerCase(java.util.Locale.ROOT);
+        List<Integer> out = new java.util.ArrayList<>();
+        List<BehaviorRule> rules = npc.getRules();
+        for (int i = 0; i < rules.size(); i++) {
+            if (needle.isEmpty()
+                    || describe(rules.get(i)).toLowerCase(java.util.Locale.ROOT).contains(needle)) {
+                out.add(i);
+            }
+        }
+        return out;
+    }
 
     public int getTriggerIdx() { return triggerIdx; }
     public int getCondIdx() { return condIdx; }

@@ -82,4 +82,23 @@ class FactionEditorScreenModelTest {
         assertThat(model.getMode()).isEqualTo(FactionEditorScreenModel.Mode.LIST);
         assertThat(model.factionCount()).isEqualTo(1);
     }
+
+    @Test
+    void filterMatchesIdAndNameCaseInsensitively() {
+        model.setListFilter("RIVER");
+        assertThat(model.getFilteredFactions()).hasSize(1);
+        assertThat(model.getFilteredFactions().get(0).getId().toString()).isEqualTo("storynpcs:river_pirates");
+
+        model.setListFilter("town");
+        assertThat(model.getFilteredFactions()).hasSize(1);
+        assertThat(model.getFilteredFactions().get(0).getId().toString()).isEqualTo("storynpcs:town_guard");
+    }
+
+    @Test
+    void clearingFilterRestoresFullList() {
+        model.setListFilter("zzz_no_match");
+        assertThat(model.getFilteredFactions()).isEmpty();
+        model.setListFilter("");
+        assertThat(model.getFilteredFactions()).hasSize(2);
+    }
 }
