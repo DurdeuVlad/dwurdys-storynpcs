@@ -98,6 +98,30 @@ public class DialogueEditorScreenModel {
         }
     }
 
+    /** Per-node speaker override; blank restores the NPC-name/title fallback at runtime. */
+    public void updateSelectedNodeSpeaker(String speaker) {
+        String selectedId = editorState.getSelectedNodeId();
+        if (selectedId != null) {
+            VisualNode node = getLayout().getNodes().get(selectedId);
+            if (node != null) {
+                node.setSpeaker(speaker != null ? speaker : "");
+                unsavedChanges = true;
+            }
+        }
+    }
+
+    /** Per-node sound event id; blank means no sound. Validation feedback is a UI concern (see screen). */
+    public void updateSelectedNodeSound(String sound) {
+        String selectedId = editorState.getSelectedNodeId();
+        if (selectedId != null) {
+            VisualNode node = getLayout().getNodes().get(selectedId);
+            if (node != null) {
+                node.setSound(sound != null ? sound.trim() : "");
+                unsavedChanges = true;
+            }
+        }
+    }
+
     public void setAsEntryNode(String nodeId) {
         if (getLayout().getNodes().containsKey(nodeId)) {
             getLayout().setEntryNodeId(nodeId);

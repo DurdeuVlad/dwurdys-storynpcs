@@ -6,14 +6,17 @@ import com.storynpcs.editor.VisualEdge;
 import com.storynpcs.editor.VisualNode;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 
 public class DialogueEditorScreen extends Screen {
 
     private static final int INSPECTOR_W = 200;
-    private static final int INSPECTOR_MAX_H = 222;
+    private static final int INSPECTOR_MAX_H = 240;
     private static final int INSPECTOR_Y = 50;
     /** How long a delete button stays in its "Confirm?" state before reverting. */
     private static final long DELETE_CONFIRM_MS = 4000;
@@ -25,6 +28,10 @@ public class DialogueEditorScreen extends Screen {
 
     /** Node-text editor inside the inspector — visible only while a node is selected. */
     private MultiLineEditBox nodeTextBox;
+    private EditBox speakerBox;
+    private EditBox soundBox;
+    /** Inline warning under the sound field — null when the id is blank or resolves. */
+    private String soundWarning;
     /** Guards programmatic setValue during selection sync so it doesn't mark the graph dirty. */
     private boolean syncingInspector;
 
@@ -81,8 +88,33 @@ public class DialogueEditorScreen extends Screen {
         // can never silently drop text because the model already holds it).
         int panelX = width - INSPECTOR_W - 10;
         int panelH = inspectorHeight();
-        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 86,
-                INSPECTOR_W - 16, Math.max(40, panelH - 128),
+
+        // Speaker + sound — single-line fields, live-commit like the text box
+        speakerBox = new EditBox(this.font, panelX + 62, INSPECTOR_Y + 66,
+                INSPECTOR_W - 72, 16, Component.literal("Speaker"));
+        speakerBox.setMaxLength(60);
+        speakerBox.setHint(Component.literal("blank = NPC name"));
+        speakerBox.setResponder(v -> {
+            if (!syncingInspector) model.updateSelectedNodeSpeaker(v);
+        });
+        speakerBox.visible = false;
+        this.addRenderableWidget(speakerBox);
+
+        soundBox = new EditBox(this.font, panelX + 62, INSPECTOR_Y + 88,
+                INSPECTOR_W - 72, 16, Component.literal("Sound"));
+        soundBox.setMaxLength(160);
+        soundBox.setHint(Component.literal("sound event id"));
+        soundBox.setResponder(v -> {
+            if (!syncingInspector) {
+                model.updateSelectedNodeSound(v);
+                soundWarning = soundWarningFor(v);
+            }
+        });
+        soundBox.visible = false;
+        this.addRenderableWidget(soundBox);
+
+        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 126,
+                INSPECTOR_W - 16, Math.max(12, panelH - 166),
                 Component.literal("Node text…"), Component.literal("Node text"));
         nodeTextBox.setCharacterLimit(2000);
         nodeTextBox.setValueListener(v -> {
@@ -128,15 +160,24 @@ public class DialogueEditorScreen extends Screen {
 
         if (nodeTextBox != null) {
             nodeTextBox.visible = node != null;
+            speakerBox.visible = node != null;
+            soundBox.visible = node != null;
             if (node == null) {
                 nodeTextBox.setFocused(false);
+                speakerBox.setFocused(false);
+                soundBox.setFocused(false);
+                soundWarning = null;
             } else {
                 syncingInspector = true;
                 try {
                     nodeTextBox.setValue(node.getText() != null ? node.getText() : "");
+                    speakerBox.setValue(node.getSpeaker() != null ? node.getSpeaker() : "");
+                    soundBox.setValue(node.getSound() != null ? node.getSound() : "");
                 } finally {
                     syncingInspector = false;
                 }
+                // Surface a warning even for pre-existing YAML data, not just new edits
+                soundWarning = soundWarningFor(node.getSound());
             }
         }
         if (deleteNodeButton != null) {
@@ -334,7 +375,26 @@ public class DialogueEditorScreen extends Screen {
         graphics.drawString(this.font, "ID: " + node.getId(), panelX + 10, panelY + 28, 0xFFE2E8F0, false);
         graphics.drawString(this.font, "Pos: (" + (int)node.getX() + ", " + (int)node.getY() + ")", panelX + 10, panelY + 44, 0xFF94A3B8, false);
         graphics.drawString(this.font, "Entry: " + node.isEntryNode(), panelX + 10, panelY + 60, 0xFF94A3B8, false);
-        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 74, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Speaker:", panelX + 10, panelY + 70, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Sound:", panelX + 10, panelY + 92, 0xFF94A3B8, false);
+        if (soundWarning != null) {
+            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 107, 0xFFFBBF24, false);
+        }
+        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 118, 0xFF94A3B8, false);
+    }
+
+    /**
+     * Inline sound-id validation: format via ResourceLocation, existence via the
+     * client-side sound registry. A warning is shown but the value still commits —
+     * custom datapack/pack sounds may legitimately not be in the vanilla registry.
+     */
+    private String soundWarningFor(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        if (ResourceLocation.tryParse(raw) == null) return "! not a valid id (namespace:path)";
+        if (!BuiltInRegistries.SOUND_EVENT.containsKey(ResourceLocation.parse(raw))) {
+            return "! unknown sound event — won't play";
+        }
+        return null;
     }
 
     @Override

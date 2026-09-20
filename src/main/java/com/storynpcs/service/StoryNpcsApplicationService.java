@@ -383,8 +383,15 @@ public class StoryNpcsApplicationService {
         return null;
     }
 
-    /** Best available speaker label: NPC display name, then the dialogue title. */
+    /**
+     * Best available speaker label: per-node override first, then NPC display
+     * name, then the dialogue title.
+     */
     private String speakerLabel(DialogueSession session) {
+        DialogueNode node = session.getCurrentNode();
+        if (node != null && node.getSpeaker() != null && !node.getSpeaker().isBlank()) {
+            return node.getSpeaker();
+        }
         if (session.getNpcDisplayName() != null && !session.getNpcDisplayName().isBlank()) {
             return session.getNpcDisplayName();
         }
