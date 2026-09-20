@@ -133,4 +133,48 @@ class NetworkPayloadsTest {
         assertEquals(payload, decoded);
         assertEquals(ClientboundDialogueSaveResultPayload.TYPE, payload.type());
     }
+
+    @Test
+    @DisplayName("ClientboundNpcEditorOpenPayload encode and decode matches")
+    void testClientboundNpcEditorOpenPayloadCodec() {
+        ClientboundNpcEditorOpenPayload payload = new ClientboundNpcEditorOpenPayload(
+                "storynpcs:guard_captain", "{\"id\":\"storynpcs:guard_captain\"}");
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundNpcEditorOpenPayload.STREAM_CODEC.encode(buf, payload);
+        ClientboundNpcEditorOpenPayload decoded = ClientboundNpcEditorOpenPayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload.npcId(), decoded.npcId());
+        assertEquals(payload.npcJson(), decoded.npcJson());
+        assertEquals(payload, decoded);
+        assertEquals(ClientboundNpcEditorOpenPayload.TYPE, payload.type());
+    }
+
+    @Test
+    @DisplayName("ServerboundNpcSavePayload encode and decode matches")
+    void testServerboundNpcSavePayloadCodec() {
+        ServerboundNpcSavePayload payload = new ServerboundNpcSavePayload(
+                "storynpcs:guard_captain", "{\"id\":\"storynpcs:guard_captain\"}");
+
+        ByteBuf buf = Unpooled.buffer();
+        ServerboundNpcSavePayload.STREAM_CODEC.encode(buf, payload);
+        ServerboundNpcSavePayload decoded = ServerboundNpcSavePayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals(ServerboundNpcSavePayload.TYPE, payload.type());
+    }
+
+    @Test
+    @DisplayName("ClientboundNpcSaveResultPayload encode and decode matches")
+    void testClientboundNpcSaveResultPayloadCodec() {
+        ClientboundNpcSaveResultPayload payload =
+                new ClientboundNpcSaveResultPayload(true, "NPC saved.");
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundNpcSaveResultPayload.STREAM_CODEC.encode(buf, payload);
+        ClientboundNpcSaveResultPayload decoded = ClientboundNpcSaveResultPayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals(ClientboundNpcSaveResultPayload.TYPE, payload.type());
+    }
 }

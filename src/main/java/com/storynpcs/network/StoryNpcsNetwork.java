@@ -66,6 +66,33 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleDialogueSaveResult(payload));
                 }
         );
+
+        // NPC Editor payloads
+        registrar.playToClient(
+                ClientboundNpcEditorOpenPayload.TYPE,
+                ClientboundNpcEditorOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openNpcEditor(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundNpcSavePayload.TYPE,
+                ServerboundNpcSavePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleNpcSave(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToClient(
+                ClientboundNpcSaveResultPayload.TYPE,
+                ClientboundNpcSaveResultPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleNpcSaveResult(payload));
+                }
+        );
     }
 
     private static void handleDialogueSave(ServerPlayer player, ServerboundDialogueSavePayload payload) {
@@ -103,6 +130,54 @@ public class StoryNpcsNetwork {
 
     private static void sendSaveResult(ServerPlayer player, boolean success, String message) {
         PacketDistributor.sendToPlayer(player, new ClientboundDialogueSaveResultPayload(success, message));
+        player.sendSystemMessage(Component.literal((success ? "§a[StoryNPCs] " : "§c[StoryNPCs] ") + message));
+    }
+
+    private static void handleNpcSave(ServerPlayer player, ServerboundNpcSavePayload payload) {
+        if (!player.hasPermissions(2)) {
+            sendNpcSaveResult(player, false, "Insufficient permissions — NPC editing requires operator level 2.");
+            return;
+        }
+        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        if (service == null) {
+            sendNpcSaveResult(player, false, "StoryNPCs service is not available on this server.");
+            return;
+        }
+        com.storynpcs.domain.common.NamespacedId id;
+        try {
+            id = com.storynpcs.domain.common.NamespacedId.of(payload.npcId());
+        } catch (Exception e) {
+            sendNpcSaveResult(player, false, "Malformed NPC id: '" + payload.npcId() + "'");
+            return;
+        }
+        var npcOpt = com.storynpcs.domain.npc.NpcDefinitionSerde.fromJson(payload.npcJson());
+        if (npcOpt.isEmpty()) {
+            sendNpcSaveResult(player, false, "Malformed NPC data — save rejected.");
+            return;
+        }
+        com.storynpcs.domain.npc.NpcDefinition def = npcOpt.get();
+        def.setId(id);
+        var result = service.saveNpc(def);
+        if (result.hasErrors()) {
+            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            sendNpcSaveResult(player, false, "Save rejected: " + first);
+        } else {
+            // Live refresh all in-world entities of this definition
+            if (player.getServer() != null) {
+                for (net.minecraft.server.level.ServerLevel level : player.getServer().getAllLevels()) {
+                    for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
+                        if (entity instanceof com.storynpcs.entity.StoryNpcEntity npc && id.toString().equals(npc.getDefinitionId())) {
+                            npc.applyDefinition();
+                        }
+                    }
+                }
+            }
+            sendNpcSaveResult(player, true, "NPC '" + id + "' saved to disk and updated in world.");
+        }
+    }
+
+    private static void sendNpcSaveResult(ServerPlayer player, boolean success, String message) {
+        PacketDistributor.sendToPlayer(player, new ClientboundNpcSaveResultPayload(success, message));
         player.sendSystemMessage(Component.literal((success ? "§a[StoryNPCs] " : "§c[StoryNPCs] ") + message));
     }
 

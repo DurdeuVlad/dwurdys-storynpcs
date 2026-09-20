@@ -2,11 +2,16 @@ package com.storynpcs.client;
 
 import com.storynpcs.client.gui.DialogueEditorScreen;
 import com.storynpcs.client.gui.DialogueScreen;
+import com.storynpcs.client.gui.NpcEditorScreen;
 import com.storynpcs.client.render.StoryNpcRenderer;
+import com.storynpcs.domain.npc.NpcDefinitionSerde;
 import com.storynpcs.entity.StoryNpcRegistry;
 import com.storynpcs.network.ClientboundDialogueEditorOpenPayload;
 import com.storynpcs.network.ClientboundDialogueOpenPayload;
+import com.storynpcs.network.ClientboundNpcEditorOpenPayload;
+import com.storynpcs.network.ClientboundNpcSaveResultPayload;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 
 public final class StoryNpcsClient {
@@ -65,6 +70,29 @@ public final class StoryNpcsClient {
         mc.tell(() -> {
             if (mc.screen instanceof DialogueEditorScreen editor) {
                 editor.getModel().onSaveResult(payload.success(), payload.message());
+            }
+        });
+    }
+
+    public static void openNpcEditor(ClientboundNpcEditorOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            var defOpt = NpcDefinitionSerde.fromJson(payload.npcJson());
+            if (defOpt.isPresent()) {
+                mc.setScreen(new NpcEditorScreen(defOpt.get()));
+            } else {
+                if (mc.player != null) {
+                    mc.player.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to parse NPC data for editor."));
+                }
+            }
+        });
+    }
+
+    public static void handleNpcSaveResult(ClientboundNpcSaveResultPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            if (mc.screen instanceof NpcEditorScreen editor) {
+                editor.onSaveResult(payload.success(), payload.message());
             }
         });
     }

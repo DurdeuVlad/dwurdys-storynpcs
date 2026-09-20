@@ -1,0 +1,8 @@
+{
+  "itemGroup.storynpcs": "StoryNPCs",
+  "item.storynpcs.npc_wand": "NPC Wand",
+  "item.storynpcs.npc_cloner": "NPC Cloner",
+  "item.storynpcs.npc_path": "NPC Moving Path",
+  "item.storynpcs.npc_mounter": "NPC Mounter",
+  "item.storynpcs.npc_dialogue_wand": "NPC Dialogue Wand"
+}

@@ -60,6 +60,7 @@ public class StoryNpcs {
         this.lifecycleHandler = new WorldLifecycleHandler(this);
 
         StoryNpcRegistry.register(modEventBus);
+        com.storynpcs.item.StoryNpcsItems.register(modEventBus);
         modEventBus.addListener(StoryNpcsNetwork::register);
         if (net.neoforged.fml.loading.FMLEnvironment.dist.isClient()) {
             modEventBus.addListener(com.storynpcs.client.StoryNpcsClient::registerRenderers);
