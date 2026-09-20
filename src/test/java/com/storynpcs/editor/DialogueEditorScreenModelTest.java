@@ -119,4 +119,30 @@ class DialogueEditorScreenModelTest {
         assertTrue(model.hasUnsavedChanges());
         assertEquals("Rejected.", model.getStatusMessage());
     }
+
+    @Test
+    @DisplayName("Node text edits are live-committed: switching selection then exporting keeps both nodes' text")
+    void testNodeTextEditPersistsAcrossSelectionChangeAndExport() {
+        AtomicReference<DialogueGraph> saved = new AtomicReference<>();
+        DialogueGraph graph = new DialogueGraph(NamespacedId.of("storynpcs:text_edit"), "Text Edit", "a");
+        graph.addNode(new DialogueNode("a", "Original A"));
+        graph.addNode(new DialogueNode("b", "Original B"));
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(graph, saved::set);
+
+        // Select A, edit its text — the model commits immediately (auto-commit contract)
+        model.getEditorState().setSelectedNodeId("a");
+        model.updateSelectedNodeText("Rewritten A with a much longer line that would overflow a fixed box");
+
+        // Switch to B without any explicit apply — A's text must already be committed
+        model.getEditorState().setSelectedNodeId("b");
+        model.updateSelectedNodeText("Rewritten B");
+
+        model.save();
+        DialogueGraph exported = saved.get();
+        assertNotNull(exported);
+        assertEquals("Rewritten A with a much longer line that would overflow a fixed box",
+                exported.getNode("a").orElseThrow().getText());
+        assertEquals("Rewritten B", exported.getNode("b").orElseThrow().getText());
+        assertTrue(model.hasUnsavedChanges());
+    }
 }
