@@ -117,6 +117,10 @@ class StoryNpcsCommandsTest {
         CommandNode<CommandSourceStack> rewRemove = reward.getChild("remove");
         assertNotNull(rewRemove, "quest reward remove");
         assertNotNull(rewRemove.getChild("quest_id"), "reward remove quest_id");
+
+        CommandNode<CommandSourceStack> gui = quest.getChild("gui");
+        assertNotNull(gui, "quest gui must exist");
+        assertNotNull(gui.getChild("quest_id"), "quest gui quest_id arg");
         assertNotNull(rewRemove.getChild("quest_id").getChild("index"), "reward remove index arg");
 
         // Faction subcommands

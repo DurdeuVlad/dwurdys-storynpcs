@@ -581,4 +581,27 @@ class StoryNpcsApplicationServiceTest {
         assertThat(dup.hasErrors()).isTrue();
         assertThat(dup.formatReport()).contains("FACTION_ALREADY_EXISTS");
     }
+
+    @Test
+    void deleteQuestShouldRemoveAndReportDialogueReferences() {
+        NamespacedId questId = NamespacedId.of("storynpcs:deletable");
+        service.createQuest(questId, "Deletable");
+        assertThat(registry.getQuest(questId)).isPresent();
+
+        // dialogue with a START_QUEST action targeting the quest
+        NamespacedId dlgId = NamespacedId.of("storynpcs:quest_ref_dlg");
+        DialogueGraph g = new DialogueGraph(dlgId, "Ref Dlg", "start");
+        DialogueNode node = new DialogueNode("start", "hi");
+        DialogueEdge edge = new DialogueEdge("opt", "start");
+        edge.getActions().add(new com.storynpcs.domain.dialogue.DialogueAction(
+                com.storynpcs.domain.dialogue.DialogueAction.Type.START_QUEST, questId.toString(), ""));
+        node.getOptions().add(edge);
+        g.getNodes().put("start", node);
+        registry.registerDialogue(g);
+
+        assertThat(service.findDialoguesStartingQuest(questId)).containsExactly(dlgId);
+        assertThat(service.deleteQuest(questId)).isTrue();
+        assertThat(registry.getQuest(questId)).isEmpty();
+        assertThat(service.deleteQuest(questId)).isFalse(); // idempotent-miss
+    }
 }

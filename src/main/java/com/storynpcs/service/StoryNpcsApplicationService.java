@@ -432,6 +432,47 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Removes a quest definition from the live registry and removes its YAML file from
+     * disk. Mirrors {@link #deleteNpc}. Callers should check
+     * {@link #findDialoguesStartingQuest(NamespacedId)} first — deleted quests leave
+     * dangling START_QUEST actions in dialogue graphs.
+     */
+    public boolean deleteQuest(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        if (registry.getQuest(id).isPresent()) {
+            registry.removeQuest(id);
+            if (loader != null) {
+                boolean fileDeleted = loader.deleteDefinitionFile("quest", id);
+                if (!fileDeleted) {
+                    System.err.println("[StoryNPCs] Warning: Quest '" + id + "' removed from registry but definition file could not be found on disk. It may resurrect on reload.");
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Finds all dialogue graphs that contain a START_QUEST action targeting the given
+     * quest. Used by quest deletion to warn about dangling references.
+     */
+    public List<NamespacedId> findDialoguesStartingQuest(NamespacedId questId) {
+        List<NamespacedId> referencing = new ArrayList<>();
+        String target = questId.toString();
+        for (DialogueGraph graph : registry.getAllDialogues()) {
+            boolean refs = graph.getNodes().values().stream()
+                    .flatMap(n -> n.getOptions().stream())
+                    .flatMap(e -> e.getActions().stream())
+                    .anyMatch(a -> a.getType() == DialogueAction.Type.START_QUEST
+                            && target.equals(a.getTarget()));
+            if (refs) {
+                referencing.add(graph.getId());
+            }
+        }
+        return referencing;
+    }
+
+    /**
      * Scaffolds a valid starter dialogue graph, validates and persists it to YAML, and
      * registers it live in the registry. Canonical creation path for `/storynpcs dialogue create`.
      */
