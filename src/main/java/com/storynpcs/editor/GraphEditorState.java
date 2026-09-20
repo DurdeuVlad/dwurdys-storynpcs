@@ -67,6 +67,27 @@ public class GraphEditorState {
         this.connectingSourceNodeId = connectingSourceNodeId;
     }
 
+    /**
+     * Hit-tests the edge label — the renderer draws a ~50x12 label box at the
+     * midpoint of each edge's center-to-center segment; a click inside it selects
+     * that edge.
+     */
+    public VisualEdge findEdgeAtScreen(double screenX, double screenY) {
+        for (VisualEdge edge : layout.getEdges()) {
+            VisualNode src = layout.getNodes().get(edge.getSourceNodeId());
+            VisualNode dst = layout.getNodes().get(edge.getTargetNodeId());
+            if (src == null || dst == null) continue;
+            double midX = (DialogueGraphLayout.canvasToScreenX(src.getCenterX(), panX, zoom)
+                    + DialogueGraphLayout.canvasToScreenX(dst.getCenterX(), panX, zoom)) / 2.0;
+            double midY = (DialogueGraphLayout.canvasToScreenY(src.getCenterY(), panY, zoom)
+                    + DialogueGraphLayout.canvasToScreenY(dst.getCenterY(), panY, zoom)) / 2.0;
+            if (Math.abs(screenX - midX) <= 25 && Math.abs(screenY - midY) <= 6) {
+                return edge;
+            }
+        }
+        return null;
+    }
+
     public VisualNode findNodeAtScreen(double screenX, double screenY) {
         double canvasX = DialogueGraphLayout.screenToCanvasX(screenX, panX, zoom);
         double canvasY = DialogueGraphLayout.screenToCanvasY(screenY, panY, zoom);

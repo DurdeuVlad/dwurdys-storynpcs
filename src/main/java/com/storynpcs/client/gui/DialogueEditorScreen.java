@@ -13,8 +13,10 @@ import net.minecraft.network.chat.Component;
 public class DialogueEditorScreen extends Screen {
 
     private static final int INSPECTOR_W = 200;
-    private static final int INSPECTOR_H = 200;
+    private static final int INSPECTOR_MAX_H = 222;
     private static final int INSPECTOR_Y = 50;
+    /** How long a delete button stays in its "Confirm?" state before reverting. */
+    private static final long DELETE_CONFIRM_MS = 4000;
 
     private final DialogueEditorScreenModel model;
     private boolean isPanning = false;
@@ -25,6 +27,13 @@ public class DialogueEditorScreen extends Screen {
     private MultiLineEditBox nodeTextBox;
     /** Guards programmatic setValue during selection sync so it doesn't mark the graph dirty. */
     private boolean syncingInspector;
+
+    private Button deleteNodeButton;
+    private Button deleteEdgeButton;
+    private Button setEntryButton;
+    /** "node"/"edge" while a delete is armed for confirmation, else null. */
+    private String deleteArmed;
+    private long deleteArmUntil;
 
     public DialogueEditorScreen(DialogueEditorScreenModel model) {
         super(Component.literal("Dialogue Editor: " + model.getTitle()));
@@ -71,8 +80,9 @@ public class DialogueEditorScreen extends Screen {
         // Edits commit live on every keystroke (auto-commit model: selection changes
         // can never silently drop text because the model already holds it).
         int panelX = width - INSPECTOR_W - 10;
+        int panelH = inspectorHeight();
         nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 86,
-                INSPECTOR_W - 16, 104,
+                INSPECTOR_W - 16, Math.max(40, panelH - 128),
                 Component.literal("Node text…"), Component.literal("Node text"));
         nodeTextBox.setCharacterLimit(2000);
         nodeTextBox.setValueListener(v -> {
@@ -82,34 +92,122 @@ public class DialogueEditorScreen extends Screen {
         });
         nodeTextBox.visible = false;
         this.addRenderableWidget(nodeTextBox);
+
+        // Delete controls — two-click confirm (the button re-arms to "Confirm?" for a
+        // short window) on top of the existing save-gate, so a misclick can't
+        // silently drop a node or edge.
+        deleteNodeButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Delete Node"), b -> onDeleteNodePressed())
+                .bounds(panelX + 8, INSPECTOR_Y + panelH - 30, 90, 20).build());
+        deleteNodeButton.visible = false;
+
+        setEntryButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Set Entry"), b -> {
+                    String sel = model.getEditorState().getSelectedNodeId();
+                    if (sel != null) {
+                        model.setAsEntryNode(sel);
+                        syncInspectorWidgets();
+                    }
+                }).bounds(panelX + 102, INSPECTOR_Y + panelH - 30, 90, 20).build());
+        setEntryButton.visible = false;
+
+        deleteEdgeButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Delete Edge"), b -> onDeleteEdgePressed())
+                .bounds(panelX + 8, INSPECTOR_Y + 64, 90, 20).build());
+        deleteEdgeButton.visible = false;
+
         syncInspectorWidgets();
     }
 
-    /** Shows the inspector text box for the selected node, or hides it. Repopulates on selection change. */
+    /** Shows the inspector widgets for the current selection (node, edge, or none). */
     private void syncInspectorWidgets() {
-        if (nodeTextBox == null) return;
+        disarmDelete();
         String selectedId = model.getEditorState().getSelectedNodeId();
         VisualNode node = selectedId != null ? model.getLayout().getNodes().get(selectedId) : null;
-        if (node == null) {
-            nodeTextBox.visible = false;
-            nodeTextBox.setFocused(false);
-        } else {
-            nodeTextBox.visible = true;
-            syncingInspector = true;
-            try {
-                nodeTextBox.setValue(node.getText() != null ? node.getText() : "");
-            } finally {
-                syncingInspector = false;
+        VisualEdge edge = model.getEditorState().getSelectedEdge();
+
+        if (nodeTextBox != null) {
+            nodeTextBox.visible = node != null;
+            if (node == null) {
+                nodeTextBox.setFocused(false);
+            } else {
+                syncingInspector = true;
+                try {
+                    nodeTextBox.setValue(node.getText() != null ? node.getText() : "");
+                } finally {
+                    syncingInspector = false;
+                }
             }
+        }
+        if (deleteNodeButton != null) {
+            deleteNodeButton.visible = node != null;
+            setEntryButton.visible = node != null;
+            setEntryButton.active = node != null && !node.isEntryNode();
+            deleteEdgeButton.visible = node == null && edge != null;
         }
     }
 
-    /** Inspector occupies the right side only while a node is selected — canvas clicks there must not deselect. */
+    /** Panel height adapts to the window — on short screens the buttons must stay reachable. */
+    private int inspectorHeight() {
+        return Math.min(INSPECTOR_MAX_H, Math.max(120, height - INSPECTOR_Y - 16));
+    }
+
+    /** Inspector occupies the right side while a node OR an edge is selected — canvas clicks there must not deselect. */
     private boolean insideInspector(double mouseX, double mouseY) {
-        if (model.getEditorState().getSelectedNodeId() == null) return false;
+        if (model.getEditorState().getSelectedNodeId() == null
+                && model.getEditorState().getSelectedEdge() == null) return false;
         int panelX = width - INSPECTOR_W - 10;
         return mouseX >= panelX && mouseX <= panelX + INSPECTOR_W
-                && mouseY >= INSPECTOR_Y && mouseY <= INSPECTOR_Y + INSPECTOR_H;
+                && mouseY >= INSPECTOR_Y && mouseY <= INSPECTOR_Y + inspectorHeight();
+    }
+
+    private void onDeleteNodePressed() {
+        String sel = model.getEditorState().getSelectedNodeId();
+        if (sel == null) return;
+        VisualNode node = model.getLayout().getNodes().get(sel);
+        if (node != null && node.isEntryNode()) {
+            model.setStatusMessage("Cannot delete the entry node — set another node as entry first");
+            return;
+        }
+        if (armedDelete("node")) {
+            disarmDelete();
+            model.removeSelectedNode();
+            syncInspectorWidgets();
+        } else {
+            armDelete("node");
+        }
+    }
+
+    private void onDeleteEdgePressed() {
+        if (model.getEditorState().getSelectedEdge() == null) return;
+        if (armedDelete("edge")) {
+            disarmDelete();
+            model.removeSelectedEdge();
+            syncInspectorWidgets();
+        } else {
+            armDelete("edge");
+        }
+    }
+
+    private boolean armedDelete(String what) {
+        return what.equals(deleteArmed) && System.currentTimeMillis() < deleteArmUntil;
+    }
+
+    private void armDelete(String what) {
+        deleteArmed = what;
+        deleteArmUntil = System.currentTimeMillis() + DELETE_CONFIRM_MS;
+        if (deleteNodeButton != null) {
+            deleteNodeButton.setMessage(Component.literal("node".equals(what) ? "Confirm?" : "Delete Node"));
+            deleteEdgeButton.setMessage(Component.literal("edge".equals(what) ? "Confirm?" : "Delete Edge"));
+        }
+    }
+
+    private void disarmDelete() {
+        deleteArmed = null;
+        if (deleteNodeButton != null) {
+            deleteNodeButton.setMessage(Component.literal("Delete Node"));
+            deleteEdgeButton.setMessage(Component.literal("Delete Edge"));
+        }
     }
 
     @Override
@@ -140,7 +238,12 @@ public class DialogueEditorScreen extends Screen {
                 // Draw edge label
                 int midX = (x1 + x2) / 2;
                 int midY = (y1 + y2) / 2;
-                graphics.fill(midX - 25, midY - 6, midX + 25, midY + 6, 0xCC000000);
+                boolean edgeSelected = edge == model.getEditorState().getSelectedEdge();
+                graphics.fill(midX - 25, midY - 6, midX + 25, midY + 6,
+                        edgeSelected ? 0xCC3B2A00 : 0xCC000000);
+                if (edgeSelected) {
+                    graphics.renderOutline(midX - 25, midY - 6, 50, 12, 0xFFFACC15);
+                }
                 graphics.drawString(this.font, edge.getText(), midX - 20, midY - 4, color, false);
             }
         }
@@ -199,17 +302,33 @@ public class DialogueEditorScreen extends Screen {
     }
 
     private void renderInspector(GuiGraphics graphics) {
+        if (deleteArmed != null && System.currentTimeMillis() > deleteArmUntil) {
+            disarmDelete();
+        }
         String selectedId = model.getEditorState().getSelectedNodeId();
-        if (selectedId == null) return;
-
-        VisualNode node = model.getLayout().getNodes().get(selectedId);
-        if (node == null) return;
+        VisualEdge selEdge = model.getEditorState().getSelectedEdge();
+        if (selectedId == null && selEdge == null) return;
 
         int panelX = width - INSPECTOR_W - 10;
         int panelY = INSPECTOR_Y;
 
-        graphics.fill(panelX, panelY, panelX + INSPECTOR_W, panelY + INSPECTOR_H, 0xEE0F172A);
-        graphics.renderOutline(panelX, panelY, INSPECTOR_W, INSPECTOR_H, 0xFF38BDF8);
+        graphics.fill(panelX, panelY, panelX + INSPECTOR_W, panelY + inspectorHeight(), 0xEE0F172A);
+        graphics.renderOutline(panelX, panelY, INSPECTOR_W, inspectorHeight(), 0xFF38BDF8);
+
+        if (selEdge != null) {
+            graphics.drawString(this.font, "Edge Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
+            String endpoints = selEdge.getSourceNodeId() + " -> " + selEdge.getTargetNodeId();
+            graphics.drawString(this.font,
+                    this.font.plainSubstrByWidth(endpoints, INSPECTOR_W - 20),
+                    panelX + 10, panelY + 28, 0xFFE2E8F0, false);
+            graphics.drawString(this.font, "Option text:", panelX + 10, panelY + 44, 0xFF94A3B8, false);
+            graphics.drawWordWrap(this.font, Component.literal(selEdge.getText()),
+                    panelX + 10, panelY + 56, INSPECTOR_W - 20, 0xFFCBD5E1);
+            return;
+        }
+
+        VisualNode node = model.getLayout().getNodes().get(selectedId);
+        if (node == null) return;
 
         graphics.drawString(this.font, "Node Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
         graphics.drawString(this.font, "ID: " + node.getId(), panelX + 10, panelY + 28, 0xFFE2E8F0, false);
@@ -239,6 +358,13 @@ public class DialogueEditorScreen extends Screen {
                     lastMouseY = mouseY;
                     return true;
                 } else if (button == 0) {
+                    // Node missed — try the edge label before treating this as empty canvas
+                    VisualEdge edgeHit = model.getEditorState().findEdgeAtScreen(mouseX, mouseY);
+                    if (edgeHit != null) {
+                        model.getEditorState().setSelectedEdge(edgeHit);
+                        syncInspectorWidgets();
+                        return true;
+                    }
                     model.getEditorState().setSelectedNodeId(null);
                     syncInspectorWidgets();
                     model.cancelConnectingEdge();
