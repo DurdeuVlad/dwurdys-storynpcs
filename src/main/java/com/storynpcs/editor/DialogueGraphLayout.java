@@ -101,6 +101,7 @@ public class DialogueGraphLayout {
             VisualNode vNode = new VisualNode(domainNode.getId(), domainNode.getText(), x, y);
             // VULN-44: preserve node sound
             vNode.setSound(domainNode.getSound() != null ? domainNode.getSound() : "");
+            vNode.setSpeaker(domainNode.getSpeaker() != null ? domainNode.getSpeaker() : "");
             layout.addNode(vNode);
 
             for (DialogueEdge domainEdge : domainNode.getOptions()) {
@@ -128,6 +129,7 @@ public class DialogueGraphLayout {
             DialogueNode domainNode = new DialogueNode(vNode.getId(), vNode.getText());
             // VULN-44: restore node sound
             domainNode.setSound(vNode.getSound() != null ? vNode.getSound() : "");
+            domainNode.setSpeaker(vNode.getSpeaker() != null ? vNode.getSpeaker() : "");
             graph.addNode(domainNode);
         }
 

@@ -18,6 +18,10 @@ public class DialogueNode {
     @JsonProperty
     private String sound = "";
 
+    /** Optional per-node speaker override — blank means the runtime falls back to the NPC name / dialogue title. */
+    @JsonProperty
+    private String speaker = "";
+
     @JsonProperty
     private List<DialogueEdge> options = new ArrayList<>();
 
@@ -36,6 +40,9 @@ public class DialogueNode {
 
     public String getSound() { return sound; }
     public void setSound(String sound) { this.sound = sound; }
+
+    public String getSpeaker() { return speaker; }
+    public void setSpeaker(String speaker) { this.speaker = speaker; }
 
     public List<DialogueEdge> getOptions() { return options; }
     public void setOptions(List<DialogueEdge> options) { this.options = options; }

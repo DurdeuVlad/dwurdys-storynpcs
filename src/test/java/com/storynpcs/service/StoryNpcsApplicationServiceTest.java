@@ -211,6 +211,30 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void shouldPreferPerNodeSpeakerOverrideInDialogueView() {
+        UUID playerUuid = UUID.randomUUID();
+
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:mara_dialogue");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Fallback Title", "greeting");
+
+        DialogueNode greeting = new DialogueNode("greeting", "Welcome in, traveler.");
+        greeting.setSpeaker("Innkeeper Mara");
+        DialogueNode next = new DialogueNode("next", "Need a room?");
+        greeting.addOption(new DialogueEdge("Go on", "next"));
+        graph.addNode(greeting);
+        graph.addNode(next);
+        registry.registerDialogue(graph);
+
+        DialogueView view = service.startDialogue(playerUuid, dialogueId);
+        assertThat(view.npcName()).isEqualTo("Innkeeper Mara");
+
+        // Advancing to a node without an override falls back to the title again
+        DialogueView view2 = service.chooseDialogueOption(playerUuid, 0);
+        assertThat(view2.nodeId()).isEqualTo("next");
+        assertThat(view2.npcName()).isEqualTo("Fallback Title");
+    }
+
+    @Test
     void shouldManageQuestProgressionAndRewards() {
         UUID playerUuid = UUID.randomUUID();
         NamespacedId factionId = NamespacedId.of("storynpcs:merchants");

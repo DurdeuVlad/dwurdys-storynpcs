@@ -91,6 +91,34 @@ class DialogueGraphLayoutTest {
     }
 
     @Test
+    @DisplayName("Round-trip preserves per-node speaker and sound fields")
+    void testSpeakerAndSoundRoundTrip() {
+        DialogueGraphLayout layout = new DialogueGraphLayout();
+        layout.setEntryNodeId("root");
+
+        VisualNode root = new VisualNode("root", "Root text", 0, 0);
+        root.setSpeaker("Innkeeper Mara");
+        root.setSound("minecraft:entity.villager.ambient");
+        VisualNode child = new VisualNode("child", "Child text", 200, 100);
+        // child deliberately leaves speaker/sound at defaults
+        layout.addNode(root);
+        layout.addNode(child);
+        layout.addEdge(new VisualEdge("root", "child", "Go child"));
+
+        DialogueGraph graph = layout.toDialogueGraph(NamespacedId.of("test:speaker_rt"), "RT");
+        DialogueNode convertedRoot = graph.getNode("root").orElseThrow();
+        assertEquals("Innkeeper Mara", convertedRoot.getSpeaker());
+        assertEquals("minecraft:entity.villager.ambient", convertedRoot.getSound());
+        assertEquals("", graph.getNode("child").orElseThrow().getSpeaker(), "unset speaker stays blank");
+
+        // and back: a graph -> layout -> graph round-trip must not drop them either
+        DialogueGraphLayout relayout = DialogueGraphLayout.fromDialogueGraph(graph);
+        DialogueGraph reexported = relayout.toDialogueGraph(NamespacedId.of("test:speaker_rt"), "RT");
+        assertEquals("Innkeeper Mara", reexported.getNode("root").orElseThrow().getSpeaker());
+        assertEquals("minecraft:entity.villager.ambient", reexported.getNode("root").orElseThrow().getSound());
+    }
+
+    @Test
     @DisplayName("Canvas coordinate transformations with pan and zoom")
     void testCoordinateTransformations() {
         double panX = 100;

@@ -209,4 +209,22 @@ class DialogueEditorScreenModelTest {
         assertNull(model.getEditorState().findEdgeAtScreen(230, 90), "outside the label box must miss");
         assertNull(model.getEditorState().findEdgeAtScreen(10, 10));
     }
+
+    @Test
+    @DisplayName("Speaker and sound edits mark dirty and survive export")
+    void testSpeakerAndSoundEditing() {
+        AtomicReference<DialogueGraph> saved = new AtomicReference<>();
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, saved::set);
+        model.addNode("a", "A", 0, 0);
+
+        model.getEditorState().setSelectedNodeId("a");
+        model.updateSelectedNodeSpeaker("Innkeeper Mara");
+        model.updateSelectedNodeSound("minecraft:entity.villager.yes");
+        assertTrue(model.hasUnsavedChanges());
+
+        model.save();
+        DialogueNode exported = saved.get().getNode("a").orElseThrow();
+        assertEquals("Innkeeper Mara", exported.getSpeaker());
+        assertEquals("minecraft:entity.villager.yes", exported.getSound());
+    }
 }
