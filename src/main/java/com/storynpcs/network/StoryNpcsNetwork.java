@@ -93,6 +93,104 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleNpcSaveResult(payload));
                 }
         );
+
+        registrar.playToClient(
+                ClientboundQuestEditorOpenPayload.TYPE,
+                ClientboundQuestEditorOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openQuestEditor(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundQuestSavePayload.TYPE,
+                ServerboundQuestSavePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleQuestSave(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundQuestDeletePayload.TYPE,
+                ServerboundQuestDeletePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleQuestDelete(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToClient(
+                ClientboundQuestSaveResultPayload.TYPE,
+                ClientboundQuestSaveResultPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleQuestSaveResult(payload));
+                }
+        );
+    }
+
+    private static void handleQuestSave(ServerPlayer player, ServerboundQuestSavePayload payload) {
+        if (!player.hasPermissions(2)) {
+            sendQuestSaveResult(player, false, "Insufficient permissions — quest editing requires operator level 2.");
+            return;
+        }
+        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        if (service == null) {
+            sendQuestSaveResult(player, false, "StoryNPCs service is not available on this server.");
+            return;
+        }
+        var questOpt = com.storynpcs.domain.quest.QuestSerde.fromJson(payload.questJson());
+        if (questOpt.isEmpty() || questOpt.get().getId() == null) {
+            sendQuestSaveResult(player, false, "Malformed quest data — save rejected.");
+            return;
+        }
+        var result = service.saveQuest(questOpt.get());
+        if (result.hasErrors()) {
+            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            sendQuestSaveResult(player, false, "Save rejected: " + first + (result.getErrors().size() > 1
+                    ? " (+" + (result.getErrors().size() - 1) + " more)" : ""));
+        } else {
+            sendQuestSaveResult(player, true, "Quest '" + questOpt.get().getId() + "' saved to disk and updated.");
+        }
+    }
+
+    private static void handleQuestDelete(ServerPlayer player, ServerboundQuestDeletePayload payload) {
+        if (!player.hasPermissions(2)) {
+            sendQuestSaveResult(player, false, "Insufficient permissions — quest deletion requires operator level 2.");
+            return;
+        }
+        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        if (service == null) {
+            sendQuestSaveResult(player, false, "StoryNPCs service is not available on this server.");
+            return;
+        }
+        com.storynpcs.domain.common.NamespacedId id;
+        try {
+            id = com.storynpcs.domain.common.NamespacedId.of(payload.questId());
+        } catch (Exception e) {
+            sendQuestSaveResult(player, false, "Malformed quest id: '" + payload.questId() + "'");
+            return;
+        }
+        var referencing = service.findDialoguesStartingQuest(id);
+        boolean deleted = service.deleteQuest(id);
+        if (deleted) {
+            String msg = "Quest '" + id + "' deleted from registry and disk."
+                    + (referencing.isEmpty() ? "" : " Warning: dialogue(s) " + referencing + " still reference it via START_QUEST.");
+            sendQuestSaveResult(player, true, msg);
+        } else {
+            sendQuestSaveResult(player, false, "Quest not found: " + id);
+        }
+    }
+
+    private static void sendQuestSaveResult(ServerPlayer player, boolean success, String message) {
+        var registry = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getRegistry() : null;
+        String questsJson = registry != null
+                ? com.storynpcs.domain.quest.QuestSerde.toJsonList(List.copyOf(registry.getAllQuests()))
+                : "[]";
+        PacketDistributor.sendToPlayer(player, new ClientboundQuestSaveResultPayload(success, message, questsJson));
+        player.sendSystemMessage(Component.literal((success ? "§a[StoryNPCs] " : "§c[StoryNPCs] ") + message));
     }
 
     private static void handleDialogueSave(ServerPlayer player, ServerboundDialogueSavePayload payload) {

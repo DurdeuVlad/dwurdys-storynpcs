@@ -397,6 +397,14 @@ public final class StoryNpcsCommands {
         quest.then(Commands.literal("reward").requires(s -> s.hasPermission(2))
                 .then(rewardAdd).then(rewardRemove));
 
+        // GUI entry point — /storynpcs quest gui [quest_id]
+        var questIdGui = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .suggests(QUEST_IDS)
+                .executes(ctx -> openQuestGui(ctx, getNamespacedId(ctx, "quest_id")));
+        quest.then(Commands.literal("gui").requires(s -> s.hasPermission(2))
+                .executes(ctx -> openQuestGui(ctx, null))
+                .then(questIdGui));
+
         return quest;
     }
 
@@ -1473,6 +1481,35 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(
                 "[StoryNPCs] Added objective '%s' (%s %s x%d) to quest '%s' (persisted to YAML).",
                 objId, type, target, count, id)), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs quest gui [quest_id] — opens the quest editor client-side.
+     * Empty id opens the browsable list; a given id opens that quest directly.
+     */
+    private static int openQuestGui(CommandContext<CommandSourceStack> ctx, NamespacedId questId) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] The quest editor can only be opened by a player, not the console."));
+            return 0;
+        }
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        if (questId != null && mod.getRegistry().getQuest(questId).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + questId));
+            return 0;
+        }
+        String questsJson = com.storynpcs.domain.quest.QuestSerde.toJsonList(
+                java.util.List.copyOf(mod.getRegistry().getAllQuests()));
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                new com.storynpcs.network.ClientboundQuestEditorOpenPayload(
+                        questId != null ? questId.toString() : "", questsJson));
+        ctx.getSource().sendSuccess(() -> Component.literal(questId != null
+                ? "[StoryNPCs] Opening quest editor for '" + questId + "'."
+                : "[StoryNPCs] Opening quest browser."), false);
         return 1;
     }
 

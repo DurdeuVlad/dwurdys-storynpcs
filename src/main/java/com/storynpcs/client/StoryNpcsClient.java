@@ -97,6 +97,25 @@ public final class StoryNpcsClient {
         });
     }
 
+    public static void openQuestEditor(com.storynpcs.network.ClientboundQuestEditorOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            java.util.List<com.storynpcs.domain.quest.Quest> quests =
+                    com.storynpcs.domain.quest.QuestSerde.fromJsonList(payload.questsJson());
+            mc.setScreen(new com.storynpcs.client.gui.QuestEditorScreen(quests, payload.questId()));
+        });
+    }
+
+    public static void handleQuestSaveResult(com.storynpcs.network.ClientboundQuestSaveResultPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            if (mc.screen instanceof com.storynpcs.client.gui.QuestEditorScreen editor) {
+                editor.onSaveResult(payload.success(), payload.message(),
+                        com.storynpcs.domain.quest.QuestSerde.fromJsonList(payload.questsJson()));
+            }
+        });
+    }
+
     public static void closeDialogue() {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {
