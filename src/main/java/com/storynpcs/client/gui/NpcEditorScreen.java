@@ -65,18 +65,18 @@ public class NpcEditorScreen extends Screen {
 
         // Left Column: Identity & Appearance
         nameField = new EditBox(this.font, leftX, startY + 34, colWidth, 16, Component.literal("Name"));
-        nameField.setValue(definition.getDisplay() != null ? definition.getDisplay().getName() : "StoryNPC");
         nameField.setMaxLength(64);
+        nameField.setValue(definition.getDisplay() != null ? definition.getDisplay().getName() : "StoryNPC");
         this.addRenderableWidget(nameField);
 
         titleField = new EditBox(this.font, leftX, startY + 62, colWidth, 16, Component.literal("Title"));
-        titleField.setValue(definition.getDisplay() != null && definition.getDisplay().getTitle() != null ? definition.getDisplay().getTitle() : "");
         titleField.setMaxLength(64);
+        titleField.setValue(definition.getDisplay() != null && definition.getDisplay().getTitle() != null ? definition.getDisplay().getTitle() : "");
         this.addRenderableWidget(titleField);
 
         skinField = new EditBox(this.font, leftX, startY + 90, colWidth, 16, Component.literal("Skin"));
-        skinField.setValue(definition.getDisplay() != null && definition.getDisplay().getSkinTexture() != null ? definition.getDisplay().getSkinTexture() : "minecraft:textures/entity/player/wide/steve.png");
         skinField.setMaxLength(128);
+        skinField.setValue(definition.getDisplay() != null && definition.getDisplay().getSkinTexture() != null ? definition.getDisplay().getSkinTexture() : "minecraft:textures/entity/player/wide/steve.png");
         this.addRenderableWidget(skinField);
 
         // Skin presets row
@@ -91,8 +91,8 @@ public class NpcEditorScreen extends Screen {
                 .bounds(leftX + 135, startY + 108, presetW, 14).build());
 
         factionField = new EditBox(this.font, leftX, startY + 134, colWidth, 16, Component.literal("Faction"));
-        factionField.setValue(definition.getFactionId() != null ? definition.getFactionId().toString() : "");
         factionField.setMaxLength(64);
+        factionField.setValue(definition.getFactionId() != null ? definition.getFactionId().toString() : "");
         this.addRenderableWidget(factionField);
 
         // Right Column: Stats & AI

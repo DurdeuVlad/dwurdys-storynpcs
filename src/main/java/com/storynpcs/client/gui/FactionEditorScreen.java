@@ -125,16 +125,16 @@ public class FactionEditorScreen extends Screen {
 
         if (model.isEditingNew()) {
             idField = new EditBox(this.font, 60, y, 170, 14, Component.literal("Faction id"));
-            idField.setValue(f.getId() != null ? f.getId().toString() : "");
             idField.setMaxLength(64);
+            idField.setValue(f.getId() != null ? f.getId().toString() : "");
             idField.setResponder(v -> model.setFactionId(v));
             addRenderableWidget(idField);
             y += 18;
         }
 
         nameField = new EditBox(this.font, 60, y, 170, 14, Component.literal("Name"));
-        nameField.setValue(f.getName() != null ? f.getName() : "");
         nameField.setMaxLength(64);
+        nameField.setValue(f.getName() != null ? f.getName() : "");
         nameField.setResponder(v -> model.setName(v));
         addRenderableWidget(nameField);
         y += 22;
@@ -162,8 +162,8 @@ public class FactionEditorScreen extends Screen {
 
     private EditBox intField(int x, int y, int initial, java.util.function.IntConsumer apply) {
         EditBox box = new EditBox(this.font, x, y, 70, 14, Component.literal("value"));
-        box.setValue(String.valueOf(initial));
         box.setMaxLength(10);
+        box.setValue(String.valueOf(initial));
         box.setResponder(v -> {
             try {
                 apply.accept(Integer.parseInt(v.trim()));

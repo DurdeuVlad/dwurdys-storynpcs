@@ -2713,11 +2713,12 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs quickstart §7- One-command demo: NPC + all wands\n" +
                 "§e/storynpcs me [player] §7- Your quests & faction standing\n" +
                 "§e/storynpcs reload §7- Reload YAML definitions\n" +
-                "§e/storynpcs npc <create|list|info|set|spawn|despawn|delete> §7- Manage NPCs\n" +
+                "§e/storynpcs npc <create|list|info|set|spawn|despawn|delete|rule|trade|bank> §7- Manage NPCs\n" +
                 "§e/storynpcs dialogue <create|list|info|edit|delete|start> §7- Manage Dialogues\n" +
-                "§e/storynpcs quest <list|info|start|complete> §7- Manage Quests\n" +
-                "§e/storynpcs faction <list|info|set|adjust> §7- Manage Factions\n" +
+                "§e/storynpcs quest <list|info|create|set|objective|reward|gui|start|complete> §7- Manage Quests\n" +
+                "§e/storynpcs faction <list|info|create|configure|gui|set|adjust> §7- Manage Factions\n" +
                 "§e/storynpcs follower <recall|formation|state> §7- Command Followers\n" +
+                "§7Every system has three paths: YAML in world/storynpcs/definitions/, the commands above, and GUIs (wand for NPCs, edit/gui subcommands for the rest).\n" +
                 "§7Alias: /sn · IDs tab-complete · list entries are clickable"), false);
         return 1;
     }
@@ -2751,7 +2752,9 @@ public final class StoryNpcsCommands {
                 "  §e/storynpcs npc trade remove <npc_id> <index>  §7- Remove a trade listing\n" +
                 "  §e/storynpcs npc trade disable <npc_id>  §7- Remove the trader role\n" +
                 "  §e/storynpcs npc bank enable <npc_id> [name]  §7- Make an NPC a banker\n" +
-                "  §e/storynpcs npc bank disable <npc_id>  §7- Remove the banker role"), false);
+                "  §e/storynpcs npc bank disable <npc_id>  §7- Remove the banker role\n" +
+                "  §7GUI: give @s storynpcs:npc_wand then Shift+Right-click an NPC (also hosts the Rules editor)\n" +
+                "  §7YAML: world/storynpcs/definitions/npcs/<file>.yaml"), false);
         return 1;
     }
 
@@ -2763,7 +2766,8 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs dialogue info <dialogue_id> §7- View dialogue graph structure & referencing NPCs\n" +
                 "§e/storynpcs dialogue edit <dialogue_id> §7- Open visual graph editor GUI\n" +
                 "§e/storynpcs dialogue delete <dialogue_id> §7- Delete dialogue definition from registry & disk\n" +
-                "§e/storynpcs dialogue start <dialogue_id> [player] §7- Initiate dialogue session"), false);
+                "§e/storynpcs dialogue start <dialogue_id> [player] §7- Initiate dialogue session\n" +
+                "§7YAML: world/storynpcs/definitions/dialogues/<file>.yaml"), false);
         return 1;
     }
 
@@ -2777,7 +2781,8 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs quest create <quest_id> [title] §7- Scaffold a new quest definition\n" +
                 "§e/storynpcs quest set <quest_id> <description|category|repeatType> <value> §7- Edit quest fields\n" +
                 "§e/storynpcs quest objective|reward add|remove <quest_id> ... §7- Edit objectives/rewards\n" +
-                "§e/storynpcs quest gui [quest_id] §7- Open the quest editor GUI"), false);
+                "§e/storynpcs quest gui [quest_id] §7- Open the quest editor GUI\n" +
+                "§7YAML: world/storynpcs/definitions/quests/<file>.yaml"), false);
         return 1;
     }
 
@@ -2790,7 +2795,8 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs faction adjust <faction_id> <delta> [player] §7- Adjust player faction reputation\n" +
                 "§e/storynpcs faction create <faction_id> [name] §7- Scaffold a new faction definition\n" +
                 "§e/storynpcs faction configure <faction_id> <field> <value> §7- Tune thresholds\n" +
-                "§e/storynpcs faction gui [faction_id] §7- Open the faction editor GUI"), false);
+                "§e/storynpcs faction gui [faction_id] §7- Open the faction editor GUI\n" +
+                "§7YAML: world/storynpcs/definitions/factions/<file>.yaml"), false);
         return 1;
     }
 

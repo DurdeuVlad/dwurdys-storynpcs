@@ -143,16 +143,16 @@ public class QuestEditorScreen extends Screen {
 
         if (model.isEditingNew()) {
             idField = new EditBox(this.font, 60, y, 150, 14, Component.literal("Quest id"));
-            idField.setValue(q.getId() != null ? q.getId().toString() : "");
             idField.setMaxLength(64);
+            idField.setValue(q.getId() != null ? q.getId().toString() : "");
             idField.setResponder(v -> model.setQuestId(v));
             addRenderableWidget(idField);
         }
         y += 18;
 
         titleField = new EditBox(this.font, 42, y, 160, 14, Component.literal("Title"));
-        titleField.setValue(q.getTitle() != null ? q.getTitle() : "");
         titleField.setMaxLength(80);
+        titleField.setValue(q.getTitle() != null ? q.getTitle() : "");
         titleField.setResponder(v -> model.setTitle(v));
         addRenderableWidget(titleField);
 
@@ -164,14 +164,14 @@ public class QuestEditorScreen extends Screen {
         y += 18;
 
         categoryField = new EditBox(this.font, 60, y, 108, 14, Component.literal("Category"));
-        categoryField.setValue(q.getCategory() != null ? q.getCategory() : "");
         categoryField.setMaxLength(48);
+        categoryField.setValue(q.getCategory() != null ? q.getCategory() : "");
         categoryField.setResponder(v -> model.setCategory(v));
         addRenderableWidget(categoryField);
 
         descField = new EditBox(this.font, 172, y, this.width - 184, 14, Component.literal("Description"));
-        descField.setValue(q.getDescription() != null ? q.getDescription() : "");
         descField.setMaxLength(256);
+        descField.setValue(q.getDescription() != null ? q.getDescription() : "");
         descField.setResponder(v -> model.setDescription(v));
         addRenderableWidget(descField);
 
