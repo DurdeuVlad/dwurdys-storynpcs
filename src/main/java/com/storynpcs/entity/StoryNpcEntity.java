@@ -240,6 +240,20 @@ public class StoryNpcEntity extends PathfinderMob {
                     StoryNpcsNetwork.sendOpenDialogue(serverPlayer, viewOpt.get());
                     return InteractionResult.SUCCESS;
                 } else if (!serverPlayer.isShiftKeyDown()) {
+                    // No dialogue — surface configured roles instead of "nothing to say"
+                    com.storynpcs.domain.npc.NpcDefinition roleDef = null;
+                    try {
+                        var roleNpcId = NamespacedId.of(getDefinitionId());
+                        roleDef = mod.getRegistry().getNpc(roleNpcId).orElse(null);
+                    } catch (Exception ignored) {}
+                    if (roleDef != null && roleDef.getTrader() != null) {
+                        StoryNpcsNetwork.sendTradeOpen(serverPlayer, roleDef);
+                        return InteractionResult.SUCCESS;
+                    }
+                    if (roleDef != null && roleDef.getBanker() != null) {
+                        StoryNpcsNetwork.sendBankOpen(serverPlayer, roleDef);
+                        return InteractionResult.SUCCESS;
+                    }
                     if (serverPlayer.hasPermissions(2)) {
                         serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs] NPC '" + this.getName().getString() + "' (" + getDefinitionId() + ") has no dialogue configured or loaded."));
                     } else {

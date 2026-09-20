@@ -100,6 +100,33 @@ public class BankVault {
         return true;
     }
 
+    /**
+     * Deposit into the first compatible slot: merges onto an existing stack of the same
+     * itemId+tag, otherwise claims the lowest free slot. Returns the slot used, or -1 if the
+     * tab is full or the tab index is locked/invalid.
+     */
+    public synchronized int depositAuto(int tabIndex, String itemId, int count, String tag) {
+        if (tabIndex < 0 || tabIndex >= unlockedTabs || itemId == null || itemId.isBlank() || count <= 0) {
+            return -1;
+        }
+        List<VaultItem> items = getTabItems(tabIndex);
+        for (VaultItem item : items) {
+            if (item.getItemId().equals(itemId) && Objects.equals(item.getTag(), tag)) {
+                long sum = (long) item.getCount() + (long) count;
+                item.setCount((int) Math.min(Integer.MAX_VALUE, sum));
+                return item.getSlot();
+            }
+        }
+        for (int slot = 0; slot < 54; slot++) {
+            int candidate = slot;
+            if (items.stream().noneMatch(i -> i.getSlot() == candidate)) {
+                items.add(new VaultItem(slot, itemId, count, tag));
+                return slot;
+            }
+        }
+        return -1;
+    }
+
     public synchronized Optional<VaultItem> withdraw(int tabIndex, int slotIndex, int count) {
         if (tabIndex < 0 || tabIndex >= unlockedTabs || slotIndex < 0 || slotIndex >= 54 || count <= 0) {
             return Optional.empty();

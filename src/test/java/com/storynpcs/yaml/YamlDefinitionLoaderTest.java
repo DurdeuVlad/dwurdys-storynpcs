@@ -193,4 +193,73 @@ class YamlDefinitionLoaderTest {
         assertThat(result.getErrors()).hasSize(4);
         assertThat(result.getErrors()).allMatch(e -> e.code().equals("SCHEMA_EMPTY_FILE"));
     }
+
+    @Test
+    void shouldLoadTraderAndBankerRolesFromYaml() {
+        String yaml = """
+                id: "storynpcs:market_stall"
+                display:
+                  name: "Stall Keeper"
+                trader:
+                  marketName: "Riverside Market"
+                  restockIntervalTicks: 12000
+                  listings:
+                    - offerItemId: "minecraft:bread"
+                      offerCount: 3
+                      priceItemId: "minecraft:emerald"
+                      priceCount: 1
+                      maxUses: 10
+                      requiredFaction: "storynpcs:river_pirates"
+                      requiredFactionPoints: 100
+                banker:
+                  bankName: "Iron Vault"
+                  maxTabs: 3
+                  tabUpgradeCost: 64
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "market_stall.yaml", result);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(npc).isNotNull();
+        assertThat(npc.getTrader()).isNotNull();
+        assertThat(npc.getTrader().getMarketName()).isEqualTo("Riverside Market");
+        assertThat(npc.getTrader().getRestockIntervalTicks()).isEqualTo(12000);
+        assertThat(npc.getTrader().getListings()).hasSize(1);
+        var listing = npc.getTrader().getListings().get(0);
+        assertThat(listing.getOfferItemId()).isEqualTo("minecraft:bread");
+        assertThat(listing.getOfferCount()).isEqualTo(3);
+        assertThat(listing.getPriceItemId()).isEqualTo("minecraft:emerald");
+        assertThat(listing.getPriceCount()).isEqualTo(1);
+        assertThat(listing.getMaxUses()).isEqualTo(10);
+        assertThat(listing.getRequiredFaction()).isEqualTo(NamespacedId.of("storynpcs:river_pirates"));
+        assertThat(listing.getRequiredFactionPoints()).isEqualTo(100);
+
+        assertThat(npc.getBanker()).isNotNull();
+        assertThat(npc.getBanker().getBankName()).isEqualTo("Iron Vault");
+        assertThat(npc.getBanker().getMaxTabs()).isEqualTo(3);
+        assertThat(npc.getBanker().getTabUpgradeCost()).isEqualTo(64);
+    }
+
+    @Test
+    void shouldRoundTripRolesThroughNpcDefinitionSerde() {
+        NpcDefinition npc = new NpcDefinition(NamespacedId.of("storynpcs:banker_npc"), "Vault Keeper");
+        var banker = new com.storynpcs.domain.role.banker.BankerRole("Deep Vault");
+        banker.setMaxTabs(2);
+        npc.setBanker(banker);
+        var trader = new com.storynpcs.domain.role.trader.TraderRole("Stall");
+        trader.addListing(new com.storynpcs.domain.role.trader.TradeListing(
+                "minecraft:apple", 2, "minecraft:emerald", 1));
+        npc.setTrader(trader);
+
+        String json = com.storynpcs.domain.npc.NpcDefinitionSerde.toJson(npc);
+        var restored = com.storynpcs.domain.npc.NpcDefinitionSerde.fromJson(json);
+
+        assertThat(restored).isPresent();
+        assertThat(restored.get().getTrader()).isNotNull();
+        assertThat(restored.get().getTrader().getListings()).hasSize(1);
+        assertThat(restored.get().getBanker()).isNotNull();
+        assertThat(restored.get().getBanker().getBankName()).isEqualTo("Deep Vault");
+        assertThat(restored.get().getBanker().getMaxTabs()).isEqualTo(2);
+    }
 }

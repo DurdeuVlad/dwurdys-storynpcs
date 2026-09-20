@@ -37,6 +37,21 @@ public class TraderRole {
         }
     }
 
+    /** Removes and returns the listing at the given index, or null when out of range. */
+    public TradeListing removeListing(int index) {
+        if (index < 0 || index >= listings.size()) {
+            return null;
+        }
+        return listings.remove(index);
+    }
+
+    /** Re-inserts a previously removed listing at the given index (rollback helper). */
+    public void addListingAt(int index, TradeListing listing) {
+        if (listing != null && index >= 0 && index <= listings.size()) {
+            this.listings.add(index, listing);
+        }
+    }
+
     public int getRestockIntervalTicks() { return restockIntervalTicks; }
     public void setRestockIntervalTicks(int restockIntervalTicks) { this.restockIntervalTicks = restockIntervalTicks; }
 

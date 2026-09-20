@@ -213,7 +213,9 @@ public final class StoryNpcsCommands {
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .suggests(NPC_IDS)
                                         .executes(StoryNpcsCommands::deleteNpc)))
-                        .then(npcRuleCommands()))
+                        .then(npcRuleCommands())
+                        .then(npcTradeCommands())
+                        .then(npcBankCommands()))
                 // Dialogue commands
                 .then(Commands.literal("dialogue")
                         .executes(StoryNpcsCommands::sendDialogueHelp)
@@ -540,6 +542,80 @@ public final class StoryNpcsCommands {
                         .then(triggerArg)));
 
         return rule;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> npcTradeCommands() {
+        var trade = Commands.literal("trade");
+
+        // trade enable <npc_id> [market_name]
+        var npcEnable = Commands.argument("npc_id", ResourceLocationArgument.id())
+                .suggests(NPC_IDS)
+                .executes(ctx -> enableTrader(ctx, null))
+                .then(Commands.argument("market_name", StringArgumentType.greedyString())
+                        .executes(ctx -> enableTrader(ctx, StringArgumentType.getString(ctx, "market_name"))));
+        trade.then(Commands.literal("enable")
+                .requires(s -> s.hasPermission(2))
+                .then(npcEnable));
+
+        // trade disable <npc_id>
+        trade.then(Commands.literal("disable")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .executes(StoryNpcsCommands::disableTrader)));
+
+        // trade list <npc_id>
+        trade.then(Commands.literal("list")
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .executes(StoryNpcsCommands::listTrades)));
+
+        // trade remove <npc_id> <index>  (1-based, matching npc trade list output)
+        trade.then(Commands.literal("remove")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .executes(StoryNpcsCommands::removeTrade))));
+
+        // trade add <npc_id> <offer_item> <offer_count> <price_item> <price_count> [max_uses]
+        var priceCount = Commands.argument("price_count", IntegerArgumentType.integer(1))
+                .executes(ctx -> addTrade(ctx, 0))
+                .then(Commands.argument("max_uses", IntegerArgumentType.integer(0))
+                        .executes(ctx -> addTrade(ctx, IntegerArgumentType.getInteger(ctx, "max_uses"))));
+        trade.then(Commands.literal("add")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(Commands.argument("offer_item", ResourceLocationArgument.id())
+                                .then(Commands.argument("offer_count", IntegerArgumentType.integer(1))
+                                        .then(Commands.argument("price_item", ResourceLocationArgument.id())
+                                                .then(priceCount))))));
+
+        return trade;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> npcBankCommands() {
+        var bank = Commands.literal("bank");
+
+        // bank enable <npc_id> [bank_name]
+        var npcEnable = Commands.argument("npc_id", ResourceLocationArgument.id())
+                .suggests(NPC_IDS)
+                .executes(ctx -> enableBanker(ctx, null))
+                .then(Commands.argument("bank_name", StringArgumentType.greedyString())
+                        .executes(ctx -> enableBanker(ctx, StringArgumentType.getString(ctx, "bank_name"))));
+        bank.then(Commands.literal("enable")
+                .requires(s -> s.hasPermission(2))
+                .then(npcEnable));
+
+        // bank disable <npc_id>
+        bank.then(Commands.literal("disable")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .executes(StoryNpcsCommands::disableBanker)));
+
+        return bank;
     }
 
     /** Attaches every action literal subtree under a condition leaf. */
@@ -2003,6 +2079,213 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    // ---- npc trade / bank role commands ----
+
+    private static int enableTrader(CommandContext<CommandSourceStack> ctx, String marketName) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        if (npc.getTrader() != null) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] NPC '%s' is already a trader ('%s') — use 'npc trade disable' first.",
+                    npc.getId(), npc.getTrader().getMarketName())));
+            return 0;
+        }
+        npc.setTrader(marketName != null
+                ? new com.storynpcs.domain.role.trader.TraderRole(marketName)
+                : new com.storynpcs.domain.role.trader.TraderRole());
+        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            npc.setTrader(null);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        String name = npc.getTrader().getMarketName();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] NPC '%s' is now a trader ('%s'). Add stock via 'npc trade add'; players trade by right-clicking the NPC (when it has no dialogue).",
+                npc.getId(), name)), true);
+        return 1;
+    }
+
+    private static int disableTrader(CommandContext<CommandSourceStack> ctx) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        if (npc.getTrader() == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC '" + npc.getId() + "' is not a trader."));
+            return 0;
+        }
+        var removed = npc.getTrader();
+        npc.setTrader(null);
+        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            npc.setTrader(removed);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Removed trader role ('%s') from NPC '%s' (persisted to YAML).",
+                removed.getMarketName(), npc.getId())), true);
+        return 1;
+    }
+
+    private static int listTrades(CommandContext<CommandSourceStack> ctx) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        var trader = npc.getTrader();
+        if (trader == null) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] NPC '%s' is not a trader — enable via 'npc trade enable'.", npc.getId())));
+            return 0;
+        }
+        var listings = trader.getListings();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "=== Trades on '%s' — %s (%d) ===", npc.getId(), trader.getMarketName(), listings.size())), false);
+        for (int i = 0; i < listings.size(); i++) {
+            final int idx = i + 1;
+            MutableComponent line = Component.literal(String.format(
+                    " §7[%d] §f%s", idx, com.storynpcs.domain.role.trader.TradeSummaries.describe(listings.get(i))))
+                    .append(clickable(" §c[Remove]",
+                            "/storynpcs npc trade remove " + npc.getId() + " " + idx,
+                            ClickEvent.Action.SUGGEST_COMMAND, "Remove listing #" + idx + " from '" + npc.getId() + "'"));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        if (listings.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    " §7(none — add one via /storynpcs npc trade add " + npc.getId()
+                            + " <offer_item> <offer_count> <price_item> <price_count>)"), false);
+        }
+        return listings.size();
+    }
+
+    private static int addTrade(CommandContext<CommandSourceStack> ctx, int maxUses) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        var offerItem = ResourceLocationArgument.getId(ctx, "offer_item");
+        var priceItem = ResourceLocationArgument.getId(ctx, "price_item");
+        int offerCount = IntegerArgumentType.getInteger(ctx, "offer_count");
+        int priceCount = IntegerArgumentType.getInteger(ctx, "price_count");
+
+        if (net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(offerItem).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown offer item: " + offerItem));
+            return 0;
+        }
+        if (net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(priceItem).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown price item: " + priceItem));
+            return 0;
+        }
+
+        var trader = npc.getTrader();
+        if (trader == null) {
+            trader = new com.storynpcs.domain.role.trader.TraderRole();
+            npc.setTrader(trader);
+        }
+        var listing = new com.storynpcs.domain.role.trader.TradeListing(
+                offerItem.toString(), offerCount, priceItem.toString(), priceCount);
+        listing.setMaxUses(maxUses);
+        trader.addListing(listing);
+
+        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            trader.removeListing(trader.getListings().size() - 1);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Added trade to NPC '%s': %s (persisted to YAML).",
+                npc.getId(), com.storynpcs.domain.role.trader.TradeSummaries.describe(listing))), true);
+        return 1;
+    }
+
+    private static int removeTrade(CommandContext<CommandSourceStack> ctx) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        int index = IntegerArgumentType.getInteger(ctx, "index");
+        var trader = npc.getTrader();
+        if (trader == null || trader.getListings().isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC '" + npc.getId() + "' has no trade listings."));
+            return 0;
+        }
+        var listings = trader.getListings();
+        if (index > listings.size()) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] NPC '%s' only has %d listing(s) — index %d out of range.",
+                    npc.getId(), listings.size(), index)));
+            return 0;
+        }
+        var removed = trader.removeListing(index - 1);
+        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            trader.addListingAt(index - 1, removed);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Removed listing #%d (%s) from NPC '%s' (persisted to YAML).",
+                index, com.storynpcs.domain.role.trader.TradeSummaries.describe(removed), npc.getId())), true);
+        return 1;
+    }
+
+    private static int enableBanker(CommandContext<CommandSourceStack> ctx, String bankName) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        if (npc.getBanker() != null) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] NPC '%s' is already a banker ('%s') — use 'npc bank disable' first.",
+                    npc.getId(), npc.getBanker().getBankName())));
+            return 0;
+        }
+        npc.setBanker(bankName != null
+                ? new com.storynpcs.domain.role.banker.BankerRole(bankName)
+                : new com.storynpcs.domain.role.banker.BankerRole());
+        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            npc.setBanker(null);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        String name = npc.getBanker().getBankName();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] NPC '%s' is now a banker ('%s', %d max tabs). Players open the vault by right-clicking the NPC (when it has no dialogue).",
+                npc.getId(), name, npc.getBanker().getMaxTabs())), true);
+        return 1;
+    }
+
+    private static int disableBanker(CommandContext<CommandSourceStack> ctx) {
+        NpcDefinition npc = requireNpc(ctx, "npc_id");
+        if (npc == null) return 0;
+        if (npc.getBanker() == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC '" + npc.getId() + "' is not a banker."));
+            return 0;
+        }
+        var removed = npc.getBanker();
+        npc.setBanker(null);
+        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            npc.setBanker(removed);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Removed banker role ('%s') from NPC '%s' (persisted to YAML).",
+                removed.getBankName(), npc.getId())), true);
+        return 1;
+    }
+
+    /** Shared lookup: resolves the npc_id argument to a loaded definition, messaging failures. */
+    private static NpcDefinition requireNpc(CommandContext<CommandSourceStack> ctx, String argName) {
+        NamespacedId id = getNamespacedId(ctx, argName);
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return null;
+        }
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return null;
+        }
+        return npcOpt.get();
+    }
+
     /** Builds the parsed condition from the bound literal + args, or null for 'always'. */
     private static com.storynpcs.domain.rule.condition.RuleCondition buildRuleCondition(
             CommandContext<CommandSourceStack> ctx, String cond, String condOp) throws CommandSyntaxException {
@@ -2461,7 +2744,14 @@ public final class StoryNpcsCommands {
                 "  §e/storynpcs npc delete <npc_id>  §7- Delete NPC definition from registry & disk\n" +
                 "  §e/storynpcs npc rule list <npc_id>  §7- List behavior rules on an NPC\n" +
                 "  §e/storynpcs npc rule add <npc_id> <trigger> <condition> <action>  §7- Add a behavior rule\n" +
-                "  §e/storynpcs npc rule remove <npc_id> <index>  §7- Remove a behavior rule"), false);
+                "  §e/storynpcs npc rule remove <npc_id> <index>  §7- Remove a behavior rule\n" +
+                "  §e/storynpcs npc trade enable <npc_id> [name]  §7- Make an NPC a trader\n" +
+                "  §e/storynpcs npc trade add <npc_id> <offer_item> <offer_count> <price_item> <price_count> [max_uses]  §7- Add a trade listing\n" +
+                "  §e/storynpcs npc trade list <npc_id>  §7- List trade listings\n" +
+                "  §e/storynpcs npc trade remove <npc_id> <index>  §7- Remove a trade listing\n" +
+                "  §e/storynpcs npc trade disable <npc_id>  §7- Remove the trader role\n" +
+                "  §e/storynpcs npc bank enable <npc_id> [name]  §7- Make an NPC a banker\n" +
+                "  §e/storynpcs npc bank disable <npc_id>  §7- Remove the banker role"), false);
         return 1;
     }
 
