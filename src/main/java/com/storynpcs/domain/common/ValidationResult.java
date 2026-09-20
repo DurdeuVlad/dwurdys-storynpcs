@@ -71,7 +71,8 @@ public final class ValidationResult {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("Validation result: %d error(s), %d warning(s):\n",
                 getErrors().size(), diagnostics.size() - getErrors().size()));
-        diagnostics.stream().limit(max).forEach(d -> sb.append("  - ").append(d).append("\n"));
+        diagnostics.stream().limit(max).forEach(d -> sb.append("  - ").append(d).append("\n")
+                .append("      hint: ").append(DiagnosticHints.hintFor(d)).append("\n"));
         int hidden = diagnostics.size() - Math.min(diagnostics.size(), max);
         if (hidden > 0) {
             sb.append("  …and ").append(hidden).append(" more — see server log for the full report\n");

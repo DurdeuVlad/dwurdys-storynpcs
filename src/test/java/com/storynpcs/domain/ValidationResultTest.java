@@ -56,4 +56,41 @@ class ValidationResultTest {
         assertTrue(report.contains("quests/bounty.yaml:12:5"));
         assertTrue(report.contains("QUEST_OBJ_EMPTY"));
     }
+
+    @Test
+    @DisplayName("formatReport appends a plain-language hint alongside the technical line (issue #22)")
+    void testPlainLanguageHint() {
+        ValidationResult result = ValidationResult.valid();
+        result.addError("quests/bounty.yaml", 12, 5, "QUEST_OBJ_EMPTY", "objectives list is empty");
+
+        String report = result.formatReport(10);
+        assertTrue(report.contains("QUEST_OBJ_EMPTY"), "technical code preserved");
+        assertTrue(report.contains("hint:"), "hint line present");
+        assertTrue(report.contains("objectives"), "hint mentions the actionable area");
+    }
+
+    @Test
+    @DisplayName("Unknown codes fall back to a generic plain-language hint (issue #22)")
+    void testUnknownCodeFallback() {
+        ValidationResult result = ValidationResult.valid();
+        result.addError("npcs/broken.yaml", 7, 2, "TOTALLY_MADE_UP_CODE", "something odd");
+
+        String report = result.formatReport(10);
+        assertTrue(report.contains("hint:"), "fallback hint still shown");
+        assertTrue(report.contains("line 7"), "fallback mentions the reported line");
+        assertTrue(report.contains("server log"), "fallback points at the server log");
+    }
+
+    @Test
+    @DisplayName("Hint lines do not change the bounded diagnostic count (issue #22)")
+    void testHintsPreserveBound() {
+        ValidationResult result = ValidationResult.valid();
+        for (int i = 1; i <= 8; i++) {
+            result.addError("file" + i + ".yaml", i, 1, "CODE_" + i, "problem " + i);
+        }
+        String report = result.formatReport(5);
+        assertTrue(report.contains("CODE_5"));
+        assertFalse(report.contains("CODE_6"), "cap still applies to diagnostics, not rendered lines");
+        assertTrue(report.contains("3 more"));
+    }
 }

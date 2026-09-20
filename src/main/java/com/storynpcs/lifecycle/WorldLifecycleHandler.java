@@ -357,7 +357,11 @@ public class WorldLifecycleHandler {
                 "§c[StoryNPCs] Definition load failed: " + errorCount
                         + " error(s) — previous definitions retained. Fix the files below, then run §e/storynpcs reload"));
         result.getErrors().stream().limit(MAX_DIAGNOSTIC_LINES)
-                .forEach(d -> sp.sendSystemMessage(net.minecraft.network.chat.Component.literal("§7  - " + d)));
+                .forEach(d -> {
+                    sp.sendSystemMessage(net.minecraft.network.chat.Component.literal("§7  - " + d));
+                    sp.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§7      hint: " + com.storynpcs.domain.common.DiagnosticHints.hintFor(d)));
+                });
         int extra = errorCount - MAX_DIAGNOSTIC_LINES;
         if (extra > 0) {
             sp.sendSystemMessage(net.minecraft.network.chat.Component.literal(
