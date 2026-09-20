@@ -453,6 +453,14 @@ public final class StoryNpcsCommands {
                         .executes(ctx -> configureFaction(ctx, "friendlyThreshold"))));
         faction.then(Commands.literal("configure").requires(s -> s.hasPermission(2)).then(factionIdConfigure));
 
+        // GUI entry point — /storynpcs faction gui [faction_id]
+        var factionIdGui = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .suggests(FACTION_IDS)
+                .executes(ctx -> openFactionGui(ctx, getNamespacedId(ctx, "faction_id")));
+        faction.then(Commands.literal("gui").requires(s -> s.hasPermission(2))
+                .executes(ctx -> openFactionGui(ctx, null))
+                .then(factionIdGui));
+
         return faction;
     }
 
@@ -1700,6 +1708,35 @@ public final class StoryNpcsCommands {
         }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "[StoryNPCs] Set " + field + " of '" + id + "' to " + value + " (persisted to YAML)."), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs faction gui [faction_id] — opens the faction editor client-side.
+     * Empty id opens the browsable list; a given id opens that faction directly.
+     */
+    private static int openFactionGui(CommandContext<CommandSourceStack> ctx, NamespacedId factionId) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] The faction editor can only be opened by a player, not the console."));
+            return 0;
+        }
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        if (factionId != null && mod.getRegistry().getFaction(factionId).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction not found: " + factionId));
+            return 0;
+        }
+        String factionsJson = com.storynpcs.domain.faction.FactionSerde.toJsonList(
+                java.util.List.copyOf(mod.getRegistry().getAllFactions()));
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                new com.storynpcs.network.ClientboundFactionEditorOpenPayload(
+                        factionId != null ? factionId.toString() : "", factionsJson));
+        ctx.getSource().sendSuccess(() -> Component.literal(factionId != null
+                ? "[StoryNPCs] Opening faction editor for '" + factionId + "'."
+                : "[StoryNPCs] Opening faction browser."), false);
         return 1;
     }
 

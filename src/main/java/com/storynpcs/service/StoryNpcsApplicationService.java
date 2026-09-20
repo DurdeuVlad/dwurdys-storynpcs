@@ -473,6 +473,41 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Removes a faction definition from the live registry and removes its YAML file
+     * from disk. Mirrors {@link #deleteNpc}. Callers should check
+     * {@link #findNpcsReferencingFaction(NamespacedId)} first — NPCs bound to a
+     * deleted faction lose their faction binding.
+     */
+    public boolean deleteFaction(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        if (registry.getFaction(id).isPresent()) {
+            registry.removeFaction(id);
+            if (loader != null) {
+                boolean fileDeleted = loader.deleteDefinitionFile("faction", id);
+                if (!fileDeleted) {
+                    System.err.println("[StoryNPCs] Warning: Faction '" + id + "' removed from registry but definition file could not be found on disk. It may resurrect on reload.");
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Finds all NPCs bound to the given faction. Used by faction deletion to warn
+     * about dangling faction bindings.
+     */
+    public List<NamespacedId> findNpcsReferencingFaction(NamespacedId factionId) {
+        List<NamespacedId> referencing = new ArrayList<>();
+        for (NpcDefinition npc : registry.getAllNpcs()) {
+            if (factionId.equals(npc.getFactionId())) {
+                referencing.add(npc.getId());
+            }
+        }
+        return referencing;
+    }
+
+    /**
      * Scaffolds a valid starter dialogue graph, validates and persists it to YAML, and
      * registers it live in the registry. Canonical creation path for `/storynpcs dialogue create`.
      */
