@@ -129,6 +129,104 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleQuestSaveResult(payload));
                 }
         );
+
+        registrar.playToClient(
+                ClientboundFactionEditorOpenPayload.TYPE,
+                ClientboundFactionEditorOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openFactionEditor(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundFactionSavePayload.TYPE,
+                ServerboundFactionSavePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleFactionSave(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundFactionDeletePayload.TYPE,
+                ServerboundFactionDeletePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleFactionDelete(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToClient(
+                ClientboundFactionSaveResultPayload.TYPE,
+                ClientboundFactionSaveResultPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleFactionSaveResult(payload));
+                }
+        );
+    }
+
+    private static void handleFactionSave(ServerPlayer player, ServerboundFactionSavePayload payload) {
+        if (!player.hasPermissions(2)) {
+            sendFactionSaveResult(player, false, "Insufficient permissions — faction editing requires operator level 2.");
+            return;
+        }
+        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        if (service == null) {
+            sendFactionSaveResult(player, false, "StoryNPCs service is not available on this server.");
+            return;
+        }
+        var factionOpt = com.storynpcs.domain.faction.FactionSerde.fromJson(payload.factionJson());
+        if (factionOpt.isEmpty() || factionOpt.get().getId() == null) {
+            sendFactionSaveResult(player, false, "Malformed faction data — save rejected.");
+            return;
+        }
+        var result = service.saveFaction(factionOpt.get());
+        if (result.hasErrors()) {
+            String first = result.getErrors().isEmpty() ? "validation failed" : result.getErrors().get(0).toString();
+            sendFactionSaveResult(player, false, "Save rejected: " + first + (result.getErrors().size() > 1
+                    ? " (+" + (result.getErrors().size() - 1) + " more)" : ""));
+        } else {
+            sendFactionSaveResult(player, true, "Faction '" + factionOpt.get().getId() + "' saved to disk and updated.");
+        }
+    }
+
+    private static void handleFactionDelete(ServerPlayer player, ServerboundFactionDeletePayload payload) {
+        if (!player.hasPermissions(2)) {
+            sendFactionSaveResult(player, false, "Insufficient permissions — faction deletion requires operator level 2.");
+            return;
+        }
+        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        if (service == null) {
+            sendFactionSaveResult(player, false, "StoryNPCs service is not available on this server.");
+            return;
+        }
+        com.storynpcs.domain.common.NamespacedId id;
+        try {
+            id = com.storynpcs.domain.common.NamespacedId.of(payload.factionId());
+        } catch (Exception e) {
+            sendFactionSaveResult(player, false, "Malformed faction id: '" + payload.factionId() + "'");
+            return;
+        }
+        var referencing = service.findNpcsReferencingFaction(id);
+        boolean deleted = service.deleteFaction(id);
+        if (deleted) {
+            String msg = "Faction '" + id + "' deleted from registry and disk."
+                    + (referencing.isEmpty() ? "" : " Warning: NPC(s) " + referencing + " were bound to it — reassign with /storynpcs npc set faction.");
+            sendFactionSaveResult(player, true, msg);
+        } else {
+            sendFactionSaveResult(player, false, "Faction not found: " + id);
+        }
+    }
+
+    private static void sendFactionSaveResult(ServerPlayer player, boolean success, String message) {
+        var registry = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getRegistry() : null;
+        String factionsJson = registry != null
+                ? com.storynpcs.domain.faction.FactionSerde.toJsonList(List.copyOf(registry.getAllFactions()))
+                : "[]";
+        PacketDistributor.sendToPlayer(player, new ClientboundFactionSaveResultPayload(success, message, factionsJson));
+        player.sendSystemMessage(Component.literal((success ? "§a[StoryNPCs] " : "§c[StoryNPCs] ") + message));
     }
 
     private static void handleQuestSave(ServerPlayer player, ServerboundQuestSavePayload payload) {

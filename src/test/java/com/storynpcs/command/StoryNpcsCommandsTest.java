@@ -140,6 +140,9 @@ class StoryNpcsCommandsTest {
             assertNotNull(field, "faction configure " + f);
             assertNotNull(field.getChild("value"), "faction configure " + f + " value arg");
         }
+        CommandNode<CommandSourceStack> fgui = faction.getChild("gui");
+        assertNotNull(fgui, "faction gui must exist");
+        assertNotNull(fgui.getChild("faction_id"), "faction gui faction_id arg");
 
         // Follower subcommands
         CommandNode<CommandSourceStack> follower = storynpcs.getChild("follower");

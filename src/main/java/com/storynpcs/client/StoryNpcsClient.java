@@ -116,6 +116,25 @@ public final class StoryNpcsClient {
         });
     }
 
+    public static void openFactionEditor(com.storynpcs.network.ClientboundFactionEditorOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            java.util.List<com.storynpcs.domain.faction.Faction> factions =
+                    com.storynpcs.domain.faction.FactionSerde.fromJsonList(payload.factionsJson());
+            mc.setScreen(new com.storynpcs.client.gui.FactionEditorScreen(factions, payload.factionId()));
+        });
+    }
+
+    public static void handleFactionSaveResult(com.storynpcs.network.ClientboundFactionSaveResultPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            if (mc.screen instanceof com.storynpcs.client.gui.FactionEditorScreen editor) {
+                editor.onSaveResult(payload.success(), payload.message(),
+                        com.storynpcs.domain.faction.FactionSerde.fromJsonList(payload.factionsJson()));
+            }
+        });
+    }
+
     public static void closeDialogue() {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {
