@@ -535,4 +535,50 @@ class StoryNpcsApplicationServiceTest {
         assertThat(result.formatReport()).contains("REF_NPC_DIALOGUE_MISSING");
         assertThat(registry.getNpc(npcId)).isEmpty();
     }
+
+    @Test
+    void saveFactionShouldPersistAndRegister() {
+        NamespacedId id = NamespacedId.of("storynpcs:river_pirates");
+        var result = service.saveFaction(new Faction(id, "River Pirates", 800, 300, 1200));
+
+        assertThat(result.hasErrors()).isFalse();
+        assertThat(registry.getFaction(id)).isPresent();
+        assertThat(registry.getFaction(id).get().getName()).isEqualTo("River Pirates");
+    }
+
+    @Test
+    void saveFactionShouldRejectMissingId() {
+        Faction noId = new Faction();
+        noId.setName("No Id");
+        var result = service.saveFaction(noId);
+
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("FACTION_ID_MISSING");
+    }
+
+    @Test
+    void saveFactionShouldRejectInvertedThresholds() {
+        NamespacedId id = NamespacedId.of("storynpcs:bad_thresholds");
+        var result = service.saveFaction(new Faction(id, "Broken", 1000, 1500, 500));
+
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("FACTION_THRESHOLDS_INCONSISTENT");
+        assertThat(registry.getFaction(id)).isEmpty();
+    }
+
+    @Test
+    void createFactionShouldScaffoldDefaultsAndRejectDuplicates() {
+        NamespacedId id = NamespacedId.of("storynpcs:new_faction");
+
+        var created = service.createFaction(id, "The Syndicate");
+        assertThat(created.hasErrors()).isFalse();
+        Faction f = registry.getFaction(id).orElseThrow();
+        assertThat(f.getDefaultPoints()).isEqualTo(1000);
+        assertThat(f.getHostileThreshold()).isEqualTo(500);
+        assertThat(f.getFriendlyThreshold()).isEqualTo(1500);
+
+        var dup = service.createFaction(id, "Again");
+        assertThat(dup.hasErrors()).isTrue();
+        assertThat(dup.formatReport()).contains("FACTION_ALREADY_EXISTS");
+    }
 }

@@ -125,6 +125,17 @@ class StoryNpcsCommandsTest {
         assertNotNull(faction.getChild("list"), "faction list must exist");
         assertNotNull(faction.getChild("set"), "faction set must exist");
         assertNotNull(faction.getChild("adjust"), "faction adjust must exist");
+        assertNotNull(faction.getChild("create"), "faction create must exist");
+        assertNotNull(faction.getChild("create").getChild("faction_id"), "faction create faction_id");
+        CommandNode<CommandSourceStack> configure = faction.getChild("configure");
+        assertNotNull(configure, "faction configure must exist");
+        CommandNode<CommandSourceStack> cfgId = configure.getChild("faction_id");
+        assertNotNull(cfgId, "faction configure faction_id");
+        for (String f : new String[]{"defaultPoints", "hostileThreshold", "friendlyThreshold"}) {
+            CommandNode<CommandSourceStack> field = cfgId.getChild(f);
+            assertNotNull(field, "faction configure " + f);
+            assertNotNull(field.getChild("value"), "faction configure " + f + " value arg");
+        }
 
         // Follower subcommands
         CommandNode<CommandSourceStack> follower = storynpcs.getChild("follower");
