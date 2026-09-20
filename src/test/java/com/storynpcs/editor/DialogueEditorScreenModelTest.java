@@ -145,4 +145,68 @@ class DialogueEditorScreenModelTest {
         assertEquals("Rewritten B", exported.getNode("b").orElseThrow().getText());
         assertTrue(model.hasUnsavedChanges());
     }
+
+    @Test
+    @DisplayName("Entry node deletion is blocked with a clear status; non-entry nodes delete normally")
+    void testEntryNodeDeletionBlocked() {
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, null);
+        model.addNode("entry", "Start", 0, 0);
+        model.addNode("other", "Other", 200, 0);
+        model.setAsEntryNode("entry");
+
+        model.getEditorState().setSelectedNodeId("entry");
+        assertFalse(model.removeSelectedNode(), "entry node deletion must be refused");
+        assertNotNull(model.getLayout().getNodes().get("entry"), "entry node must survive");
+        assertTrue(model.getStatusMessage().contains("entry"), "refusal must explain itself");
+
+        model.getEditorState().setSelectedNodeId("other");
+        assertTrue(model.removeSelectedNode());
+        assertNull(model.getLayout().getNodes().get("other"));
+        assertEquals("entry", model.getLayout().getEntryNodeId(), "entry flag untouched by other deletion");
+    }
+
+    @Test
+    @DisplayName("Deleting an edge removes only that edge — endpoints and other edges intact")
+    void testRemoveSelectedEdge() {
+        AtomicReference<DialogueGraph> saved = new AtomicReference<>();
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, saved::set);
+        model.addNode("a", "A", 0, 0);
+        model.addNode("b", "B", 200, 0);
+        model.addNode("c", "C", 400, 0);
+        model.startConnectingEdge("a");
+        model.completeConnectingEdge("b", "to B");
+        model.startConnectingEdge("a");
+        model.completeConnectingEdge("c", "to C");
+        assertEquals(2, model.getLayout().getEdges().size());
+
+        VisualEdge doomed = model.getLayout().getEdges().get(0);
+        model.getEditorState().setSelectedEdge(doomed);
+        assertTrue(model.removeSelectedEdge());
+
+        assertEquals(1, model.getLayout().getEdges().size());
+        assertEquals("to C", model.getLayout().getEdges().get(0).getText());
+        assertEquals(3, model.getLayout().getNodes().size(), "endpoints must survive");
+        assertTrue(model.hasUnsavedChanges());
+
+        model.save();
+        DialogueGraph exported = saved.get();
+        assertEquals(1, exported.getNode("a").orElseThrow().getOptions().size());
+        assertEquals("c", exported.getNode("a").orElseThrow().getOptions().get(0).getTargetNodeId());
+    }
+
+    @Test
+    @DisplayName("Edge labels are hit-testable at their rendered midpoint box")
+    void testFindEdgeAtScreen() {
+        DialogueEditorScreenModel model = new DialogueEditorScreenModel(null, null);
+        model.addNode("a", "A", 0, 0);      // center canvas (80, 40)
+        model.addNode("b", "B", 300, 0);    // center canvas (380, 40)
+        model.startConnectingEdge("a");
+        model.completeConnectingEdge("b", "to B");
+
+        // zoom=1, pan=0 → canvas == screen; label midpoint is (230, 40)
+        assertNotNull(model.getEditorState().findEdgeAtScreen(230, 40));
+        assertNotNull(model.getEditorState().findEdgeAtScreen(230 + 20, 40 + 4), "inside the 50x12 label box");
+        assertNull(model.getEditorState().findEdgeAtScreen(230, 90), "outside the label box must miss");
+        assertNull(model.getEditorState().findEdgeAtScreen(10, 10));
+    }
 }

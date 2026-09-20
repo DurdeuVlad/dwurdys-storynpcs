@@ -49,14 +49,42 @@ public class DialogueEditorScreenModel {
         return node;
     }
 
-    public void removeSelectedNode() {
+    /**
+     * Removes the selected node and every edge touching it. Refuses to delete the
+     * entry node — silently reassigning it would surprise the author, so the caller
+     * must move the entry flag first. Returns false (with a status message) in that case.
+     */
+    public boolean removeSelectedNode() {
         String selectedId = editorState.getSelectedNodeId();
-        if (selectedId != null) {
-            getLayout().removeNode(selectedId);
-            editorState.setSelectedNodeId(null);
-            unsavedChanges = true;
-            statusMessage = "Removed node: " + selectedId;
+        if (selectedId == null) {
+            return false;
         }
+        VisualNode node = getLayout().getNodes().get(selectedId);
+        if (node == null) {
+            return false;
+        }
+        if (node.isEntryNode()) {
+            statusMessage = "Cannot delete the entry node — set another node as entry first";
+            return false;
+        }
+        getLayout().removeNode(selectedId);
+        editorState.setSelectedNodeId(null);
+        unsavedChanges = true;
+        statusMessage = "Removed node: " + selectedId;
+        return true;
+    }
+
+    /** Removes the selected edge only — both endpoint nodes are untouched. */
+    public boolean removeSelectedEdge() {
+        VisualEdge edge = editorState.getSelectedEdge();
+        if (edge == null) {
+            return false;
+        }
+        getLayout().removeEdge(edge);
+        editorState.setSelectedEdge(null);
+        unsavedChanges = true;
+        statusMessage = "Removed edge " + edge.getSourceNodeId() + " -> " + edge.getTargetNodeId();
+        return true;
     }
 
     public void updateSelectedNodeText(String newText) {
