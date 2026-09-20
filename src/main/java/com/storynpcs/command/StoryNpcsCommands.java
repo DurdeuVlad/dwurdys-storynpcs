@@ -29,6 +29,7 @@ import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.entity.StoryNpcEntity;
 import com.storynpcs.item.StoryNpcsItems;
+import java.util.ArrayList;
 import java.util.NoSuchElementException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -211,7 +212,8 @@ public final class StoryNpcsCommands {
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                         .suggests(NPC_IDS)
-                                        .executes(StoryNpcsCommands::deleteNpc))))
+                                        .executes(StoryNpcsCommands::deleteNpc)))
+                        .then(npcRuleCommands()))
                 // Dialogue commands
                 .then(Commands.literal("dialogue")
                         .executes(StoryNpcsCommands::sendDialogueHelp)
@@ -462,6 +464,131 @@ public final class StoryNpcsCommands {
                 .then(factionIdGui));
 
         return faction;
+    }
+
+    /**
+     * /storynpcs npc rule — behavior rule authoring (issue #19).
+     * Grammar: rule list|remove|add on an NPC. `add` takes a trigger word then a
+     * condition literal subtree then an action literal subtree, e.g.
+     *   npc rule add storynpcs:guard on_damaged health_percent le 0.5 yield_combat
+     * Condition literals: always, actor_is_player, faction_standing &lt;faction&gt;
+     * &lt;standing&gt;, health_percent le|gt &lt;0..1&gt;, strike_count le|gt &lt;n&gt;.
+     * Action literals: send_message &lt;text&gt;, add_threat [amount],
+     * shout_alert &lt;radius&gt; &lt;msg&gt;, yield_combat [fraction] [dialogue],
+     * change_stance &lt;stance&gt;, adjust_faction &lt;faction&gt; &lt;delta&gt;.
+     * COMPOSITE conditions are intentionally not exposed — they need nested
+     * sub-conditions that don't fit a flat command grammar (documented scope cut).
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> npcRuleCommands() {
+        var rule = Commands.literal("rule");
+
+        // rule list <npc_id>
+        rule.then(Commands.literal("list")
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .executes(StoryNpcsCommands::listNpcRules)));
+
+        // rule remove <npc_id> <index>  (1-based, matching npc rule list output)
+        rule.then(Commands.literal("remove")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .executes(StoryNpcsCommands::removeNpcRule))));
+
+        // rule add <npc_id> <trigger> <condition...> <action...>
+        var triggerArg = Commands.argument("trigger", StringArgumentType.word())
+                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                        List.of("on_damaged", "on_witness_assault", "on_interact",
+                                "on_health_percent_drop", "on_target_lost", "on_tick", "on_yield"), b));
+
+        // Conditions without arguments attach the action subtree directly.
+        var always = Commands.literal("always");
+        attachRuleActions(always, "always", null);
+        triggerArg.then(always);
+
+        var actorIsPlayer = Commands.literal("actor_is_player");
+        attachRuleActions(actorIsPlayer, "actor_is_player", null);
+        triggerArg.then(actorIsPlayer);
+
+        var cStanding = Commands.argument("c_standing", StringArgumentType.word())
+                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                        List.of("hostile", "neutral", "friendly"), b));
+        attachRuleActions(cStanding, "faction_standing", null);
+        triggerArg.then(Commands.literal("faction_standing")
+                .then(Commands.argument("c_faction", ResourceLocationArgument.id())
+                        .suggests(FACTION_IDS)
+                        .then(cStanding)));
+
+        for (String op : List.of("le", "gt")) {
+            var hpThreshold = Commands.argument("c_threshold",
+                    com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.0, 1.0));
+            attachRuleActions(hpThreshold, "health_percent", op);
+            triggerArg.then(Commands.literal("health_percent")
+                    .then(Commands.literal(op).then(hpThreshold)));
+
+            var scThreshold = Commands.argument("c_threshold", IntegerArgumentType.integer(0));
+            attachRuleActions(scThreshold, "strike_count", op);
+            triggerArg.then(Commands.literal("strike_count")
+                    .then(Commands.literal(op).then(scThreshold)));
+        }
+
+        rule.then(Commands.literal("add")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(triggerArg)));
+
+        return rule;
+    }
+
+    /** Attaches every action literal subtree under a condition leaf. */
+    private static void attachRuleActions(
+            com.mojang.brigadier.builder.ArgumentBuilder<CommandSourceStack, ?> leaf,
+            String cond, String condOp) {
+        if (leaf == null) return;
+
+        var sendMessage = Commands.literal("send_message")
+                .then(Commands.argument("text", StringArgumentType.greedyString())
+                        .executes(ctx -> addNpcRule(ctx, cond, condOp, "send_message")));
+        leaf.then(sendMessage);
+
+        var addThreat = Commands.literal("add_threat")
+                .executes(ctx -> addNpcRule(ctx, cond, condOp, "add_threat"))
+                .then(Commands.argument("amount",
+                                com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.0))
+                        .executes(ctx -> addNpcRule(ctx, cond, condOp, "add_threat")));
+        leaf.then(addThreat);
+
+        var shoutAlert = Commands.literal("shout_alert")
+                .then(Commands.argument("radius",
+                                com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(1.0, 64.0))
+                        .then(Commands.argument("message", StringArgumentType.greedyString())
+                                .executes(ctx -> addNpcRule(ctx, cond, condOp, "shout_alert"))));
+        leaf.then(shoutAlert);
+
+        var yieldCombat = Commands.literal("yield_combat")
+                .executes(ctx -> addNpcRule(ctx, cond, condOp, "yield_combat"))
+                .then(Commands.argument("fraction",
+                                com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.0, 1.0))
+                        .executes(ctx -> addNpcRule(ctx, cond, condOp, "yield_combat"))
+                        .then(Commands.argument("dialogue", StringArgumentType.greedyString())
+                                .executes(ctx -> addNpcRule(ctx, cond, condOp, "yield_combat"))));
+        leaf.then(yieldCombat);
+
+        var changeStance = Commands.literal("change_stance")
+                .then(Commands.argument("stance", StringArgumentType.word())
+                        .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                List.of("passive", "retaliate_only", "defensive", "guard", "aggressive"), b))
+                        .executes(ctx -> addNpcRule(ctx, cond, condOp, "change_stance")));
+        leaf.then(changeStance);
+
+        var adjustFaction = Commands.literal("adjust_faction")
+                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                        .suggests(FACTION_IDS)
+                        .then(Commands.argument("delta", IntegerArgumentType.integer())
+                                .executes(ctx -> addNpcRule(ctx, cond, condOp, "adjust_faction"))));
+        leaf.then(adjustFaction);
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {
@@ -1740,6 +1867,301 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    // ── Behavior rule handlers (issue #19) ──────────────────────────────────
+
+    private static final List<String> RULE_CONDITION_TYPES = List.of(
+            "always", "actor_is_player", "faction_standing", "health_percent", "strike_count");
+    private static final List<String> RULE_ACTION_TYPES = List.of(
+            "send_message", "add_threat", "shout_alert", "yield_combat", "change_stance", "adjust_faction");
+
+    /** /storynpcs npc rule list — readable rule summary with clickable remove. */
+    private static int listNpcRules(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+        List<com.storynpcs.domain.rule.BehaviorRule> rules = npcOpt.get().getRules();
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                String.format("=== Rules on '%s' (%d) ===", id, rules.size())), false);
+        for (int i = 0; i < rules.size(); i++) {
+            var rule = rules.get(i);
+            final int idx = i + 1;
+            MutableComponent line = Component.literal(String.format(
+                    " §7[%d] §f%s §7if §b%s §7→ §a%s", idx,
+                    rule.getTrigger(), describeRuleConditions(rule), describeRuleActions(rule)))
+                    .append(clickable(" §c[Remove]",
+                            "/storynpcs npc rule remove " + id + " " + idx,
+                            ClickEvent.Action.SUGGEST_COMMAND, "Remove rule #" + idx + " from '" + id + "'"));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        if (rules.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    " §7(none — add one via /storynpcs npc rule add)"), false);
+        }
+        return rules.size();
+    }
+
+    /** /storynpcs npc rule remove — 1-based index into npc.getRules(). */
+    private static int removeNpcRule(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        int index = IntegerArgumentType.getInteger(ctx, "index");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+        NpcDefinition npc = npcOpt.get();
+        List<com.storynpcs.domain.rule.BehaviorRule> rules = npc.getRules();
+        if (index > rules.size()) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] NPC '%s' only has %d rule(s) — index %d out of range.",
+                    id, rules.size(), index)));
+            return 0;
+        }
+        var removed = rules.remove(index - 1);
+        var result = mod.getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            rules.add(index - 1, removed);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Removed rule #%d (%s → %s) from NPC '%s' (persisted to YAML).",
+                index, describeRuleConditions(removed), describeRuleActions(removed), id)), true);
+        return 1;
+    }
+
+    /** /storynpcs npc rule add — builds a one-condition/one-action rule and persists via saveNpc. */
+    private static int addNpcRule(CommandContext<CommandSourceStack> ctx, String cond, String condOp, String act) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+
+        com.storynpcs.domain.rule.TriggerType trigger;
+        String triggerRaw = StringArgumentType.getString(ctx, "trigger");
+        try {
+            trigger = com.storynpcs.domain.rule.TriggerType.valueOf(triggerRaw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Unknown trigger '" + triggerRaw + "'. Valid: on_damaged, on_witness_assault, "
+                            + "on_interact, on_health_percent_drop, on_target_lost, on_tick, on_yield"));
+            return 0;
+        }
+
+        com.storynpcs.domain.rule.condition.RuleCondition condition;
+        com.storynpcs.domain.rule.action.RuleAction action;
+        try {
+            condition = buildRuleCondition(ctx, cond, condOp);
+            action = buildRuleAction(ctx, act);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()
+                    + " Conditions: " + RULE_CONDITION_TYPES + " Actions: " + RULE_ACTION_TYPES));
+            return 0;
+        } catch (CommandSyntaxException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Bad rule argument: " + e.getMessage()));
+            return 0;
+        }
+
+        NpcDefinition npc = npcOpt.get();
+        var rule = new com.storynpcs.domain.rule.BehaviorRule(nextRuleId(npc), trigger);
+        if (condition != null) {
+            rule.addCondition(condition);
+        }
+        rule.addAction(action);
+
+        List<com.storynpcs.domain.rule.BehaviorRule> rules = npc.getRules();
+        rules.add(rule);
+        var result = mod.getApplicationService().saveNpc(npc);
+        if (result.hasErrors()) {
+            rules.remove(rules.size() - 1);
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Added rule '%s' to '%s': on %s if %s → %s (persisted to YAML).",
+                rule.getId(), id, trigger, describeRuleConditions(rule), describeRuleActions(rule))), true);
+        return 1;
+    }
+
+    /** Builds the parsed condition from the bound literal + args, or null for 'always'. */
+    private static com.storynpcs.domain.rule.condition.RuleCondition buildRuleCondition(
+            CommandContext<CommandSourceStack> ctx, String cond, String condOp) throws CommandSyntaxException {
+        switch (cond) {
+            case "always" -> { return null; }
+            case "actor_is_player" -> { return new com.storynpcs.domain.rule.condition.ActorIsPlayerCondition(true); }
+            case "faction_standing" -> {
+                NamespacedId faction = getNamespacedId(ctx, "c_faction");
+                String raw = StringArgumentType.getString(ctx, "c_standing");
+                com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing standing;
+                try {
+                    standing = com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing
+                            .valueOf(raw.trim().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Unknown standing '" + raw + "' — use hostile, neutral or friendly.");
+                }
+                return new com.storynpcs.domain.rule.condition.FactionStandingCondition(faction, standing);
+            }
+            case "health_percent" -> {
+                var op = "gt".equals(condOp)
+                        ? com.storynpcs.domain.rule.condition.HealthPercentCondition.Operator.GREATER_THAN
+                        : com.storynpcs.domain.rule.condition.HealthPercentCondition.Operator.LESS_THAN_OR_EQUAL;
+                return new com.storynpcs.domain.rule.condition.HealthPercentCondition(
+                        op, com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "c_threshold"));
+            }
+            case "strike_count" -> {
+                var op = "gt".equals(condOp)
+                        ? com.storynpcs.domain.rule.condition.StrikeCountCondition.Operator.GREATER_THAN
+                        : com.storynpcs.domain.rule.condition.StrikeCountCondition.Operator.LESS_THAN_OR_EQUAL;
+                return new com.storynpcs.domain.rule.condition.StrikeCountCondition(
+                        op, IntegerArgumentType.getInteger(ctx, "c_threshold"));
+            }
+            default -> throw new IllegalArgumentException("Unknown condition type '" + cond + "'.");
+        }
+    }
+
+    /** Builds the parsed action from the bound literal + args. */
+    private static com.storynpcs.domain.rule.action.RuleAction buildRuleAction(
+            CommandContext<CommandSourceStack> ctx, String act) throws CommandSyntaxException {
+        switch (act) {
+            case "send_message":
+                return new com.storynpcs.domain.rule.action.SendMessageAction(
+                        StringArgumentType.getString(ctx, "text"));
+            case "add_threat":
+                return new com.storynpcs.domain.rule.action.AddThreatAction(optDouble(ctx, "amount", 100.0));
+            case "shout_alert":
+                return new com.storynpcs.domain.rule.action.ShoutAlertAction(
+                        com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius"),
+                        StringArgumentType.getString(ctx, "message"));
+            case "yield_combat":
+                return new com.storynpcs.domain.rule.action.YieldCombatAction(
+                        optDouble(ctx, "fraction", 0.50), optString(ctx, "dialogue", "I yield! Well fought."));
+            case "change_stance": {
+                String raw = StringArgumentType.getString(ctx, "stance");
+                try {
+                    return new com.storynpcs.domain.rule.action.ChangeStanceAction(
+                            com.storynpcs.domain.npc.TacticalStance.valueOf(raw.trim().toUpperCase()));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Unknown stance '" + raw
+                            + "' — use passive, retaliate_only, defensive, guard or aggressive.");
+                }
+            }
+            case "adjust_faction":
+                return new com.storynpcs.domain.rule.action.AdjustFactionAction(
+                        getNamespacedId(ctx, "faction_id"), IntegerArgumentType.getInteger(ctx, "delta"));
+            default:
+                throw new IllegalArgumentException("Unknown action type '" + act + "'.");
+        }
+    }
+
+    private static double optDouble(CommandContext<CommandSourceStack> ctx, String name, double def) {
+        try {
+            return com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, name);
+        } catch (IllegalArgumentException e) {
+            return def;
+        }
+    }
+
+    private static String optString(CommandContext<CommandSourceStack> ctx, String name, String def) {
+        try {
+            return StringArgumentType.getString(ctx, name);
+        } catch (IllegalArgumentException e) {
+            return def;
+        }
+    }
+
+    /** Lowest unused rule_N id on the NPC. */
+    private static String nextRuleId(NpcDefinition npc) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (var r : npc.getRules()) {
+            if (r.getId() != null) ids.add(r.getId());
+        }
+        int n = 1;
+        while (ids.contains("rule_" + n)) n++;
+        return "rule_" + n;
+    }
+
+    private static String describeRuleConditions(com.storynpcs.domain.rule.BehaviorRule rule) {
+        if (rule.getConditions() == null || rule.getConditions().isEmpty()) {
+            return "always";
+        }
+        List<String> parts = new ArrayList<>();
+        for (var c : rule.getConditions()) {
+            parts.add(describeCondition(c));
+        }
+        return String.join(" & ", parts);
+    }
+
+    private static String describeCondition(com.storynpcs.domain.rule.condition.RuleCondition c) {
+        if (c instanceof com.storynpcs.domain.rule.condition.ActorIsPlayerCondition) {
+            return "actor_is_player";
+        }
+        if (c instanceof com.storynpcs.domain.rule.condition.FactionStandingCondition f) {
+            return "faction_standing(" + f.getFactionId() + " " + f.getExpectedStanding() + ")";
+        }
+        if (c instanceof com.storynpcs.domain.rule.condition.HealthPercentCondition h) {
+            return "health_percent(" + (h.getOperator() == com.storynpcs.domain.rule.condition.HealthPercentCondition.Operator.GREATER_THAN ? "gt" : "le")
+                    + " " + h.getThreshold() + ")";
+        }
+        if (c instanceof com.storynpcs.domain.rule.condition.StrikeCountCondition s) {
+            return "strike_count(" + (s.getOperator() == com.storynpcs.domain.rule.condition.StrikeCountCondition.Operator.GREATER_THAN ? "gt" : "le")
+                    + " " + s.getThreshold() + ")";
+        }
+        return String.valueOf(c);
+    }
+
+    private static String describeRuleActions(com.storynpcs.domain.rule.BehaviorRule rule) {
+        if (rule.getActions() == null || rule.getActions().isEmpty()) {
+            return "(no action)";
+        }
+        List<String> parts = new ArrayList<>();
+        for (var a : rule.getActions()) {
+            parts.add(describeAction(a));
+        }
+        return String.join(" & ", parts);
+    }
+
+    private static String describeAction(com.storynpcs.domain.rule.action.RuleAction a) {
+        if (a instanceof com.storynpcs.domain.rule.action.SendMessageAction s) {
+            return "send_message(\"" + s.getMessage() + "\")";
+        }
+        if (a instanceof com.storynpcs.domain.rule.action.AddThreatAction t) {
+            return "add_threat(" + t.getThreat() + ")";
+        }
+        if (a instanceof com.storynpcs.domain.rule.action.ShoutAlertAction s) {
+            return "shout_alert(" + s.getRadius() + ",\"" + s.getAlertMessage() + "\")";
+        }
+        if (a instanceof com.storynpcs.domain.rule.action.YieldCombatAction y) {
+            return "yield_combat(" + y.getResetHealthFraction() + ")";
+        }
+        if (a instanceof com.storynpcs.domain.rule.action.ChangeStanceAction c) {
+            return "change_stance(" + c.getStance() + ")";
+        }
+        if (a instanceof com.storynpcs.domain.rule.action.AdjustFactionAction f) {
+            return "adjust_faction(" + f.getFactionId() + " " + f.getDelta() + ")";
+        }
+        return String.valueOf(a);
+    }
+
     // Faction Handlers
     private static int listFactions(CommandContext<CommandSourceStack> ctx) {
         DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
@@ -2090,7 +2512,10 @@ public final class StoryNpcsCommands {
                 "  §e/storynpcs npc set faction <npc_id> <faction_id>  §7- Assign faction to an NPC\n" +
                 "  §e/storynpcs npc spawn <npc_id> [pos]  §7- Spawn an NPC into the world\n" +
                 "  §e/storynpcs npc despawn [npc_id] [radius]  §7- Remove spawned NPCs from the world\n" +
-                "  §e/storynpcs npc delete <npc_id>  §7- Delete NPC definition from registry & disk"), false);
+                "  §e/storynpcs npc delete <npc_id>  §7- Delete NPC definition from registry & disk\n" +
+                "  §e/storynpcs npc rule list <npc_id>  §7- List behavior rules on an NPC\n" +
+                "  §e/storynpcs npc rule add <npc_id> <trigger> <condition> <action>  §7- Add a behavior rule\n" +
+                "  §e/storynpcs npc rule remove <npc_id> <index>  §7- Remove a behavior rule"), false);
         return 1;
     }
 
@@ -2112,7 +2537,11 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs quest list §7- List all registered quests\n" +
                 "§e/storynpcs quest info <quest_id> §7- View quest objectives, rewards & details\n" +
                 "§e/storynpcs quest start <quest_id> [player] §7- Start a quest for a player\n" +
-                "§e/storynpcs quest complete <quest_id> [player] §7- Complete a quest for a player"), false);
+                "§e/storynpcs quest complete <quest_id> [player] §7- Complete a quest for a player\n" +
+                "§e/storynpcs quest create <quest_id> [title] §7- Scaffold a new quest definition\n" +
+                "§e/storynpcs quest set <quest_id> <description|category|repeatType> <value> §7- Edit quest fields\n" +
+                "§e/storynpcs quest objective|reward add|remove <quest_id> ... §7- Edit objectives/rewards\n" +
+                "§e/storynpcs quest gui [quest_id] §7- Open the quest editor GUI"), false);
         return 1;
     }
 
@@ -2124,7 +2553,8 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs faction set <faction_id> <points> [player] §7- Set player faction reputation\n" +
                 "§e/storynpcs faction adjust <faction_id> <delta> [player] §7- Adjust player faction reputation\n" +
                 "§e/storynpcs faction create <faction_id> [name] §7- Scaffold a new faction definition\n" +
-                "§e/storynpcs faction configure <faction_id> <field> <value> §7- Tune thresholds"), false);
+                "§e/storynpcs faction configure <faction_id> <field> <value> §7- Tune thresholds\n" +
+                "§e/storynpcs faction gui [faction_id] §7- Open the faction editor GUI"), false);
         return 1;
     }
 

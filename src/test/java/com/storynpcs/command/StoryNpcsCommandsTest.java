@@ -197,6 +197,71 @@ class StoryNpcsCommandsTest {
                 "unconsumed input after reward add: " + rewParse.getReader().getRemaining());
     }
 
+    @Test
+    @DisplayName("npc rule subcommands register with npc_id suggestions and perm-2 gates")
+    void testNpcRuleCommandsRegistered() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandNode<CommandSourceStack> rule = dispatcher.getRoot()
+                .getChild("storynpcs").getChild("npc").getChild("rule");
+        assertNotNull(rule, "npc rule must exist");
+
+        CommandNode<CommandSourceStack> list = rule.getChild("list");
+        assertNotNull(list, "rule list must exist");
+        assertNotNull(list.getChild("npc_id"), "rule list npc_id arg");
+
+        CommandNode<CommandSourceStack> remove = rule.getChild("remove");
+        assertNotNull(remove, "rule remove must exist");
+        assertNotNull(remove.getChild("npc_id").getChild("index"), "rule remove index arg");
+
+        CommandNode<CommandSourceStack> add = rule.getChild("add");
+        assertNotNull(add, "rule add must exist");
+        CommandNode<CommandSourceStack> trigger = add.getChild("npc_id").getChild("trigger");
+        assertNotNull(trigger, "rule add trigger arg");
+
+        for (String cond : new String[]{"always", "actor_is_player", "faction_standing",
+                                        "health_percent", "strike_count"}) {
+            assertNotNull(trigger.getChild(cond), "condition literal '" + cond + "' must exist");
+        }
+        // Every condition leaf must reach every action literal.
+        for (String act : new String[]{"send_message", "add_threat", "shout_alert",
+                                       "yield_combat", "change_stance", "adjust_faction"}) {
+            assertNotNull(trigger.getChild("always").getChild(act),
+                    "always → " + act + " must exist");
+            var hp = trigger.getChild("health_percent");
+            for (String op : new String[]{"le", "gt"}) {
+                assertNotNull(hp.getChild(op).getChild("c_threshold").getChild(act),
+                        "health_percent " + op + " → " + act + " must exist");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("npc rule add parses fully for every condition/action shape")
+    void testNpcRuleAddParses() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandSourceStack source = opSource();
+
+        String[] cmds = {
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged always send_message Halt!",
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged actor_is_player add_threat",
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged actor_is_player add_threat 50.5",
+                "storynpcs npc rule add storynpcs:npc_1 on_interact faction_standing storynpcs:town_guard hostile shout_alert 12 Guards!",
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged health_percent le 0.5 yield_combat",
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged health_percent gt 0.2 yield_combat 0.6 I surrender!",
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged strike_count gt 2 change_stance aggressive",
+                "storynpcs npc rule add storynpcs:npc_1 on_damaged always adjust_faction storynpcs:town_guard -50",
+        };
+        for (String cmd : cmds) {
+            var parse = dispatcher.parse(cmd, source);
+            assertTrue(parse.getExceptions().isEmpty(),
+                    "parse failed for '" + cmd + "': " + parse.getExceptions());
+            assertFalse(parse.getReader().canRead(),
+                    "unconsumed input for '" + cmd + "': " + parse.getReader().getRemaining());
+        }
+    }
+
     private static CommandSourceStack opSource() {
         return new CommandSourceStack(net.minecraft.commands.CommandSource.NULL,
                 net.minecraft.world.phys.Vec3.ZERO, net.minecraft.world.phys.Vec2.ZERO,
