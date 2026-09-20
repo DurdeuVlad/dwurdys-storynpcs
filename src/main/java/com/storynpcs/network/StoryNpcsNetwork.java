@@ -95,6 +95,43 @@ public class StoryNpcsNetwork {
                 }
         );
 
+        // Trader/banker role interaction payloads
+        registrar.playToClient(
+                ClientboundTradeOpenPayload.TYPE,
+                ClientboundTradeOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openTrade(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundTradeExecutePayload.TYPE,
+                ServerboundTradeExecutePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleTradeExecute(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToClient(
+                ClientboundBankOpenPayload.TYPE,
+                ClientboundBankOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openBank(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundBankActionPayload.TYPE,
+                ServerboundBankActionPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleBankAction(serverPlayer, payload));
+                    }
+                }
+        );
+
         registrar.playToClient(
                 ClientboundQuestEditorOpenPayload.TYPE,
                 ClientboundQuestEditorOpenPayload.STREAM_CODEC,
@@ -481,5 +518,188 @@ public class StoryNpcsNetwork {
 
     public static void sendCloseDialogue(ServerPlayer player) {
         PacketDistributor.sendToPlayer(player, ClientboundDialogueClosePayload.INSTANCE);
+    }
+
+    // ---- Trader / banker interaction ----
+
+    /** Opens the trade screen for an NPC whose definition has a trader role. */
+    public static void sendTradeOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc) {
+        var mod = StoryNpcs.getInstance();
+        if (mod == null || npc.getTrader() == null) return;
+        var trader = npc.getTrader();
+        java.util.Map<String, Integer> scores = new java.util.HashMap<>();
+        if (mod.getProgressionRepository() != null) {
+            var progression = mod.getProgressionRepository().getOrCreate(player.getUUID());
+            for (var listing : trader.getListings()) {
+                var faction = listing.getRequiredFaction();
+                if (faction != null) {
+                    int defaultPts = mod.getRegistry().getFaction(faction)
+                            .map(com.storynpcs.domain.faction.Faction::getDefaultPoints).orElse(0);
+                    scores.put(faction.toString(), progression.getFactionScore(faction, defaultPts));
+                }
+            }
+        }
+        PacketDistributor.sendToPlayer(player, new ClientboundTradeOpenPayload(
+                npc.getId().toString(), npc.getDisplay().getName(),
+                com.storynpcs.domain.role.RoleSerde.toJson(trader),
+                com.storynpcs.domain.role.RoleSerde.toJson(scores)));
+    }
+
+    /** Opens the bank screen for an NPC whose definition has a banker role. */
+    public static void sendBankOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc) {
+        var mod = StoryNpcs.getInstance();
+        if (mod == null || npc.getBanker() == null || mod.getBankRepository() == null) return;
+        var vault = mod.getBankRepository().getOrCreate(player.getUUID());
+        PacketDistributor.sendToPlayer(player, new ClientboundBankOpenPayload(
+                npc.getId().toString(),
+                com.storynpcs.domain.role.RoleSerde.toJson(npc.getBanker()),
+                com.storynpcs.domain.role.RoleSerde.toJson(vault)));
+    }
+
+    /** True when a live entity of the given definition is within interaction range of the player. */
+    private static boolean isNpcNearby(ServerPlayer player, com.storynpcs.domain.common.NamespacedId npcId) {
+        var box = player.getBoundingBox().inflate(8.0);
+        return !player.serverLevel().getEntitiesOfClass(
+                com.storynpcs.entity.StoryNpcEntity.class, box,
+                e -> npcId.toString().equals(e.getDefinitionId())).isEmpty();
+    }
+
+    private static com.storynpcs.domain.npc.NpcDefinition resolveRoleNpc(
+            ServerPlayer player, String npcIdRaw) {
+        var mod = StoryNpcs.getInstance();
+        if (mod == null) return null;
+        com.storynpcs.domain.common.NamespacedId npcId;
+        try {
+            npcId = com.storynpcs.domain.common.NamespacedId.of(npcIdRaw);
+        } catch (Exception e) {
+            return null;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] NPC not found: " + npcIdRaw));
+            return null;
+        }
+        if (!isNpcNearby(player, npcId)) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] That NPC is too far away."), true);
+            return null;
+        }
+        return npcOpt.get();
+    }
+
+    private static void handleTradeExecute(ServerPlayer player, ServerboundTradeExecutePayload payload) {
+        var npc = resolveRoleNpc(player, payload.npcId());
+        if (npc == null) return;
+        var trader = npc.getTrader();
+        if (trader == null) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] That NPC is not a trader."), true);
+            return;
+        }
+        var listings = trader.getListings();
+        int idx = payload.listingIndex();
+        if (idx < 0 || idx >= listings.size()) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] That listing no longer exists."), true);
+            sendTradeOpen(player, npc);
+            return;
+        }
+        var listing = listings.get(idx);
+        var npcId = com.storynpcs.domain.common.NamespacedId.of(payload.npcId());
+        boolean ok = StoryNpcs.getInstance().getApplicationService()
+                .executeTrade(player.getUUID(), npcId, listing);
+        if (ok) {
+            player.sendSystemMessage(Component.literal("§aTraded: "
+                    + com.storynpcs.domain.role.trader.TradeSummaries.describe(listing)), true);
+        } else {
+            player.sendSystemMessage(Component.literal("§cTrade failed — sold out, insufficient payment, or faction requirement not met."), true);
+        }
+        sendTradeOpen(player, npc); // refresh listing availability/uses
+    }
+
+    private static void handleBankAction(ServerPlayer player, ServerboundBankActionPayload payload) {
+        var npc = resolveRoleNpc(player, payload.npcId());
+        if (npc == null) return;
+        var banker = npc.getBanker();
+        if (banker == null) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] That NPC is not a banker."), true);
+            return;
+        }
+        var mod = StoryNpcs.getInstance();
+        var bankRepo = mod.getBankRepository();
+        if (bankRepo == null) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] Banking is unavailable right now."), true);
+            return;
+        }
+        var service = mod.getApplicationService();
+        var npcId = com.storynpcs.domain.common.NamespacedId.of(payload.npcId());
+
+        switch (payload.action()) {
+            case "deposit_held" -> {
+                var held = player.getMainHandItem();
+                if (held.isEmpty()) {
+                    player.sendSystemMessage(Component.literal("§c[StoryNPCs] Hold the item you want to deposit in your main hand."), true);
+                    break;
+                }
+                String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
+                String tag = held.getComponentsPatch().isEmpty() ? null
+                        : held.save(player.level().registryAccess()).toString();
+                int slot = service.depositToBankAuto(player.getUUID(), bankRepo,
+                        payload.tab(), itemId, held.getCount(), tag);
+                if (slot < 0) {
+                    player.sendSystemMessage(Component.literal("§c[StoryNPCs] Deposit failed — tab locked or full."), true);
+                    break;
+                }
+                held.setCount(0);
+                player.sendSystemMessage(Component.literal("§aDeposited " + itemId + " into " + banker.getBankName() + " (tab " + (payload.tab() + 1) + ")."), true);
+            }
+            case "withdraw" -> {
+                var vault = bankRepo.getOrCreate(player.getUUID());
+                int count = vault.getTabItems(payload.tab()).stream()
+                        .filter(i -> i.getSlot() == payload.slot()).mapToInt(i -> i.getCount()).findFirst().orElse(0);
+                var itemOpt = service.withdrawFromBank(player.getUUID(), bankRepo,
+                        payload.tab(), payload.slot(), count);
+                if (itemOpt.isEmpty()) {
+                    player.sendSystemMessage(Component.literal("§c[StoryNPCs] Withdrawal failed — slot empty or tab locked."), true);
+                    break;
+                }
+                giveVaultItem(player, itemOpt.get());
+                player.sendSystemMessage(Component.literal("§aWithdrew " + itemOpt.get().getCount() + "x " + itemOpt.get().getItemId() + "."), true);
+            }
+            case "unlock_tab" -> {
+                boolean ok = service.unlockBankTab(player.getUUID(), bankRepo, banker);
+                if (!ok) {
+                    player.sendSystemMessage(Component.literal("§c[StoryNPCs] Tab unlock failed — max tabs reached or not enough emeralds."), true);
+                    break;
+                }
+                player.sendSystemMessage(Component.literal("§aUnlocked a new vault tab in " + banker.getBankName() + "."), true);
+            }
+            default -> player.sendSystemMessage(Component.literal("§c[StoryNPCs] Unknown bank action."), true);
+        }
+        sendBankOpen(player, npc); // refresh vault view
+    }
+
+    /** Materializes a withdrawn vault item into the player's inventory (drops on overflow). */
+    private static void giveVaultItem(ServerPlayer player, com.storynpcs.domain.role.banker.BankVault.VaultItem item) {
+        net.minecraft.world.item.ItemStack stack = null;
+        if (item.getTag() != null && !item.getTag().isBlank()) {
+            try {
+                var parsed = net.minecraft.nbt.TagParser.parseTag(item.getTag());
+                stack = net.minecraft.world.item.ItemStack.parse(
+                        player.level().registryAccess(), parsed).orElse(null);
+                if (stack != null) {
+                    stack.setCount(item.getCount()); // stored SNBT carries the deposit-time count
+                }
+            } catch (Exception ignored) {}
+        }
+        if (stack == null) {
+            var rl = net.minecraft.resources.ResourceLocation.tryParse(item.getItemId());
+            var itemOpt = rl != null
+                    ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl)
+                    : java.util.Optional.<net.minecraft.world.item.Item>empty();
+            stack = itemOpt.map(i -> new net.minecraft.world.item.ItemStack(i, item.getCount()))
+                    .orElse(net.minecraft.world.item.ItemStack.EMPTY);
+        }
+        if (stack.isEmpty()) return;
+        if (!player.getInventory().add(stack)) {
+            player.drop(stack, false);
+        }
     }
 }

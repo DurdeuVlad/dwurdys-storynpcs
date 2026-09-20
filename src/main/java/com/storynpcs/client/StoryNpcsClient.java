@@ -137,6 +137,40 @@ public final class StoryNpcsClient {
         });
     }
 
+    /** Opens the trade screen for a trader-role NPC (server pushes role + faction scores as JSON). */
+    public static void openTrade(com.storynpcs.network.ClientboundTradeOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            var trader = com.storynpcs.domain.role.RoleSerde.traderFromJson(payload.traderJson()).orElse(null);
+            var scores = com.storynpcs.domain.role.RoleSerde.scoresFromJson(payload.factionScoresJson());
+            if (trader == null) {
+                if (mc.player != null) {
+                    mc.player.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to parse trader data."));
+                }
+                return;
+            }
+            mc.setScreen(new com.storynpcs.client.gui.NpcTradeScreen(
+                    payload.npcId(), payload.npcName(), trader, scores));
+        });
+    }
+
+    /** Opens the bank screen for a banker-role NPC (server pushes role + the player's vault as JSON). */
+    public static void openBank(com.storynpcs.network.ClientboundBankOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            var banker = com.storynpcs.domain.role.RoleSerde.bankerFromJson(payload.bankerJson()).orElse(null);
+            var vault = com.storynpcs.domain.role.RoleSerde.vaultFromJson(payload.vaultJson()).orElse(null);
+            if (banker == null || vault == null) {
+                if (mc.player != null) {
+                    mc.player.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to parse bank data."));
+                }
+                return;
+            }
+            mc.setScreen(new com.storynpcs.client.gui.NpcBankScreen(
+                    payload.npcId(), banker, vault));
+        });
+    }
+
     public static void closeDialogue() {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {

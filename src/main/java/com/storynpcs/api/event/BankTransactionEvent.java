@@ -9,5 +9,5 @@ public record BankTransactionEvent(
         String itemId,
         int count
 ) implements StoryNpcsEvent {
-    public enum Type { DEPOSIT, WITHDRAW }
+    public enum Type { DEPOSIT, WITHDRAW, UNLOCK_TAB }
 }

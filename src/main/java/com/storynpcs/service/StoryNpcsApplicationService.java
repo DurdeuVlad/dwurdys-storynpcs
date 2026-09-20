@@ -1185,6 +1185,71 @@ public class StoryNpcsApplicationService {
         return success;
     }
 
+    /**
+     * Deposit into the first compatible slot of the given tab (merge or first free slot).
+     * Returns the slot index used, or -1 on failure (locked tab, full tab, invalid input).
+     */
+    public int depositToBankAuto(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, String itemId, int count, String tag) {
+        if (bankRepo == null) return -1;
+        var vault = bankRepo.getOrCreate(playerUuid);
+        int slot = vault.depositAuto(tab, itemId, count, tag);
+        if (slot >= 0) {
+            try {
+                bankRepo.save(playerUuid);
+            } catch (IOException e) {
+                System.err.println("Failed to persist bank vault for " + playerUuid + ": " + e.getMessage());
+            }
+            eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
+                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
+        }
+        return slot;
+    }
+
+    /**
+     * Unlock the next bank tab for a player at a banker NPC. Costs {@code tabUpgradeCost}
+     * emeralds deducted from the player's inventory (free when cost is 0). Fails when the
+     * vault already has all of the banker's tabs unlocked or the player cannot pay.
+     */
+    public boolean unlockBankTab(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, com.storynpcs.domain.role.banker.BankerRole banker) {
+        if (bankRepo == null || banker == null) return false;
+        var vault = bankRepo.getOrCreate(playerUuid);
+        int unlocked = vault.getUnlockedTabs();
+        int maxTabs = Math.max(1, banker.getMaxTabs());
+        if (unlocked >= maxTabs) return false;
+
+        int cost = Math.max(0, banker.getTabUpgradeCost());
+        if (cost > 0) {
+            if (minecraftServer == null) return false;
+            var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+            if (player == null) return false;
+            var emerald = net.minecraft.world.item.Items.EMERALD;
+            int held = player.getInventory().items.stream()
+                    .filter(s -> !s.isEmpty() && s.getItem() == emerald)
+                    .mapToInt(net.minecraft.world.item.ItemStack::getCount)
+                    .sum();
+            if (held < cost) return false;
+            int toRemove = cost;
+            for (net.minecraft.world.item.ItemStack slot : player.getInventory().items) {
+                if (!slot.isEmpty() && slot.getItem() == emerald && toRemove > 0) {
+                    int take = Math.min(slot.getCount(), toRemove);
+                    slot.shrink(take);
+                    toRemove -= take;
+                }
+            }
+        }
+
+        vault.setUnlockedTabs(unlocked + 1);
+        try {
+            bankRepo.save(playerUuid);
+        } catch (IOException e) {
+            System.err.println("Failed to persist bank vault for " + playerUuid + ": " + e.getMessage());
+        }
+        eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
+                playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
+                unlocked + 1, "minecraft:emerald", cost));
+        return true;
+    }
+
     public java.util.Optional<com.storynpcs.domain.role.banker.BankVault.VaultItem> withdrawFromBank(
             UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, int count) {
         if (bankRepo == null) return java.util.Optional.empty();

@@ -37,6 +37,12 @@ public class NpcDefinition {
     @JsonProperty
     private List<com.storynpcs.domain.rule.BehaviorRule> rules = new ArrayList<>();
 
+    @JsonProperty
+    private com.storynpcs.domain.role.trader.TraderRole trader;
+
+    @JsonProperty
+    private com.storynpcs.domain.role.banker.BankerRole banker;
+
     public NpcDefinition() {}
 
     public NpcDefinition(NamespacedId id, String name) {
@@ -70,5 +76,11 @@ public class NpcDefinition {
 
     public List<com.storynpcs.domain.rule.BehaviorRule> getRules() { return rules; }
     public void setRules(List<com.storynpcs.domain.rule.BehaviorRule> rules) { this.rules = rules; }
+
+    public com.storynpcs.domain.role.trader.TraderRole getTrader() { return trader; }
+    public void setTrader(com.storynpcs.domain.role.trader.TraderRole trader) { this.trader = trader; }
+
+    public com.storynpcs.domain.role.banker.BankerRole getBanker() { return banker; }
+    public void setBanker(com.storynpcs.domain.role.banker.BankerRole banker) { this.banker = banker; }
 }
 

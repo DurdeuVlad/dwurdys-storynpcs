@@ -25,10 +25,12 @@ class BankRepositoryTest {
     private BankRepository bankRepo;
     private StoryNpcsApplicationService service;
     private List<BankTransactionEvent> bankEvents;
+    private Path banksDir;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) {
-        bankRepo = new BankRepository(tempDir.resolve("banks"));
+        banksDir = tempDir.resolve("banks");
+        bankRepo = new BankRepository(banksDir);
         ProgressionRepository progRepo = new ProgressionRepository(tempDir.resolve("progression"));
         DefinitionRegistry reg = new DefinitionRegistry();
         EventPublisher pub = new EventPublisher();
@@ -193,5 +195,63 @@ class BankRepositoryTest {
         bankRepo.unload(playerUuid);
         // Should not throw and reload freshly if asked
         assertNotNull(bankRepo.getOrCreate(playerUuid));
+    }
+
+    @Test
+    @DisplayName("depositToBankAuto merges identical stacks, picks first free slot, and rejects locked tabs")
+    void testDepositToBankAuto() {
+        UUID playerUuid = UUID.randomUUID();
+
+        int slot1 = service.depositToBankAuto(playerUuid, bankRepo, 0, "minecraft:diamond", 10, null);
+        assertEquals(0, slot1, "First deposit should claim slot 0");
+
+        // Same item+tag merges onto the existing stack
+        int merged = service.depositToBankAuto(playerUuid, bankRepo, 0, "minecraft:diamond", 5, null);
+        assertEquals(0, merged);
+        assertEquals(15, bankRepo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+
+        // Different item claims the next free slot
+        int slot2 = service.depositToBankAuto(playerUuid, bankRepo, 0, "minecraft:bread", 3, null);
+        assertEquals(1, slot2);
+
+        // Locked tab (only tab 0 unlocked by default) is rejected
+        assertEquals(-1, service.depositToBankAuto(playerUuid, bankRepo, 1, "minecraft:diamond", 1, null));
+        // Invalid inputs are rejected
+        assertEquals(-1, service.depositToBankAuto(playerUuid, bankRepo, 0, "minecraft:diamond", 0, null));
+        assertEquals(-1, service.depositToBankAuto(playerUuid, bankRepo, 0, "", 1, null));
+
+        // Deposit events published, vault persisted to disk
+        assertEquals(3, bankEvents.stream().filter(e -> e.type() == BankTransactionEvent.Type.DEPOSIT).count());
+        BankRepository reloaded = new BankRepository(banksDir);
+        assertEquals(15, reloaded.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events")
+    void testUnlockBankTabFree() {
+        UUID playerUuid = UUID.randomUUID();
+        var banker = new com.storynpcs.domain.role.banker.BankerRole("Test Bank");
+        banker.setMaxTabs(3);
+        banker.setTabUpgradeCost(0); // free — no server inventory needed
+
+        assertTrue(service.unlockBankTab(playerUuid, bankRepo, banker));
+        assertEquals(2, bankRepo.getOrCreate(playerUuid).getUnlockedTabs());
+        assertTrue(service.unlockBankTab(playerUuid, bankRepo, banker));
+        assertEquals(3, bankRepo.getOrCreate(playerUuid).getUnlockedTabs());
+
+        // Bounded by maxTabs
+        assertFalse(service.unlockBankTab(playerUuid, bankRepo, banker));
+        assertEquals(3, bankRepo.getOrCreate(playerUuid).getUnlockedTabs());
+
+        assertEquals(2, bankEvents.stream().filter(e -> e.type() == BankTransactionEvent.Type.UNLOCK_TAB).count());
+
+        // Paid unlock requires a live server inventory — must refuse without one
+        var banker2 = new com.storynpcs.domain.role.banker.BankerRole("Paid Bank");
+        banker2.setMaxTabs(4);
+        banker2.setTabUpgradeCost(10);
+        UUID other = UUID.randomUUID();
+        assertFalse(service.unlockBankTab(other, bankRepo, banker2),
+                "Cost>0 unlock must fail when no minecraftServer is bound");
+        assertEquals(1, bankRepo.getOrCreate(other).getUnlockedTabs());
     }
 }

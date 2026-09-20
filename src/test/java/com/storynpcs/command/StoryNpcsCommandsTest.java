@@ -262,6 +262,68 @@ class StoryNpcsCommandsTest {
         }
     }
 
+    @Test
+    @DisplayName("npc trade and npc bank subcommands register with perm-2 gates on mutations")
+    void testNpcTradeBankCommandsRegistered() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandNode<CommandSourceStack> npc = dispatcher.getRoot()
+                .getChild("storynpcs").getChild("npc");
+
+        CommandNode<CommandSourceStack> trade = npc.getChild("trade");
+        assertNotNull(trade, "npc trade must exist");
+        assertNotNull(trade.getChild("enable").getChild("npc_id"), "trade enable npc_id arg");
+        assertNotNull(trade.getChild("enable").getChild("npc_id").getChild("market_name"),
+                "trade enable optional market_name arg");
+        assertNotNull(trade.getChild("disable").getChild("npc_id"), "trade disable npc_id arg");
+        assertNotNull(trade.getChild("list").getChild("npc_id"), "trade list npc_id arg");
+        assertNotNull(trade.getChild("remove").getChild("npc_id").getChild("index"),
+                "trade remove index arg");
+        CommandNode<CommandSourceStack> offerItem =
+                trade.getChild("add").getChild("npc_id").getChild("offer_item");
+        assertNotNull(offerItem, "trade add offer_item arg");
+        assertNotNull(offerItem.getChild("offer_count").getChild("price_item")
+                        .getChild("price_count"), "trade add arg chain");
+        assertNotNull(offerItem.getChild("offer_count").getChild("price_item")
+                        .getChild("price_count").getChild("max_uses"),
+                "trade add optional max_uses arg");
+
+        CommandNode<CommandSourceStack> bank = npc.getChild("bank");
+        assertNotNull(bank, "npc bank must exist");
+        assertNotNull(bank.getChild("enable").getChild("npc_id"), "bank enable npc_id arg");
+        assertNotNull(bank.getChild("enable").getChild("npc_id").getChild("bank_name"),
+                "bank enable optional bank_name arg");
+        assertNotNull(bank.getChild("disable").getChild("npc_id"), "bank disable npc_id arg");
+    }
+
+    @Test
+    @DisplayName("npc trade and npc bank commands parse fully")
+    void testNpcTradeBankParse() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandSourceStack source = opSource();
+
+        String[] cmds = {
+                "storynpcs npc trade enable storynpcs:npc_1",
+                "storynpcs npc trade enable storynpcs:npc_1 Riverside Market",
+                "storynpcs npc trade disable storynpcs:npc_1",
+                "storynpcs npc trade list storynpcs:npc_1",
+                "storynpcs npc trade remove storynpcs:npc_1 2",
+                "storynpcs npc trade add storynpcs:npc_1 minecraft:bread 3 minecraft:emerald 1",
+                "storynpcs npc trade add storynpcs:npc_1 minecraft:bread 3 minecraft:emerald 1 10",
+                "storynpcs npc bank enable storynpcs:npc_1",
+                "storynpcs npc bank enable storynpcs:npc_1 Iron Vault",
+                "storynpcs npc bank disable storynpcs:npc_1",
+        };
+        for (String cmd : cmds) {
+            var parse = dispatcher.parse(cmd, source);
+            assertTrue(parse.getExceptions().isEmpty(),
+                    "parse failed for '" + cmd + "': " + parse.getExceptions());
+            assertFalse(parse.getReader().canRead(),
+                    "unconsumed input for '" + cmd + "': " + parse.getReader().getRemaining());
+        }
+    }
+
     private static CommandSourceStack opSource() {
         return new CommandSourceStack(net.minecraft.commands.CommandSource.NULL,
                 net.minecraft.world.phys.Vec3.ZERO, net.minecraft.world.phys.Vec2.ZERO,
