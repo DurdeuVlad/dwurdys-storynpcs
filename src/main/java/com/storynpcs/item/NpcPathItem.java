@@ -22,9 +22,6 @@ import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * NPC Moving Path — Authors patrol routes by clicking waypoints in the world.
@@ -33,8 +30,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Sneak + right-click air: Clears waypoints for the selected NPC.
  */
 public class NpcPathItem extends Item {
-
-    private static final Map<UUID, NamespacedId> SELECTED_NPC = new ConcurrentHashMap<>();
 
     public NpcPathItem(Properties properties) {
         super(properties);
@@ -58,7 +53,11 @@ public class NpcPathItem extends Item {
                 var defOpt = npc.getDefinition();
                 if (defOpt.isPresent()) {
                     NamespacedId id = defOpt.get().getId();
-                    SELECTED_NPC.put(serverPlayer.getUUID(), id);
+                    StoryNpcs mod = StoryNpcs.getInstance();
+                    if (mod == null) {
+                        return InteractionResult.FAIL;
+                    }
+                    mod.getRuntimeSessions(serverPlayer.getServer()).selectPathNpc(serverPlayer.getUUID(), id);
                     String name = defOpt.get().getDisplay() != null ? defOpt.get().getDisplay().getName() : id.toString();
                     int points = defOpt.get().getAi() != null ? defOpt.get().getAi().getWaypointPath().size() : 0;
                     serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs Pather] Selected '§f" + name + "§a' (" + id + ") [current waypoints: " + points + "]. Right-click blocks to add waypoints!"));
@@ -85,14 +84,14 @@ public class NpcPathItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        NamespacedId id = SELECTED_NPC.get(serverPlayer.getUUID());
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) return InteractionResult.FAIL;
+
+        NamespacedId id = mod.getRuntimeSessions(serverPlayer.getServer()).selectedPathNpc(serverPlayer.getUUID());
         if (id == null) {
             serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Pather] No NPC selected! Right-click an existing NPC first."));
             return InteractionResult.FAIL;
         }
-
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) return InteractionResult.FAIL;
 
         var npcOpt = mod.getRegistry().getNpc(id);
         if (npcOpt.isEmpty()) {
@@ -100,18 +99,19 @@ public class NpcPathItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        NpcDefinition def = npcOpt.get();
-        if (def.getAi() == null) {
-            def.setAi(new NpcAi());
-        }
-
         BlockPos targetPos = context.getClickedPos().relative(context.getClickedFace());
         Waypoint wp = new Waypoint(targetPos.getX() + 0.5, targetPos.getY(), targetPos.getZ() + 0.5);
 
-        def.getAi().getWaypointPath().addWaypoint(wp);
-        def.getAi().setMovementType(NpcAi.MovementType.PATHING);
-
-        var result = mod.getApplicationService().saveNpc(def);
+        var service = mod.getApplicationService();
+        var result = service.mutateNpc(new com.storynpcs.service.MutationRequest(
+                "npc.mutate", "player:" + serverPlayer.getUUID(), "npc.mutate", id,
+                service.currentRevision("npc", id), java.util.UUID.randomUUID(), 2), def -> {
+            if (def.getAi() == null) {
+                def.setAi(new NpcAi());
+            }
+            def.getAi().getWaypointPath().addWaypoint(wp);
+            def.getAi().setMovementType(NpcAi.MovementType.PATHING);
+        });
         if (result.hasErrors()) {
             serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs Pather] Failed to persist path: " + result.formatReport(2)));
             return InteractionResult.FAIL;
@@ -128,7 +128,9 @@ public class NpcPathItem extends Item {
             }
         }
 
-        int count = def.getAi().getWaypointPath().size();
+        int count = mod.getRegistry().getNpc(id).flatMap(def ->
+                java.util.Optional.ofNullable(def.getAi()))
+                .map(ai -> ai.getWaypointPath().size()).orElse(0);
         serverPlayer.sendSystemMessage(Component.literal(String.format("§a[StoryNPCs Pather] Added waypoint #%d at (%d, %d, %d) for '%s' (set to PATHING).",
                 count, targetPos.getX(), targetPos.getY(), targetPos.getZ(), id)));
         return InteractionResult.SUCCESS;
@@ -137,20 +139,32 @@ public class NpcPathItem extends Item {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer && serverPlayer.isShiftKeyDown()) {
-            NamespacedId id = SELECTED_NPC.get(serverPlayer.getUUID());
+            if (!serverPlayer.hasPermissions(2)) {
+                serverPlayer.sendSystemMessage(Component.literal(
+                        "§c[StoryNPCs] You must have operator level 2 to clear an NPC path."));
+                return InteractionResultHolder.fail(player.getItemInHand(hand));
+            }
+            StoryNpcs mod = StoryNpcs.getInstance();
+            NamespacedId id = mod == null ? null : mod.getRuntimeSessions(serverPlayer.getServer()).selectedPathNpc(serverPlayer.getUUID());
             if (id != null) {
-                StoryNpcs mod = StoryNpcs.getInstance();
                 if (mod != null) {
                     var npcOpt = mod.getRegistry().getNpc(id);
                     if (npcOpt.isPresent()) {
-                        NpcDefinition def = npcOpt.get();
-                        if (def.getAi() != null) {
-                            def.getAi().getWaypointPath().setWaypoints(new java.util.ArrayList<>());
-                            def.getAi().setMovementType(NpcAi.MovementType.STANDING);
-                            mod.getApplicationService().saveNpc(def);
+                        var service = mod.getApplicationService();
+                        var result = service.mutateNpc(new com.storynpcs.service.MutationRequest(
+                                "npc.mutate", "player:" + serverPlayer.getUUID(), "npc.mutate", id,
+                                service.currentRevision("npc", id), java.util.UUID.randomUUID(), 2), def -> {
+                            if (def.getAi() != null) {
+                                def.getAi().getWaypointPath().setWaypoints(new java.util.ArrayList<>());
+                                def.getAi().setMovementType(NpcAi.MovementType.STANDING);
+                            }
+                        });
+                        if (!result.hasErrors()) {
                             serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Pather] Cleared all waypoints for '" + id + "'. Switched to STANDING."));
                             return InteractionResultHolder.success(player.getItemInHand(hand));
                         }
+                        serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs Pather] Failed to clear path: " + result.formatReport(2)));
+                        return InteractionResultHolder.fail(player.getItemInHand(hand));
                     }
                 }
             }

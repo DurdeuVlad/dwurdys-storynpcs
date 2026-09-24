@@ -3,6 +3,7 @@ package com.storynpcs.persistence;
 import com.storynpcs.api.event.BankTransactionEvent;
 import com.storynpcs.api.event.EventPublisher;
 import com.storynpcs.domain.role.banker.BankVault;
+import com.storynpcs.service.BankWithdrawalOperationResult;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,14 +14,103 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class BankRepositoryTest {
+
+    private static final class FailingBankRepository extends BankRepository {
+        private boolean failSaves;
+
+        private FailingBankRepository(Path storageDirectory) {
+            super(storageDirectory);
+        }
+
+        private void setFailSaves(boolean failSaves) {
+            this.failSaves = failSaves;
+        }
+
+        @Override
+        public void save(UUID playerUuid) throws IOException {
+            if (failSaves) throw new IOException("injected bank commit failure");
+            super.save(playerUuid);
+        }
+    }
+
+    private static final class RacingBankRepository extends BankRepository {
+        private final UUID playerUuid;
+        private boolean mutateBeforeNextTransaction;
+
+        private RacingBankRepository(Path storageDirectory, UUID playerUuid) {
+            super(storageDirectory);
+            this.playerUuid = playerUuid;
+        }
+
+        private void mutateBeforeNextTransaction() {
+            mutateBeforeNextTransaction = true;
+        }
+
+        @Override
+        public <T> BankTransactionResult<T> transact(
+                UUID targetPlayerUuid,
+                java.util.function.Function<BankVault, BankMutation<T>> operation) {
+            if (mutateBeforeNextTransaction) {
+                mutateBeforeNextTransaction = false;
+                BankTransactionResult<Boolean> concurrentMutation = super.transact(playerUuid, vault ->
+                        vault.deposit(0, 0, "minecraft:diamond", 1)
+                                ? BankMutation.changed(true)
+                                : BankMutation.unchanged(false));
+                if (!concurrentMutation.committed()) {
+                    return BankTransactionResult.failed(null, "injected concurrent vault mutation failed");
+                }
+            }
+            return super.transact(targetPlayerUuid, operation);
+        }
+    }
+
+    private static final class BlockingBankRepository extends BankRepository {
+        private final AtomicBoolean blockNextTransaction = new AtomicBoolean();
+        private volatile CountDownLatch transactionEntered;
+        private volatile CountDownLatch allowTransaction;
+
+        private BlockingBankRepository(Path storageDirectory) {
+            super(storageDirectory);
+        }
+
+        private void blockNextTransaction(CountDownLatch entered, CountDownLatch allow) {
+            transactionEntered = entered;
+            allowTransaction = allow;
+            blockNextTransaction.set(true);
+        }
+
+        @Override
+        public <T> BankTransactionResult<T> transact(
+                UUID targetPlayerUuid,
+                java.util.function.Function<BankVault, BankMutation<T>> operation) {
+            if (blockNextTransaction.compareAndSet(true, false)) {
+                transactionEntered.countDown();
+                try {
+                    if (!allowTransaction.await(10, TimeUnit.SECONDS)) {
+                        return BankTransactionResult.failed(null, "test transaction release timed out");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return BankTransactionResult.failed(null, "test transaction was interrupted");
+                }
+            }
+            return super.transact(targetPlayerUuid, operation);
+        }
+    }
 
     private BankRepository bankRepo;
     private StoryNpcsApplicationService service;
@@ -77,6 +167,136 @@ class BankRepositoryTest {
     }
 
     @Test
+    @DisplayName("Canonical whole-stack withdrawal owns amount selection")
+    void wholeStackWithdrawalDoesNotRequireAdapterVaultInspection() {
+        UUID playerUuid = UUID.randomUUID();
+        assertTrue(service.depositToBank(playerUuid, bankRepo, 0, 0, "minecraft:stone", 12));
+
+        var result = service.withdrawEntireStackFromBank(playerUuid, bankRepo, 0, 0);
+
+        assertTrue(result.accepted());
+        assertNotNull(result.item());
+        assertEquals(12, result.item().getCount());
+        assertTrue(bankRepo.getOrCreate(playerUuid).getTabItems(0).isEmpty());
+    }
+
+    @Test
+    @DisplayName("Whole-stack withdrawal preserves rejection diagnostics")
+    void wholeStackWithdrawalReportsValidationAndStateRejections() {
+        UUID playerUuid = UUID.randomUUID();
+
+        assertEquals("INVALID_TAB", service.withdrawEntireStackFromBank(playerUuid, bankRepo, -1, 0).code());
+        assertEquals("INVALID_SLOT", service.withdrawEntireStackFromBank(playerUuid, bankRepo, 0, 54).code());
+        assertEquals("TAB_LOCKED", service.withdrawEntireStackFromBank(playerUuid, bankRepo, 1, 0).code());
+        assertEquals("SLOT_EMPTY", service.withdrawEntireStackFromBank(playerUuid, bankRepo, 0, 0).code());
+    }
+
+    @Test
+    @DisplayName("Whole-stack withdrawal request IDs replay without withdrawing twice")
+    void wholeStackWithdrawalJournalClassifiesDuplicateRequest() {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        assertTrue(service.depositToBank(playerUuid, bankRepo, 0, 0, "minecraft:stone", 12));
+
+        var first = service.withdrawAndDeliverFromBank(playerUuid, bankRepo, 0, 0, requestId);
+        var replay = service.withdrawAndDeliverFromBank(playerUuid, bankRepo, 0, 0, requestId);
+
+        assertTrue(first.accepted());
+        assertEquals("REPLAYED", replay.code());
+        assertTrue(bankRepo.getOrCreate(playerUuid).getTabItems(0).isEmpty());
+    }
+
+    @Test
+    @DisplayName("Journaled withdrawal rejects a vault revision change after intent capture")
+    void wholeStackWithdrawalRejectsStaleCapturedVaultRevision(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        RacingBankRepository repo = new RacingBankRepository(
+                tempDir.resolve("banks_racing_withdrawal"), playerUuid);
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+        repo.mutateBeforeNextTransaction();
+
+        var withdrawal = service.withdrawAndDeliverFromBank(playerUuid, repo, 0, 0, requestId);
+
+        assertFalse(withdrawal.accepted());
+        assertEquals("STALE_VAULT", withdrawal.code());
+        assertEquals(DurableOperationJournal.State.ABORTED,
+                repo.operationJournal().read(requestId).state());
+        assertEquals(13, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Recovery cannot abort a withdrawal between prepare and bank commit")
+    void recoveryWaitsForInFlightJournaledWithdrawal(@TempDir Path tempDir) throws Exception {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BlockingBankRepository repo = new BlockingBankRepository(
+                tempDir.resolve("banks_withdrawal_recovery_race"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        CountDownLatch transactionEntered = new CountDownLatch(1);
+        CountDownLatch allowTransaction = new CountDownLatch(1);
+        repo.blockNextTransaction(transactionEntered, allowTransaction);
+        AtomicReference<BankWithdrawalOperationResult> withdrawalResult = new AtomicReference<>();
+        AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+        AtomicInteger recoveryResult = new AtomicInteger(-1);
+        Thread withdrawal = new Thread(() -> {
+            try {
+                withdrawalResult.set(service.withdrawAndDeliverFromBank(
+                        playerUuid, repo, 0, 0, requestId));
+            } catch (Throwable failure) {
+                workerFailure.compareAndSet(null, failure);
+            }
+        }, "bank-withdrawal-race-test");
+        Thread recovery = new Thread(() -> {
+            try {
+                recoveryResult.set(service.recoverBankOperations(playerUuid, repo));
+            } catch (Throwable failure) {
+                workerFailure.compareAndSet(null, failure);
+            }
+        }, "bank-recovery-race-test");
+
+        try {
+            withdrawal.start();
+            assertTrue(transactionEntered.await(5, TimeUnit.SECONDS),
+                    "withdrawal should reach its bank transaction after journaling PREPARED");
+            recovery.start();
+            assertTrue(awaitOperationLockWait(recovery, 5, TimeUnit.SECONDS),
+                    "recovery should wait on the same request lock held by the withdrawal");
+        } finally {
+            allowTransaction.countDown();
+        }
+
+        withdrawal.join(TimeUnit.SECONDS.toMillis(10));
+        if (recovery.getState() != Thread.State.NEW) {
+            recovery.join(TimeUnit.SECONDS.toMillis(10));
+        }
+        assertFalse(withdrawal.isAlive(), "withdrawal worker should complete");
+        assertFalse(recovery.isAlive(), "recovery worker should complete");
+        assertNull(workerFailure.get(), "concurrent workers should not throw");
+        assertNotNull(withdrawalResult.get());
+        assertTrue(withdrawalResult.get().accepted());
+        assertEquals(0, recoveryResult.get(), "recovery should observe the committed request");
+        assertEquals(DurableOperationJournal.State.COMMITTED,
+                repo.operationJournal().read(requestId).state());
+        assertTrue(repo.getOrCreate(playerUuid).getTabItems(0).isEmpty());
+    }
+
+    private static boolean awaitOperationLockWait(Thread thread, long timeout, TimeUnit unit)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        while (System.nanoTime() < deadline) {
+            boolean waitingOnOperationLock = thread.getState() == Thread.State.BLOCKED
+                    && Arrays.stream(thread.getStackTrace()).anyMatch(frame ->
+                    frame.getClassName().equals(DurableOperationJournal.class.getName())
+                            && frame.getMethodName().equals("withOperationLock"));
+            if (waitingOnOperationLock) return true;
+            Thread.sleep(1);
+        }
+        return false;
+    }
+
+    @Test
     @DisplayName("BankRepository saves and reloads vaults atomically from disk")
     void testPersistence(@TempDir Path tempDir) throws IOException {
         Path bankDir = tempDir.resolve("banks");
@@ -116,6 +336,8 @@ class BankRepositoryTest {
         BankVault reloadedVault = reloadedRepo.getOrCreate(playerUuid);
         assertEquals(1, reloadedVault.getTabItems(0).size());
         assertEquals(16, reloadedVault.getTabItems(0).get(0).getCount());
+        assertEquals(1, reloadedVault.getRevision(),
+                "The durable vault revision must survive reload for recovery identity");
     }
 
     @Test
@@ -253,5 +475,385 @@ class BankRepositoryTest {
         assertFalse(service.unlockBankTab(other, bankRepo, banker2),
                 "Cost>0 unlock must fail when no minecraftServer is bound");
         assertEquals(1, bankRepo.getOrCreate(other).getUnlockedTabs());
+    }
+
+    @Test
+    @DisplayName("Reading unvalidated tab indexes does not persist junk keys into the vault file")
+    void testInvalidTabReadDoesNotPersist() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        BankVault vault = bankRepo.getOrCreate(playerUuid);
+        vault.deposit(0, 0, "minecraft:emerald", 10);
+
+        // Simulate the forged-packet path: reads on arbitrary indexes before withdraw's
+        // bounds check. These must leave the persisted map untouched.
+        vault.getTabItems(Integer.MAX_VALUE);
+        vault.getTabItems(-1);
+        vault.getTabItems(999);
+        bankRepo.save(playerUuid);
+
+        BankRepository reloaded = new BankRepository(banksDir);
+        BankVault restored = reloaded.getOrCreate(playerUuid);
+        assertEquals(1, restored.getTabs().size(),
+                "Junk tab indexes must not survive a save/reload cycle");
+        assertTrue(restored.getTabs().containsKey(0));
+        assertEquals(10, restored.getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Failed bank commits restore cached state, preserve disk, and publish no success event")
+    void testFailedBankCommitRollsBackAllRoutedMutations(@TempDir Path tempDir) throws IOException {
+        Path bankDir = tempDir.resolve("banks_failure");
+        FailingBankRepository repo = new FailingBankRepository(bankDir);
+        UUID playerUuid = UUID.randomUUID();
+
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 10));
+        int eventCountAfterSeed = bankEvents.size();
+        repo.setFailSaves(true);
+
+        assertFalse(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 5));
+        assertEquals(10, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+        assertEquals(eventCountAfterSeed, bankEvents.size());
+
+        assertEquals(-1, service.depositToBankAuto(playerUuid, repo, 0, "minecraft:emerald", 2, null));
+        assertEquals(1, repo.getOrCreate(playerUuid).getTabItems(0).size());
+        assertEquals(10, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+        assertEquals(eventCountAfterSeed, bankEvents.size());
+
+        assertTrue(service.withdrawFromBank(playerUuid, repo, 0, 0, 4).isEmpty());
+        assertEquals(10, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+        assertEquals(eventCountAfterSeed, bankEvents.size());
+
+        var banker = new com.storynpcs.domain.role.banker.BankerRole("Failure Bank");
+        banker.setMaxTabs(2);
+        banker.setTabUpgradeCost(0);
+        assertFalse(service.unlockBankTab(playerUuid, repo, banker));
+        assertEquals(1, repo.getOrCreate(playerUuid).getUnlockedTabs());
+        assertEquals(eventCountAfterSeed, bankEvents.size());
+
+        BankRepository reloaded = new BankRepository(bankDir);
+        BankVault restored = reloaded.getOrCreate(playerUuid);
+        assertEquals(10, restored.getTabItems(0).get(0).getCount(),
+                "A failed transaction must not overwrite the last durable bank state");
+        assertEquals(1, restored.getUnlockedTabs());
+        assertEquals(1, repo.getOrCreate(playerUuid).getRevision(),
+                "Failed cached mutations must restore the durable revision too");
+        assertEquals(1, restored.getRevision(),
+                "Failed transactions must not advance the durable revision on disk");
+    }
+
+    @Test
+    @DisplayName("Bank transaction restores the snapshot when the mutation itself throws")
+    void testMutationExceptionRestoresSnapshot(@TempDir Path tempDir) {
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_mutation_exception"));
+        UUID playerUuid = UUID.randomUUID();
+        BankVault vault = repo.getOrCreate(playerUuid);
+        assertTrue(vault.deposit(0, 0, "minecraft:diamond", 7));
+
+        var result = repo.transact(playerUuid, candidate -> {
+            candidate.deposit(0, 1, "minecraft:emerald", 3);
+            throw new IllegalStateException("injected mutation failure");
+        });
+
+        assertFalse(result.committed());
+        assertTrue(result.failureReason().contains("injected mutation failure"));
+        assertEquals(1, vault.getTabItems(0).size());
+        assertEquals(7, vault.getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Each durable bank write failure point restores the previous valid record")
+    void testDurableFailurePointsPreservePreviousBankRecord(@TempDir Path tempDir) {
+        UUID playerUuid = UUID.randomUUID();
+
+        for (DurableJsonStore.FailurePoint failurePoint : DurableJsonStore.FailurePoint.values()) {
+            Path bankDir = tempDir.resolve(failurePoint.name().toLowerCase());
+            BankRepository seedRepo = new BankRepository(bankDir);
+            assertTrue(service.depositToBank(playerUuid, seedRepo, 0, 0, "minecraft:diamond", 10));
+
+            BankRepository faultedRepo = new BankRepository(bankDir, point -> {
+                if (point == failurePoint) {
+                    throw new IOException("injected " + failurePoint + " failure");
+                }
+            });
+            assertFalse(service.depositToBank(playerUuid, faultedRepo, 0, 1, "minecraft:emerald", 2),
+                    "failure point must reject the bank operation: " + failurePoint);
+
+            BankRepository reloaded = new BankRepository(bankDir);
+            BankVault restored = reloaded.getOrCreate(playerUuid);
+            assertEquals(1, restored.getTabItems(0).size(), failurePoint.toString());
+            assertEquals("minecraft:diamond", restored.getTabItems(0).get(0).getItemId(), failurePoint.toString());
+            assertEquals(10, restored.getTabItems(0).get(0).getCount(), failurePoint.toString());
+        }
+    }
+
+    @Test
+    @DisplayName("Held-item deposit fails closed without a server and does not create journal state")
+    void testHeldDepositRequiresServer(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_held"));
+
+        var result = service.depositHeldToBank(playerUuid, repo, 0, requestId);
+
+        assertEquals(com.storynpcs.service.BankDepositOperationResult.Outcome.REJECTED, result.outcome());
+        assertEquals("SERVER_UNAVAILABLE", result.code());
+        assertNull(repo.operationJournal().read(requestId));
+    }
+
+    @Test
+    @DisplayName("Held-item deposit replay is classified before server or inventory access")
+    void testHeldDepositReplayDoesNotRequireHeldStack(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_replay"));
+        var journal = repo.operationJournal();
+
+        journal.begin(requestId, "bank.deposit_held", playerUuid.toString(), "validated-intent");
+        journal.commit(requestId, "APPLIED", "17");
+
+        var result = service.depositHeldToBank(playerUuid, repo, 0, requestId);
+
+        assertEquals(com.storynpcs.service.BankDepositOperationResult.Outcome.REPLAYED, result.outcome());
+        assertEquals(17, result.slot());
+        assertEquals(0, bankEvents.size());
+    }
+
+    @Test
+    @DisplayName("Login recovery aborts a deferred deposit whose vault marker never committed")
+    void testDeferredDepositWithoutVaultMarkerIsAborted(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_pending"));
+        var intent = new BankOperationIntent(
+                playerUuid, "bank.deposit_held", 0, 0, "minecraft:diamond", null,
+                3, 0, 3, true);
+        repo.operationJournal().begin(requestId, "bank.deposit_held", playerUuid.toString(),
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        assertEquals(0, service.recoverBankOperations(playerUuid, repo));
+        assertEquals(DurableOperationJournal.State.ABORTED,
+                repo.operationJournal().read(requestId).state());
+        assertEquals("BANK_NOT_COMMITTED",
+                repo.operationJournal().read(requestId).outcomeCode());
+    }
+
+    @Test
+    @DisplayName("Login recovery aborts a prepared withdrawal only while its exact source stack remains")
+    void testPreparedWithdrawalWithUntouchedVaultStackIsAborted(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_pending_withdrawal"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        var intent = new BankOperationIntent(
+                playerUuid, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, repo.getOrCreate(playerUuid).getRevision());
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        assertEquals(0, service.recoverBankOperations(playerUuid, repo));
+        var recovered = repo.operationJournal().read(requestId);
+        assertEquals(DurableOperationJournal.State.ABORTED, recovered.state());
+        assertEquals("BANK_NOT_COMMITTED", recovered.outcomeCode());
+        assertEquals(12, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Login recovery can reconcile an untouched legacy vault at revision zero")
+    void testPreparedWithdrawalAtLegacyVaultRevisionZeroIsAborted(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_legacy_revision"));
+        assertTrue(repo.getOrCreate(playerUuid).deposit(0, 0, "minecraft:diamond", 12));
+        repo.save(playerUuid);
+        assertEquals(0, repo.getOrCreate(playerUuid).getRevision());
+
+        var intent = new BankOperationIntent(
+                playerUuid, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, 0L);
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        assertEquals(0, service.recoverBankOperations(playerUuid, repo));
+        assertEquals(DurableOperationJournal.State.ABORTED,
+                repo.operationJournal().read(requestId).state());
+    }
+
+    @Test
+    @DisplayName("Login recovery leaves a removed withdrawal prepared instead of guessing delivery")
+    void testPreparedWithdrawalAfterVaultRemovalRequiresRecovery(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_removed_withdrawal"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        var intent = new BankOperationIntent(
+                playerUuid, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, repo.getOrCreate(playerUuid).getRevision());
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+        var removed = repo.transact(playerUuid, vault -> {
+            Optional<BankVault.VaultItem> withdrawn = vault.withdraw(0, 0, 12);
+            return withdrawn.isPresent()
+                    ? BankRepository.BankMutation.changed(withdrawn)
+                    : BankRepository.BankMutation.unchanged(withdrawn);
+        });
+        assertTrue(removed.committed());
+
+        assertEquals(1, service.recoverBankOperations(playerUuid, repo));
+        var recovered = repo.operationJournal().read(requestId);
+        assertEquals(DurableOperationJournal.State.PREPARED, recovered.state());
+        assertTrue(repo.getOrCreate(playerUuid).getTabItems(0).isEmpty());
+    }
+
+    @Test
+    @DisplayName("Login recovery does not abort a prepared withdrawal after an ambiguous restock")
+    void testPreparedWithdrawalAfterRestockRequiresRecovery(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_restocked_withdrawal"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        var intent = new BankOperationIntent(
+                playerUuid, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, repo.getOrCreate(playerUuid).getRevision());
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 3));
+
+        assertEquals(1, service.recoverBankOperations(playerUuid, repo));
+        var recovered = repo.operationJournal().read(requestId);
+        assertEquals(DurableOperationJournal.State.PREPARED, recovered.state());
+        assertEquals(15, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Login recovery rejects an identical restock as proof of an untouched withdrawal")
+    void testPreparedWithdrawalAfterIdenticalRestockRequiresRecovery(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_identical_restock"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        var intent = new BankOperationIntent(
+                playerUuid, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, repo.getOrCreate(playerUuid).getRevision());
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+        var removed = repo.transact(playerUuid, vault -> {
+            Optional<BankVault.VaultItem> withdrawn = vault.withdraw(0, 0, 12);
+            return withdrawn.isPresent()
+                    ? BankRepository.BankMutation.changed(withdrawn)
+                    : BankRepository.BankMutation.unchanged(withdrawn);
+        });
+        assertTrue(removed.committed());
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        assertEquals(1, service.recoverBankOperations(playerUuid, repo));
+        assertEquals(DurableOperationJournal.State.PREPARED,
+                repo.operationJournal().read(requestId).state());
+        assertEquals(12, repo.getOrCreate(playerUuid).getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Bank recovery filters compound withdrawal subjects to the requested player")
+    void testWithdrawalRecoveryDoesNotTouchAnotherPlayer(@TempDir Path tempDir) throws IOException {
+        UUID recoveringPlayer = UUID.randomUUID();
+        UUID otherPlayer = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_cross_player"));
+        assertTrue(service.depositToBank(otherPlayer, repo, 0, 0, "minecraft:diamond", 12));
+
+        var intent = new BankOperationIntent(
+                otherPlayer, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, repo.getOrCreate(otherPlayer).getRevision());
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                otherPlayer + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        assertEquals(0, service.recoverBankOperations(recoveringPlayer, repo));
+        assertEquals(DurableOperationJournal.State.PREPARED,
+                repo.operationJournal().read(requestId).state());
+        assertEquals(12, repo.getOrCreate(otherPlayer).getTabItems(0).get(0).getCount());
+    }
+
+    @Test
+    @DisplayName("Malformed prepared withdrawal intent remains pending for explicit recovery")
+    void testMalformedPreparedWithdrawalFailsClosed(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_malformed_withdrawal"));
+
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12", "not-json");
+
+        assertEquals(1, service.recoverBankOperations(playerUuid, repo));
+        assertEquals(DurableOperationJournal.State.PREPARED,
+                repo.operationJournal().read(requestId).state());
+    }
+
+    @Test
+    @DisplayName("Legacy prepared withdrawal without captured revision remains pending")
+    void testLegacyPreparedWithdrawalWithoutRevisionFailsClosed(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_legacy_intent"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+        String legacyIntent = "{\"playerUuid\":\"" + playerUuid
+                + "\",\"action\":\"withdraw\",\"tab\":0,\"slot\":0,"
+                + "\"itemId\":\"minecraft:diamond\",\"tag\":null,\"count\":12,"
+                + "\"beforeCount\":12,\"expectedCount\":12}";
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12", legacyIntent);
+
+        assertEquals(1, service.recoverBankOperations(playerUuid, repo));
+        assertEquals(DurableOperationJournal.State.PREPARED,
+                repo.operationJournal().read(requestId).state());
+    }
+
+    @Test
+    @DisplayName("Failed withdrawal recovery journal abort remains pending and is reported")
+    void testPreparedWithdrawalAbortWriteFailureRemainsPending(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        var failWrites = new java.util.concurrent.atomic.AtomicBoolean(false);
+        BankRepository repo = new BankRepository(tempDir.resolve("banks_abort_failure"), point -> {
+            if (failWrites.get()) throw new IOException("injected recovery abort write failure");
+        });
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+        var intent = new BankOperationIntent(
+                playerUuid, "withdraw", 0, 0, "minecraft:diamond", null,
+                12, 12, 12, false, repo.getOrCreate(playerUuid).getRevision());
+        repo.operationJournal().begin(requestId, "bank.withdraw",
+                playerUuid + "|0|0|minecraft:diamond|12",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+        failWrites.set(true);
+
+        assertEquals(1, service.recoverBankOperations(playerUuid, repo));
+        assertEquals(DurableOperationJournal.State.PREPARED,
+                repo.operationJournal().read(requestId).state());
+    }
+
+    @Test
+    @DisplayName("Vault operation markers survive durable bank reload")
+    void testVaultOperationMarkerReload(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        Path bankDir = tempDir.resolve("banks_marker");
+        BankRepository repo = new BankRepository(bankDir);
+        assertTrue(repo.getOrCreate(playerUuid).markOperation(
+                requestId, "bank.deposit_held", "validated-intent"));
+        repo.save(playerUuid);
+
+        BankRepository reloaded = new BankRepository(bankDir);
+        var marker = reloaded.getOrCreate(playerUuid).getOperationMarker(requestId);
+        assertNotNull(marker);
+        assertEquals("validated-intent", marker.getIntent());
+        assertFalse(marker.isInventoryApplied());
     }
 }

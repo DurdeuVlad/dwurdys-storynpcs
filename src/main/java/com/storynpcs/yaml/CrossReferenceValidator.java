@@ -4,6 +4,7 @@ import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.common.ValidationResult;
 import com.storynpcs.domain.dialogue.*;
 import com.storynpcs.domain.npc.NpcDefinition;
+import com.storynpcs.domain.progression.QuestProgressState;
 import com.storynpcs.domain.quest.Quest;
 
 import java.util.HashSet;
@@ -109,10 +110,13 @@ public class CrossReferenceValidator {
                         result.addError("QUEST_OBJ_TARGET_MISSING",
                                 String.format("Quest '%s' objective '%s' is missing target", quest.getId(), obj.getId()));
                     }
-                    if (obj.getRequiredCount() <= 0) {
+                    if (obj.getRequiredCount() <= 0
+                            || obj.getRequiredCount() > QuestProgressState.MAX_OBJECTIVE_COUNT) {
                         result.addError("QUEST_OBJ_COUNT_INVALID",
-                                String.format("Quest '%s' objective '%s' requiredCount must be > 0 (found %d)",
-                                        quest.getId(), obj.getId(), obj.getRequiredCount()));
+                                String.format("Quest '%s' objective '%s' requiredCount must be between 1 and %d (found %d)",
+                                        quest.getId(), obj.getId(),
+                                        QuestProgressState.MAX_OBJECTIVE_COUNT,
+                                        obj.getRequiredCount()));
                     }
                 }
             }

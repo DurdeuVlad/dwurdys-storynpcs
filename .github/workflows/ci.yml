@@ -34,8 +34,19 @@ jobs:
       - name: Make Gradle Wrapper Executable
         run: chmod +x ./gradlew
 
-      - name: Run Test Suite
-        run: ./gradlew test --stacktrace
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Enforce Documentation Truth Gate
+        run: python tools/parity/check_truth_gate.py
+
+      - name: Validate Parity Evidence and Fixture Catalog
+        run: python -m unittest discover -s tools/parity -p "test_*.py"
+
+      - name: Run StoryNPCs Fixture Suite (declared blockers stay blocked)
+        run: python tools/parity/run_storynpcs_fixtures.py --ci-allow-declared-blockers
 
       - name: Build Mod Jar
         run: ./gradlew build --stacktrace
@@ -45,7 +56,9 @@ jobs:
         if: always()
         with:
           name: junit-test-reports
-          path: build/reports/tests/test/
+          path: |
+            build/reports/tests/test/
+            build/reports/parity/
 
       - name: Upload Mod Jar Artifact
         uses: actions/upload-artifact@v4

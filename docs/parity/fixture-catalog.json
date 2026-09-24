@@ -1,0 +1,323 @@
+{
+  "schema_version": 2,
+  "required_operation_families": [
+    "NPC-MODULE-MUTATION",
+    "DIALOG-DEFINITION",
+    "DIALOG-PLAYER-CHOICE",
+    "FACTION-PROGRESSION",
+    "QUEST-DEFINITION",
+    "QUEST-COMPLETION",
+    "ROLE-JOB",
+    "INVENTORY-EQUIPMENT",
+    "TRADE",
+    "BANK",
+    "TRANSPORT",
+    "SPAWN-CLONE",
+    "MARK",
+    "SCRIPT",
+    "CONFIG-WORLD-TOOLS"
+  ],
+  "required_domains": [
+    "core-entity-and-variants",
+    "display-and-aesthetics",
+    "stats-and-combat",
+    "ai-and-movement",
+    "targeting-and-defeat",
+    "inventory-equipment-drops",
+    "dialogue",
+    "quests",
+    "factions",
+    "roles",
+    "jobs",
+    "transport",
+    "banks",
+    "trading",
+    "companions",
+    "spawners-templates",
+    "marks",
+    "creator-world-tools",
+    "scripting",
+    "commands",
+    "networking",
+    "persistence"
+  ],
+  "evidence_template": {
+    "target_probe": {
+      "status": "UNAVAILABLE",
+      "reason": "P0-4 catalog has no launchable target runtime probe yet",
+      "next_evidence": "Run the fixture against the exact supplied CustomNPCs JAR runtime and record the observed result"
+    },
+    "storynpcs_probe": {
+      "status": "NOT_RUN"
+    },
+    "comparison": {
+      "rule": "target-runtime-required",
+      "outcome": "NOT_COMPARABLE"
+    },
+    "evidence_state": "UNVERIFIED_TARGET_RUNTIME"
+  },
+  "fixtures": [
+    {"fixture_id": "P0-4.core-entity", "issue_ids": ["P1-2", "P3-1"], "target_symbol": "noppes.npcs.entity.EntityCustomNpc", "domain": "core-entity-and-variants", "operation_family": "NPC-MODULE-MUTATION", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"npc_id": "storynpcs:fixture_core"}, "expected_result": "stable logical identity across entity projection replacement"},
+{"fixture_id":"P0-4.display","issue_ids":["P10-1","P3-1"],"target_symbol":"noppes.npcs.entity.data.DataDisplay","domain":"display-and-aesthetics","operation_family":"NPC-MODULE-MUTATION","required_layers":["server","client","storynpcs-runtime"],"target_probe_policy":"optional","input":{"title":"Fixture NPC","skin":"fixture.png"},"expected_result":"display fields render without fallback drift"},
+    {"fixture_id": "P0-4.combat", "issue_ids": ["P3-2"], "target_symbol": "noppes.npcs.entity.EntityCustomNpc", "domain": "stats-and-combat", "operation_family": "NPC-MODULE-MUTATION", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"health": 50.0, "melee_damage": 8.5, "movement_speed": 0.28}, "expected_result": "authored health, melee damage, and movement speed survive definition JSON round-trip"},
+    {"fixture_id": "P0-4.ai", "issue_ids": ["P3-3"], "target_symbol": "noppes.npcs.entity.EntityCustomNpc", "domain": "ai-and-movement", "operation_family": "NPC-MODULE-MUTATION", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"movement": "wander", "range": 16}, "expected_result": "movement state and path budget are deterministic"},
+    {"fixture_id": "P0-4.targeting", "issue_ids": ["P3-3", "P6-1"], "target_symbol": "noppes.npcs.ai.EntityAIAttackTarget", "domain": "targeting-and-defeat", "operation_family": "FACTION-PROGRESSION", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"faction": "storynpcs:fixture", "hostile": true}, "expected_result": "target policy and defeat lifecycle agree"},
+    {"fixture_id": "P0-4.inventory", "issue_ids": ["P3-4", "P2-3"], "target_symbol": "noppes.npcs.entity.data.DataInventory", "domain": "inventory-equipment-drops", "operation_family": "INVENTORY-EQUIPMENT", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"slot": 0, "item": "minecraft:stone"}, "expected_result": "slot and drop state survive reload without loss"},
+{"fixture_id":"P0-4.dialogue-definition","issue_ids":["P10-1","P5-1","P5-3"],"target_symbol":"noppes.npcs.controllers.data.Dialog","domain":"dialogue","operation_family":"DIALOG-DEFINITION","required_layers":["server","client","storynpcs-runtime"],"target_probe_policy":"optional","input":{"dialogue_id":"storynpcs:fixture_dialogue"},"expected_result":"dialogue definition round-trips through authoring surfaces"},
+{"fixture_id":"P0-4.dialogue-choice","issue_ids":["P10-1","P5-2"],"target_symbol":"noppes.npcs.controllers.data.DialogOption","domain":"dialogue","operation_family":"DIALOG-PLAYER-CHOICE","required_layers":["server","client","storynpcs-runtime"],"target_probe_policy":"optional","input":{"option":0,"session":"fixture"},"expected_result":"choice effect is authoritative and exactly once"},
+    {"fixture_id": "P0-4.quest-definition", "issue_ids": ["P5-4"], "target_symbol": "noppes.npcs.controllers.data.Quest", "domain": "quests", "operation_family": "QUEST-DEFINITION", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"quest_id": "storynpcs:fixture_quest"}, "expected_result": "objective, repeat, dependency, and reward fields round-trip"},
+    {"fixture_id": "P0-4.quest-completion", "issue_ids": ["P5-5", "P2-3"], "target_symbol": "noppes.npcs.controllers.PlayerQuestController", "domain": "quests", "operation_family": "QUEST-COMPLETION", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"quest_id": "storynpcs:fixture_quest", "player": "fixture"}, "expected_result": "progress and rewards are atomic across restart"},
+    {"fixture_id": "P0-4.quest-progression", "issue_ids": ["P1-1", "P2-1", "P2-3", "P5-5"], "target_symbol": "noppes.npcs.controllers.PlayerQuestController", "domain": "quests", "operation_family": "QUEST-COMPLETION", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"quest_id": "storynpcs:fixture_quest", "player": "fixture", "action": "start-progress-complete"}, "expected_result": "player-scoped quest mutations reject stale/replayed requests; pending completion intent survives restart and is bound to quest-state revision; changed objective state cannot authorize stale completion; completion increments the persisted revision; notification groups preserve order and recover after publisher failure; impossible objective thresholds are rejected"},
+    {"fixture_id": "P0-4.faction", "issue_ids": ["P6-1"], "target_symbol": "noppes.npcs.controllers.data.Faction", "domain": "factions", "operation_family": "FACTION-PROGRESSION", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"faction_id": "storynpcs:fixture_faction", "delta": 5}, "expected_result": "reputation clamps and persists with source attribution"},
+{"fixture_id":"P0-4.roles","issue_ids":["P10-1","P6-2"],"target_symbol":"noppes.npcs.roles.RoleInterface","domain":"roles","operation_family":"ROLE-JOB","required_layers":["server","client","persistence","storynpcs-runtime"],"target_probe_policy":"optional","input":{"role":"trader"},"expected_result":"role capability lifecycle is explicit and authorized"},
+    {"fixture_id": "P0-4.jobs", "issue_ids": ["P6-4"], "target_symbol": "noppes.npcs.roles.JobInterface", "domain": "jobs", "operation_family": "ROLE-JOB", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"job": "guard"}, "expected_result": "job tick, pause, resume, and cleanup are bounded"},
+{"fixture_id":"P0-4.transport","issue_ids":["P10-1","P2-3","P6-3"],"target_symbol":"noppes.npcs.roles.RoleTransporter","domain":"transport","operation_family":"TRANSPORT","required_layers":["server","client","persistence","storynpcs-runtime"],"target_probe_policy":"optional","input":{"destination":"minecraft:overworld","fee":2},"expected_result":"unlock, fee, destination, and unloaded-dimension recovery are explicit"},
+{"fixture_id":"P0-4.bank","issue_ids":["P10-1","P2-3","P7-2"],"target_symbol":"noppes.npcs.roles.RoleBank","domain":"banks","operation_family":"BANK","required_layers":["server","client","persistence","storynpcs-runtime"],"target_probe_policy":"optional","input":{"tab":0,"slot":0},"expected_result":"access, six-tab boundary, upgrade, and recovery are atomic"},
+{"fixture_id":"P0-4.trade","issue_ids":["P10-1","P2-3","P7-1"],"target_symbol":"noppes.npcs.roles.RoleTrader","domain":"trading","operation_family":"TRADE","required_layers":["server","client","persistence","storynpcs-runtime"],"target_probe_policy":"optional","input":{"input_a":"minecraft:stone","input_b":"minecraft:dirt","output":"minecraft:emerald"},"expected_result":"two-input purchase is atomic and restock-safe"},
+    {"fixture_id": "P0-4.companion", "issue_ids": ["P6-5", "P2-3"], "target_symbol": "noppes.npcs.roles.companion.CompanionJobInterface", "domain": "companions", "operation_family": "ROLE-JOB", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"wage": 5, "stage": 1}, "expected_result": "wage, stage, talent, inventory, stance, and job survive lifecycle changes"},
+    {"fixture_id": "P0-4.spawner", "issue_ids": ["P8-1", "P2-1", "P2-3"], "target_symbol": "noppes.npcs.roles.JobSpawner", "domain": "spawners-templates", "operation_family": "SPAWN-CLONE", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"template": "fixture", "quota": 10}, "expected_result": "template import and quota cleanup are isolated"},
+{"fixture_id":"P0-4.marks","issue_ids":["P10-1","P3-4"],"target_symbol":"noppes.npcs.controllers.data.MarkData","domain":"marks","operation_family":"MARK","required_layers":["server","client","storynpcs-runtime"],"target_probe_policy":"optional","input":{"mark":"storynpcs:fixture","rgb":16711680},"expected_result":"mark availability, color, and visibility resync"},
+{"fixture_id":"P0-4.creator-tools","issue_ids":["P10-1","P8-2","P8-3"],"target_symbol":"noppes.npcs.items.ItemNpcWand","domain":"creator-world-tools","operation_family":"CONFIG-WORLD-TOOLS","required_layers":["server","client","storynpcs-runtime"],"target_probe_policy":"optional","input":{"tool":"wand","target":"fixture"},"expected_result":"selection, preview, permission, commit, and rollback are explicit"},
+    {"fixture_id": "P0-4.scripting", "issue_ids": ["P9-1", "P9-2"], "target_symbol": "noppes.npcs.api.event.CustomNPCsEvent", "domain": "scripting", "operation_family": "SCRIPT", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"hook": "interact", "capability": "dialogue"}, "expected_result": "hook capability and failure isolation are bounded"},
+    {"fixture_id": "P0-4.commands", "issue_ids": ["P9-3"], "target_symbol": "noppes.npcs.command.CmdNoppes", "domain": "commands", "operation_family": "NPC-MODULE-MUTATION", "required_layers": ["server", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"command": "/noppes npc list"}, "expected_result": "selector, permission, suggestion, and mutation paths converge"},
+{"fixture_id":"P0-4.networking","issue_ids":["P1-3","P10-1"],"target_symbol":"noppes.npcs.packets.Packets","domain":"networking","operation_family":"DIALOG-PLAYER-CHOICE","required_layers":["server","client","storynpcs-runtime"],"target_probe_policy":"optional","input":{"payload":"fixture","revision":1},"expected_result":"codec rejects malformed, stale, replayed, and unauthorized payloads"},
+    {"fixture_id": "P0-4.persistence", "issue_ids": ["P2-1", "P2-2", "P2-3"], "target_symbol": "noppes.npcs.controllers.data.PlayerData", "domain": "persistence", "operation_family": "QUEST-COMPLETION", "required_layers": ["server", "persistence", "storynpcs-runtime"], "target_probe_policy": "optional", "input": {"schema_version": 1, "fault": "rename-failure"}, "expected_result": "migration, atomic commit, rollback, and restart recovery are observable"}
+  ],
+  "storynpcs_test_map": {
+    "P0-4.core-entity": [
+      "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#replacementPreservesLogicalIdentityAndPublishesReasonedEvents()",
+      "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#unloadThenReloadKeepsActorIdButReplacesProjection()"
+    ],
+    "P0-4.display": [
+      "com.storynpcs.client.render.StoryNpcRenderModelTest#Should resolve custom skin texture when specified in NpcDisplay",
+      "com.storynpcs.client.render.StoryNpcRenderModelTest#Name mode can hide names or show them only during attack",
+      "com.storynpcs.client.render.StoryNpcRenderModelTest#Should format name tag with name and optional title bracket"
+    ],
+    "P0-4.combat": [
+      "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#NpcDefinition round-trips through JSON serialization with all fields intact"
+    ],
+    "P0-4.ai": [
+      "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Immobilized entity triggers progressive recovery actions as stall persists",
+      "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Stopping navigation immediately clears stall state",
+      "com.storynpcs.domain.ai.WaypointPathTest#LOOP mode cycles continuously from start to end and wraps back",
+      "com.storynpcs.domain.ai.WaypointPathTest#PING_PONG mode reverses direction at both ends"
+    ],
+    "P0-4.targeting": [
+      "com.storynpcs.ai.combat.ThreatManagerTest#Second strike within tolerance window triggers retaliation and acquires target",
+      "com.storynpcs.ai.combat.ThreatManagerTest#Threat decays over time and clears target when out of combat"
+    ],
+    "P0-4.inventory": [
+      "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#String inventory identifiers survive definition JSON round-trip"
+    ],
+    "P0-4.dialogue-definition": [
+      "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidDialogueGraph()",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Written dialogue YAML loads back through YamlDefinitionLoader",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#saveDialogueShouldWriteYamlFileWhenLoaderIsBound()",
+      "com.storynpcs.domain.DialogueGraphSerdeTest#JSON round-trip preserves all graph fields"
+    ],
+    "P0-4.dialogue-choice": [
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()"
+    ],
+    "P0-4.quest-definition": [
+      "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidQuestDefinition()",
+      "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldDetectCircularQuestPrerequisites()",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Written quest YAML round-trips every definition field",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Namespaced quest saves migrate matching legacy files without overwriting another namespace",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Sanitized legacy path collisions never overwrite a different quest ID",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Malformed existing YAML is preserved when its definition identity cannot be checked",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Unrelated malformed YAML does not block saving a different definition",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer updates a renamed definition and fails closed on duplicate IDs",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Loader refuses duplicate-ID deletion without removing either source",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer rejects subdirectory traversal outside the definitions root",
+      "com.storynpcs.yaml.YamlDefinitionWriterTest#Concurrent writes to one definition use separate atomic temporary files",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#deletingLegacyFlatQuestClearsSourceIndexAndAllowsRecreation()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()"
+    ],
+    "P0-4.quest-completion": [
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldManageQuestProgressionAndRewards()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldNotDuplicateQuestRewardsOnRepeatedCompletion()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldRejectInvalidRewardBeforeAnyRewardIsApplied()"
+    ],
+    "P0-4.quest-progression": [
+      "com.storynpcs.service.QuestProgressionMutationTest#typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()",
+      "com.storynpcs.service.QuestProgressionMutationTest#playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()",
+      "com.storynpcs.service.QuestProgressionMutationTest#reusingAProgressionRequestIdForDifferentPayloadFailsClosed()",
+      "com.storynpcs.service.QuestProgressionMutationTest#objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()",
+      "com.storynpcs.service.QuestProgressionMutationTest#anotherPlayerCannotMutateTheSubjectsQuestProgression()",
+      "com.storynpcs.service.QuestProgressionMutationTest#commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()",
+      "com.storynpcs.service.QuestProgressionMutationTest#concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()",
+      "com.storynpcs.service.QuestProgressionMutationTest#legacyProgressionFileLoadsWithRevisionZero()",
+      "com.storynpcs.service.QuestProgressionMutationTest#failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()",
+      "com.storynpcs.service.QuestProgressionMutationTest#completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()",
+      "com.storynpcs.service.QuestProgressionMutationTest#reentrantCanonicalListenerCannotOvertakeOuterObjectiveEvent()",
+      "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldRejectQuestObjectiveAboveProgressionCountLimit()",
+      "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldAcceptQuestObjectiveAtProgressionCountLimit()",
+      "com.storynpcs.service.QuestProgressionMutationTest#concurrentProgressCommitsKeepTheirNotificationGroupsTogether()",
+      "com.storynpcs.service.QuestProgressionMutationTest#registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()",
+      "com.storynpcs.service.QuestProgressionMutationTest#nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()",
+      "com.storynpcs.service.QuestProgressionMutationTest#failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()",
+      "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()",
+      "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()",
+      "com.storynpcs.service.QuestProgressionMutationTest#publisherFailureDoesNotStrandLaterQuestNotificationGroups()"
+    ],
+    "P0-4.faction": [
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldClampFactionPointsOnArithmeticOverflow()",
+      "com.storynpcs.service.StoryNpcsApplicationServiceTest#questAndFactionAdapterMutationsCommitOnlyThroughService()",
+      "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidFactionDefinition()"
+    ],
+    "P0-4.roles": [
+      "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadTraderAndBankerRolesFromYaml()",
+      "com.storynpcs.domain.role.RoleSerdeTest#TraderRole, BankerRole, BankVault and score map survive JSON round-trip"
+    ],
+    "P0-4.jobs": [],
+    "P0-4.transport": [],
+    "P0-4.bank": [
+      "com.storynpcs.persistence.BankRepositoryTest#BankRepository saves and reloads vaults atomically from disk",
+      "com.storynpcs.persistence.BankRepositoryTest#unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events",
+      "com.storynpcs.persistence.BankRepositoryTest#Whole-stack withdrawal request IDs replay without withdrawing twice",
+      "com.storynpcs.persistence.BankRepositoryTest#Recovery cannot abort a withdrawal between prepare and bank commit",
+      "com.storynpcs.domain.role.banker.BankVaultTest#Mutations reject out-of-range tabs without creating entries"
+    ],
+    "P0-4.trade": [
+      "com.storynpcs.domain.role.TraderRoleTest#TradeListing enforces stock limits and restocks properly",
+      "com.storynpcs.domain.role.TraderRoleTest#A repeated trade request replays without charging another listing use",
+      "com.storynpcs.domain.role.TraderRoleTest#Owned trade reservations roll back only their own use",
+      "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
+      "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload"
+    ],
+    "P0-4.companion": [
+      "com.storynpcs.domain.role.FollowerRoleTest#FollowerRole ownership check allows owner to change state and denies strangers",
+      "com.storynpcs.domain.role.FollowerRoleTest#Owner can change formation pattern, slot, and spacing with event published",
+      "com.storynpcs.ai.FollowerFormationGoalTest#Follower in auto slot mode dynamically resolves unique position in formation"
+    ],
+    "P0-4.spawner": [],
+    "P0-4.marks": [
+      "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#Single mark type, color, and text survive definition JSON round-trip"
+    ],
+    "P0-4.creator-tools": [],
+    "P0-4.scripting": [],
+    "P0-4.commands": [
+      "com.storynpcs.command.StoryNpcsCommandsTest#Command tree registers /storynpcs and /sn alias with all subcommands",
+      "com.storynpcs.command.StoryNpcsCommandsTest#npc trade and npc bank subcommands register with perm-2 gates on mutations",
+      "com.storynpcs.command.StoryNpcsCommandsTest#Definition ID arguments expose tab-completion suggestion providers",
+      "com.storynpcs.command.StoryNpcsCommandsTest#questCompletionCommandFeedbackReflectsServiceOutcome()"
+    ],
+    "P0-4.networking": [
+      "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects an unknown schema version",
+      "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects trailing frame bytes",
+      "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects an oversized editor document"
+    ],
+    "P0-4.persistence": [
+      "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
+      "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
+      "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()"
+    ]
+  },
+  "storynpcs_test_blockers": {
+    "P0-4.jobs": {
+      "owner_issue_ids": ["P6-4"],
+      "reason": "No semantically matching StoryNPCs job implementation or test exists; P6-4 owns job behavior."
+    },
+    "P0-4.transport": {
+      "owner_issue_ids": ["P6-3"],
+      "reason": "No semantically matching StoryNPCs transport implementation or test exists; P6-3 owns transport behavior."
+    },
+    "P0-4.spawner": {
+      "owner_issue_ids": ["P8-1"],
+      "reason": "No semantically matching StoryNPCs spawner implementation or test exists; P8-1 owns spawner behavior."
+    },
+    "P0-4.creator-tools": {
+      "owner_issue_ids": ["P8-2", "P8-3"],
+      "reason": "No semantically matching StoryNPCs creator-tool implementation or test exists; P8-2 and P8-3 own creator-tool behavior."
+    },
+    "P0-4.scripting": {
+      "owner_issue_ids": ["P9-1", "P9-2"],
+      "reason": "No semantically matching StoryNPCs scripting implementation or test exists; P9-1 and P9-2 own scripting behavior."
+    }
+  },
+  "storynpcs_test_coverage": {
+    "P0-4.core-entity": {
+      "observed_scope": "Logical actor identity survives projection replacement and unload/reload in the actor lifecycle service.",
+      "uncovered_scope": "No live Minecraft entity spawn/despawn, client projection, or multi-world runtime fixture."
+    },
+    "P0-4.display": {
+      "observed_scope": "JVM render-model tests cover custom/default texture selection, name visibility, and name/title formatting.",
+      "uncovered_scope": "No live client render, resource reload, skin download, or GUI resolution fixture."
+    },
+    "P0-4.combat": {
+      "observed_scope": "NpcDefinitionSerdeTest verifies authored maxHealth 50.0, attackDamage 8.5, and movementSpeed 0.28 survive JSON serialization round-trip.",
+      "uncovered_scope": "No numeric-bound validation, server combat damage, melee/ranged behavior, resistance or immunity, defeat/respawn, XP/drop, or live server fixture."
+    },
+    "P0-4.inventory": {
+      "observed_scope": "NpcDefinitionSerdeTest verifies two namespaced item-ID strings survive definition JSON round-trip.",
+      "uncovered_scope": "No item components/counts, armor or weapon slots, target drop slots/chances, loot/XP, persistence reload, or live inventory fixture."
+    },
+    "P0-4.ai": {
+      "observed_scope": "Unit tests cover waypoint LOOP/PING_PONG transitions and stuck-detector recovery/stop behavior.",
+      "uncovered_scope": "No live entity navigation, wander-radius, path-work budget, or large-population performance fixture."
+    },
+    "P0-4.targeting": {
+      "observed_scope": "Threat-manager tests cover retaliation target acquisition and threat-decay target clearing.",
+      "uncovered_scope": "No faction-policy targeting, entity defeat lifecycle, or server-world combat fixture."
+    },
+    "P0-4.dialogue-definition": {
+      "observed_scope": "JVM tests cover valid dialogue YAML loading, dialogue YAML writer round-trip, graph JSON field round-trip, and service save with source-index refresh.",
+      "uncovered_scope": "No live editor-screen authoring, client/server synchronization, or rendered dialogue fixture."
+    },
+    "P0-4.dialogue-choice": {
+      "observed_scope": "Application-service tests cover conditional graph choice actions, invalid option indexes, and close-dialogue actions.",
+      "uncovered_scope": "No packet-to-service exactly-once/replay fixture or live client/server dialogue session fixture."
+    },
+    "P0-4.quest-definition": {
+      "observed_scope": "JVM tests cover valid quest YAML loading, circular prerequisite rejection, writer-to-filesystem-to-loader round-trip of namespaced ID, title, description, category, DAILY repeat, prerequisite, two objective type/target/count values, and two reward type/target/amount values; namespace-collision and sanitized-path-collision preservation; loader-indexed reuse of pre-upgrade or renamed files; duplicate-ID saves and deletes fail closed without overwriting or removing source files; malformed-candidate fail-closed behavior; unrelated malformed YAML isolation; rejection of path traversal; concurrent same-definition saves serialized by a shared lifecycle-owned coordinator and cooperating-process file lock with unique atomic temporary files; deletion of a legacy flat-root quest clears its source index and permits recreation; failed YAML deletion leaves the quest registered with unchanged revision and a rejected canonical delete; and concurrent application-service save/delete leaves registry, source index, and reloaded YAML in agreement.",
+      "uncovered_scope": "Not every RepeatType, QuestObjective.Type, or QuestReward.Type enum value is round-tripped; corrupt unparseable legacy files require manual recovery; external file renames made after load require reloading definitions before save; concurrent same-ID writes are serialized but last-writer-wins; symlink escape coverage is skipped when the Windows test account cannot create symbolic links; a hostile local process can race path validation and rename unless the definitions root remains admin-controlled; no live quest editor, client/server synchronization, or Minecraft runtime fixture."
+    },
+    "P0-4.quest-completion": {
+      "observed_scope": "Application-service tests cover progression/reward completion, duplicate reward prevention, and invalid-reward preflight.",
+      "uncovered_scope": "No process-crash/outbox fixture proving reward fan-out atomicity across restart."
+    },
+    "P0-4.quest-progression": {
+      "observed_scope": "Typed start/progress mutations are scoped to a player, checked against that player's persisted quest revision, payload-bound for request-ID retries during one process lifetime, rejected as stale after restart, protected by actor/subject authorization, and rolled back in memory when the durable write fails; completion advances the persisted revision and automatic completion returns its final revision; per-player event groups preserve commit order under reentrant and concurrent mutations, and listener registration during delivery does not strand the queue; objective counts at 100,000 are accepted and higher counts rejected; objective-threshold auto-completion remains active; concurrent in-process quest turn-ins apply faction rewards once.",
+      "uncovered_scope": "Quest reward fan-out is still non-atomic across restart (P2-3); quest completion, faction progression, followers, banks, and the remaining operation families do not yet all share this typed request boundary; target runtime behavior remains unverified."
+    },
+    "P0-4.faction": {
+      "observed_scope": "JVM tests cover faction YAML load, arithmetic clamp behavior, and service-owned quest/faction mutation.",
+      "uncovered_scope": "No live faction UI/network adapter or full provenance/threshold lifecycle fixture."
+    },
+    "P0-4.roles": {
+      "observed_scope": "JVM tests cover Trader/Banker YAML load and role/vault JSON serialization round-trip.",
+      "uncovered_scope": "No role capability authorization, attach/detach lifecycle, or live NPC role fixture."
+    },
+    "P0-4.companion": {
+      "observed_scope": "Follower tests cover owner-only state/formation changes and deterministic formation-slot allocation.",
+      "uncovered_scope": "No wages/arrears, companion stages/talents/inventory/jobs, persistence/restart lifecycle, or live companion runtime fixture."
+    },
+    "P0-4.marks": {
+      "observed_scope": "NpcDefinitionSerdeTest verifies the current single mark's type, color, and text survive JSON round-trip.",
+      "uncovered_scope": "No mark collection, availability, symbol/visibility rules, client resync, persistence reload, or live mark runtime fixture."
+    },
+    "P0-4.bank": {
+      "observed_scope": "Repository tests cover durable vault reload, tab unlock bounds, request replay, recovery serialization, and invalid-tab rejection.",
+      "uncovered_scope": "No live bank GUI/session/access-policy fixture or process-kill inventory-delivery recovery fixture."
+    },
+    "P0-4.trade": {
+      "observed_scope": "JVM tests cover stock/restock, replay, reservation rollback, max-use concurrency, and durable listing-use reload.",
+      "uncovered_scope": "No atomic two-input player purchase, payment/output inventory delivery, or restart recovery fixture."
+    },
+    "P0-4.commands": {
+      "observed_scope": "Command tests cover root/alias registration, bank/trade mutation permission gates, ID suggestions, and mapping each structured quest-completion service outcome to honest command feedback.",
+      "uncovered_scope": "No per-command mutation equivalence or end-to-end Minecraft command execution/service convergence fixture."
+    },
+    "P0-4.networking": {
+      "observed_scope": "Payload tests cover unknown schema version, trailing frame bytes, and oversized editor documents.",
+      "uncovered_scope": "No stale-revision, duplicate replay, session binding, or unauthorized actor fixture."
+    },
+    "P0-4.persistence": {
+      "observed_scope": "JVM tests cover legacy record migration, final-rename rollback, and progression persistence/reload.",
+      "uncovered_scope": "No exact target PlayerData migration corpus or live multi-store restart/crash fixture."
+    }
+  }
+}

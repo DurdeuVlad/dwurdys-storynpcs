@@ -2,6 +2,7 @@ package com.storynpcs.client.gui;
 
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.quest.Quest;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.domain.quest.QuestReward;
 import com.storynpcs.editor.QuestEditorScreenModel;
@@ -18,6 +19,7 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * In-game quest authoring surface (issue #24). LIST mode browses the synced
@@ -55,9 +57,17 @@ public class QuestEditorScreen extends Screen {
     private String rowType;
 
     private int rowScroll;
+    private long expectedRevision;
+    private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
+    private final PayloadBoundRequestId deleteRequestId = new PayloadBoundRequestId();
 
     public QuestEditorScreen(List<Quest> quests, String selectId) {
+        this(quests, selectId, 0L);
+    }
+
+    public QuestEditorScreen(List<Quest> quests, String selectId, long expectedRevision) {
         super(Component.literal("Quest Editor"));
+        this.expectedRevision = Math.max(0L, expectedRevision);
         model.loadQuests(quests);
         if (selectId != null && !selectId.isBlank()) {
             try {
@@ -70,8 +80,16 @@ public class QuestEditorScreen extends Screen {
 
     public QuestEditorScreenModel getModel() { return model; }
 
-    public void onSaveResult(boolean success, String message, List<Quest> refreshed) {
+    public void onSaveResult(UUID requestId, boolean success, String message, List<Quest> refreshed) {
+        boolean saveResponse = saveRequestId.matchesCurrent(requestId);
+        boolean deleteResponse = deleteRequestId.matchesCurrent(requestId);
+        if (!saveResponse && !deleteResponse) return;
         model.onSaveResult(success, message, refreshed);
+        if (success) {
+            expectedRevision++;
+        }
+        if (saveResponse) saveRequestId.acknowledge(requestId);
+        if (deleteResponse) deleteRequestId.acknowledge(requestId);
         // refresh the edit-fields if the server replaced our working copy view
         if (this.minecraft != null) rebuildWidgets();
     }
@@ -180,7 +198,10 @@ public class QuestEditorScreen extends Screen {
                 .bounds(12, footer, 70, 16).build());
         addRenderableWidget(Button.builder(Component.literal(model.isDeleteArmed() ? "§cSure?" : "§cDelete"), b -> {
             if (model.confirmDeleteClick()) {
-                PacketDistributor.sendToServer(new ServerboundQuestDeletePayload(q.getId().toString()));
+                UUID requestId = deleteRequestId.forPayload(
+                        "quest-delete\n" + q.getId() + "\n" + expectedRevision);
+                PacketDistributor.sendToServer(new ServerboundQuestDeletePayload(
+                        q.getId().toString(), expectedRevision, requestId));
                 model.setStatus("Deleting...", false);
             } else {
                 rebuildWidgets();
@@ -269,7 +290,10 @@ public class QuestEditorScreen extends Screen {
             return;
         }
         model.setStatus("Saving...", false);
-        PacketDistributor.sendToServer(new ServerboundQuestSavePayload(model.saveJson()));
+        String submittedJson = model.saveJson();
+        UUID requestId = saveRequestId.forPayload(submittedJson);
+        PacketDistributor.sendToServer(new ServerboundQuestSavePayload(
+                submittedJson, expectedRevision, requestId));
     }
 
     // ---------- rendering ----------

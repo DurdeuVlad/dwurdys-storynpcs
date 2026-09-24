@@ -3,6 +3,9 @@ package com.storynpcs.lifecycle;
 import com.storynpcs.StoryNpcs;
 import com.storynpcs.domain.common.ValidationResult;
 import com.storynpcs.persistence.ProgressionRepository;
+import com.storynpcs.runtime.actor.ActorLifecycleService;
+import com.storynpcs.runtime.actor.ActorProjectionRegistry;
+import com.storynpcs.runtime.actor.ActorStateRepository;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -87,6 +90,21 @@ public class WorldLifecycleHandler {
                     LOGGER.warn("Failed to save bank vaults on world save: {}", e.getMessage());
                 }
             }
+            if (mod.getTradeStateRepository() != null) {
+                try {
+                    mod.getTradeStateRepository().save();
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to save trader runtime state on world save: {}", e.getMessage());
+                }
+            }
+            MinecraftServer server = serverLevel.getServer();
+            if (mod.getActorStateRepository(server) != null && mod.getActorLifecycleService(server) != null) {
+                try {
+                    mod.getActorStateRepository(server).save(mod.getActorLifecycleService(server).registry());
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to save logical StoryNPC actors on world save: {}", e.getMessage());
+                }
+            }
         }
     }
 
@@ -105,6 +123,8 @@ public class WorldLifecycleHandler {
         Path storyNpcsDir = worldDir.resolve("storynpcs");
         Path progressionDir = storyNpcsDir.resolve("progression");
         Path bankDir = storyNpcsDir.resolve("bank");
+        Path tradeDir = storyNpcsDir.resolve("trade");
+        Path actorDir = storyNpcsDir.resolve("actors");
         Path definitionsDir = storyNpcsDir.resolve("definitions");
 
         try {
@@ -116,6 +136,12 @@ public class WorldLifecycleHandler {
             }
             if (!Files.exists(bankDir)) {
                 Files.createDirectories(bankDir);
+            }
+            if (!Files.exists(tradeDir)) {
+                Files.createDirectories(tradeDir);
+            }
+            if (!Files.exists(actorDir)) {
+                Files.createDirectories(actorDir);
             }
         } catch (Exception e) {
             LOGGER.error("Failed to create StoryNPCs directories: {}", e.getMessage(), e);
@@ -140,6 +166,24 @@ public class WorldLifecycleHandler {
 
         com.storynpcs.persistence.BankRepository bankRepo = new com.storynpcs.persistence.BankRepository(bankDir);
         mod.setBankRepository(bankRepo);
+        mod.setTradeStateRepository(new com.storynpcs.persistence.TradeStateRepository(tradeDir));
+
+        String actorScope = worldDir.toAbsolutePath().normalize().toString();
+        ActorLifecycleService actorService = new ActorLifecycleService(
+                new ActorProjectionRegistry(actorScope),
+                mod.getEventPublisher()
+        );
+        mod.setActorLifecycleService(actorService);
+        ActorStateRepository actorRepository = new ActorStateRepository(actorDir.resolve("registry.json"));
+        mod.setActorStateRepository(actorRepository);
+        mod.registerServerRuntime(server, actorService, actorRepository);
+        try {
+            if (Files.exists(actorRepository.target())) {
+                actorService.restore(actorRepository.load());
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Could not restore logical StoryNPC actors: {}", e.getMessage());
+        }
 
         StoryNpcsApplicationService appService = new StoryNpcsApplicationService(
                 mod.getRegistry(),
@@ -149,6 +193,7 @@ public class WorldLifecycleHandler {
         );
         // VULN-57: give the service a loader reference so deleteNpc can delete YAML files on disk
         appService.setLoader(mod.getLoader());
+        appService.setTradeStateRepository(mod.getTradeStateRepository());
         mod.setApplicationService(appService);
 
         // Load definitions
@@ -285,10 +330,16 @@ public class WorldLifecycleHandler {
     }
 
     public void onServerStopping(ServerStoppingEvent event) {
-        handleServerStop();
+        handleServerStop(event.getServer());
     }
 
     public void handleServerStop() {
+        handleServerStop(currentServer);
+    }
+
+    public void handleServerStop(MinecraftServer stoppingServer) {
+        ActorLifecycleService stoppingActorService = mod.getActorLifecycleService(stoppingServer);
+        ActorStateRepository stoppingActorRepository = mod.getActorStateRepository(stoppingServer);
         if (mod.getProgressionRepository() != null) {
             try {
                 mod.getProgressionRepository().saveAll();
@@ -297,7 +348,7 @@ public class WorldLifecycleHandler {
                 LOGGER.error("Failed to save player progressions on server stop: {}", e.getMessage(), e);
             }
         }
-        if (mod.getBankRepository() != null) {
+            if (mod.getBankRepository() != null) {
             try {
                 mod.getBankRepository().saveAll();
                 LOGGER.info("All StoryNPCs bank vaults saved successfully.");
@@ -305,7 +356,34 @@ public class WorldLifecycleHandler {
                 LOGGER.error("Failed to save bank vaults on server stop: {}", e.getMessage(), e);
             }
         }
-        com.storynpcs.domain.role.follower.FollowerGroup.clearAll();
+        if (mod.getTradeStateRepository() != null) {
+            try {
+                mod.getTradeStateRepository().save();
+                LOGGER.info("All StoryNPCs trader runtime state saved successfully.");
+            } catch (Exception e) {
+                LOGGER.error("Failed to save trader runtime state on server stop: {}", e.getMessage(), e);
+            }
+        }
+        if (stoppingActorRepository != null && stoppingActorService != null) {
+            try {
+                stoppingActorRepository.save(stoppingActorService.registry());
+                LOGGER.info("Logical StoryNPC actor identities saved successfully.");
+            } catch (Exception e) {
+                LOGGER.error("Failed to save logical StoryNPC actors on server stop: {}", e.getMessage(), e);
+            }
+        }
+        mod.getFollowerGroup(stoppingServer).clearAll();
+        mod.getRuntimeSessions(stoppingServer).clearAll();
+        mod.clearServerRuntime(stoppingServer);
+        if (stoppingActorService != null && mod.getActorLifecycleService() == stoppingActorService) {
+            mod.setActorLifecycleService(null);
+        }
+        if (stoppingActorRepository != null && mod.getActorStateRepository() == stoppingActorRepository) {
+            mod.setActorStateRepository(null);
+        }
+        if (currentServer == stoppingServer) {
+            currentServer = null;
+        }
     }
 
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
@@ -336,6 +414,14 @@ public class WorldLifecycleHandler {
         }
         if (mod.getBankRepository() != null) {
             mod.getBankRepository().getOrCreate(uuid);
+            if (mod.getApplicationService() != null) {
+                int unresolved = mod.getApplicationService().recoverBankOperations(
+                        uuid, mod.getBankRepository());
+                if (unresolved > 0) {
+                    LOGGER.warn("{} StoryNPCs bank operation(s) still require recovery for player {}",
+                            unresolved, uuid);
+                }
+            }
         }
         LOGGER.debug("Loaded progression and bank for player {}", uuid);
     }
@@ -371,18 +457,30 @@ public class WorldLifecycleHandler {
 
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() != null) {
-            handlePlayerLogout(event.getEntity().getUUID());
+            MinecraftServer server = event.getEntity() instanceof ServerPlayer serverPlayer
+                    ? serverPlayer.getServer()
+                    : null;
+            handlePlayerLogout(server, event.getEntity().getUUID());
         }
     }
 
     public void handlePlayerLogout(UUID uuid) {
+        // Compatibility helper for headless callers without a server context.
+        // It deliberately fails closed instead of guessing another server.
+        handlePlayerLogout(null, uuid);
+    }
+
+    public void handlePlayerLogout(MinecraftServer server, UUID uuid) {
         if (uuid == null) return;
 
         if (mod.getApplicationService() != null) {
             mod.getApplicationService().closeDialogue(uuid);
         }
-        com.storynpcs.network.StoryNpcsNetwork.clearPlayer(uuid);
-        com.storynpcs.domain.role.follower.FollowerGroup.clearLeader(uuid);
+        if (server != null) {
+            com.storynpcs.network.StoryNpcsNetwork.clearPlayer(server, uuid);
+            mod.getRuntimeSessions(server).clearPlayer(uuid);
+            mod.getFollowerGroup(server).clearLeader(uuid);
+        }
 
         if (mod.getProgressionRepository() != null) {
             try {

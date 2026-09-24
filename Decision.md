@@ -12,9 +12,9 @@
 - **Context**: Phase 1 technical archaeology revealed 0/15 cross-surface parity in CustomNPCs; GUI packets, server commands, public API methods, and script wrappers all duplicated business logic, had disparate authorization checks, and diverged in side effects.
 - **Decision**: All mutations must route through a single `StoryNpcsApplicationService` defining 15 canonical operations. GUI packets, command executors, API methods, and script bindings become thin adapters that translate inputs and call the canonical operation.
 - **Consequences**:
-  - Guarantees 100% functional parity across all entry surfaces.
-  - Prevents authorization bypass and validation drift.
-  - Enables end-to-end integration testing against the application layer without requiring a graphical client.
+  - Defines the intended convergence point for all entry surfaces; it does not by itself prove functional parity.
+  - Prevents authorization bypass and validation drift once each adapter is routed through it.
+  - Enables end-to-end integration testing against the application layer without requiring a graphical client. Current target equivalence is `0/15` proven; P1-1 closes the implementation gap.
 
 ## ADR-003: Directed-Graph Dialogue Architecture
 - **Context**: CustomNPCs restricted dialogue options to a fixed 12-slot array, severely limiting complex branching narratives, loops, and conditional dialogues.
@@ -29,7 +29,7 @@
 - **Decision**: Definition files remain completely immutable at runtime. Player progression (quest stages, faction scores, dialogue visit history) is stored in a dedicated player progression repository using atomic `.tmp` -> flush -> rename writes.
 - **Consequences**:
   - Zero risk of user actions corrupting authored content.
-  - Crash-safe progression storage.
+  - The desired crash-recovery behavior is not yet certified; P2-2/P2-3 define the required implementation and recovery evidence.
   - Simplifies world resets and pack updates.
 
 ## ADR-005: Event-Driven Extensibility

@@ -1,6 +1,7 @@
 package com.storynpcs.client.gui;
 
 import com.storynpcs.editor.DialogueEditorScreenModel;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.editor.DialogueGraphLayout;
 import com.storynpcs.editor.VisualEdge;
 import com.storynpcs.editor.VisualNode;
@@ -46,14 +47,32 @@ public class DialogueEditorScreen extends Screen {
     /** "node"/"edge" while a delete is armed for confirmation, else null. */
     private String deleteArmed;
     private long deleteArmUntil;
+    private final long[] expectedRevision;
+    private final PayloadBoundRequestId requestIds;
 
     public DialogueEditorScreen(DialogueEditorScreenModel model) {
+        this(model, new long[]{0L}, new PayloadBoundRequestId());
+    }
+
+    public DialogueEditorScreen(DialogueEditorScreenModel model, long[] expectedRevision,
+                                PayloadBoundRequestId requestIds) {
         super(Component.literal("Dialogue Editor: " + model.getTitle()));
         this.model = model;
+        this.expectedRevision = expectedRevision;
+        this.requestIds = requestIds;
     }
 
     public DialogueEditorScreenModel getModel() {
         return model;
+    }
+
+    public void onSaveResult(java.util.UUID requestId, boolean success, String message) {
+        if (!requestIds.matchesCurrent(requestId)) return;
+        model.onSaveResult(success, message);
+        if (success) {
+            expectedRevision[0]++;
+        }
+        requestIds.acknowledge(requestId);
     }
 
     @Override

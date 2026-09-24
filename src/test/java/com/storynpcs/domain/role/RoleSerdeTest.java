@@ -5,6 +5,8 @@ import com.storynpcs.domain.role.banker.BankerRole;
 import com.storynpcs.domain.role.trader.TradeListing;
 import com.storynpcs.domain.role.trader.TradeSummaries;
 import com.storynpcs.domain.role.trader.TraderRole;
+import com.storynpcs.persistence.BankOperationIntent;
+import com.storynpcs.persistence.TradeOperationIntent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -61,6 +63,44 @@ class RoleSerdeTest {
     }
 
     @Test
+    void runtimeTradeViewChangesCannotMutateRegistryOwnedRoleOrAssignIdsToIt() {
+        TraderRole definition = new TraderRole("Projection Test");
+        TradeListing legacyListing = new TradeListing("minecraft:bread", 1, "minecraft:emerald", 1);
+        legacyListing.setUses(2);
+        definition.addListingAt(0, legacyListing);
+        assertTrue(legacyListing.getListingId().isBlank());
+
+        TraderRole view = RoleSerde.copyTrader(definition);
+        TradeListing viewListing = view.getListings().get(0);
+        viewListing.setUses(7);
+
+        assertEquals(7, viewListing.getUses());
+        assertEquals(2, legacyListing.getUses());
+        assertTrue(legacyListing.getListingId().isBlank());
+    }
+
+    @Test
+    @DisplayName("scoresFromJson drops non-integer values and rejects non-object roots")
+    void testScoresFromJsonHardening() {
+        // Strings, floats, nulls and out-of-int-range values are filtered, not coerced
+        var scores = RoleSerde.scoresFromJson(
+                "{\"a\":\"x\",\"b\":5,\"c\":null,\"d\":1.5,\"e\":99999999999}");
+        assertEquals(Map.of("b", 5), scores);
+
+        // Non-object roots yield an empty map rather than a raw-type blob
+        assertTrue(RoleSerde.scoresFromJson("[1,2,3]").isEmpty());
+        assertTrue(RoleSerde.scoresFromJson("\"hello\"").isEmpty());
+        assertTrue(RoleSerde.scoresFromJson("5").isEmpty());
+        assertTrue(RoleSerde.scoresFromJson("null").isEmpty());
+        assertTrue(RoleSerde.scoresFromJson(null).isEmpty());
+        assertTrue(RoleSerde.scoresFromJson("   ").isEmpty());
+
+        // Result is a defensive immutable copy
+        var parsed = RoleSerde.scoresFromJson("{\"a\":1}");
+        assertThrows(UnsupportedOperationException.class, () -> parsed.put("b", 2));
+    }
+
+    @Test
     @DisplayName("TradeSummaries describes listings and reports unavailability reasons")
     void testTradeSummaries() {
         var listing = new TradeListing("minecraft:bread", 3, "minecraft:emerald", 1);
@@ -79,5 +119,39 @@ class RoleSerdeTest {
         assertNotNull(reason);
         assertTrue(reason.contains("storynpcs:pirates"));
         assertNull(TradeSummaries.unavailableReason(gated, 100));
+    }
+
+    @Test
+    @DisplayName("Bank operation intent validates and round-trips its recovery fields")
+    void testBankOperationIntentRoundTrip() {
+        BankOperationIntent intent = new BankOperationIntent(
+                UUID.randomUUID(), "bank.deposit_held", 0, 3,
+                "minecraft:diamond", "{\"components\":{}}", 4, 8, 12);
+
+        var restored = RoleSerde.bankOperationIntentFromJson(RoleSerde.toJson(intent));
+        assertTrue(restored.isPresent());
+        assertEquals(intent, restored.get());
+        assertTrue(intent.matches(new BankVault.VaultItem(3, "minecraft:diamond", 12,
+                "{\"components\":{}}")));
+        assertFalse(intent.matches(new BankVault.VaultItem(3, "minecraft:diamond", 11,
+                "{\"components\":{}}")));
+        assertThrows(IllegalArgumentException.class, () -> new BankOperationIntent(
+                UUID.randomUUID(), "bank.deposit_held", 0, 54,
+                "minecraft:diamond", null, 1, 0, 1));
+    }
+
+    @Test
+    @DisplayName("Trade operation intent validates and round-trips its replay fields")
+    void testTradeOperationIntentRoundTrip() {
+        TradeOperationIntent intent = new TradeOperationIntent(
+                UUID.randomUUID(), "storynpcs:merchant", 2,
+                "minecraft:bread", 4, "minecraft:wheat", 12, 5, 1);
+
+        var restored = RoleSerde.tradeOperationIntentFromJson(RoleSerde.toJson(intent));
+        assertTrue(restored.isPresent());
+        assertEquals(intent, restored.get());
+        assertThrows(IllegalArgumentException.class, () -> new TradeOperationIntent(
+                UUID.randomUUID(), "bad", -2, "minecraft:bread", 1,
+                "minecraft:wheat", 1, 0, 0));
     }
 }

@@ -3,12 +3,53 @@ package com.storynpcs.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.tree.CommandNode;
 import net.minecraft.commands.CommandSourceStack;
+import com.storynpcs.api.event.EventPublisher;
+import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.npc.NpcDefinition;
+import com.storynpcs.persistence.ProgressionRepository;
+import com.storynpcs.service.MutationRequest;
+import com.storynpcs.service.QuestCompletionResult;
+import com.storynpcs.service.StoryNpcsApplicationService;
+import com.storynpcs.yaml.DefinitionRegistry;
+import com.storynpcs.yaml.YamlDefinitionLoader;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class StoryNpcsCommandsTest {
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void questCompletionCommandFeedbackReflectsServiceOutcome() {
+        NamespacedId questId = NamespacedId.of("storynpcs:rescue_villager");
+
+        var completed = StoryNpcsCommands.completionFeedback(
+                questId, "Alex", QuestCompletionResult.completed(2));
+        var alreadyCompleted = StoryNpcsCommands.completionFeedback(
+                questId, "Alex", QuestCompletionResult.alreadyCompleted());
+        var rejected = StoryNpcsCommands.completionFeedback(
+                questId, "Alex", QuestCompletionResult.rejected("QUEST_NOT_READY"));
+        var failed = StoryNpcsCommands.completionFeedback(
+                questId, "Alex", QuestCompletionResult.failed("REWARD_EXECUTION_FAILED", 1));
+
+        assertTrue(completed.success());
+        assertEquals("Completed quest 'storynpcs:rescue_villager' for Alex", completed.message());
+        assertTrue(alreadyCompleted.success());
+        assertEquals("Quest 'storynpcs:rescue_villager' was already completed for Alex",
+                alreadyCompleted.message());
+        assertFalse(rejected.success());
+        assertEquals("Could not complete quest 'storynpcs:rescue_villager' for Alex: QUEST_NOT_READY",
+                rejected.message());
+        assertFalse(failed.success());
+        assertEquals("Quest 'storynpcs:rescue_villager' failed for Alex after applying 1 rewards: "
+                + "REWARD_EXECUTION_FAILED", failed.message());
+    }
 
     @Test
     @DisplayName("Command tree registers /storynpcs and /sn alias with all subcommands")
@@ -123,6 +164,10 @@ class StoryNpcsCommandsTest {
         assertNotNull(gui.getChild("quest_id"), "quest gui quest_id arg");
         assertNotNull(rewRemove.getChild("quest_id").getChild("index"), "reward remove index arg");
 
+        CommandNode<CommandSourceStack> qDelete = quest.getChild("delete");
+        assertNotNull(qDelete, "quest delete must exist");
+        assertNotNull(qDelete.getChild("quest_id"), "quest delete quest_id arg");
+
         // Faction subcommands
         CommandNode<CommandSourceStack> faction = storynpcs.getChild("faction");
         assertNotNull(faction, "Subcommand 'faction' must exist");
@@ -143,6 +188,9 @@ class StoryNpcsCommandsTest {
         CommandNode<CommandSourceStack> fgui = faction.getChild("gui");
         assertNotNull(fgui, "faction gui must exist");
         assertNotNull(fgui.getChild("faction_id"), "faction gui faction_id arg");
+        CommandNode<CommandSourceStack> fDelete = faction.getChild("delete");
+        assertNotNull(fDelete, "faction delete must exist");
+        assertNotNull(fDelete.getChild("faction_id"), "faction delete faction_id arg");
 
         // Follower subcommands
         CommandNode<CommandSourceStack> follower = storynpcs.getChild("follower");
@@ -168,8 +216,10 @@ class StoryNpcsCommandsTest {
         assertSuggestions(storynpcs.getChild("dialogue").getChild("start"), "dialogue_id");
         assertSuggestions(storynpcs.getChild("quest").getChild("start"), "quest_id");
         assertSuggestions(storynpcs.getChild("quest").getChild("complete"), "quest_id");
+        assertSuggestions(storynpcs.getChild("quest").getChild("delete"), "quest_id");
         assertSuggestions(storynpcs.getChild("faction").getChild("set"), "faction_id");
         assertSuggestions(storynpcs.getChild("faction").getChild("adjust"), "faction_id");
+        assertSuggestions(storynpcs.getChild("faction").getChild("delete"), "faction_id");
     }
 
     @Test
@@ -314,6 +364,75 @@ class StoryNpcsCommandsTest {
                 "storynpcs npc bank enable storynpcs:npc_1",
                 "storynpcs npc bank enable storynpcs:npc_1 Iron Vault",
                 "storynpcs npc bank disable storynpcs:npc_1",
+        };
+        for (String cmd : cmds) {
+            var parse = dispatcher.parse(cmd, source);
+            assertTrue(parse.getExceptions().isEmpty(),
+                    "parse failed for '" + cmd + "': " + parse.getExceptions());
+            assertFalse(parse.getReader().canRead(),
+                    "unconsumed input for '" + cmd + "': " + parse.getReader().getRemaining());
+        }
+    }
+
+    @Test
+    @DisplayName("banker and trader receipts report the role's actual default and custom names")
+    void roleEnableReceiptsUseCommittedRoleNames() throws Exception {
+        var registry = new DefinitionRegistry();
+        var loader = new YamlDefinitionLoader(registry);
+        assertTrue(loader.loadDirectory(tempDir).isValid());
+        var service = new StoryNpcsApplicationService(
+                registry, new ProgressionRepository(tempDir.resolve("progression")), new EventPublisher());
+        service.setLoader(loader);
+        var npcId = NamespacedId.of("storynpcs:shopkeeper");
+        MutationRequest create = new MutationRequest(
+                "npc.create", "command", "npc.mutate", npcId, 0L, UUID.randomUUID());
+        assertTrue(service.createNpc(create, new NpcDefinition(npcId, "Shopkeeper")).applied());
+        MutationRequest configureRoles = new MutationRequest(
+                "npc.mutate", "command", "npc.mutate", npcId,
+                service.currentRevision("npc", npcId), UUID.randomUUID());
+        assertTrue(service.mutateNpc(configureRoles, npc -> {
+            npc.setBanker(new com.storynpcs.domain.role.banker.BankerRole());
+            npc.setTrader(new com.storynpcs.domain.role.trader.TraderRole());
+        }).applied());
+
+        var reloadedRegistry = new DefinitionRegistry();
+        assertTrue(new YamlDefinitionLoader(reloadedRegistry).loadDirectory(tempDir).isValid());
+        var savedNpc = reloadedRegistry.getNpc(npcId).orElseThrow();
+
+        String defaultBank = StoryNpcsCommands.formatBankerEnabledReceipt(
+                npcId, savedNpc.getBanker());
+        assertTrue(defaultBank.contains("'Standard Vault', 4 max tabs"));
+        assertFalse(defaultBank.contains("'default'"));
+
+        String defaultMarket = StoryNpcsCommands.formatTraderEnabledReceipt(
+                npcId, savedNpc.getTrader());
+        assertTrue(defaultMarket.contains("trader ('Trader')"));
+        assertFalse(defaultMarket.contains("'default'"));
+
+        MutationRequest renameRoles = new MutationRequest(
+                "npc.mutate", "command", "npc.mutate", npcId,
+                service.currentRevision("npc", npcId), UUID.randomUUID());
+        assertTrue(service.mutateNpc(renameRoles, npc -> {
+            npc.getBanker().setBankName("Harbor Bank");
+            npc.getTrader().setMarketName("Harbor Market");
+        }).applied());
+        reloadedRegistry = new DefinitionRegistry();
+        assertTrue(new YamlDefinitionLoader(reloadedRegistry).loadDirectory(tempDir).isValid());
+        savedNpc = reloadedRegistry.getNpc(npcId).orElseThrow();
+        assertTrue(StoryNpcsCommands.formatBankerEnabledReceipt(npcId, savedNpc.getBanker()).contains("'Harbor Bank'"));
+        assertTrue(StoryNpcsCommands.formatTraderEnabledReceipt(npcId, savedNpc.getTrader()).contains("'Harbor Market'"));
+    }
+
+    @Test
+    @DisplayName("quest delete and faction delete parse to their id arguments")
+    void testDeleteCommandsParse() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandSourceStack source = opSource();
+
+        String[] cmds = {
+                "storynpcs quest delete storynpcs:m3test",
+                "storynpcs faction delete storynpcs:pirates",
         };
         for (String cmd : cmds) {
             var parse = dispatcher.parse(cmd, source);

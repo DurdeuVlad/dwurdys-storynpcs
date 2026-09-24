@@ -10,10 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @DisplayName("FollowerGroup Dynamic Slot Allocation Tests")
 class FollowerGroupTest {
+    private FollowerGroup group;
 
     @BeforeEach
     void setUp() {
-        FollowerGroup.clearAll();
+        group = new FollowerGroup();
     }
 
     @Test
@@ -24,18 +25,18 @@ class FollowerGroupTest {
         UUID f2 = UUID.randomUUID();
         UUID f3 = UUID.randomUUID();
 
-        int s1 = FollowerGroup.getOrAssignSlot(leader, f1);
-        int s2 = FollowerGroup.getOrAssignSlot(leader, f2);
-        int s3 = FollowerGroup.getOrAssignSlot(leader, f3);
+        int s1 = group.getOrAssignSlot(leader, f1);
+        int s2 = group.getOrAssignSlot(leader, f2);
+        int s3 = group.getOrAssignSlot(leader, f3);
 
         assertEquals(0, s1, "First follower gets slot 0");
         assertEquals(1, s2, "Second follower gets slot 1");
         assertEquals(2, s3, "Third follower gets slot 2");
 
         // Requesting existing follower should return same slot
-        assertEquals(0, FollowerGroup.getOrAssignSlot(leader, f1));
-        assertEquals(1, FollowerGroup.getOrAssignSlot(leader, f2));
-        assertEquals(3, FollowerGroup.getFollowerCount(leader));
+        assertEquals(0, group.getOrAssignSlot(leader, f1));
+        assertEquals(1, group.getOrAssignSlot(leader, f2));
+        assertEquals(3, group.getFollowerCount(leader));
     }
 
     @Test
@@ -45,13 +46,13 @@ class FollowerGroupTest {
         UUID f1 = UUID.randomUUID();
         UUID f2 = UUID.randomUUID();
 
-        FollowerGroup.getOrAssignSlot(leader, f1);
-        FollowerGroup.getOrAssignSlot(leader, f2);
-        assertEquals(2, FollowerGroup.getFollowerCount(leader));
+        group.getOrAssignSlot(leader, f1);
+        group.getOrAssignSlot(leader, f2);
+        assertEquals(2, group.getFollowerCount(leader));
 
-        FollowerGroup.unregister(leader, f1);
-        assertEquals(1, FollowerGroup.getFollowerCount(leader));
+        group.unregister(leader, f1);
+        assertEquals(1, group.getFollowerCount(leader));
         // f2 is now the first follower (slot 0)
-        assertEquals(0, FollowerGroup.getOrAssignSlot(leader, f2));
+        assertEquals(0, group.getOrAssignSlot(leader, f2));
     }
 }

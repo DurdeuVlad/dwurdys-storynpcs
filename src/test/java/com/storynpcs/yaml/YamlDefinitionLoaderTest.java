@@ -57,6 +57,150 @@ class YamlDefinitionLoaderTest {
     }
 
     @Test
+    void explicitTextureSkinSourceSurvivesYamlLoadWhenStalePlayerNameIsPresent() {
+        String yaml = """
+                id: "storynpcs:yaml_skin_source_order"
+                display:
+                  name: "YAML Skin Source"
+                  skinPlayer: "Alex"
+                  skinSource: "TEXTURE"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "yaml_skin_source_order.yaml", result);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(npc).isNotNull();
+        assertThat(npc.getDisplay().getSkinPlayer()).isEqualTo("Alex");
+        assertThat(npc.getDisplay().getSkinSource())
+                .isEqualTo(com.storynpcs.domain.npc.NpcDisplay.SkinSource.TEXTURE);
+    }
+
+    @Test
+    void shouldAcceptExplicitCurrentSchemaVersion() {
+        String yaml = """
+                schemaVersion: 1
+                id: "storynpcs:versioned_npc"
+                display:
+                  name: "Versioned NPC"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "versioned_npc.yaml", result);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(npc).isNotNull();
+        assertThat(npc.getId()).isEqualTo(NamespacedId.of("storynpcs:versioned_npc"));
+    }
+
+    @Test
+    void shouldRejectFutureSchemaVersionWithFieldLocation() {
+        String yaml = """
+                id: "storynpcs:future_npc"
+                schemaVersion: 2
+                display:
+                  name: "Future NPC"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "future_npc.yaml", result);
+
+        assertThat(npc).isNull();
+        assertThat(result.getErrors()).singleElement().satisfies(error -> {
+            assertThat(error.code()).isEqualTo("SCHEMA_VERSION_UNSUPPORTED");
+            assertThat(error.file()).isEqualTo("future_npc.yaml");
+            assertThat(error.line()).isEqualTo(2);
+            assertThat(error.column()).isEqualTo(1);
+            assertThat(error.message()).contains("highest supported version is 1");
+        });
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:future_npc"))).isEmpty();
+    }
+
+    @Test
+    void shouldRejectMalformedSchemaVersion() {
+        String yaml = """
+                schemaVersion: "one"
+                id: "storynpcs:bad_version"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        loader.loadNpc(yaml, "bad_version.yaml", result);
+
+        assertThat(result.getErrors()).singleElement().satisfies(error -> {
+            assertThat(error.code()).isEqualTo("SCHEMA_VERSION_INVALID");
+            assertThat(error.line()).isEqualTo(1);
+            assertThat(error.column()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void shouldRejectUnknownFieldsWithSourceLocation() {
+        String yaml = """
+                id: "storynpcs:unknown_field"
+                display:
+                  name: "Unknown Field"
+                unexpectedField: true
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        loader.loadNpc(yaml, "unknown_field.yaml", result);
+
+        assertThat(result.getErrors()).singleElement().satisfies(error -> {
+            assertThat(error.code()).isEqualTo("SCHEMA_UNKNOWN_FIELD");
+            assertThat(error.file()).isEqualTo("unknown_field.yaml");
+            assertThat(error.line()).isGreaterThan(0);
+            assertThat(error.column()).isGreaterThan(0);
+            assertThat(error.message()).contains("unexpectedField");
+        });
+    }
+
+    @Test
+    void shouldRejectDuplicateYamlKeysInsteadOfUsingLastValue() {
+        String yaml = """
+                id: "storynpcs:duplicate_key"
+                id: "storynpcs:overwritten_key"
+                display:
+                  name: "Duplicate Key"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "duplicate_key.yaml", result);
+
+        assertThat(npc).isNull();
+        assertThat(result.getErrors()).singleElement().satisfies(error -> {
+            assertThat(error.code()).isEqualTo("YAML_PARSE_ERROR");
+            assertThat(error.file()).isEqualTo("duplicate_key.yaml");
+            assertThat(error.line()).isGreaterThan(0);
+        });
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:duplicate_key"))).isEmpty();
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:overwritten_key"))).isEmpty();
+    }
+
+    @Test
+    void shouldRejectMultipleYamlDocumentsInOneDefinitionFile() {
+        String yaml = """
+                id: "storynpcs:first_document"
+                display:
+                  name: "First"
+                ---
+                id: "storynpcs:second_document"
+                display:
+                  name: "Second"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "multiple_documents.yaml", result);
+
+        assertThat(npc).isNull();
+        assertThat(result.getErrors()).singleElement().satisfies(error -> {
+            assertThat(error.code()).isEqualTo("SCHEMA_MULTIPLE_DOCUMENTS");
+            assertThat(error.file()).isEqualTo("multiple_documents.yaml");
+        });
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:first_document"))).isEmpty();
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:second_document"))).isEmpty();
+    }
+
+    @Test
     void shouldLoadValidDialogueGraph() {
         String yaml = """
                 id: "storynpcs:tavern_keeper"

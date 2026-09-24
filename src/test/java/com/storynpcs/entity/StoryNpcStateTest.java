@@ -67,6 +67,7 @@ class StoryNpcStateTest {
     void testStateResolution() {
         StoryNpcState state = new StoryNpcState("storynpcs:guard_captain");
         assertEquals("storynpcs:guard_captain", state.getDefinitionId());
+        assertEquals("storynpcs:guard_captain", state.getActorId());
 
         Optional<NpcDefinition> def = state.resolveDefinition(registry);
         assertTrue(def.isPresent());
@@ -77,6 +78,17 @@ class StoryNpcStateTest {
         assertEquals(NamespacedId.of("storynpcs:captain_dialogue"), state.getDialogueId(registry).orElse(null));
         assertEquals(NamespacedId.of("storynpcs:town_guard"), state.getFactionId(registry).orElse(null));
         assertTrue(state.canInteract(registry));
+    }
+
+    @Test
+    @DisplayName("Logical actor identity is independent from the content definition")
+    void testLogicalActorIdentity() {
+        StoryNpcState state = new StoryNpcState("storynpcs:guard_captain");
+        state.setActorId("storynpcs:captain_instance_01");
+        state.setDefinitionId("storynpcs:guard_captain_v2");
+
+        assertEquals("storynpcs:captain_instance_01", state.getActorId());
+        assertEquals("storynpcs:guard_captain_v2", state.getDefinitionId());
     }
 
     @Test

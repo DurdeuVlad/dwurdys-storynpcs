@@ -2,6 +2,7 @@ package com.storynpcs.client.gui;
 
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.faction.Faction;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.editor.FactionEditorScreenModel;
 import com.storynpcs.editor.FactionEditorScreenModel.Mode;
 import com.storynpcs.network.ServerboundFactionDeletePayload;
@@ -14,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * In-game faction authoring surface (issue #25). LIST mode browses the synced
@@ -41,9 +43,17 @@ public class FactionEditorScreen extends Screen {
     private EditBox defaultPointsField;
     private EditBox hostileField;
     private EditBox friendlyField;
+    private long expectedRevision;
+    private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
+    private final PayloadBoundRequestId deleteRequestId = new PayloadBoundRequestId();
 
     public FactionEditorScreen(List<Faction> factions, String selectId) {
+        this(factions, selectId, 0L);
+    }
+
+    public FactionEditorScreen(List<Faction> factions, String selectId, long expectedRevision) {
         super(Component.literal("Faction Editor"));
+        this.expectedRevision = Math.max(0L, expectedRevision);
         model.loadFactions(factions);
         if (selectId != null && !selectId.isBlank()) {
             try {
@@ -56,8 +66,16 @@ public class FactionEditorScreen extends Screen {
 
     public FactionEditorScreenModel getModel() { return model; }
 
-    public void onSaveResult(boolean success, String message, List<Faction> refreshed) {
+    public void onSaveResult(UUID requestId, boolean success, String message, List<Faction> refreshed) {
+        boolean saveResponse = saveRequestId.matchesCurrent(requestId);
+        boolean deleteResponse = deleteRequestId.matchesCurrent(requestId);
+        if (!saveResponse && !deleteResponse) return;
         model.onSaveResult(success, message, refreshed);
+        if (success) {
+            expectedRevision++;
+        }
+        if (saveResponse) saveRequestId.acknowledge(requestId);
+        if (deleteResponse) deleteRequestId.acknowledge(requestId);
         if (this.minecraft != null) rebuildWidgets();
     }
 
@@ -148,7 +166,10 @@ public class FactionEditorScreen extends Screen {
                 .bounds(12, footer, 70, 16).build());
         addRenderableWidget(Button.builder(Component.literal(model.isDeleteArmed() ? "§cSure?" : "§cDelete"), b -> {
             if (model.confirmDeleteClick()) {
-                PacketDistributor.sendToServer(new ServerboundFactionDeletePayload(f.getId().toString()));
+                UUID requestId = deleteRequestId.forPayload(
+                        "faction-delete\n" + f.getId() + "\n" + expectedRevision);
+                PacketDistributor.sendToServer(new ServerboundFactionDeletePayload(
+                        f.getId().toString(), expectedRevision, requestId));
                 model.setStatus("Deleting...", false);
             } else {
                 rebuildWidgets();
@@ -180,7 +201,10 @@ public class FactionEditorScreen extends Screen {
             return;
         }
         model.setStatus("Saving...", false);
-        PacketDistributor.sendToServer(new ServerboundFactionSavePayload(model.saveJson()));
+        String submittedJson = model.saveJson();
+        UUID requestId = saveRequestId.forPayload(submittedJson);
+        PacketDistributor.sendToServer(new ServerboundFactionSavePayload(
+                submittedJson, expectedRevision, requestId));
     }
 
     @Override

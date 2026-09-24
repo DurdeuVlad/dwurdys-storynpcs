@@ -162,6 +162,31 @@ class CrossReferenceValidatorTest {
     }
 
     @Test
+    void shouldRejectQuestObjectiveAboveProgressionCountLimit() {
+        Quest q = new Quest(NamespacedId.of("storynpcs:oversized_obj_quest"), "Oversized Obj");
+        q.setObjectives(List.of(new com.storynpcs.domain.quest.QuestObjective(
+                "obj1", com.storynpcs.domain.quest.QuestObjective.Type.KILL_ENTITY, "zombie", 100_001)));
+        registry.registerQuest(q);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.code().equals("QUEST_OBJ_COUNT_INVALID"));
+    }
+
+    @Test
+    void shouldAcceptQuestObjectiveAtProgressionCountLimit() {
+        Quest q = new Quest(NamespacedId.of("storynpcs:maximum_obj_quest"), "Maximum Obj");
+        q.setObjectives(List.of(new com.storynpcs.domain.quest.QuestObjective(
+                "obj1", com.storynpcs.domain.quest.QuestObjective.Type.KILL_ENTITY, "zombie", 100_000)));
+        registry.registerQuest(q);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+
+        assertThat(result.getErrors()).noneMatch(e -> e.code().equals("QUEST_OBJ_COUNT_INVALID"));
+    }
+
+    @Test
     void shouldDetectQuestRewardWithUnknownFaction() {
         Quest q = new Quest(NamespacedId.of("storynpcs:reward_quest"), "Reward Quest");
         q.setObjectives(List.of(

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "description": "P0-3 parity evidence fixture contract. This schema describes the required fields; tools/parity/evidence_gate.py is the executable gate.",
+  "evidence_states": [
+    "VERIFIED_TARGET_SOURCE",
+    "VERIFIED_TARGET_RUNTIME",
+    "VERIFIED_STORYNPCS_RUNTIME",
+    "VERIFIED_PARITY",
+    "UNVERIFIED_TARGET_RUNTIME",
+    "INTENTIONAL_DEVIATION",
+    "UNKNOWN"
+  ],
+  "probe_statuses": {
+    "target": ["OBSERVED", "UNAVAILABLE", "BLOCKED", "NOT_RUN"],
+    "storynpcs": ["OBSERVED", "BLOCKED", "NOT_RUN"]
+  },
+  "allowed_layers": ["server", "client", "target-runtime", "storynpcs-runtime", "persistence"],
+  "issue_id_pattern": "^P\\d+-\\d+$",
+  "fixture_required_fields": [
+    "fixture_id",
+    "issue_ids",
+    "target_symbol",
+    "operation_family",
+    "setup",
+    "required_layers",
+    "target_probe",
+    "storynpcs_probe",
+    "comparison",
+    "evidence_state",
+    "failure_context"
+  ],
+  "runtime_rules": {
+    "VERIFIED_PARITY": "target_probe.status=OBSERVED, storynpcs_probe.status=OBSERVED, comparison.outcome=MATCH, and target_probe.result equals storynpcs_probe.result; observed results must be meaningful and non-empty",
+    "UNVERIFIED_TARGET_RUNTIME": "target_probe.status is UNAVAILABLE, BLOCKED, or NOT_RUN and requires reason plus next_evidence",
+    "INTENTIONAL_DEVIATION": "requires rationale and migration_impact",
+    "certification_eligible": "only VERIFIED_PARITY and INTENTIONAL_DEVIATION fixtures with no validation errors",
+    "parity_status": "VERIFIED only when certification_eligible is true; otherwise BLOCKED",
+    "failure_context": "issue_ids, target_symbol, input, expected_result, actual_result, and evidence_state are required so every failure is actionable"
+  }
+}

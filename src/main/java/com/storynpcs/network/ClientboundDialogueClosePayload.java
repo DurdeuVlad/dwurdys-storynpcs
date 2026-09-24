@@ -13,7 +13,7 @@ public record ClientboundDialogueClosePayload() implements CustomPacketPayload {
     public static final ClientboundDialogueClosePayload INSTANCE = new ClientboundDialogueClosePayload();
 
     public static final StreamCodec<ByteBuf, ClientboundDialogueClosePayload> STREAM_CODEC =
-            StreamCodec.unit(INSTANCE);
+            MutationProtocolCodecs.versioned(StreamCodec.unit(INSTANCE));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

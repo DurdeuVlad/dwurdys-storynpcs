@@ -12,9 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class FollowerGroup {
 
-    private static final Map<UUID, List<UUID>> LEADER_FOLLOWERS = new ConcurrentHashMap<>();
-
-    private FollowerGroup() {}
+    private final Map<UUID, List<UUID>> leaderFollowers = new ConcurrentHashMap<>();
 
     /**
      * Obtains the assigned formation slot index for a follower.
@@ -25,12 +23,12 @@ public final class FollowerGroup {
      * @param followerUuid The unique ID of the follower entity
      * @return 0-indexed slot index
      */
-    public static int getOrAssignSlot(UUID leaderUuid, UUID followerUuid) {
+    public int getOrAssignSlot(UUID leaderUuid, UUID followerUuid) {
         if (leaderUuid == null || followerUuid == null) {
             return 0;
         }
 
-        List<UUID> followers = LEADER_FOLLOWERS.computeIfAbsent(leaderUuid, k -> Collections.synchronizedList(new ArrayList<>()));
+        List<UUID> followers = leaderFollowers.computeIfAbsent(leaderUuid, k -> Collections.synchronizedList(new ArrayList<>()));
         synchronized (followers) {
             int index = followers.indexOf(followerUuid);
             if (index >= 0) {
@@ -47,17 +45,17 @@ public final class FollowerGroup {
      * @param leaderUuid   The UUID of the leader
      * @param followerUuid The unique ID of the follower entity
      */
-    public static void unregister(UUID leaderUuid, UUID followerUuid) {
+    public void unregister(UUID leaderUuid, UUID followerUuid) {
         if (leaderUuid == null || followerUuid == null) {
             return;
         }
 
-        List<UUID> followers = LEADER_FOLLOWERS.get(leaderUuid);
+        List<UUID> followers = leaderFollowers.get(leaderUuid);
         if (followers != null) {
             synchronized (followers) {
                 followers.remove(followerUuid);
                 if (followers.isEmpty()) {
-                    LEADER_FOLLOWERS.remove(leaderUuid);
+                    leaderFollowers.remove(leaderUuid);
                 }
             }
         }
@@ -66,9 +64,9 @@ public final class FollowerGroup {
     /**
      * Returns the total number of registered followers for a leader.
      */
-    public static int getFollowerCount(UUID leaderUuid) {
+    public int getFollowerCount(UUID leaderUuid) {
         if (leaderUuid == null) return 0;
-        List<UUID> followers = LEADER_FOLLOWERS.get(leaderUuid);
+        List<UUID> followers = leaderFollowers.get(leaderUuid);
         if (followers == null) return 0;
         synchronized (followers) {
             return followers.size();
@@ -78,16 +76,16 @@ public final class FollowerGroup {
     /**
      * Clears registered followers for a specific leader (e.g. on player logout).
      */
-    public static void clearLeader(UUID leaderUuid) {
+    public void clearLeader(UUID leaderUuid) {
         if (leaderUuid != null) {
-            LEADER_FOLLOWERS.remove(leaderUuid);
+            leaderFollowers.remove(leaderUuid);
         }
     }
 
     /**
      * Clears all registered follower groups (used during server shutdown or test cleanup).
      */
-    public static void clearAll() {
-        LEADER_FOLLOWERS.clear();
+    public void clearAll() {
+        leaderFollowers.clear();
     }
 }

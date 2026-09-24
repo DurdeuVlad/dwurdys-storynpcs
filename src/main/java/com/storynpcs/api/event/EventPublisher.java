@@ -1,11 +1,11 @@
 package com.storynpcs.api.event;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 public class EventPublisher {
-    private final List<Consumer<StoryNpcsEvent>> listeners = new ArrayList<>();
+    private final List<Consumer<StoryNpcsEvent>> listeners = new CopyOnWriteArrayList<>();
 
     public void register(Consumer<StoryNpcsEvent> listener) {
         listeners.add(listener);
@@ -16,8 +16,15 @@ public class EventPublisher {
             try {
                 listener.accept(event);
             } catch (Exception e) {
-                System.err.println("Error publishing event: " + e.getMessage());
+                logListenerFailure(e);
+            } catch (AssertionError e) {
+                // Assertions from an extension listener must not strand later listeners or queued events.
+                logListenerFailure(e);
             }
         }
+    }
+
+    private static void logListenerFailure(Throwable failure) {
+        System.err.println("Error publishing event: " + failure.getMessage());
     }
 }

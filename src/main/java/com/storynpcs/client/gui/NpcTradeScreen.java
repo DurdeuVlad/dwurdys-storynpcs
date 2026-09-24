@@ -12,6 +12,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Player-facing trade screen for a trader-role NPC. Opened server-side via
@@ -25,14 +26,18 @@ public class NpcTradeScreen extends Screen {
     private final String npcName;
     private final TraderRole trader;
     private final Map<String, Integer> factionScores;
+    private final UUID sessionId;
+    private final Map<Integer, UUID> requestIds = new java.util.HashMap<>();
     private int scrollOffset = 0;
 
-    public NpcTradeScreen(String npcId, String npcName, TraderRole trader, Map<String, Integer> factionScores) {
+    public NpcTradeScreen(String npcId, String npcName, TraderRole trader, Map<String, Integer> factionScores,
+                          UUID sessionId) {
         super(Component.literal(trader.getMarketName()));
         this.npcId = npcId != null ? npcId : "";
         this.npcName = npcName != null ? npcName : "";
         this.trader = trader;
         this.factionScores = factionScores != null ? factionScores : Map.of();
+        this.sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
     }
 
     private int listTop() { return 22; }
@@ -58,7 +63,8 @@ public class NpcTradeScreen extends Screen {
             boolean available = listing.isAvailable(score);
             Button buy = Button.builder(Component.literal("Buy"),
                             b -> PacketDistributor.sendToServer(
-                                    new ServerboundTradeExecutePayload(npcId, index)))
+                                    new ServerboundTradeExecutePayload(npcId, index, sessionId,
+                                            requestIds.computeIfAbsent(index, ignored -> UUID.randomUUID()))))
                     .bounds(12 + rowW - buyW, y, buyW, 11)
                     .build();
             buy.active = available;

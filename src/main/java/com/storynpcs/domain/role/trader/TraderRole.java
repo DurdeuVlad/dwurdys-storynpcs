@@ -29,10 +29,14 @@ public class TraderRole {
     public List<TradeListing> getListings() { return Collections.unmodifiableList(listings); }
     public void setListings(List<TradeListing> listings) {
         this.listings = listings != null ? new ArrayList<>(listings) : new ArrayList<>();
+        for (TradeListing listing : this.listings) {
+            if (listing != null) listing.ensureStableId();
+        }
     }
 
     public void addListing(TradeListing listing) {
         if (listing != null) {
+            listing.ensureStableId();
             this.listings.add(listing);
         }
     }

@@ -3,11 +3,13 @@
 
 Prepared 2026-09-20. Sources: direct read of `dwurdys-storynpcs` (commit `9fb1eee`) and the sibling research repo `dwurdys-storynpcs-research` (Phase 1 archaeology of CustomNPCs, 125 research docs + Milestone 7 GUI audit).
 
+Truth status: `DRAFT / UNVERIFIED` — this report is UX analysis and issue discovery, not proof of delivered CustomNPCs parity. The current acceptance source is [CUSTOMNPCS_PARITY_TRACEABILITY.md](CUSTOMNPCS_PARITY_TRACEABILITY.md) plus the issue register.
+
 ---
 
 ## 1. Executive summary
 
-The **engine** is in good shape and in several places (hot-reload, in-game validation, tab-completion, clickable chat actions) already better than CustomNPCs' equivalent. The **authoring surface** is not: three of the mod's headline differentiators — dialogue conditions/actions, quests, and factions — can only be *created* by hand-writing YAML. A non-technical admin who installs the mod today, doesn't read logs, and doesn't dig through the creative tab will see **nothing happen** on first run, and the moment they want anything beyond "spawn an NPC and tweak its stats," they hit a wall that requires a text editor.
+The report observes partial engine foundations (hot-reload, in-game validation, tab-completion, and clickable chat actions), but those observations are not a target-parity certification. The **authoring surface** remains incomplete: three of the mod's intended differentiators — dialogue conditions/actions, quests, and factions — were identified as YAML-heavy. A non-technical admin who installs the mod today, doesn't read logs, and doesn't dig through the creative tab may see **nothing happen** on first run, and the moment they want anything beyond "spawn an NPC and tweak its stats," they may hit a wall that requires a text editor.
 
 This is not a "add more features" problem. CustomNPCs itself is proof that more GUI surface doesn't guarantee good UX — the research repo's own audit found **15 of 18 CustomNPCs screens have visual defects** (overflowing buttons, colliding widgets, clipped localized text) and only 4 of 149 GUI classes have any search/filter. The goal here is not to out-feature CustomNPCs, it's to make the *existing* engine self-explanatory without requiring the admin to read anything.
 
@@ -102,11 +104,11 @@ Ordered by impact on first-run complexity. Each is independently shippable and s
 
 ---
 
-## 6. Closing audit (issue #27) — results
+## 6. Historical audit report (issue #27) — unverified
 
-Audited 2026-09-21 against `main` after M1–M7 merged (PRs #28–#43). Every system was exercised on all three authoring paths on a live server + client at 427×240 (minimum target resolution).
+The following section preserves a prior report's claims for investigation. They were not re-run as part of the current parity baseline, the working tree may differ from the cited commit, and no claim below can close a parity issue until it has a named fixture and evidence state. Treat the table and results as `UNKNOWN`/`UNVERIFIED_STORYNPCS_RUNTIME`, not as delivered parity.
 
-### Parity matrix
+### Reported parity matrix (unverified)
 
 | System | YAML path | Command authoring | GUI authoring |
 |---|---|---|---|
@@ -118,7 +120,7 @@ Audited 2026-09-21 against `main` after M1–M7 merged (PRs #28–#43). Every sy
 | Trading (added by #23) | `trader:` block inside NPC YAML | `npc trade enable|disable|list|add|remove` | `NpcTradeScreen` — right-click trader with no dialogue |
 | Banking (added by #23) | `banker:` block inside NPC YAML | `npc bank enable|disable` | `NpcBankScreen` — right-click banker with no dialogue |
 
-### Verified live
+### Reported live results (unverified)
 
 - All five GUI surfaces open and render within bounds at 427×240: `DialogueEditorScreen`, `QuestEditorScreen`, `FactionEditorScreen`, `NpcEditorScreen`, `NpcRulesScreen`.
 - Command-path writes confirmed by file inspection for NPC, dialogue, quest, faction fixtures; GUI-path write confirmed by `Save Changes` → server `saved to disk and updated in world` → YAML content change.
@@ -127,7 +129,7 @@ Audited 2026-09-21 against `main` after M1–M7 merged (PRs #28–#43). Every sy
 - List filters verified live on quest, faction, and rules lists (case-insensitive substring, clear restores rows, filter+scroll stays inside the scissor region).
 - Plain-language diagnostics verified live: `SCHEMA_MISSING_ID` and `QUEST_OBJ_COUNT_INVALID` both emit actionable hint lines.
 
-### Help-text discoverability (fixed during audit)
+### Reported help-text discoverability changes (unverified)
 
 Top-level `/storynpcs help` previously omitted `rule|trade|bank` from the `npc` summary and all authoring verbs from `quest`/`faction` summaries; subsystem help never mentioned YAML paths or the wand GUI. Now:
 
@@ -136,11 +138,11 @@ Top-level `/storynpcs help` previously omitted `rule|trade|bank` from the `npc` 
 - `dialogue` help ends with `YAML: world/storynpcs/definitions/dialogues/<file>.yaml`.
 - Top-level help ends with an explicit three-paths line: `Every system has three paths: YAML in world/storynpcs/definitions/, the commands above, and GUIs ...`.
 
-### Defect found & fixed during audit
+### Reported defect and fix (unverified)
 
 - **`EditBox` truncation (data corruption)**: `EditBox.setValue()` clamps to the widget's `maxLength` *at call time*; several editors called `setValue()` before `setMaxLength()`, silently truncating values longer than the 32-char default. Concretely, the NPC editor truncated `storynpcs:textures/entity/default.png` (40 chars) to `...entity/defaul` (32), corrupting the skin path on every GUI save — the command path had no such limit. Fixed by reordering to `setMaxLength` → `setValue` in `NpcEditorScreen` (name/title/skin/faction), `QuestEditorScreen` (id/title/category/description), and `FactionEditorScreen` (id/name/threshold). Verified live: GUI save now writes the full 40-char path.
 
-### Residual gaps (non-blocking, filed as follow-up)
+### Residual gaps reported by the historical audit
 
 - **Trading/banking parity is asymmetric** (follow-up issue #44): `npc trade|bank` commands author the role; `NpcTradeScreen`/`NpcBankScreen` are *player-facing* surfaces (buy/deposit/withdraw), not admin listing editors. An admin cannot add/remove trade listings from a GUI today — YAML or commands only.
 - **No `quest delete` / `faction delete`** (follow-up issue #45): YAML files can be deleted by hand and `npc delete`/`dialogue delete` exist, but quests/factions have no command-side delete.

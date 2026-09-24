@@ -1,9 +1,19 @@
 package com.storynpcs.domain.role.trader;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.storynpcs.domain.common.NamespacedId;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
 public class TradeListing {
+
+    @JsonProperty
+    private String listingId = "";
 
     @JsonProperty(required = true)
     private String offerItemId;
@@ -28,6 +38,12 @@ public class TradeListing {
 
     @JsonProperty
     private int requiredFactionPoints = 0;
+
+    @JsonIgnore
+    private transient long nextReservationId;
+
+    @JsonIgnore
+    private transient Set<Long> activeReservations = new HashSet<>();
 
     public TradeListing() {}
 
@@ -73,17 +89,101 @@ public class TradeListing {
     }
 
     public synchronized boolean recordTrade() {
-        if (maxUses > 0 && uses >= maxUses) {
-            return false;
-        }
-        // VULN-48: clamp to avoid integer overflow on unlimited trades
-        if (uses < Integer.MAX_VALUE) {
-            uses++;
-        }
+        TradeReservation reservation = reserveTrade();
+        if (reservation == null) return false;
+        reservation.commit();
         return true;
     }
 
-    public void restock() {
-        this.uses = 0;
+    /** Stable authored identity; runtime uses must never be keyed by list position. */
+    public String getListingId() { return listingId; }
+    public void setListingId(String listingId) {
+        String normalized = listingId == null ? "" : listingId.trim();
+        if (normalized.length() > 128 || (!normalized.isEmpty() && !normalized.matches("[A-Za-z0-9_.:-]+"))) {
+            throw new IllegalArgumentException("listingId must contain only bounded identifier characters");
+        }
+        this.listingId = normalized;
+    }
+
+    /** Assigns a deterministic legacy identity from the authored trade contract. */
+    public String ensureStableId() {
+        if (listingId == null || listingId.isBlank()) {
+            listingId = "legacy-" + digest(contractIdentity());
+        }
+        return listingId;
+    }
+
+    String contractIdentity() {
+        return String.valueOf(offerItemId) + "|" + offerCount + "|"
+                + String.valueOf(priceItemId) + "|" + priceCount + "|" + maxUses + "|"
+                + String.valueOf(requiredFaction) + "|" + requiredFactionPoints;
+    }
+
+    private static String digest(String value) {
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) result.append(String.format("%02x", bytes[i]));
+            return result.toString();
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    /**
+     * Reserves one listing use for a multi-step exchange. The reservation owns
+     * only its own use, so a failed exchange can roll back without decrementing
+     * a concurrent successful trade.
+     */
+    public synchronized TradeReservation reserveTrade() {
+        if (maxUses > 0 && uses >= maxUses) return null;
+        if (uses >= Integer.MAX_VALUE) return null;
+        uses++;
+        long reservationId = ++nextReservationId;
+        activeReservations().add(reservationId);
+        return new TradeReservation(this, reservationId);
+    }
+
+    private Set<Long> activeReservations() {
+        if (activeReservations == null) activeReservations = new HashSet<>();
+        return activeReservations;
+    }
+
+    private synchronized void commitReservation(long reservationId) {
+        activeReservations().remove(reservationId);
+    }
+
+    private synchronized void rollbackReservation(long reservationId) {
+        if (activeReservations().remove(reservationId) && uses > 0) uses--;
+    }
+
+    public synchronized void restock() {
+        // Reservations already in flight remain owned by their callers; the
+        // next committed trade count is therefore the number still reserved.
+        this.uses = activeReservations().size();
+    }
+
+    public static final class TradeReservation {
+        private final TradeListing owner;
+        private final long reservationId;
+        private boolean closed;
+
+        private TradeReservation(TradeListing owner, long reservationId) {
+            this.owner = owner;
+            this.reservationId = reservationId;
+        }
+
+        public synchronized void commit() {
+            if (closed) return;
+            owner.commitReservation(reservationId);
+            closed = true;
+        }
+
+        public synchronized void rollback() {
+            if (closed) return;
+            owner.rollbackReservation(reservationId);
+            closed = true;
+        }
     }
 }

@@ -14,24 +14,31 @@ import net.minecraft.resources.ResourceLocation;
  */
 public record ClientboundQuestEditorOpenPayload(
         String questId,
-        String questsJson
+        String questsJson,
+        long revision
 ) implements CustomPacketPayload {
     public static final int MAX_QUESTS_JSON_LENGTH = 4 << 20; // 4 MiB — whole registry
 
     public ClientboundQuestEditorOpenPayload {
         questId = questId != null ? questId : "";
         questsJson = questsJson != null ? questsJson : "[]";
+        if (revision < 0) revision = 0;
+    }
+
+    public ClientboundQuestEditorOpenPayload(String questId, String questsJson) {
+        this(questId, questsJson, 0L);
     }
 
     public static final Type<ClientboundQuestEditorOpenPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(StoryNpcs.MOD_ID, "quest_editor_open"));
 
     public static final StreamCodec<ByteBuf, ClientboundQuestEditorOpenPayload> STREAM_CODEC =
-            StreamCodec.composite(
-                    ByteBufCodecs.STRING_UTF8, ClientboundQuestEditorOpenPayload::questId,
-                    ByteBufCodecs.stringUtf8(MAX_QUESTS_JSON_LENGTH), ClientboundQuestEditorOpenPayload::questsJson,
+            MutationProtocolCodecs.registryPayload(StreamCodec.composite(
+                    MutationProtocolCodecs.ID_CODEC, ClientboundQuestEditorOpenPayload::questId,
+                    MutationProtocolCodecs.REGISTRY_JSON_CODEC, ClientboundQuestEditorOpenPayload::questsJson,
+                    ByteBufCodecs.VAR_LONG, ClientboundQuestEditorOpenPayload::revision,
                     ClientboundQuestEditorOpenPayload::new
-            );
+            ));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

@@ -23,6 +23,7 @@ import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.domain.quest.QuestReward;
 import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.service.DialogueView;
+import com.storynpcs.service.QuestCompletionResult;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
 import com.storynpcs.domain.role.follower.FollowerRole;
@@ -55,6 +56,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 public final class StoryNpcsCommands {
 
@@ -409,6 +411,11 @@ public final class StoryNpcsCommands {
                 .executes(ctx -> openQuestGui(ctx, null))
                 .then(questIdGui));
 
+        quest.then(Commands.literal("delete").requires(s -> s.hasPermission(2))
+                .then(Commands.argument("quest_id", ResourceLocationArgument.id())
+                        .suggests(QUEST_IDS)
+                        .executes(StoryNpcsCommands::deleteQuest)));
+
         return quest;
     }
 
@@ -464,6 +471,11 @@ public final class StoryNpcsCommands {
         faction.then(Commands.literal("gui").requires(s -> s.hasPermission(2))
                 .executes(ctx -> openFactionGui(ctx, null))
                 .then(factionIdGui));
+
+        faction.then(Commands.literal("delete").requires(s -> s.hasPermission(2))
+                .then(Commands.argument("faction_id", ResourceLocationArgument.id())
+                        .suggests(FACTION_IDS)
+                        .executes(StoryNpcsCommands::deleteFaction)));
 
         return faction;
     }
@@ -800,9 +812,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getDisplay().setName(value);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getDisplay().setName(value));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -825,9 +835,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getDisplay().setTitle(value);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getDisplay().setTitle(value));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -850,9 +858,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getDisplay().setSkinTexture(texture);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getDisplay().setSkinTexture(texture));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -875,9 +881,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getStats().setMaxHealth(value);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getStats().setMaxHealth(value));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -900,9 +904,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getStats().setAttackDamage(value);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getStats().setAttackDamage(value));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -925,9 +927,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getStats().setMovementSpeed(value);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getStats().setMovementSpeed(value));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -950,9 +950,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getAi().setWalkingRange(value);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getAi().setWalkingRange(value));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -982,9 +980,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getAi().setMovementType(type);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getAi().setMovementType(type));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -1014,9 +1010,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
             return 0;
         }
-        NpcDefinition def = npcOpt.get();
-        def.getAi().setTacticalStance(stance);
-        var result = mod.getApplicationService().saveNpc(def);
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId, def -> def.getAi().setTacticalStance(stance));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -1035,7 +1029,8 @@ public final class StoryNpcsCommands {
             return 0;
         }
         try {
-            var result = mod.getApplicationService().assignDialogue(npcId, dialogueId);
+            var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                    npc -> npc.setDialogueId(dialogueId));
             if (result.hasErrors()) {
                 ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to assign dialogue:\n" + result.formatReport(5)));
                 return 0;
@@ -1058,7 +1053,8 @@ public final class StoryNpcsCommands {
             return 0;
         }
         try {
-            var result = mod.getApplicationService().assignFaction(npcId, factionId);
+            var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                    npc -> npc.setFactionId(factionId));
             if (result.hasErrors()) {
                 ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to assign faction:\n" + result.formatReport(5)));
                 return 0;
@@ -1112,12 +1108,14 @@ public final class StoryNpcsCommands {
 
     private static int deleteNpc(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
-        boolean deleted = StoryNpcs.getInstance().getApplicationService().deleteNpc(id);
-        if (deleted) {
+        StoryNpcs mod = StoryNpcs.getInstance();
+        var result = mod.getApplicationService().deleteNpc(
+                commandMutationRequest(ctx, mod.getApplicationService(), "npc", "delete", id));
+        if (result.applied()) {
             ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Deleted NPC definition '" + id + "' from registry. To remove in-world entities, use '/storynpcs npc despawn " + id + "'."), true);
             return 1;
         } else {
-            ctx.getSource().sendFailure(Component.literal("NPC not found: " + id));
+            ctx.getSource().sendFailure(Component.literal("NPC deletion rejected: " + result.diagnostics().formatReport(3)));
             return 0;
         }
     }
@@ -1142,8 +1140,9 @@ public final class StoryNpcsCommands {
 
         String displayName = (name != null && !name.isBlank()) ? name.trim() : humanizeName(id.getPath());
         var def = new com.storynpcs.domain.npc.NpcDefinition(id, displayName);
-        var result = mod.getApplicationService().saveNpc(def);
-        if (result.hasErrors()) {
+        var result = mod.getApplicationService().createNpc(
+                commandMutationRequest(ctx, mod.getApplicationService(), "npc", "create", id), def);
+        if (!result.applied()) {
             source.sendFailure(Component.literal("[StoryNPCs] NPC scaffold rejected (nothing written):\n" + result.formatReport(10)));
             return 0;
         }
@@ -1249,21 +1248,36 @@ public final class StoryNpcsCommands {
         // 1. Demo definition: bundled starter NPC if talkable, else scaffold a throwaway one
         NamespacedId demoId = resolveDemoNpcId(reg);
         if (demoId == null) {
+            boolean scaffoldDialogueCreated = false;
             if (reg.getDialogue(QUICKSTART_DEMO_DIALOGUE).isEmpty()) {
-                var dialogueResult = mod.getApplicationService()
-                        .saveDialogue(QUICKSTART_DEMO_DIALOGUE, buildQuickstartDialogue());
-                if (dialogueResult.hasErrors()) {
+                var dialogueResult = mod.getApplicationService().createDialogue(
+                        commandMutationRequest(ctx, mod.getApplicationService(),
+                                "dialogue", "create", QUICKSTART_DEMO_DIALOGUE), buildQuickstartDialogue());
+                if (!dialogueResult.applied()) {
                     source.sendFailure(Component.literal("[StoryNPCs] Demo dialogue scaffold rejected (nothing written):\n"
                             + dialogueResult.formatReport(10)));
                     return 0;
                 }
+                scaffoldDialogueCreated = true;
             }
             NpcDefinition def = new NpcDefinition(QUICKSTART_DEMO_NPC, "Demo NPC");
             def.setDialogueId(QUICKSTART_DEMO_DIALOGUE);
-            var npcResult = mod.getApplicationService().saveNpc(def);
-            if (npcResult.hasErrors()) {
-                source.sendFailure(Component.literal("[StoryNPCs] Demo NPC scaffold rejected (nothing written):\n"
-                        + npcResult.formatReport(10)));
+            var npcResult = mod.getApplicationService().createNpc(
+                    commandMutationRequest(ctx, mod.getApplicationService(), "npc", "create", QUICKSTART_DEMO_NPC), def);
+            if (!npcResult.applied()) {
+                String compensation = "An existing demo dialogue was left unchanged.";
+                if (scaffoldDialogueCreated) {
+                    var rollback = mod.getApplicationService().deleteUnreferencedDialogue(
+                            commandMutationRequest(ctx, mod.getApplicationService(), "dialogue", "delete",
+                                    QUICKSTART_DEMO_DIALOGUE));
+                    compensation = rollback.applied()
+                            ? "The newly created, unreferenced dialogue scaffold was removed."
+                            : reg.getDialogue(QUICKSTART_DEMO_DIALOGUE).isPresent()
+                                    ? "The dialogue remains; safe cleanup was rejected:\n" + rollback.formatReport(10)
+                                    : "The dialogue is already absent; no further cleanup was needed.";
+                }
+                source.sendFailure(Component.literal("[StoryNPCs] Demo NPC scaffold rejected:\n"
+                        + npcResult.formatReport(10) + "\n" + compensation));
                 return 0;
             }
             demoId = QUICKSTART_DEMO_NPC;
@@ -1374,8 +1388,9 @@ public final class StoryNpcsCommands {
         }
 
         String dialogueTitle = (title != null && !title.isBlank()) ? title.trim() : humanizeName(id.getPath());
-        var result = mod.getApplicationService().createDialogue(id, dialogueTitle);
-        if (result.hasErrors()) {
+        var result = mod.getApplicationService().createDialogue(
+                commandMutationRequest(ctx, mod.getApplicationService(), "dialogue", "create", id), dialogueTitle);
+        if (!result.applied()) {
             source.sendFailure(Component.literal("[StoryNPCs] Dialogue scaffold rejected:\n" + result.formatReport(10)));
             return 0;
         }
@@ -1388,7 +1403,8 @@ public final class StoryNpcsCommands {
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
                         new com.storynpcs.network.ClientboundDialogueEditorOpenPayload(
                                 id.toString(),
-                                com.storynpcs.domain.dialogue.DialogueGraphSerde.toJson(dialogueOpt.get())));
+                                com.storynpcs.domain.dialogue.DialogueGraphSerde.toJson(dialogueOpt.get()),
+                                mod.getApplicationService().currentRevision("dialogue", id)));
             }
             source.sendSuccess(() -> Component.literal("[StoryNPCs] Created dialogue '" + dialogueTitle
                     + "' (" + id + ") — saved to dialogues/" + fileName + ".yaml and opened editor."), true);
@@ -1412,8 +1428,9 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var referencingNpcs = mod.getApplicationService().findNpcsReferencingDialogue(id);
-        boolean deleted = mod.getApplicationService().deleteDialogue(id);
-        if (deleted) {
+        var result = mod.getApplicationService().deleteDialogue(
+                commandMutationRequest(ctx, mod.getApplicationService(), "dialogue", "delete", id));
+        if (result.applied()) {
             if (!referencingNpcs.isEmpty()) {
                 ctx.getSource().sendSuccess(() -> Component.literal("§e[StoryNPCs] Warning: Deleted dialogue '" + id + "' was referenced by NPC(s): " + referencingNpcs + ". Assign them a new dialogue with '/storynpcs npc set dialogue <npc> <dialogue>'."), true);
             } else {
@@ -1421,7 +1438,7 @@ public final class StoryNpcsCommands {
             }
             return 1;
         } else {
-            ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
+            ctx.getSource().sendFailure(Component.literal("Dialogue deletion rejected: " + result.diagnostics().formatReport(3)));
             return 0;
         }
     }
@@ -1456,7 +1473,8 @@ public final class StoryNpcsCommands {
     // Quest Handlers
     private static int editDialogue(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
-        var dialogueOpt = StoryNpcs.getInstance().getRegistry().getDialogue(id);
+        StoryNpcs mod = StoryNpcs.getInstance();
+        var dialogueOpt = mod.getRegistry().getDialogue(id);
         if (dialogueOpt.isEmpty()) {
             MutableComponent failMsg = Component.literal("[StoryNPCs] Dialogue not found: '" + id + "'  ")
                     .append(clickable("§a[Create & Edit]", "/storynpcs dialogue create " + id,
@@ -1474,7 +1492,8 @@ public final class StoryNpcsCommands {
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
                 new com.storynpcs.network.ClientboundDialogueEditorOpenPayload(
                         id.toString(),
-                        com.storynpcs.domain.dialogue.DialogueGraphSerde.toJson(dialogueOpt.get())));
+                        com.storynpcs.domain.dialogue.DialogueGraphSerde.toJson(dialogueOpt.get()),
+                        mod.getApplicationService().currentRevision("dialogue", id)));
         ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Opening visual dialogue editor for '" + id + "'."), false);
         return 1;
     }
@@ -1545,7 +1564,23 @@ public final class StoryNpcsCommands {
         }
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         try {
-            StoryNpcs.getInstance().getApplicationService().startQuest(player.getUUID(), id);
+            var service = StoryNpcs.getInstance().getApplicationService();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            var request = new com.storynpcs.service.QuestProgressionMutationRequest(
+                    "command", actorUuid, player.getUUID(), id,
+                    com.storynpcs.service.QuestProgressionMutationRequest.Action.START,
+                    "", 0, service.currentQuestProgressionRevision(player.getUUID()), UUID.randomUUID(),
+                    ctx.getSource().hasPermission(2) ? 2 : 0);
+            var result = service.mutateQuestProgression(request);
+            if (result.hasErrors()) {
+                ctx.getSource().sendFailure(Component.literal("Failed to start quest: " + result.formatReport()));
+                return 0;
+            }
+            if (!result.applied()) {
+                ctx.getSource().sendFailure(Component.literal(result.formatReport()));
+                return 0;
+            }
             ServerPlayer finalPlayer = player;
             ctx.getSource().sendSuccess(() -> Component.literal(String.format("Started quest '%s' for %s", id, finalPlayer.getScoreboardName())), true);
             return 1;
@@ -1567,15 +1602,38 @@ public final class StoryNpcsCommands {
         }
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         try {
-            StoryNpcs.getInstance().getApplicationService().completeQuest(player.getUUID(), id);
+            QuestCompletionResult result = StoryNpcs.getInstance().getApplicationService()
+                    .completeQuest(player.getUUID(), id);
             ServerPlayer finalPlayer = player;
-            ctx.getSource().sendSuccess(() -> Component.literal(String.format("Completed quest '%s' for %s", id, finalPlayer.getScoreboardName())), true);
-            return 1;
+            CompletionFeedback feedback = completionFeedback(id, finalPlayer.getScoreboardName(), result);
+            if (feedback.success()) {
+                ctx.getSource().sendSuccess(() -> Component.literal(feedback.message()), true);
+                return 1;
+            }
+            ctx.getSource().sendFailure(Component.literal(feedback.message()));
+            return 0;
         } catch (Exception e) {
             ctx.getSource().sendFailure(Component.literal("Failed to complete quest: " + e.getMessage()));
             return 0;
         }
     }
+
+    static CompletionFeedback completionFeedback(
+            NamespacedId questId, String playerName, QuestCompletionResult result) {
+        return switch (result.outcome()) {
+            case COMPLETED -> new CompletionFeedback(true,
+                    String.format("Completed quest '%s' for %s", questId, playerName));
+            case ALREADY_COMPLETED -> new CompletionFeedback(true,
+                    String.format("Quest '%s' was already completed for %s", questId, playerName));
+            case REJECTED -> new CompletionFeedback(false,
+                    String.format("Could not complete quest '%s' for %s: %s", questId, playerName, result.code()));
+            case FAILED -> new CompletionFeedback(false,
+                    String.format("Quest '%s' failed for %s after applying %d rewards: %s",
+                            questId, playerName, result.rewardsApplied(), result.code()));
+        };
+    }
+
+    record CompletionFeedback(boolean success, String message) {}
 
     /**
      * /storynpcs quest create — scaffolds a minimal valid quest (one placeholder
@@ -1588,8 +1646,9 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
             return 0;
         }
-        var result = mod.getApplicationService().createQuest(id, title);
-        if (result.hasErrors()) {
+        var result = mod.getApplicationService().createQuest(
+                commandMutationRequest(ctx, mod.getApplicationService(), "quest", "create", id), title);
+        if (!result.applied()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest creation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -1617,27 +1676,28 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
             return 0;
         }
-        Quest quest = questOpt.get();
-        switch (field) {
-            case "description" -> quest.setDescription(value);
-            case "category" -> quest.setCategory(value);
-            case "repeatType" -> {
-                Quest.RepeatType rt;
-                try {
-                    rt = Quest.RepeatType.valueOf(value.toUpperCase(Locale.ROOT));
-                } catch (IllegalArgumentException e) {
-                    ctx.getSource().sendFailure(Component.literal(
-                            "[StoryNPCs] Invalid repeatType '" + value + "' — expected ONCE, REPEATABLE, or DAILY."));
-                    return 0;
-                }
-                quest.setRepeatType(rt);
-            }
-            default -> {
-                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown quest field: " + field));
+        Quest.RepeatType repeatType = null;
+        if ("repeatType".equals(field)) {
+            try {
+                repeatType = Quest.RepeatType.valueOf(value.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                ctx.getSource().sendFailure(Component.literal(
+                        "[StoryNPCs] Invalid repeatType '" + value + "' — expected ONCE, REPEATABLE, or DAILY."));
                 return 0;
             }
+        } else if (!field.equals("description") && !field.equals("category")) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown quest field: " + field));
+            return 0;
         }
-        var result = mod.getApplicationService().saveQuest(quest);
+        Quest.RepeatType finalRepeatType = repeatType;
+        var result = mutateQuest(ctx, mod.getApplicationService(), id, quest -> {
+            switch (field) {
+                case "description" -> quest.setDescription(value);
+                case "category" -> quest.setCategory(value);
+                case "repeatType" -> quest.setRepeatType(finalRepeatType);
+                default -> throw new IllegalArgumentException("Unknown quest field: " + field);
+            }
+        });
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -1680,12 +1740,10 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
             return 0;
         }
-        Quest quest = questOpt.get();
-        String objId = nextObjectiveId(quest);
-        quest.getObjectives().add(new QuestObjective(objId, type, target, count));
-        var result = mod.getApplicationService().saveQuest(quest);
+        String objId = nextObjectiveId(questOpt.get());
+        var result = mutateQuest(ctx, mod.getApplicationService(), id,
+                quest -> quest.getObjectives().add(new QuestObjective(objId, type, target, count)));
         if (result.hasErrors()) {
-            quest.getObjectives().removeIf(o -> o.getId().equals(objId));
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -1717,7 +1775,8 @@ public final class StoryNpcsCommands {
                 java.util.List.copyOf(mod.getRegistry().getAllQuests()));
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
                 new com.storynpcs.network.ClientboundQuestEditorOpenPayload(
-                        questId != null ? questId.toString() : "", questsJson));
+                        questId != null ? questId.toString() : "", questsJson,
+                        questId != null ? mod.getApplicationService().currentRevision("quest", questId) : 0L));
         ctx.getSource().sendSuccess(() -> Component.literal(questId != null
                 ? "[StoryNPCs] Opening quest editor for '" + questId + "'."
                 : "[StoryNPCs] Opening quest browser."), false);
@@ -1756,10 +1815,9 @@ public final class StoryNpcsCommands {
                     "[StoryNPCs] Quest '" + id + "' has no objective '" + objectiveId + "'."));
             return 0;
         }
-        quest.getObjectives().remove(removed);
-        var result = mod.getApplicationService().saveQuest(quest);
+        var result = mutateQuest(ctx, mod.getApplicationService(), id,
+                updated -> updated.getObjectives().removeIf(o -> o.getId().equals(objectiveId)));
         if (result.hasErrors()) {
-            quest.getObjectives().add(removed);
             ctx.getSource().sendFailure(Component.literal(
                     "[StoryNPCs] Validation failed (a quest needs at least one objective):\n" + result.formatReport(5)));
             return 0;
@@ -1801,17 +1859,15 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
             return 0;
         }
-        Quest quest = questOpt.get();
-        quest.getRewards().add(new QuestReward(type, target, amount));
-        var result = mod.getApplicationService().saveQuest(quest);
+        var result = mutateQuest(ctx, mod.getApplicationService(), id,
+                quest -> quest.getRewards().add(new QuestReward(type, target, amount)));
         if (result.hasErrors()) {
-            quest.getRewards().remove(quest.getRewards().size() - 1);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(
                 "[StoryNPCs] Added reward #%d (%s %s x%d) to quest '%s' (persisted to YAML).",
-                quest.getRewards().size(), type, target, amount, id)), true);
+                 questOpt.get().getRewards().size() + 1, type, target, amount, id)), true);
         return 1;
     }
 
@@ -1836,16 +1892,45 @@ public final class StoryNpcsCommands {
                     id, quest.getRewards().size(), index)));
             return 0;
         }
-        QuestReward removed = quest.getRewards().remove(index - 1);
-        var result = mod.getApplicationService().saveQuest(quest);
+        QuestReward removed = quest.getRewards().get(index - 1);
+        var result = mutateQuest(ctx, mod.getApplicationService(), id,
+                updated -> updated.getRewards().remove(index - 1));
         if (result.hasErrors()) {
-            quest.getRewards().add(index - 1, removed);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(
                 "[StoryNPCs] Removed reward #%d (%s %s) from quest '%s' (persisted to YAML).",
                 index, removed.getType(), removed.getTarget(), id)), true);
+        return 1;
+    }
+
+    /**
+     * /storynpcs quest delete — removes the quest definition via the application
+     * service (registry + YAML file). Dialogue graphs are captured BEFORE deletion
+     * so the admin is warned about dangling START_QUEST actions.
+     */
+    private static int deleteQuest(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var service = mod.getApplicationService();
+        List<NamespacedId> referencing = service.findDialoguesStartingQuest(id);
+        var result = service.deleteQuest(commandMutationRequest(ctx, service, "quest", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest deletion rejected: " + result.diagnostics().formatReport(3)));
+            return 0;
+        }
+        if (!referencing.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] WARNING: " + referencing.size() + " dialogue(s) still START_QUEST '" + id
+                            + "' — those actions are now dangling: " + referencing + "."), true);
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Deleted quest '" + id + "' (removed from registry and YAML)."), true);
         return 1;
     }
 
@@ -1857,8 +1942,9 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
             return 0;
         }
-        var result = mod.getApplicationService().createFaction(id, name);
-        if (result.hasErrors()) {
+        var result = mod.getApplicationService().createFaction(
+                commandMutationRequest(ctx, mod.getApplicationService(), "faction", "create", id), name);
+        if (!result.applied()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction creation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -1887,25 +1973,19 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction not found: " + id));
             return 0;
         }
-        Faction faction = factionOpt.get();
-        int previous;
-        switch (field) {
-            case "defaultPoints" -> { previous = faction.getDefaultPoints(); faction.setDefaultPoints(value); }
-            case "hostileThreshold" -> { previous = faction.getHostileThreshold(); faction.setHostileThreshold(value); }
-            case "friendlyThreshold" -> { previous = faction.getFriendlyThreshold(); faction.setFriendlyThreshold(value); }
-            default -> {
-                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown faction field: " + field));
-                return 0;
-            }
+        if (!field.equals("defaultPoints") && !field.equals("hostileThreshold") && !field.equals("friendlyThreshold")) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown faction field: " + field));
+            return 0;
         }
-        var result = mod.getApplicationService().saveFaction(faction);
-        if (result.hasErrors()) {
+        var result = mutateFaction(ctx, mod.getApplicationService(), id, faction -> {
             switch (field) {
-                case "defaultPoints" -> faction.setDefaultPoints(previous);
-                case "hostileThreshold" -> faction.setHostileThreshold(previous);
-                case "friendlyThreshold" -> faction.setFriendlyThreshold(previous);
-                default -> { }
+                case "defaultPoints" -> faction.setDefaultPoints(value);
+                case "hostileThreshold" -> faction.setHostileThreshold(value);
+                case "friendlyThreshold" -> faction.setFriendlyThreshold(value);
+                default -> throw new IllegalArgumentException("Unknown faction field: " + field);
             }
+        });
+        if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -1936,10 +2016,40 @@ public final class StoryNpcsCommands {
                 java.util.List.copyOf(mod.getRegistry().getAllFactions()));
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
                 new com.storynpcs.network.ClientboundFactionEditorOpenPayload(
-                        factionId != null ? factionId.toString() : "", factionsJson));
+                        factionId != null ? factionId.toString() : "", factionsJson,
+                        factionId != null ? mod.getApplicationService().currentRevision("faction", factionId) : 0L));
         ctx.getSource().sendSuccess(() -> Component.literal(factionId != null
                 ? "[StoryNPCs] Opening faction editor for '" + factionId + "'."
                 : "[StoryNPCs] Opening faction browser."), false);
+        return 1;
+    }
+
+    /**
+     * /storynpcs faction delete — removes the faction definition via the application
+     * service (registry + YAML file). NPCs bound to it are captured BEFORE deletion
+     * so the admin is warned about dangling faction bindings.
+     */
+    private static int deleteFaction(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "faction_id");
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
+            return 0;
+        }
+        var service = mod.getApplicationService();
+        List<NamespacedId> referencing = service.findNpcsReferencingFaction(id);
+        var result = service.deleteFaction(commandMutationRequest(ctx, service, "faction", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction deletion rejected: " + result.diagnostics().formatReport(3)));
+            return 0;
+        }
+        if (!referencing.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] WARNING: " + referencing.size() + " NPC(s) still reference faction '" + id
+                            + "' — their faction bindings are now dangling: " + referencing + "."), true);
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Deleted faction '" + id + "' (removed from registry and YAML)."), true);
         return 1;
     }
 
@@ -2000,16 +2110,16 @@ public final class StoryNpcsCommands {
         }
         NpcDefinition npc = npcOpt.get();
         List<com.storynpcs.domain.rule.BehaviorRule> rules = npc.getRules();
-        if (index > rules.size()) {
+        if (index < 1 || index > rules.size()) {
             ctx.getSource().sendFailure(Component.literal(String.format(
                     "[StoryNPCs] NPC '%s' only has %d rule(s) — index %d out of range.",
                     id, rules.size(), index)));
             return 0;
         }
-        var removed = rules.remove(index - 1);
-        var result = mod.getApplicationService().saveNpc(npc);
+        var removed = rules.get(index - 1);
+        var result = mutateNpc(ctx, mod.getApplicationService(), id,
+                updated -> updated.getRules().remove(index - 1));
         if (result.hasErrors()) {
-            rules.add(index - 1, removed);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -2065,11 +2175,9 @@ public final class StoryNpcsCommands {
         }
         rule.addAction(action);
 
-        List<com.storynpcs.domain.rule.BehaviorRule> rules = npc.getRules();
-        rules.add(rule);
-        var result = mod.getApplicationService().saveNpc(npc);
+        var result = mutateNpc(ctx, mod.getApplicationService(), id,
+                updated -> updated.getRules().add(rule));
         if (result.hasErrors()) {
-            rules.remove(rules.size() - 1);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -2090,20 +2198,24 @@ public final class StoryNpcsCommands {
                     npc.getId(), npc.getTrader().getMarketName())));
             return 0;
         }
-        npc.setTrader(marketName != null
+        var trader = marketName != null
                 ? new com.storynpcs.domain.role.trader.TraderRole(marketName)
-                : new com.storynpcs.domain.role.trader.TraderRole());
-        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+                : new com.storynpcs.domain.role.trader.TraderRole();
+        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated ->
+                updated.setTrader(trader));
         if (result.hasErrors()) {
-            npc.setTrader(null);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
-        String name = npc.getTrader().getMarketName();
-        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
-                "[StoryNPCs] NPC '%s' is now a trader ('%s'). Add stock via 'npc trade add'; players trade by right-clicking the NPC (when it has no dialogue).",
-                npc.getId(), name)), true);
+        ctx.getSource().sendSuccess(() -> Component.literal(formatTraderEnabledReceipt(npc.getId(), trader)), true);
         return 1;
+    }
+
+    static String formatTraderEnabledReceipt(
+            NamespacedId npcId, com.storynpcs.domain.role.trader.TraderRole trader) {
+        return String.format(
+                "[StoryNPCs] NPC '%s' is now a trader ('%s'). Add stock via 'npc trade add'; players trade by right-clicking the NPC (when it has no dialogue).",
+                npcId, trader.getMarketName());
     }
 
     private static int disableTrader(CommandContext<CommandSourceStack> ctx) {
@@ -2114,10 +2226,8 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var removed = npc.getTrader();
-        npc.setTrader(null);
-        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated -> updated.setTrader(null));
         if (result.hasErrors()) {
-            npc.setTrader(removed);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -2173,19 +2283,18 @@ public final class StoryNpcsCommands {
             return 0;
         }
 
-        var trader = npc.getTrader();
-        if (trader == null) {
-            trader = new com.storynpcs.domain.role.trader.TraderRole();
-            npc.setTrader(trader);
-        }
         var listing = new com.storynpcs.domain.role.trader.TradeListing(
                 offerItem.toString(), offerCount, priceItem.toString(), priceCount);
         listing.setMaxUses(maxUses);
-        trader.addListing(listing);
-
-        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated -> {
+            var trader = updated.getTrader();
+            if (trader == null) {
+                trader = new com.storynpcs.domain.role.trader.TraderRole();
+                updated.setTrader(trader);
+            }
+            trader.addListing(listing);
+        });
         if (result.hasErrors()) {
-            trader.removeListing(trader.getListings().size() - 1);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -2211,10 +2320,10 @@ public final class StoryNpcsCommands {
                     npc.getId(), listings.size(), index)));
             return 0;
         }
-        var removed = trader.removeListing(index - 1);
-        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        var removed = listings.get(index - 1);
+        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated ->
+                updated.getTrader().removeListing(index - 1));
         if (result.hasErrors()) {
-            trader.addListingAt(index - 1, removed);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -2233,20 +2342,24 @@ public final class StoryNpcsCommands {
                     npc.getId(), npc.getBanker().getBankName())));
             return 0;
         }
-        npc.setBanker(bankName != null
+        var banker = bankName != null
                 ? new com.storynpcs.domain.role.banker.BankerRole(bankName)
-                : new com.storynpcs.domain.role.banker.BankerRole());
-        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+                : new com.storynpcs.domain.role.banker.BankerRole();
+        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated ->
+                updated.setBanker(banker));
         if (result.hasErrors()) {
-            npc.setBanker(null);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
-        String name = npc.getBanker().getBankName();
-        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
-                "[StoryNPCs] NPC '%s' is now a banker ('%s', %d max tabs). Players open the vault by right-clicking the NPC (when it has no dialogue).",
-                npc.getId(), name, npc.getBanker().getMaxTabs())), true);
+        ctx.getSource().sendSuccess(() -> Component.literal(formatBankerEnabledReceipt(npc.getId(), banker)), true);
         return 1;
+    }
+
+    static String formatBankerEnabledReceipt(
+            NamespacedId npcId, com.storynpcs.domain.role.banker.BankerRole banker) {
+        return String.format(
+                "[StoryNPCs] NPC '%s' is now a banker ('%s', %d max tabs). Players open the vault by right-clicking the NPC (when it has no dialogue).",
+                npcId, banker.getBankName(), banker.getMaxTabs());
     }
 
     private static int disableBanker(CommandContext<CommandSourceStack> ctx) {
@@ -2257,10 +2370,8 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var removed = npc.getBanker();
-        npc.setBanker(null);
-        var result = StoryNpcs.getInstance().getApplicationService().saveNpc(npc);
+        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated -> updated.setBanker(null));
         if (result.hasErrors()) {
-            npc.setBanker(removed);
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
         }
@@ -2268,6 +2379,47 @@ public final class StoryNpcsCommands {
                 "[StoryNPCs] Removed banker role ('%s') from NPC '%s' (persisted to YAML).",
                 removed.getBankName(), npc.getId())), true);
         return 1;
+    }
+
+    private static com.storynpcs.service.MutationRequest commandMutationRequest(
+            CommandContext<CommandSourceStack> ctx,
+            StoryNpcsApplicationService service,
+            String family,
+            String action,
+            NamespacedId targetId) {
+        CommandSourceStack source = ctx.getSource();
+        String actorType = source.getEntity() instanceof ServerPlayer player
+                ? "player:" + player.getUUID()
+                : source.getEntity() == null ? "console" : "command";
+        String capability = family + ("delete".equals(action) ? ".delete" : ".mutate");
+        return new com.storynpcs.service.MutationRequest(
+                family + "." + action, actorType, capability, targetId,
+                service.currentRevision(family, targetId), java.util.UUID.randomUUID(),
+                source.hasPermission(2) ? 2 : 0);
+    }
+
+    private static com.storynpcs.service.CanonicalMutationResult mutateNpc(
+            CommandContext<CommandSourceStack> ctx,
+            StoryNpcsApplicationService service,
+            NamespacedId id,
+            java.util.function.Consumer<NpcDefinition> mutation) {
+        return service.mutateNpc(commandMutationRequest(ctx, service, "npc", "mutate", id), mutation);
+    }
+
+    private static com.storynpcs.service.CanonicalMutationResult mutateQuest(
+            CommandContext<CommandSourceStack> ctx,
+            StoryNpcsApplicationService service,
+            NamespacedId id,
+            java.util.function.Consumer<Quest> mutation) {
+        return service.mutateQuest(commandMutationRequest(ctx, service, "quest", "mutate", id), mutation);
+    }
+
+    private static com.storynpcs.service.CanonicalMutationResult mutateFaction(
+            CommandContext<CommandSourceStack> ctx,
+            StoryNpcsApplicationService service,
+            NamespacedId id,
+            java.util.function.Consumer<Faction> mutation) {
+        return service.mutateFaction(commandMutationRequest(ctx, service, "faction", "mutate", id), mutation);
     }
 
     /** Shared lookup: resolves the npc_id argument to a loaded definition, messaging failures. */
@@ -2500,17 +2652,15 @@ public final class StoryNpcsCommands {
         );
 
         var appService = StoryNpcs.getInstance().getApplicationService();
+        if (appService == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Canonical application service is unavailable."));
+            return 0;
+        }
         int entityIdx = 0;
         for (StoryNpcEntity npc : entities) {
             FollowerRole role = npc.getFollowerRole();
             int finalSlot = slot < 0 ? -1 : (slot + entityIdx);
-            if (appService != null) {
-                appService.setFollowerFormation(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, type, finalSlot, spacing);
-            } else {
-                role.setFormation(type);
-                role.setFormationSlot(finalSlot);
-                role.setFormationSpacing(spacing);
-            }
+            appService.setFollowerFormation(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, type, finalSlot, spacing);
             updated++;
             entityIdx++;
         }
@@ -2544,13 +2694,13 @@ public final class StoryNpcsCommands {
         );
 
         var appService = StoryNpcs.getInstance().getApplicationService();
+        if (appService == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Canonical application service is unavailable."));
+            return 0;
+        }
         for (StoryNpcEntity npc : entities) {
             FollowerRole role = npc.getFollowerRole();
-            if (appService != null) {
-                appService.setFollowerState(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, state);
-            } else {
-                role.setState(state);
-            }
+            appService.setFollowerState(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, state);
             updated++;
         }
 
@@ -2782,6 +2932,7 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs quest set <quest_id> <description|category|repeatType> <value> §7- Edit quest fields\n" +
                 "§e/storynpcs quest objective|reward add|remove <quest_id> ... §7- Edit objectives/rewards\n" +
                 "§e/storynpcs quest gui [quest_id] §7- Open the quest editor GUI\n" +
+                "§e/storynpcs quest delete <quest_id> §7- Delete a quest definition (warns about dangling START_QUEST actions)\n" +
                 "§7YAML: world/storynpcs/definitions/quests/<file>.yaml"), false);
         return 1;
     }
@@ -2796,6 +2947,7 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs faction create <faction_id> [name] §7- Scaffold a new faction definition\n" +
                 "§e/storynpcs faction configure <faction_id> <field> <value> §7- Tune thresholds\n" +
                 "§e/storynpcs faction gui [faction_id] §7- Open the faction editor GUI\n" +
+                "§e/storynpcs faction delete <faction_id> §7- Delete a faction definition (warns about dangling NPC bindings)\n" +
                 "§7YAML: world/storynpcs/definitions/factions/<file>.yaml"), false);
         return 1;
     }

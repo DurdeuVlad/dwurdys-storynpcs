@@ -14,16 +14,20 @@ import java.util.UUID;
 public class StoryNpcState {
 
     private String definitionId;
+    /** Durable logical actor identity; entity UUIDs are only runtime projections. */
+    private String actorId;
 
     /** VULN-55: Per-entity tactical stance override — takes precedence over the shared NpcDefinition.ai.tacticalStance. */
     private TacticalStance tacticalStanceOverride = null;
 
     public StoryNpcState() {
         this.definitionId = "";
+        this.actorId = "";
     }
 
     public StoryNpcState(String definitionId) {
         this.definitionId = definitionId != null ? definitionId : "";
+        this.actorId = this.definitionId;
     }
 
     public String getDefinitionId() {
@@ -32,6 +36,14 @@ public class StoryNpcState {
 
     public void setDefinitionId(String definitionId) {
         this.definitionId = definitionId != null ? definitionId : "";
+    }
+
+    public String getActorId() {
+        return actorId;
+    }
+
+    public void setActorId(String actorId) {
+        this.actorId = actorId != null ? actorId : "";
     }
 
     /** Returns the per-entity stance override, or null if no override has been set. */

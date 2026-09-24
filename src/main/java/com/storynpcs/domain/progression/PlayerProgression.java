@@ -22,6 +22,13 @@ public class PlayerProgression {
     @JsonProperty
     private Set<String> visitedDialogueNodes = new HashSet<>();
 
+    @JsonProperty
+    private long questRevision;
+
+    @JsonProperty
+    private Map<NamespacedId, PendingQuestCompletion> pendingQuestCompletions = new HashMap<>();
+
+
     public PlayerProgression() {}
 
     public PlayerProgression(UUID playerUuid) {
@@ -39,6 +46,51 @@ public class PlayerProgression {
 
     public Set<String> getVisitedDialogueNodes() { return visitedDialogueNodes; }
     public void setVisitedDialogueNodes(Set<String> visitedDialogueNodes) { this.visitedDialogueNodes = visitedDialogueNodes; }
+
+    public long getQuestRevision() { return questRevision; }
+    public void setQuestRevision(long revision) {
+        if (revision < 0) throw new IllegalArgumentException("revision must be non-negative");
+        this.questRevision = revision;
+    }
+
+    public Map<NamespacedId, PendingQuestCompletion> getPendingQuestCompletions() {
+        return pendingQuestCompletions;
+    }
+
+    public void setPendingQuestCompletions(Map<NamespacedId, PendingQuestCompletion> pending) {
+        pendingQuestCompletions = pending == null ? new HashMap<>() : new HashMap<>(pending);
+        for (Map.Entry<NamespacedId, PendingQuestCompletion> entry : pendingQuestCompletions.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null
+                    || !entry.getKey().equals(entry.getValue().questId())) {
+                throw new IllegalArgumentException("pending quest completion key does not match its quest ID");
+            }
+        }
+    }
+
+    /** Deep snapshot used to restore cached progression after a failed durable write. */
+    public PlayerProgression copy() {
+        PlayerProgression copy = new PlayerProgression(playerUuid);
+        copy.questRevision = questRevision;
+        copy.quests = new HashMap<>();
+        quests.forEach((id, state) -> copy.quests.put(id, state.copy()));
+        copy.factionPoints = new HashMap<>(factionPoints);
+        copy.visitedDialogueNodes = new HashSet<>(visitedDialogueNodes);
+        copy.pendingQuestCompletions = new HashMap<>(pendingQuestCompletions);
+        return copy;
+    }
+
+    public void restoreFrom(PlayerProgression snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (!Objects.equals(playerUuid, snapshot.playerUuid)) {
+            throw new IllegalArgumentException("Cannot restore progression from a different player");
+        }
+        questRevision = snapshot.questRevision;
+        quests = new HashMap<>();
+        snapshot.quests.forEach((id, state) -> quests.put(id, state.copy()));
+        factionPoints = new HashMap<>(snapshot.factionPoints);
+        visitedDialogueNodes = new HashSet<>(snapshot.visitedDialogueNodes);
+        pendingQuestCompletions = new HashMap<>(snapshot.pendingQuestCompletions);
+    }
 
     public QuestProgressState getQuestState(NamespacedId questId) {
         return quests.computeIfAbsent(questId, QuestProgressState::new);

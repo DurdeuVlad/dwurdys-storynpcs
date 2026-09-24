@@ -49,6 +49,13 @@ public final class ValidationResult {
         return Collections.unmodifiableList(diagnostics);
     }
 
+    /** Returns an independently mutable diagnostic collection with the same immutable entries. */
+    public ValidationResult copy() {
+        ValidationResult copied = new ValidationResult();
+        copied.diagnostics.addAll(diagnostics);
+        return copied;
+    }
+
     public List<DiagnosticError> getErrors() {
         return diagnostics.stream()
                 .filter(d -> d.severity() == DiagnosticError.Severity.ERROR)

@@ -63,13 +63,37 @@ public class NpcDialogueWandItem extends Item {
                     dialogueId = NamespacedId.of("storynpcs", path);
                     String title = (def.getDisplay() != null ? def.getDisplay().getName() : "NPC") + " Dialogue";
 
-                    var result = mod.getApplicationService().createDialogue(dialogueId, title);
-                    if (result.hasErrors() && mod.getRegistry().getDialogue(dialogueId).isEmpty()) {
+                    var service = mod.getApplicationService();
+                    var result = service.createDialogue(new com.storynpcs.service.MutationRequest(
+                            "dialogue.create", "player:" + serverPlayer.getUUID(), "dialogue.mutate", dialogueId,
+                            service.currentRevision("dialogue", dialogueId), java.util.UUID.randomUUID(), 2), title);
+                    if (!result.applied() && mod.getRegistry().getDialogue(dialogueId).isEmpty()) {
                         serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to create dialogue: " + result.formatReport(2)));
                         return InteractionResult.FAIL;
                     }
+                    boolean createdByThisAttempt = result.applied();
 
-                    mod.getApplicationService().assignDialogue(def.getId(), dialogueId);
+                    NamespacedId assignedDialogueId = dialogueId;
+                    var assignment = service.mutateNpc(new com.storynpcs.service.MutationRequest(
+                            "npc.mutate", "player:" + serverPlayer.getUUID(), "npc.mutate", def.getId(),
+                            service.currentRevision("npc", def.getId()), java.util.UUID.randomUUID(), 2),
+                            npcDefinition -> npcDefinition.setDialogueId(assignedDialogueId));
+                    if (!assignment.applied()) {
+                        String compensation = "Existing dialogue was left unchanged.";
+                        if (createdByThisAttempt) {
+                            var rollback = service.deleteUnreferencedDialogue(new com.storynpcs.service.MutationRequest(
+                                    "dialogue.delete", "player:" + serverPlayer.getUUID(), "dialogue.delete", dialogueId,
+                                    service.currentRevision("dialogue", dialogueId), java.util.UUID.randomUUID(), 2));
+                            compensation = rollback.applied()
+                                    ? "The newly created, unreferenced dialogue was removed."
+                                    : mod.getRegistry().getDialogue(dialogueId).isPresent()
+                                            ? "The dialogue remains; safe cleanup was rejected: " + rollback.formatReport(2)
+                                            : "The dialogue is already absent; no further cleanup was needed.";
+                        }
+                        serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to assign dialogue: "
+                                + assignment.formatReport(2) + " " + compensation));
+                        return InteractionResult.FAIL;
+                    }
                     serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs] Created & assigned dialogue '§f" + dialogueId + "§a'."));
                 }
 
@@ -77,7 +101,8 @@ public class NpcDialogueWandItem extends Item {
                 if (graphOpt.isPresent()) {
                     PacketDistributor.sendToPlayer(serverPlayer, new ClientboundDialogueEditorOpenPayload(
                             dialogueId.toString(),
-                            DialogueGraphSerde.toJson(graphOpt.get())
+                            DialogueGraphSerde.toJson(graphOpt.get()),
+                            mod.getApplicationService().currentRevision("dialogue", dialogueId)
                     ));
                     serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs] Opening visual dialogue editor for '§f" + dialogueId + "§a'."));
                     return InteractionResult.SUCCESS;

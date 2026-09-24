@@ -79,4 +79,16 @@ class StoryNpcRenderModelTest {
         assertTrue(compDefault.isPresent());
         assertEquals("StoryNPC [Wanderer]", compDefault.get().getString());
     }
+
+    @Test
+    @DisplayName("Name mode can hide names or show them only during attack")
+    void testNameVisibilityModes() {
+        NpcDefinition definition = createDefinition("Guard", "Captain", true, null);
+        definition.getDisplay().setShowNameMode(1);
+        assertTrue(StoryNpcRenderer.formatNameTag(Optional.of(definition)).isEmpty());
+
+        definition.getDisplay().setShowNameMode(2);
+        assertTrue(StoryNpcRenderer.formatNameTag(Optional.of(definition), false).isEmpty());
+        assertTrue(StoryNpcRenderer.formatNameTag(Optional.of(definition), true).isPresent());
+    }
 }

@@ -1,0 +1,18 @@
+{
+  "P0-1": ["target_classes"],
+  "P0-4": ["operation_matrix"],
+  "P1-3": ["packets"],
+  "P2-1": ["data"],
+  "P2-2": ["persistence_participants", "persistence_stores"],
+  "P3-1": ["assets"],
+  "P6-2": ["roles"],
+  "P6-3": ["roles"],
+  "P6-4": ["jobs"],
+  "P6-5": ["companion_jobs", "roles"],
+  "P7-1": ["roles"],
+  "P7-2": ["roles"],
+  "P8-3": ["assets"],
+  "P9-1": ["events"],
+  "P9-3": ["commands"],
+  "P10-1": ["gui"]
+}

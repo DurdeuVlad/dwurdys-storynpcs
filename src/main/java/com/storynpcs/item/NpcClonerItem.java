@@ -21,9 +21,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * NPC Cloner — Captures NPC templates and spawns duplicates in seconds.
@@ -31,8 +29,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Right-click ground: Spawns an instance of the captured template.
  */
 public class NpcClonerItem extends Item {
-
-    private static final Map<UUID, NamespacedId> PLAYER_CLONE_TEMPLATES = new ConcurrentHashMap<>();
 
     public NpcClonerItem(Properties properties) {
         super(properties);
@@ -56,7 +52,11 @@ public class NpcClonerItem extends Item {
                 var defOpt = npc.getDefinition();
                 if (defOpt.isPresent()) {
                     NpcDefinition def = defOpt.get();
-                    PLAYER_CLONE_TEMPLATES.put(serverPlayer.getUUID(), def.getId());
+                    StoryNpcs mod = StoryNpcs.getInstance();
+                    if (mod == null) {
+                        return InteractionResult.FAIL;
+                    }
+                    mod.getRuntimeSessions(serverPlayer.getServer()).selectCloneTemplate(serverPlayer.getUUID(), def.getId());
                     String name = def.getDisplay() != null ? def.getDisplay().getName() : def.getId().toString();
                     serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs Cloner] Captured template: '§f" + name + "§a' (" + def.getId() + ")! Right-click ground to spawn clones."));
                     return InteractionResult.SUCCESS;
@@ -85,14 +85,17 @@ public class NpcClonerItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        NamespacedId templateId = PLAYER_CLONE_TEMPLATES.get(serverPlayer.getUUID());
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            return InteractionResult.FAIL;
+        }
+        NamespacedId templateId = mod.getRuntimeSessions(serverPlayer.getServer()).cloneTemplate(serverPlayer.getUUID());
         if (templateId == null) {
             serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Cloner] Cloner is empty! Right-click an existing NPC to capture its template first."));
             return InteractionResult.FAIL;
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null || mod.getRegistry().getNpc(templateId).isEmpty()) {
+        if (mod.getRegistry().getNpc(templateId).isEmpty()) {
             serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs Cloner] Captured template '" + templateId + "' is no longer registered."));
             return InteractionResult.FAIL;
         }

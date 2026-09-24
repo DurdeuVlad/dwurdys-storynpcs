@@ -7,6 +7,7 @@ import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.role.trader.TradeListing;
 import com.storynpcs.domain.role.trader.TraderRole;
 import com.storynpcs.persistence.ProgressionRepository;
+import com.storynpcs.persistence.TradeStateRepository;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +35,7 @@ class TraderRoleTest {
         registry = new DefinitionRegistry();
         repo = new ProgressionRepository(tempDir);
         publisher = new EventPublisher();
-        tradeEvents = new ArrayList<>();
+        tradeEvents = java.util.Collections.synchronizedList(new ArrayList<>());
         publisher.register(event -> {
             if (event instanceof TradeExecutedEvent te) {
                 tradeEvents.add(te);
@@ -98,5 +99,135 @@ class TraderRoleTest {
         assertEquals(1, tradeEvents.size());
         assertEquals(playerUuid, tradeEvents.get(0).playerUuid());
         assertEquals(npcId, tradeEvents.get(0).npcId());
+    }
+
+    @Test
+    @DisplayName("A repeated trade request replays without charging another listing use")
+    void testTradeRequestReplayIsIdempotent() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        UUID requestId = UUID.randomUUID();
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+
+        assertTrue(service.executeTrade(playerUuid, npcId, 0, listing, requestId));
+        assertTrue(service.executeTrade(playerUuid, npcId, 0, listing, requestId));
+        assertEquals(1, listing.getUses());
+        assertEquals(1, tradeEvents.size());
+
+        TradeListing otherListing = new TradeListing("minecraft:diamond", 1, "minecraft:coal", 1);
+        assertFalse(service.executeTrade(playerUuid, NamespacedId.of("storynpcs:other"),
+                0, otherListing, requestId),
+                "A request ID cannot be replayed against a different trade identity");
+        assertEquals(0, otherListing.getUses());
+        TradeListing changedListing = new TradeListing("minecraft:bread", 5, "minecraft:wheat", 12);
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, changedListing, requestId),
+                "A request ID cannot be replayed against a changed listing contract");
+        assertEquals(0, changedListing.getUses());
+    }
+
+    @Test
+    @DisplayName("Indexed live trades use durable listing state instead of definition-local uses")
+    void testIndexedTradePersistsListingUses(@TempDir Path tempDir) throws Exception {
+        service.setTradeStateRepository(new TradeStateRepository(tempDir.resolve("trade")));
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeListing listing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 1);
+        listing.setMaxUses(2);
+
+        assertTrue(service.executeTrade(playerUuid, npcId, 0, listing, UUID.randomUUID()));
+        assertEquals(1, new TradeStateRepository(tempDir.resolve("trade"))
+                .getUses(npcId.toString(), listing.getListingId()));
+        assertEquals(1, listing.getUses());
+    }
+
+    @Test
+    @DisplayName("executeTrade on a sold-out listing fails without burning a use or firing an event")
+    void testExecuteTradeSoldOut() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(1);
+
+        assertTrue(service.executeTrade(playerUuid, npcId, listing));
+        assertEquals(1, listing.getUses());
+        assertEquals(1, tradeEvents.size());
+
+        assertFalse(service.executeTrade(playerUuid, npcId, listing),
+                "Sold-out listing must reject the trade");
+        assertEquals(1, listing.getUses(), "Failed trade must not record a use");
+        assertEquals(1, tradeEvents.size(), "Failed trade must not fire an event");
+    }
+
+    @Test
+    @DisplayName("Owned trade reservations roll back only their own use")
+    void testTradeReservationRollbackIsOwned() {
+        TradeListing listing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 1);
+        listing.setMaxUses(2);
+
+        TradeListing.TradeReservation first = listing.reserveTrade();
+        TradeListing.TradeReservation second = listing.reserveTrade();
+        assertNotNull(first);
+        assertNotNull(second);
+        assertEquals(2, listing.getUses());
+
+        first.rollback();
+        assertEquals(1, listing.getUses());
+        second.commit();
+        assertEquals(1, listing.getUses(), "Committing the concurrent reservation must not be undone");
+
+        first.rollback();
+        assertEquals(1, listing.getUses(), "A reservation can only be rolled back once");
+    }
+
+    @Test
+    @DisplayName("executeTrade rejects an unmet faction requirement without recording a use")
+    void testExecuteTradeFactionGate() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeListing listing = new TradeListing("minecraft:diamond_sword", 1, "minecraft:emerald", 20);
+        listing.setRequiredFaction(NamespacedId.of("storynpcs:town_guard"));
+        listing.setRequiredFactionPoints(500);
+
+        assertFalse(service.executeTrade(playerUuid, npcId, listing));
+        assertEquals(0, listing.getUses());
+        assertTrue(tradeEvents.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Concurrent executeTrade calls cannot exceed a listing's maxUses")
+    void testExecuteTradeConcurrentMaxUses() throws Exception {
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(3);
+
+        int attempts = 16;
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        var ready = new java.util.concurrent.CountDownLatch(attempts);
+        var done = new java.util.concurrent.CountDownLatch(attempts);
+        var successes = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            for (int i = 0; i < attempts; i++) {
+                UUID playerUuid = UUID.randomUUID();
+                pool.submit(() -> {
+                    ready.countDown();
+                    try {
+                        if (service.executeTrade(playerUuid, npcId, listing)) {
+                            successes.incrementAndGet();
+                        }
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            assertTrue(done.await(10, java.util.concurrent.TimeUnit.SECONDS),
+                    "Concurrent trades did not finish in time");
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertEquals(3, successes.get(), "Exactly maxUses trades may commit");
+        assertEquals(3, listing.getUses(), "Recorded uses must match committed trades");
+        assertEquals(3, tradeEvents.size(), "Only committed trades may fire events");
     }
 }

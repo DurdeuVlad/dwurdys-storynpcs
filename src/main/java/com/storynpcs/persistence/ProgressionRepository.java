@@ -34,21 +34,18 @@ public class ProgressionRepository {
         return cache.computeIfAbsent(playerUuid, this::loadFromDisk);
     }
 
+    /** Root used by sibling runtime stores that share the world persistence lifecycle. */
+    public Path storageDirectory() {
+        return storageDirectory;
+    }
+
     private PlayerProgression loadFromDisk(UUID playerUuid) {
-        Path filePath = storageDirectory.resolve(playerUuid.toString() + ".json");
-        if (Files.exists(filePath)) {
-            try {
-                return mapper.readValue(Files.readAllBytes(filePath), PlayerProgression.class);
-            } catch (IOException e) {
-                // If corrupted, backup to .corrupted.<timestamp> rather than silently destroying data
-                Path backupPath = storageDirectory.resolve(playerUuid.toString() + ".corrupted." + System.currentTimeMillis());
-                try {
-                    Files.copy(filePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
-                    System.err.println("Corrupted progression for " + playerUuid + " backed up to: " + backupPath);
-                } catch (IOException backupEx) {
-                    System.err.println("Failed to backup corrupted progression: " + backupEx.getMessage());
-                }
-            }
+        try {
+            DurableJsonStore.ReadResult<PlayerProgression> result = store(playerUuid).read(PlayerProgression.class);
+            reportDiagnostics("progression", playerUuid, result);
+            if (result.hasValue()) return result.value();
+        } catch (IOException e) {
+            System.err.println("Could not load progression for " + playerUuid + ": " + e.getMessage());
         }
         return new PlayerProgression(playerUuid);
     }
@@ -57,19 +54,19 @@ public class ProgressionRepository {
         PlayerProgression progression = cache.get(playerUuid);
         if (progression == null) return;
 
-        Path targetPath = storageDirectory.resolve(playerUuid.toString() + ".json");
-        Path tempPath = storageDirectory.resolve(playerUuid.toString() + ".tmp");
-
-        byte[] data;
         synchronized (progression) {
-            data = mapper.writeValueAsBytes(progression);
+            store(playerUuid).write(progression);
         }
-        Files.write(tempPath, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
 
-        try {
-            Files.move(tempPath, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+    private DurableJsonStore store(UUID playerUuid) {
+        return new DurableJsonStore(storageDirectory.resolve(playerUuid.toString() + ".json"), mapper);
+    }
+
+    private void reportDiagnostics(String kind, UUID playerUuid,
+                                   DurableJsonStore.ReadResult<?> result) {
+        for (String diagnostic : result.diagnostics()) {
+            System.err.println("[StoryNPCs] " + kind + " recovery for " + playerUuid + ": " + diagnostic);
         }
     }
 

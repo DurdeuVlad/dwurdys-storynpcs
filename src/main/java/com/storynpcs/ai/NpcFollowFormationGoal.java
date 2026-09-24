@@ -1,6 +1,6 @@
 package com.storynpcs.ai;
 
-import com.storynpcs.domain.role.follower.FollowerGroup;
+import com.storynpcs.StoryNpcs;
 import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationCalculator;
 import com.storynpcs.domain.role.follower.FormationOffset;
@@ -97,7 +97,13 @@ public class NpcFollowFormationGoal extends Goal {
         // Calculate slot index (explicit or dynamically allocated from group)
         int slotIndex = role.getFormationSlot();
         if (slotIndex < 0) {
-            slotIndex = FollowerGroup.getOrAssignSlot(role.getOwnerUuid(), npc.getUUID());
+            StoryNpcs mod = StoryNpcs.getInstance();
+            net.minecraft.server.MinecraftServer server = npc.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                    ? serverLevel.getServer()
+                    : null;
+            slotIndex = mod == null
+                    ? 0
+                    : mod.getFollowerGroup(server).getOrAssignSlot(role.getOwnerUuid(), npc.getUUID());
         }
 
         // Calculate formation offset

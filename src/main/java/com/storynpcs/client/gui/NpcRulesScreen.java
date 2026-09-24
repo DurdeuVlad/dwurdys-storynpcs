@@ -2,6 +2,7 @@ package com.storynpcs.client.gui;
 
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcDefinitionSerde;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.domain.rule.BehaviorRule;
 import com.storynpcs.editor.NpcRulesScreenModel;
 import com.storynpcs.network.ServerboundNpcSavePayload;
@@ -14,6 +15,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Rules sub-screen of {@link NpcEditorScreen} (issue #26) — per-NPC behavior
@@ -33,6 +35,8 @@ public class NpcRulesScreen extends Screen {
     private int listScroll;
     private int armedRemove = -1; // two-click remove confirm (row index)
     private EditBox filterField;
+    private long expectedRevision;
+    private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
 
     // Add-form arg fields (created per picker state)
     private EditBox condFactionField;
@@ -47,14 +51,24 @@ public class NpcRulesScreen extends Screen {
     private EditBox actDeltaField;
 
     public NpcRulesScreen(NpcDefinition npc) {
+        this(npc, 0L);
+    }
+
+    public NpcRulesScreen(NpcDefinition npc, long expectedRevision) {
         super(Component.literal("NPC Rules"));
         this.model = new NpcRulesScreenModel(npc);
+        this.expectedRevision = Math.max(0L, expectedRevision);
     }
 
     public NpcRulesScreenModel getModel() { return model; }
 
-    public void onSaveResult(boolean success, String message) {
+    public void onSaveResult(UUID requestId, boolean success, String message) {
+        if (!saveRequestId.matchesCurrent(requestId)) return;
         model.setStatus(message, !success);
+        if (success) {
+            expectedRevision++;
+        }
+        saveRequestId.acknowledge(requestId);
     }
 
     @Override
@@ -254,8 +268,10 @@ public class NpcRulesScreen extends Screen {
     private void sendSave(String pendingMessage) {
         model.setStatus(pendingMessage, false);
         NpcDefinition def = model.getNpc();
+        String submittedJson = NpcDefinitionSerde.toJson(def);
+        UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundNpcSavePayload(
-                def.getId().toString(), NpcDefinitionSerde.toJson(def)));
+                def.getId().toString(), submittedJson, expectedRevision, requestId));
     }
 
     // ── Rendering ───────────────────────────────────────────────────────────

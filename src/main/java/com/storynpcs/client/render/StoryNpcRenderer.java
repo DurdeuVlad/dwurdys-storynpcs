@@ -51,11 +51,15 @@ public class StoryNpcRenderer extends MobRenderer<StoryNpcEntity, PlayerModel<St
     }
 
     public static Optional<Component> formatNameTag(Optional<NpcDefinition> defOpt) {
+        return formatNameTag(defOpt, false);
+    }
+
+    public static Optional<Component> formatNameTag(Optional<NpcDefinition> defOpt, boolean attacking) {
         if (defOpt.isEmpty()) {
             return Optional.empty();
         }
         NpcDisplay display = defOpt.get().getDisplay();
-        if (display == null || !display.isShowName()) {
+        if (display == null || !display.isNameVisible(attacking)) {
             return Optional.empty();
         }
 
@@ -76,7 +80,7 @@ public class StoryNpcRenderer extends MobRenderer<StoryNpcEntity, PlayerModel<St
             int packedLight,
             float partialTick
     ) {
-        Optional<Component> formattedName = formatNameTag(entity.getDefinition());
+        Optional<Component> formattedName = formatNameTag(entity.getDefinition(), entity.isAggressive());
         if (formattedName.isPresent()) {
             super.renderNameTag(entity, formattedName.get(), poseStack, buffer, packedLight, partialTick);
         }
