@@ -366,9 +366,9 @@ class QuestProgressionMutationTest {
             private int saves;
 
             @Override
-            public void save(UUID playerUuid) throws IOException {
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression) throws IOException {
                 if (++saves == 3) throw new IOException("injected completion save failure");
-                super.save(playerUuid);
+                super.writeProgression(playerUuid, progression);
             }
         };
         EventPublisher retryEvents = new EventPublisher();
@@ -415,9 +415,9 @@ class QuestProgressionMutationTest {
             private int saves;
 
             @Override
-            public void save(UUID playerUuid) throws IOException {
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression) throws IOException {
                 if (++saves == 3) throw new IOException("injected completion save failure");
-                super.save(playerUuid);
+                super.writeProgression(playerUuid, progression);
             }
         };
         StoryNpcsApplicationService firstService = new StoryNpcsApplicationService(registry,
@@ -576,7 +576,7 @@ class QuestProgressionMutationTest {
         NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
         ProgressionRepository failingRepository = new ProgressionRepository(tempDir.resolve("failing")) {
             @Override
-            public void save(UUID playerUuid) throws IOException {
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression) throws IOException {
                 throw new IOException("injected persistence failure");
             }
         };
@@ -592,5 +592,147 @@ class QuestProgressionMutationTest {
         assertThat(failingRepository.getOrCreate(player).getQuests()).isEmpty();
         assertThat(failingRepository.getOrCreate(player).getQuestRevision()).isZero();
         assertThat(canonicalEvents).noneMatch(CanonicalMutationEvent::applied);
+    }
+
+    @Test
+    void experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRewards(
+                List.of(new QuestReward(QuestReward.Type.EXPERIENCE, "levels", 5)));
+
+        // Save order inside completeQuest: intent(2) -> reward mark(3) -> terminal commit(4).
+        // startQuest performs save 1. Failing save 4 crashes between reward delivery
+        // and the terminal commit — the exact window from the review finding.
+        java.util.concurrent.atomic.AtomicInteger saves = new java.util.concurrent.atomic.AtomicInteger();
+        ProgressionRepository failCommitOnce = new ProgressionRepository(tempDir.resolve("xp-commit-fail")) {
+            @Override
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression) throws IOException {
+                if (saves.incrementAndGet() == 4) {
+                    throw new IOException("injected terminal completion commit failure");
+                }
+                super.writeProgression(playerUuid, progression);
+            }
+        };
+        StoryNpcsApplicationService crashService = new StoryNpcsApplicationService(registry,
+                failCommitOnce, events);
+        java.util.concurrent.atomic.AtomicInteger xpDeliveries = new java.util.concurrent.atomic.AtomicInteger();
+        crashService.setRewardSideEffectOverride((p, reward) -> xpDeliveries.incrementAndGet());
+
+        crashService.startQuest(player, questId);
+        QuestCompletionResult crashed = crashService.completeQuest(player, questId);
+
+        assertThat(crashed.outcome()).isEqualTo(QuestCompletionResult.Outcome.FAILED);
+        assertThat(crashed.code()).isEqualTo("REWARD_EXECUTION_FAILED");
+        assertThat(xpDeliveries.get()).isEqualTo(1);
+        assertThat(failCommitOnce.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+
+        // In-process retry: the durable mark suppresses a second delivery.
+        QuestCompletionResult retried = crashService.completeQuest(player, questId);
+        assertThat(retried.outcome()).isEqualTo(QuestCompletionResult.Outcome.COMPLETED);
+        assertThat(xpDeliveries.get()).isEqualTo(1);
+        assertThat(failCommitOnce.getOrCreate(player).getDeliveredQuestRewards()).isEmpty();
+
+        // Restart replay: the completed record loads clean and still cannot re-deliver.
+        failCommitOnce.clearCache();
+        StoryNpcsApplicationService restarted = new StoryNpcsApplicationService(registry,
+                failCommitOnce, events);
+        restarted.setRewardSideEffectOverride((p, reward) -> xpDeliveries.incrementAndGet());
+        QuestCompletionResult replayed = restarted.completeQuest(player, questId);
+        assertThat(replayed.outcome()).isEqualTo(QuestCompletionResult.Outcome.ALREADY_COMPLETED);
+        assertThat(xpDeliveries.get()).isEqualTo(1);
+    }
+
+    @Test
+    void rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRewards(
+                List.of(new QuestReward(QuestReward.Type.ITEM, "minecraft:diamond", 1)));
+
+        java.util.concurrent.atomic.AtomicInteger deliveries = new java.util.concurrent.atomic.AtomicInteger();
+        service.setRewardSideEffectOverride((p, reward) -> {
+            deliveries.incrementAndGet();
+            throw new IllegalStateException("injected delivery crash after durable mark");
+        });
+        service.startQuest(player, questId);
+
+        QuestCompletionResult crashed = service.completeQuest(player, questId);
+
+        assertThat(crashed.outcome()).isEqualTo(QuestCompletionResult.Outcome.FAILED);
+        assertThat(deliveries.get()).isEqualTo(1);
+        // The mark is durable even though the side effect crashed.
+        PlayerProgression marked = repository.getOrCreate(player);
+        assertThat(marked.getDeliveredQuestRewards()).containsKey(questId);
+
+        // Retry prefers losing the reward over double-granting it: the marked key is skipped.
+        service.setRewardSideEffectOverride((p, reward) -> deliveries.incrementAndGet());
+        repository.clearCache(); // force reload of the durable mark
+        QuestCompletionResult retried = service.completeQuest(player, questId);
+
+        assertThat(retried.outcome()).isEqualTo(QuestCompletionResult.Outcome.COMPLETED);
+        assertThat(deliveries.get()).isEqualTo(1);
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+    }
+
+    @Test
+    void rewardMarkPersistenceFailureAbortsBeforeAnyDelivery() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRewards(
+                List.of(new QuestReward(QuestReward.Type.EXPERIENCE, "levels", 5)));
+
+        // Fail the reward-mark write (save 3): nothing may be delivered, and the
+        // in-memory state must be restored so a retry can complete cleanly once.
+        java.util.concurrent.atomic.AtomicInteger saves = new java.util.concurrent.atomic.AtomicInteger();
+        ProgressionRepository failMarkOnce = new ProgressionRepository(tempDir.resolve("xp-mark-fail")) {
+            @Override
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression) throws IOException {
+                if (saves.incrementAndGet() == 3) {
+                    throw new IOException("injected reward mark failure");
+                }
+                super.writeProgression(playerUuid, progression);
+            }
+        };
+        StoryNpcsApplicationService markFailService = new StoryNpcsApplicationService(registry,
+                failMarkOnce, events);
+        java.util.concurrent.atomic.AtomicInteger deliveries = new java.util.concurrent.atomic.AtomicInteger();
+        markFailService.setRewardSideEffectOverride((p, reward) -> deliveries.incrementAndGet());
+
+        markFailService.startQuest(player, questId);
+        QuestCompletionResult aborted = markFailService.completeQuest(player, questId);
+
+        assertThat(aborted.outcome()).isEqualTo(QuestCompletionResult.Outcome.FAILED);
+        assertThat(deliveries.get()).isZero();
+        assertThat(failMarkOnce.getOrCreate(player).getDeliveredQuestRewards()).isEmpty();
+        assertThat(failMarkOnce.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+
+        // The retry marks, delivers, and commits exactly once.
+        QuestCompletionResult retried = markFailService.completeQuest(player, questId);
+        assertThat(retried.outcome()).isEqualTo(QuestCompletionResult.Outcome.COMPLETED);
+        assertThat(deliveries.get()).isEqualTo(1);
+    }
+
+    @Test
+    void unavailableProgressionFailsQuestCompletionAndMutationClosed() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        Files.writeString(tempDir.resolve(player + ".json"), "{ corrupt progression");
+
+        QuestCompletionResult completion = service.completeQuest(player, questId);
+        assertThat(completion.outcome()).isEqualTo(QuestCompletionResult.Outcome.FAILED);
+        assertThat(completion.code()).isEqualTo("PROGRESSION_UNAVAILABLE");
+        assertThat(repository.isUnavailable(player)).isTrue();
+
+        CanonicalMutationResult mutation = service.mutateQuestProgression(
+                QuestProgressionMutationRequest.start("system", null, player, questId, 0, UUID.randomUUID()));
+        assertThat(mutation.applied()).isFalse();
+        assertThat(mutation.diagnostics().getErrors()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.code()).isEqualTo("PROGRESSION_UNAVAILABLE"));
+        // No success events may escape for a blocked player.
+        assertThat(publishedEvents).noneMatch(QuestCompleteEvent.class::isInstance);
     }
 }

@@ -32,6 +32,47 @@ public final class FactionEditorScreenModel {
     private String listFilter = "";
     private boolean deleteArmed;
 
+    /** Optimistic-concurrency tokens keyed by definition id — never reused across rows. */
+    private final java.util.Map<String, Long> expectedRevisions = new java.util.HashMap<>();
+
+    /** Loads the server-sent revision map (id → committed revision). */
+    public void loadExpectedRevisions(java.util.Map<String, Long> revisions) {
+        expectedRevisions.clear();
+        if (revisions != null) {
+            revisions.forEach((id, revision) -> {
+                if (id != null && !id.isBlank() && revision != null && revision >= 0) {
+                    expectedRevisions.put(id, revision);
+                }
+            });
+        }
+    }
+
+    /** Seeds the token for one id only when the map does not already carry it. */
+    public void recordRevisionHint(String id, long revision) {
+        if (id != null && !id.isBlank() && revision >= 0) {
+            expectedRevisions.putIfAbsent(id, revision);
+        }
+    }
+
+    /** Records the authoritative committed revision for a definition after a successful save/delete. */
+    public void recordCommittedRevision(String id, long revision) {
+        if (id != null && !id.isBlank() && revision >= 0) {
+            expectedRevisions.put(id, revision);
+        }
+    }
+
+    /** Revision token for the definition id under the cursor — 0 for new/none. */
+    public long expectedRevision() {
+        return editing != null && editing.getId() != null
+                ? expectedRevisions.getOrDefault(editing.getId().toString(), 0L)
+                : 0L;
+    }
+
+    /** Revision token for an arbitrary definition id — 0 when never observed. */
+    public long expectedRevisionFor(String id) {
+        return id == null ? 0L : expectedRevisions.getOrDefault(id, 0L);
+    }
+
     public void loadFactions(List<Faction> loaded) {
         this.factions = new ArrayList<>(loaded != null ? loaded : List.of());
         this.factions.sort((a, b) -> String.valueOf(a.getId()).compareTo(String.valueOf(b.getId())));

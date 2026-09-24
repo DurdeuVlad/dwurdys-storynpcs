@@ -64,4 +64,47 @@ class TradeStateRepositoryTest {
         assertEquals(1, repository.getUses("storynpcs:merchant", "bread"));
         assertEquals(0, repository.getUses("storynpcs:merchant", "sword"));
     }
+
+    @Test
+    @DisplayName("Unrecoverable state.json fails closed instead of resetting listing uses")
+    void testUnrecoverableStateFailsClosed(@TempDir Path tempDir) throws IOException {
+        Path tradeDir = tempDir.resolve("trade");
+        Files.createDirectories(tradeDir);
+        Files.writeString(tradeDir.resolve("state.json"), "{ not json");
+
+        TradeStateRepository repository = new TradeStateRepository(tradeDir);
+        assertThrows(IOException.class, () -> repository.getUses("storynpcs:merchant", "listing-a"));
+        // Quarantined bytes survive — durable evidence is preserved.
+        try (var stream = Files.list(tradeDir)) {
+            assertTrue(stream.anyMatch(p -> p.getFileName().toString().contains(".corrupted.")));
+        }
+        // Every subsequent access stays fail-closed; no silent reset of use counts.
+        assertThrows(IOException.class,
+                () -> repository.reserveUse("storynpcs:merchant", "listing-a", 0, 3));
+    }
+
+    @Test
+    @DisplayName("Future-schema state.json fails closed")
+    void testFutureSchemaStateFailsClosed(@TempDir Path tempDir) throws IOException {
+        Path tradeDir = tempDir.resolve("trade");
+        Files.createDirectories(tradeDir);
+        Files.writeString(tradeDir.resolve("state.json"),
+                "{\"schemaVersion\":999,\"data\":{\"uses\":{}}}");
+
+        TradeStateRepository repository = new TradeStateRepository(tradeDir);
+        assertThrows(IOException.class, () -> repository.getUses("storynpcs:merchant", "listing-a"));
+    }
+
+    @Test
+    @DisplayName("Quarantined listing-use artifacts alone block empty state")
+    void testQuarantinedArtifactsFailClosed(@TempDir Path tempDir) throws IOException {
+        Path tradeDir = tempDir.resolve("trade");
+        Files.createDirectories(tradeDir);
+        Files.writeString(tradeDir.resolve("state.json.corrupted.1"), "garbage");
+
+        TradeStateRepository repository = new TradeStateRepository(tradeDir);
+        assertThrows(IOException.class, () -> repository.getUses("storynpcs:merchant", "listing-a"));
+        assertThrows(IOException.class,
+                () -> repository.reserveUse("storynpcs:merchant", "listing-a", 0, 3));
+    }
 }

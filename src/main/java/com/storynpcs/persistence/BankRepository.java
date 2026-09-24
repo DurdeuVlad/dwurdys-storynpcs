@@ -46,6 +46,8 @@ public class BankRepository {
     private final DurableJsonStore.FailureInjector failureInjector;
     private final DurableOperationJournal operationJournal;
     private final Map<UUID, BankVault> cache = new ConcurrentHashMap<>();
+    /** Players whose durable vault exists but could not be loaded; writes are refused. */
+    private final Map<UUID, String> unavailableRecords = new ConcurrentHashMap<>();
 
     public BankRepository(Path storageDirectory) {
         this(storageDirectory, DurableJsonStore.FailureInjector.none());
@@ -74,24 +76,66 @@ public class BankRepository {
         return cache.computeIfAbsent(playerUuid, this::loadFromDisk);
     }
 
+    /** True when the player's durable vault is present but unrecoverable; operations fail closed. */
+    public boolean isUnavailable(UUID playerUuid) {
+        return unavailableRecords.containsKey(playerUuid);
+    }
+
+    /** Diagnostic describing why the player's vault is blocked, or null when loadable. */
+    public String unavailabilityReason(UUID playerUuid) {
+        return unavailableRecords.get(playerUuid);
+    }
+
     private BankVault loadFromDisk(UUID playerUuid) {
+        DurableJsonStore store = store(playerUuid);
         try {
-            DurableJsonStore.ReadResult<BankVault> result = store(playerUuid).read(BankVault.class);
+            DurableJsonStore.ReadResult<BankVault> result = store.read(BankVault.class);
             reportDiagnostics("bank vault", playerUuid, result);
             if (result.hasValue()) return result.value();
+            if (result.sourcePresent() || store.hasProtectedArtifacts()) {
+                throw blockRecord(playerUuid,
+                        "durable bank vault is unrecoverable; refusing to initialize empty state");
+            }
         } catch (IOException e) {
-            System.err.println("Could not load bank vault for " + playerUuid + ": " + e.getMessage());
+            throw blockRecord(playerUuid,
+                    "could not inspect durable bank vault: " + e.getMessage());
         }
         return new BankVault(playerUuid);
     }
 
+    private UnrecoverablePlayerDataException blockRecord(UUID playerUuid, String reason) {
+        unavailableRecords.put(playerUuid, reason);
+        System.err.println("[StoryNPCs] bank vault blocked for " + playerUuid + ": " + reason);
+        return new UnrecoverablePlayerDataException("bank vault", playerUuid, reason);
+    }
+
     public void save(UUID playerUuid) throws IOException {
+        String blocked = unavailableRecords.get(playerUuid);
+        if (blocked != null) {
+            throw new IOException("bank vault write blocked for " + playerUuid + ": " + blocked);
+        }
         BankVault vault = cache.get(playerUuid);
         if (vault == null) return;
 
         synchronized (vault) {
-            store(playerUuid).write(vault);
+            saveVault(playerUuid, vault);
         }
+    }
+
+    /**
+     * Persists a specific vault instance — the single durable boundary every
+     * write funnels through (kept virtual so fault-injection tests exercise it).
+     * Callers that already hold a reference (e.g. {@link #transact} inside
+     * {@code synchronized (vault)}) must use this overload: a cache eviction
+     * between fetch and write must never turn a committed mutation into a
+     * silent no-op.
+     */
+    void saveVault(UUID playerUuid, BankVault vault) throws IOException {
+        String blocked = unavailableRecords.get(playerUuid);
+        if (blocked != null) {
+            throw new IOException("bank vault write blocked for " + playerUuid + ": " + blocked);
+        }
+        store(playerUuid).write(vault);
     }
 
     /**
@@ -107,7 +151,12 @@ public class BankRepository {
             return BankTransactionResult.failed(null, "playerUuid and operation are required");
         }
 
-        BankVault vault = getOrCreate(playerUuid);
+        BankVault vault;
+        try {
+            vault = getOrCreate(playerUuid);
+        } catch (UnrecoverablePlayerDataException unavailable) {
+            return BankTransactionResult.failed(null, unavailable.getMessage());
+        }
         synchronized (vault) {
             BankVault snapshot = vault.copy();
             final BankMutation<T> mutation;
@@ -129,9 +178,9 @@ public class BankRepository {
 
             try {
                 vault.advanceRevision();
-                // save() is intentionally virtual so fault-injection tests and
-                // future journal-backed implementations exercise this boundary.
-                save(playerUuid);
+                // Persist the mutated instance itself — a cache eviction must
+                // never turn this commit into a silent no-op.
+                saveVault(playerUuid, vault);
                 return BankTransactionResult.committed(mutation.value());
             } catch (IOException | RuntimeException e) {
                 vault.restoreFrom(snapshot);
@@ -158,9 +207,18 @@ public class BankRepository {
     }
 
     public void unload(UUID playerUuid) {
-        if (playerUuid != null) {
+        if (playerUuid == null) return;
+        // Evict under the vault monitor so an in-flight transact finishes its
+        // durable write before the instance leaves the cache.
+        BankVault vault = cache.get(playerUuid);
+        if (vault != null) {
+            synchronized (vault) {
+                cache.remove(playerUuid, vault);
+            }
+        } else {
             cache.remove(playerUuid);
         }
+        unavailableRecords.remove(playerUuid);
     }
 
     public void saveAll() {
@@ -175,5 +233,6 @@ public class BankRepository {
 
     public void clearCache() {
         cache.clear();
+        unavailableRecords.clear();
     }
 }

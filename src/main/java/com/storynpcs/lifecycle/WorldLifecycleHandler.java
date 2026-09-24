@@ -168,19 +168,35 @@ public class WorldLifecycleHandler {
         mod.setBankRepository(bankRepo);
         mod.setTradeStateRepository(new com.storynpcs.persistence.TradeStateRepository(tradeDir));
 
-        String actorScope = worldDir.toAbsolutePath().normalize().toString();
-        ActorLifecycleService actorService = new ActorLifecycleService(
-                new ActorProjectionRegistry(actorScope),
-                mod.getEventPublisher()
-        );
+        // The logical actor scope is a durable world identity (scope.id), not the
+        // world directory path — relocating a world must not orphan its actors.
+        ActorLifecycleService actorService;
+        ActorStateRepository actorRepository;
+        try {
+            String actorScope = WorldScopeIdentity.resolve(storyNpcsDir, actorDir.resolve("registry.json"));
+            actorService = new ActorLifecycleService(
+                    new ActorProjectionRegistry(actorScope),
+                    mod.getEventPublisher()
+            );
+            actorRepository = new ActorStateRepository(actorDir.resolve("registry.json"), actorScope);
+        } catch (Exception identityFailure) {
+            // Fail closed: without a durable scope we cannot prove an empty registry
+            // belongs to this world, so every actor-state write is refused.
+            LOGGER.error("Could not resolve durable actor scope for {}: {}",
+                    storyNpcsDir, identityFailure.getMessage());
+            actorService = new ActorLifecycleService(
+                    new ActorProjectionRegistry("unresolved:" + worldDir.toAbsolutePath().normalize()),
+                    mod.getEventPublisher()
+            );
+            actorRepository = new ActorStateRepository(actorDir.resolve("registry.json"));
+            actorRepository.markBlocked("actor scope identity could not be resolved: "
+                    + identityFailure.getMessage());
+        }
         mod.setActorLifecycleService(actorService);
-        ActorStateRepository actorRepository = new ActorStateRepository(actorDir.resolve("registry.json"));
         mod.setActorStateRepository(actorRepository);
         mod.registerServerRuntime(server, actorService, actorRepository);
         try {
-            if (Files.exists(actorRepository.target())) {
-                actorService.restore(actorRepository.load());
-            }
+            actorRepository.restore(actorService.registry());
         } catch (Exception e) {
             LOGGER.warn("Could not restore logical StoryNPC actors: {}", e.getMessage());
         }
@@ -410,17 +426,38 @@ public class WorldLifecycleHandler {
     public void handlePlayerLogin(UUID uuid) {
         if (uuid == null) return;
         if (mod.getProgressionRepository() != null) {
-            mod.getProgressionRepository().getOrCreate(uuid);
+            try {
+                mod.getProgressionRepository().getOrCreate(uuid);
+            } catch (RuntimeException unavailable) {
+                LOGGER.error("StoryNPCs progression for {} is blocked pending recovery: {}",
+                        uuid, unavailable.getMessage());
+            }
         }
         if (mod.getBankRepository() != null) {
-            mod.getBankRepository().getOrCreate(uuid);
-            if (mod.getApplicationService() != null) {
-                int unresolved = mod.getApplicationService().recoverBankOperations(
-                        uuid, mod.getBankRepository());
-                if (unresolved > 0) {
-                    LOGGER.warn("{} StoryNPCs bank operation(s) still require recovery for player {}",
-                            unresolved, uuid);
+            try {
+                mod.getBankRepository().getOrCreate(uuid);
+                if (mod.getApplicationService() != null) {
+                    int unresolved = mod.getApplicationService().recoverBankOperations(
+                            uuid, mod.getBankRepository());
+                    if (unresolved > 0) {
+                        LOGGER.warn("{} StoryNPCs bank operation(s) still require recovery for player {}",
+                                unresolved, uuid);
+                    }
                 }
+            } catch (RuntimeException unavailable) {
+                LOGGER.error("StoryNPCs bank vault for {} is blocked pending recovery: {}",
+                        uuid, unavailable.getMessage());
+            }
+        }
+        if (mod.getApplicationService() != null) {
+            try {
+                int unresolvedTrades = mod.getApplicationService().recoverTradeOperations(uuid);
+                if (unresolvedTrades > 0) {
+                    LOGGER.warn("{} StoryNPCs trade operation(s) still require recovery for player {}",
+                            unresolvedTrades, uuid);
+                }
+            } catch (RuntimeException failure) {
+                LOGGER.error("StoryNPCs trade recovery failed for {}: {}", uuid, failure.getMessage());
             }
         }
         LOGGER.debug("Loaded progression and bank for player {}", uuid);

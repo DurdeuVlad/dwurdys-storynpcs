@@ -234,4 +234,58 @@ class NetworkPayloadsTest {
         assertEquals(payload, decoded);
         assertEquals(ClientboundNpcSaveResultPayload.TYPE, payload.type());
     }
+
+    @Test
+    @DisplayName("Quest editor open payload carries the per-definition revision map")
+    void testQuestEditorOpenPayloadRevisionMapCodec() {
+        String revisions = "{\"storynpcs:bounty_goblins\":3,\"storynpcs:m3test\":7}";
+        ClientboundQuestEditorOpenPayload payload = new ClientboundQuestEditorOpenPayload(
+                "storynpcs:m3test", "[]", 7L, revisions);
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundQuestEditorOpenPayload.STREAM_CODEC.encode(buf, payload);
+        ClientboundQuestEditorOpenPayload decoded =
+                ClientboundQuestEditorOpenPayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals(7L, decoded.revision());
+        assertEquals(revisions, decoded.revisionsJson());
+        assertEquals(ClientboundQuestEditorOpenPayload.TYPE, payload.type());
+    }
+
+    @Test
+    @DisplayName("Quest editor open payload defaults revisionsJson for legacy constructors")
+    void testQuestEditorOpenPayloadLegacyConstructor() {
+        ClientboundQuestEditorOpenPayload payload =
+                new ClientboundQuestEditorOpenPayload("storynpcs:m3test", "[]", 7L);
+        assertEquals("{}", payload.revisionsJson());
+        assertEquals("{}", new ClientboundQuestEditorOpenPayload("id", "[]").revisionsJson());
+    }
+
+    @Test
+    @DisplayName("Faction editor open payload carries the per-definition revision map")
+    void testFactionEditorOpenPayloadRevisionMapCodec() {
+        String revisions = "{\"storynpcs:town_guard\":11,\"storynpcs:river_pirates\":2}";
+        ClientboundFactionEditorOpenPayload payload = new ClientboundFactionEditorOpenPayload(
+                "storynpcs:town_guard", "[]", 11L, revisions);
+
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundFactionEditorOpenPayload.STREAM_CODEC.encode(buf, payload);
+        ClientboundFactionEditorOpenPayload decoded =
+                ClientboundFactionEditorOpenPayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals(11L, decoded.revision());
+        assertEquals(revisions, decoded.revisionsJson());
+        assertEquals(ClientboundFactionEditorOpenPayload.TYPE, payload.type());
+    }
+
+    @Test
+    @DisplayName("Faction editor open payload defaults revisionsJson for legacy constructors")
+    void testFactionEditorOpenPayloadLegacyConstructor() {
+        ClientboundFactionEditorOpenPayload payload =
+                new ClientboundFactionEditorOpenPayload("storynpcs:town_guard", "[]", 11L);
+        assertEquals("{}", payload.revisionsJson());
+        assertEquals("{}", new ClientboundFactionEditorOpenPayload("id", "[]").revisionsJson());
+    }
 }

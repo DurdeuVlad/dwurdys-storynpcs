@@ -15,7 +15,8 @@ import net.minecraft.resources.ResourceLocation;
 public record ClientboundQuestEditorOpenPayload(
         String questId,
         String questsJson,
-        long revision
+        long revision,
+        String revisionsJson
 ) implements CustomPacketPayload {
     public static final int MAX_QUESTS_JSON_LENGTH = 4 << 20; // 4 MiB — whole registry
 
@@ -23,10 +24,15 @@ public record ClientboundQuestEditorOpenPayload(
         questId = questId != null ? questId : "";
         questsJson = questsJson != null ? questsJson : "[]";
         if (revision < 0) revision = 0;
+        revisionsJson = revisionsJson != null ? revisionsJson : "{}";
     }
 
     public ClientboundQuestEditorOpenPayload(String questId, String questsJson) {
-        this(questId, questsJson, 0L);
+        this(questId, questsJson, 0L, "{}");
+    }
+
+    public ClientboundQuestEditorOpenPayload(String questId, String questsJson, long revision) {
+        this(questId, questsJson, revision, "{}");
     }
 
     public static final Type<ClientboundQuestEditorOpenPayload> TYPE =
@@ -37,6 +43,7 @@ public record ClientboundQuestEditorOpenPayload(
                     MutationProtocolCodecs.ID_CODEC, ClientboundQuestEditorOpenPayload::questId,
                     MutationProtocolCodecs.REGISTRY_JSON_CODEC, ClientboundQuestEditorOpenPayload::questsJson,
                     ByteBufCodecs.VAR_LONG, ClientboundQuestEditorOpenPayload::revision,
+                    MutationProtocolCodecs.JSON_CODEC, ClientboundQuestEditorOpenPayload::revisionsJson,
                     ClientboundQuestEditorOpenPayload::new
             ));
 

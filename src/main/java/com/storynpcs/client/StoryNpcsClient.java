@@ -77,7 +77,8 @@ public final class StoryNpcsClient {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {
             if (mc.screen instanceof DialogueEditorScreen editor) {
-                editor.onSaveResult(payload.requestId(), payload.success(), payload.message());
+                editor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
+                        payload.revision());
             }
         });
     }
@@ -100,9 +101,11 @@ public final class StoryNpcsClient {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {
             if (mc.screen instanceof NpcEditorScreen editor) {
-                editor.onSaveResult(payload.requestId(), payload.success(), payload.message());
+                editor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
+                        payload.revision());
             } else if (mc.screen instanceof com.storynpcs.client.gui.NpcRulesScreen rulesEditor) {
-                rulesEditor.onSaveResult(payload.requestId(), payload.success(), payload.message());
+                rulesEditor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
+                        payload.revision());
             }
         });
     }
@@ -112,7 +115,8 @@ public final class StoryNpcsClient {
         mc.tell(() -> {
             java.util.List<com.storynpcs.domain.quest.Quest> quests =
                     com.storynpcs.domain.quest.QuestSerde.fromJsonList(payload.questsJson());
-            mc.setScreen(new com.storynpcs.client.gui.QuestEditorScreen(quests, payload.questId(), payload.revision()));
+            mc.setScreen(new com.storynpcs.client.gui.QuestEditorScreen(quests, payload.questId(),
+                    payload.revision(), com.storynpcs.editor.EditorRevisions.parse(payload.revisionsJson())));
         });
     }
 
@@ -121,7 +125,8 @@ public final class StoryNpcsClient {
         mc.tell(() -> {
             if (mc.screen instanceof com.storynpcs.client.gui.QuestEditorScreen editor) {
                 editor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
-                        com.storynpcs.domain.quest.QuestSerde.fromJsonList(payload.questsJson()));
+                        com.storynpcs.domain.quest.QuestSerde.fromJsonList(payload.questsJson()),
+                        payload.revision());
             }
         });
     }
@@ -131,7 +136,8 @@ public final class StoryNpcsClient {
         mc.tell(() -> {
             java.util.List<com.storynpcs.domain.faction.Faction> factions =
                     com.storynpcs.domain.faction.FactionSerde.fromJsonList(payload.factionsJson());
-            mc.setScreen(new com.storynpcs.client.gui.FactionEditorScreen(factions, payload.factionId(), payload.revision()));
+            mc.setScreen(new com.storynpcs.client.gui.FactionEditorScreen(factions, payload.factionId(),
+                    payload.revision(), com.storynpcs.editor.EditorRevisions.parse(payload.revisionsJson())));
         });
     }
 
@@ -140,7 +146,8 @@ public final class StoryNpcsClient {
         mc.tell(() -> {
             if (mc.screen instanceof com.storynpcs.client.gui.FactionEditorScreen editor) {
                 editor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
-                        com.storynpcs.domain.faction.FactionSerde.fromJsonList(payload.factionsJson()));
+                        com.storynpcs.domain.faction.FactionSerde.fromJsonList(payload.factionsJson()),
+                        payload.revision());
             }
         });
     }

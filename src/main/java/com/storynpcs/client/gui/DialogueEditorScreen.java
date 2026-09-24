@@ -66,12 +66,12 @@ public class DialogueEditorScreen extends Screen {
         return model;
     }
 
-    public void onSaveResult(java.util.UUID requestId, boolean success, String message) {
+    public void onSaveResult(java.util.UUID requestId, boolean success, String message, long revision) {
         if (!requestIds.matchesCurrent(requestId)) return;
         model.onSaveResult(success, message);
-        if (success) {
-            expectedRevision[0]++;
-        }
+        // The response revision is authoritative on success AND on rejection
+        // (the server echoes the current token) — never guess with ++.
+        expectedRevision[0] = Math.max(0L, revision);
         requestIds.acknowledge(requestId);
     }
 

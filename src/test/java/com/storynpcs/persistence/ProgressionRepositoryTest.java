@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ProgressionRepositoryTest {
     @TempDir
@@ -61,19 +62,93 @@ class ProgressionRepositoryTest {
     }
 
     @Test
-    void shouldBackupCorruptedFileWhenLoading() throws IOException {
+    void corruptedRecordFailsClosedAndRefusesWrites() throws IOException {
         UUID playerUuid = UUID.randomUUID();
         Path targetFile = tempDir.resolve(playerUuid.toString() + ".json");
         Files.writeString(targetFile, "{ corrupt json unclosed");
 
-        PlayerProgression prog = repository.getOrCreate(playerUuid);
-        assertThat(prog).isNotNull();
-        assertThat(prog.getPlayerUuid()).isEqualTo(playerUuid);
+        // Fail closed: an unrecoverable record must never become empty state.
+        assertThatThrownBy(() -> repository.getOrCreate(playerUuid))
+                .isInstanceOf(UnrecoverablePlayerDataException.class);
+        assertThat(repository.isUnavailable(playerUuid)).isTrue();
+        assertThat(repository.unavailabilityReason(playerUuid)).isNotBlank();
 
-        // Verify a .corrupted backup file was created
+        // The corrupt bytes are quarantined — durable evidence is preserved.
         try (var stream = Files.list(tempDir)) {
             boolean hasBackup = stream.anyMatch(p -> p.getFileName().toString().contains(".corrupted."));
             assertThat(hasBackup).isTrue();
         }
+
+        // A later save must not overwrite the surviving evidence with empty state.
+        assertThatThrownBy(() -> repository.save(playerUuid))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("blocked");
+    }
+
+    @Test
+    void futureSchemaRecordFailsClosed() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        Path targetFile = tempDir.resolve(playerUuid.toString() + ".json");
+        Files.writeString(targetFile,
+                "{\"schemaVersion\":999,\"data\":{\"playerUuid\":\"" + playerUuid + "\"}}");
+
+        assertThatThrownBy(() -> repository.getOrCreate(playerUuid))
+                .isInstanceOf(UnrecoverablePlayerDataException.class);
+        assertThat(repository.isUnavailable(playerUuid)).isTrue();
+        assertThatThrownBy(() -> repository.save(playerUuid)).isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void quarantinedArtifactAloneBlocksInitialization() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        // The record itself is gone — only quarantine evidence remains. A fresh
+        // empty progression must not be minted over it.
+        Files.writeString(tempDir.resolve(playerUuid + ".json.corrupted.1"), "garbage");
+
+        assertThatThrownBy(() -> repository.getOrCreate(playerUuid))
+                .isInstanceOf(UnrecoverablePlayerDataException.class);
+        assertThatThrownBy(() -> repository.save(playerUuid)).isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void unloadDoesNotEraseDurableCorruptionEvidence() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        Files.writeString(tempDir.resolve(playerUuid + ".json"), "{ nope");
+
+        assertThatThrownBy(() -> repository.getOrCreate(playerUuid))
+                .isInstanceOf(UnrecoverablePlayerDataException.class);
+        assertThat(repository.isUnavailable(playerUuid)).isTrue();
+
+        // Unloading clears the in-memory block, but the durable .corrupted
+        // artifact re-blocks the record on the next access — evidence is never lost.
+        repository.unload(playerUuid);
+        assertThat(repository.isUnavailable(playerUuid)).isFalse();
+        assertThatThrownBy(() -> repository.getOrCreate(playerUuid))
+                .isInstanceOf(UnrecoverablePlayerDataException.class);
+        assertThat(repository.isUnavailable(playerUuid)).isTrue();
+    }
+
+    @Test
+    void genuinelyMissingRecordStillInitializesEmptyProgression() {
+        UUID playerUuid = UUID.randomUUID();
+        PlayerProgression progression = repository.getOrCreate(playerUuid);
+        assertThat(progression).isNotNull();
+        assertThat(progression.getPlayerUuid()).isEqualTo(playerUuid);
+        assertThat(repository.isUnavailable(playerUuid)).isFalse();
+    }
+
+    @Test
+    void instanceBoundSaveCommitsEvenAfterCacheEviction() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        PlayerProgression progression = repository.getOrCreate(playerUuid);
+        progression.setQuestRevision(41);
+
+        // A cache eviction between mutation and write must not silently drop
+        // the commit — the instance-bound save writes the passed instance.
+        repository.unload(playerUuid);
+        repository.save(playerUuid, progression);
+
+        repository.clearCache();
+        assertThat(repository.getOrCreate(playerUuid).getQuestRevision()).isEqualTo(41);
     }
 }

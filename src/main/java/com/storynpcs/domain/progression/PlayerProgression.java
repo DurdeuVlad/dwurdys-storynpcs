@@ -28,6 +28,15 @@ public class PlayerProgression {
     @JsonProperty
     private Map<NamespacedId, PendingQuestCompletion> pendingQuestCompletions = new HashMap<>();
 
+    /**
+     * Durable idempotency marks for non-atomic quest reward side effects
+     * (XP or item grants). A reward is marked before it is delivered and the
+     * marks are cleared when the completion commits, so a retry after a
+     * failed commit cannot grant the same reward twice.
+     */
+    @JsonProperty
+    private Map<NamespacedId, Set<String>> deliveredQuestRewards = new HashMap<>();
+
 
     public PlayerProgression() {}
 
@@ -67,6 +76,22 @@ public class PlayerProgression {
         }
     }
 
+    /** Durable per-quest reward-delivery marks used for idempotent retry after a failed commit. */
+    public Map<NamespacedId, Set<String>> getDeliveredQuestRewards() {
+        return deliveredQuestRewards;
+    }
+
+    public void setDeliveredQuestRewards(Map<NamespacedId, Set<String>> delivered) {
+        deliveredQuestRewards = new HashMap<>();
+        if (delivered == null) return;
+        for (Map.Entry<NamespacedId, Set<String>> entry : delivered.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                throw new IllegalArgumentException("delivered quest rewards require non-null keys and values");
+            }
+            deliveredQuestRewards.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+    }
+
     /** Deep snapshot used to restore cached progression after a failed durable write. */
     public PlayerProgression copy() {
         PlayerProgression copy = new PlayerProgression(playerUuid);
@@ -76,6 +101,8 @@ public class PlayerProgression {
         copy.factionPoints = new HashMap<>(factionPoints);
         copy.visitedDialogueNodes = new HashSet<>(visitedDialogueNodes);
         copy.pendingQuestCompletions = new HashMap<>(pendingQuestCompletions);
+        copy.deliveredQuestRewards = new HashMap<>();
+        deliveredQuestRewards.forEach((id, keys) -> copy.deliveredQuestRewards.put(id, new HashSet<>(keys)));
         return copy;
     }
 
@@ -90,6 +117,8 @@ public class PlayerProgression {
         factionPoints = new HashMap<>(snapshot.factionPoints);
         visitedDialogueNodes = new HashSet<>(snapshot.visitedDialogueNodes);
         pendingQuestCompletions = new HashMap<>(snapshot.pendingQuestCompletions);
+        deliveredQuestRewards = new HashMap<>();
+        snapshot.deliveredQuestRewards.forEach((id, keys) -> deliveredQuestRewards.put(id, new HashSet<>(keys)));
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {

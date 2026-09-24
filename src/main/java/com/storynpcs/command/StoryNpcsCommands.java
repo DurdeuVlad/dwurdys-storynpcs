@@ -1776,7 +1776,9 @@ public final class StoryNpcsCommands {
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
                 new com.storynpcs.network.ClientboundQuestEditorOpenPayload(
                         questId != null ? questId.toString() : "", questsJson,
-                        questId != null ? mod.getApplicationService().currentRevision("quest", questId) : 0L));
+                        questId != null ? mod.getApplicationService().currentRevision("quest", questId) : 0L,
+                        com.storynpcs.editor.EditorRevisions.toJson(
+                                mod.getApplicationService().currentRevisions("quest"))));
         ctx.getSource().sendSuccess(() -> Component.literal(questId != null
                 ? "[StoryNPCs] Opening quest editor for '" + questId + "'."
                 : "[StoryNPCs] Opening quest browser."), false);
@@ -2017,7 +2019,9 @@ public final class StoryNpcsCommands {
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
                 new com.storynpcs.network.ClientboundFactionEditorOpenPayload(
                         factionId != null ? factionId.toString() : "", factionsJson,
-                        factionId != null ? mod.getApplicationService().currentRevision("faction", factionId) : 0L));
+                        factionId != null ? mod.getApplicationService().currentRevision("faction", factionId) : 0L,
+                        com.storynpcs.editor.EditorRevisions.toJson(
+                                mod.getApplicationService().currentRevisions("faction"))));
         ctx.getSource().sendSuccess(() -> Component.literal(factionId != null
                 ? "[StoryNPCs] Opening faction editor for '" + factionId + "'."
                 : "[StoryNPCs] Opening faction browser."), false);

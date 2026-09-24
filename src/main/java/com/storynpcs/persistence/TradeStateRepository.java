@@ -105,9 +105,9 @@ public final class TradeStateRepository {
             }
             return state;
         }
-        if (result.sourcePresent()) {
+        if (result.sourcePresent() || store().hasProtectedArtifacts()) {
             unavailable = true;
-            throw new IOException("trade state record is invalid: " + target);
+            throw new IOException("trade state record is invalid or quarantined: " + target);
         }
         state = new State();
         return state;

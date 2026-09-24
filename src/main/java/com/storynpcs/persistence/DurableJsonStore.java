@@ -88,6 +88,27 @@ public final class DurableJsonStore {
     }
 
     /**
+     * Returns true when quarantined artifacts of this record still exist beside the target —
+     * evidence that a formerly protected record was corrupt and must not be silently replaced
+     * by freshly initialized state. Callers that would otherwise invent an empty record must
+     * fail closed while these artifacts remain.
+     */
+    public boolean hasProtectedArtifacts() throws IOException {
+        Path parent = target.getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            return false;
+        }
+        String base = target.getFileName().toString();
+        try (var stream = Files.list(parent)) {
+            return stream.anyMatch(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(base + ".corrupted.")
+                        || (name.startsWith(base + ".bak.") && name.contains(".corrupted."));
+            });
+        }
+    }
+
+    /**
      * Reads a record, recovering from the newest valid backup when necessary.
      * A missing or unrecoverable record returns an empty value with diagnostics;
      * callers can then create a domain default without erasing the evidence.

@@ -52,6 +52,12 @@ public class StoryNpcsApplicationService {
     private com.storynpcs.persistence.TradeStateRepository tradeStateRepository;
     /** May be null in unit-test contexts — needed for VULN-57 file deletion on deleteNpc. */
     private YamlDefinitionLoader loader;
+    /** Test seam: observes the non-atomic XP/item reward boundary for exactly-once proofs. */
+    private volatile java.util.function.BiConsumer<UUID, QuestReward> rewardSideEffectOverride;
+
+    void setRewardSideEffectOverride(java.util.function.BiConsumer<UUID, QuestReward> override) {
+        this.rewardSideEffectOverride = override;
+    }
 
     public void setLoader(YamlDefinitionLoader loader) {
         this.loader = loader;
@@ -441,7 +447,19 @@ public class StoryNpcsApplicationService {
                 result.applied(), result.revision(), result.recoveryOutcome()));
     }
 
-    /** Returns the current revision for packet/API adapters that have not yet been versioned. */
+    /** Revision tokens for every definition of one kind, keyed by bare definition id. */
+    public Map<String, Long> currentRevisions(String kind) {
+        Objects.requireNonNull(kind, "kind");
+        String prefix = kind + ":";
+        Map<String, Long> revisions = new HashMap<>();
+        definitionRevisions.forEach((key, value) -> {
+            if (value != null && key.startsWith(prefix)) {
+                revisions.put(key.substring(prefix.length()), value);
+            }
+        });
+        return revisions;
+    }
+
     public long currentRevision(String kind, NamespacedId id) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(id, "id");
@@ -1578,6 +1596,14 @@ public class StoryNpcsApplicationService {
         }
     }
 
+    private void saveProgression(UUID playerUuid, PlayerProgression progression) {
+        try {
+            progressionRepository.save(playerUuid, progression);
+        } catch (IOException e) {
+            System.err.println("Failed to persist progression for " + playerUuid + ": " + e.getMessage());
+        }
+    }
+
     // ==========================================
     // 3. Faction Operations
     // ==========================================
@@ -1586,10 +1612,15 @@ public class StoryNpcsApplicationService {
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
         Faction faction = registry.getFaction(factionId)
                 .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
-        int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
         int clamped = Math.max(-100_000, Math.min(100_000, points));
-        progression.setFactionScore(factionId, clamped);
-        saveProgression(playerUuid);
+        final int oldPoints;
+        // Mutate and commit the SAME instance under its monitor — a cache
+        // eviction must never turn this write into a silent no-op.
+        synchronized (progression) {
+            oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
+            progression.setFactionScore(factionId, clamped);
+            saveProgression(playerUuid, progression);
+        }
 
         eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, clamped));
     }
@@ -1598,11 +1629,17 @@ public class StoryNpcsApplicationService {
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
         Faction faction = registry.getFaction(factionId)
                 .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
-        int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-        long sum = (long) oldPoints + (long) delta;
-        int newPoints = (int) Math.max(-100_000, Math.min(100_000, sum));
-        progression.setFactionScore(factionId, newPoints);
-        saveProgression(playerUuid);
+        final int oldPoints;
+        final int newPoints;
+        // Read-modify-write inside the monitor — a concurrent reputation change
+        // must not be lost between the delta base read and the committed write.
+        synchronized (progression) {
+            oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
+            long sum = (long) oldPoints + (long) delta;
+            newPoints = (int) Math.max(-100_000, Math.min(100_000, sum));
+            progression.setFactionScore(factionId, newPoints);
+            saveProgression(playerUuid, progression);
+        }
 
         eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, newPoints));
     }
@@ -1635,7 +1672,21 @@ public class StoryNpcsApplicationService {
         QuestEventQueue dispatchQueue;
         synchronized (requestLock) {
             synchronized (playerLock) {
-                PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+                PlayerProgression progression;
+                try {
+                    progression = progressionRepository.getOrCreate(request.playerUuid());
+                } catch (RuntimeException unavailable) {
+                    System.err.println("[StoryNPCs] quest mutation blocked for " + request.playerUuid()
+                            + ": " + unavailable.getMessage());
+                    progression = null;
+                }
+                if (progression == null) {
+                    // Fail closed: an unrecoverable durable record must reject every
+                    // mutation instead of silently initializing empty progression.
+                    result = questMutationFailure(0, "PROGRESSION_UNAVAILABLE",
+                            "Player progression is blocked pending durable-state recovery");
+                    notifications.add(questMutationEvent(request, result));
+                } else
                 synchronized (progression) {
                     execution = applyQuestProgressionMutation(request, fingerprint, progression);
                     result = execution.result();
@@ -1802,7 +1853,7 @@ public class StoryNpcsApplicationService {
                 progression.getPendingQuestCompletions().put(request.questId(), new PendingQuestCompletion(
                         request.requestId(), request.questId(), fingerprint, state.getStateRevision()));
             }
-            progressionRepository.save(request.playerUuid());
+            progressionRepository.save(request.playerUuid(), progression);
         } catch (Exception failure) {
             progression.restoreFrom(snapshot);
             CanonicalMutationResult rejected = questMutationFailure(currentRevision, "PROGRESSION_COMMIT_FAILED",
@@ -1939,13 +1990,24 @@ public class StoryNpcsApplicationService {
         QuestCompletionResult result;
         QuestEventQueue dispatchQueue;
         synchronized (playerLock) {
-            PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-            synchronized (progression) {
-                result = completeQuestUnderLock(playerUuid, quest, progression, factionEvents);
+            PlayerProgression progression;
+            try {
+                progression = progressionRepository.getOrCreate(playerUuid);
+            } catch (RuntimeException unavailable) {
+                System.err.println("[StoryNPCs] quest completion blocked for " + playerUuid
+                        + ": " + unavailable.getMessage());
+                progression = null;
             }
-            if (result.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
-                notifications.addAll(factionEvents);
-                notifications.add(new QuestCompleteEvent(playerUuid, questId));
+            if (progression == null) {
+                result = QuestCompletionResult.failed("PROGRESSION_UNAVAILABLE", 0);
+            } else {
+                synchronized (progression) {
+                    result = completeQuestUnderLock(playerUuid, quest, progression, factionEvents);
+                }
+                if (result.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
+                    notifications.addAll(factionEvents);
+                    notifications.add(new QuestCompleteEvent(playerUuid, questId));
+                }
             }
             // Enqueue under the player lock; listeners are dispatched after releasing it.
             dispatchQueue = enqueueQuestEvents(playerUuid, notifications);
@@ -1969,60 +2031,136 @@ public class StoryNpcsApplicationService {
         QuestCompletionResult validationFailure = validateQuestRewards(playerUuid, quest);
         if (validationFailure != null) return validationFailure;
 
+        // Durable completion intent before any non-atomic side effect: a crash
+        // must leave evidence that this quest's completion was in flight.
+        if (!progression.getPendingQuestCompletions().containsKey(questId)) {
+            progression.getPendingQuestCompletions().put(questId, new PendingQuestCompletion(
+                    UUID.randomUUID(), questId,
+                    MutationPayloadFingerprint.of("quest.complete", playerUuid + " " + questId),
+                    state.getStateRevision()));
+            try {
+                progressionRepository.save(playerUuid, progression);
+            } catch (Exception e) {
+                progression.restoreFrom(snapshot);
+                System.err.println("Failed to persist quest completion intent for " + questId
+                        + " for player " + playerUuid + ": " + e.getMessage());
+                return QuestCompletionResult.failed("COMPLETION_INTENT_FAILED", 0);
+            }
+        }
+
         int rewardsApplied = 0;
         try {
-            // Supported rewards are executed before the terminal state is set.
-            // A malformed reward therefore cannot strand a quest as completed.
+            // Non-atomic rewards (XP/item grants) are marked durably BEFORE their
+            // side effect runs; a retry after a failed commit skips marked rewards,
+            // so each is delivered exactly once. Faction rewards ride the terminal
+            // commit — they are atomic with the completed state.
             if (quest.getRewards() != null) {
+                int index = 0;
                 for (QuestReward reward : quest.getRewards()) {
+                    String rewardKey = index++ + "|" + reward.getType()
+                            + "|" + reward.getTarget() + "|" + reward.getAmount();
                     switch (reward.getType()) {
-                        case FACTION_POINTS -> {
-                            NamespacedId factionId = NamespacedId.of(reward.getTarget());
-                            Faction faction = registry.getFaction(factionId).orElseThrow();
-                            int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-                            progression.adjustFactionScore(factionId, reward.getAmount(), faction.getDefaultPoints());
-                            int newPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-                            factionEvents.add(new FactionReputationChangeEvent(
-                                    playerUuid, factionId, oldPoints, newPoints));
-                            rewardsApplied++;
-                        }
-                        case EXPERIENCE -> {
-                            if (minecraftServer != null) {
-                                var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
-                                if (player == null) throw new IllegalStateException("player is offline");
-                                player.giveExperiencePoints(reward.getAmount());
+                        case EXPERIENCE, ITEM -> {
+                            Set<String> delivered = progression.getDeliveredQuestRewards().get(questId);
+                            if (delivered != null && delivered.contains(rewardKey)) {
+                                break; // granted before a failed commit — never deliver twice
                             }
-                            rewardsApplied++;
-                        }
-                        case ITEM -> {
-                            if (minecraftServer != null) {
-                                var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
-                                if (player == null) throw new IllegalStateException("player is offline");
-                                var itemRl = net.minecraft.resources.ResourceLocation.tryParse(reward.getTarget().trim());
-                                var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElseThrow();
-                                net.minecraft.world.item.ItemStack stack =
-                                        new net.minecraft.world.item.ItemStack(item, Math.max(1, reward.getAmount()));
-                                if (!player.getInventory().add(stack)) player.drop(stack, false);
+                            PlayerProgression markSnapshot = progression.copy();
+                            progression.getDeliveredQuestRewards()
+                                    .computeIfAbsent(questId, key -> new HashSet<>())
+                                    .add(rewardKey);
+                            try {
+                                progressionRepository.save(playerUuid, progression);
+                            } catch (Exception markFailure) {
+                                // Nothing was delivered — in-memory state must match disk.
+                                progression.restoreFrom(markSnapshot);
+                                throw markFailure;
                             }
+                            // If delivery throws now the durable mark stays: a retry may
+                            // lose this reward but can never grant it twice.
+                            deliverQuestReward(playerUuid, reward);
                             rewardsApplied++;
                         }
                         case COMMAND -> throw new IllegalStateException("command rewards are non-atomic");
+                        default -> { }
                     }
                 }
             }
 
-            state.setStatus(QuestProgressState.Status.COMPLETED);
-            state.advanceStateRevision();
-            progression.getPendingQuestCompletions().remove(questId);
-            progression.setQuestRevision(Math.addExact(progression.getQuestRevision(), 1L));
-            progressionRepository.save(playerUuid);
+            rewardsApplied = commitQuestCompletion(
+                    playerUuid, quest, progression, state, factionEvents, rewardsApplied);
         } catch (Exception e) {
-            progression.restoreFrom(snapshot);
             System.err.println("Failed to complete quest " + questId + " for player " + playerUuid + ": " + e.getMessage());
             return QuestCompletionResult.failed("REWARD_EXECUTION_FAILED", rewardsApplied);
         }
 
         return QuestCompletionResult.completed(rewardsApplied);
+    }
+
+    /**
+     * Terminal completion commit: faction-point rewards, the COMPLETED status,
+     * and cleanup of the pending intent and reward-delivery marks are one
+     * atomic durable write. On failure the cached state is restored to the
+     * pre-commit snapshot — durable marks stay — so a retry can never
+     * duplicate an already-delivered XP/item reward.
+     */
+    private int commitQuestCompletion(
+            UUID playerUuid, Quest quest, PlayerProgression progression,
+            QuestProgressState state, List<FactionReputationChangeEvent> factionEvents,
+            int rewardsApplied) throws IOException {
+        NamespacedId questId = quest.getId();
+        PlayerProgression commitSnapshot = progression.copy();
+        try {
+            if (quest.getRewards() != null) {
+                for (QuestReward reward : quest.getRewards()) {
+                    if (reward.getType() != QuestReward.Type.FACTION_POINTS) continue;
+                    NamespacedId factionId = NamespacedId.of(reward.getTarget());
+                    Faction faction = registry.getFaction(factionId).orElseThrow();
+                    int oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
+                    progression.adjustFactionScore(factionId, reward.getAmount(), faction.getDefaultPoints());
+                    int newPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
+                    factionEvents.add(new FactionReputationChangeEvent(
+                            playerUuid, factionId, oldPoints, newPoints));
+                    rewardsApplied++;
+                }
+            }
+            state.setStatus(QuestProgressState.Status.COMPLETED);
+            state.advanceStateRevision();
+            progression.getPendingQuestCompletions().remove(questId);
+            progression.getDeliveredQuestRewards().remove(questId);
+            progression.setQuestRevision(Math.addExact(progression.getQuestRevision(), 1L));
+            progressionRepository.save(playerUuid, progression);
+            return rewardsApplied;
+        } catch (IOException | RuntimeException commitFailure) {
+            progression.restoreFrom(commitSnapshot);
+            throw commitFailure;
+        }
+    }
+
+    /**
+     * Runs one non-atomic reward side effect. {@code rewardSideEffectOverride}
+     * lets tests observe delivery; production grants through the live server.
+     */
+    private void deliverQuestReward(UUID playerUuid, QuestReward reward) {
+        var override = rewardSideEffectOverride;
+        if (override != null) {
+            override.accept(playerUuid, reward);
+            return;
+        }
+        if (minecraftServer == null) return;
+        var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+        if (player == null) throw new IllegalStateException("player is offline");
+        switch (reward.getType()) {
+            case EXPERIENCE -> player.giveExperiencePoints(reward.getAmount());
+            case ITEM -> {
+                var itemRl = net.minecraft.resources.ResourceLocation.tryParse(reward.getTarget().trim());
+                var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElseThrow();
+                net.minecraft.world.item.ItemStack stack =
+                        new net.minecraft.world.item.ItemStack(item, Math.max(1, reward.getAmount()));
+                if (!player.getInventory().add(stack)) player.drop(stack, false);
+            }
+            default -> throw new IllegalStateException("unsupported reward side effect: " + reward.getType());
+        }
     }
 
     /**
@@ -2090,7 +2228,24 @@ public class StoryNpcsApplicationService {
                                 com.storynpcs.domain.role.trader.TradeListing trade,
                                 UUID requestId) {
         if (playerUuid == null || npcId == null || trade == null || requestId == null) return false;
-        String listingId = listingIndex >= 0 ? trade.ensureStableId() : "";
+        if (listingIndex < 0) {
+            // No durable listing state exists for unindexed trades — a journal
+            // record here could never be reconciled, so run the mutation directly.
+            return executeTradeMutation(playerUuid, npcId, listingIndex, trade)
+                    == TradeMutationOutcome.COMMITTED;
+        }
+        // Serialize the prepare/commit/recover decision per request id — recovery
+        // must not abort a prepared record between its durable intent and the
+        // listing-use commit decision.
+        var outcome = tradeOperationJournal.withOperationLock(requestId,
+                () -> executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId));
+        return outcome != null && outcome;
+    }
+
+    private boolean executeTradeJournaled(UUID playerUuid, NamespacedId npcId, int listingIndex,
+                                          com.storynpcs.domain.role.trader.TradeListing trade,
+                                          UUID requestId) {
+        String listingId = trade.ensureStableId();
         String requiredFactionId = trade.getRequiredFaction() == null
                 ? "" : trade.getRequiredFaction().toString();
         final String subject = playerUuid + "|" + npcId + "|" + listingIndex
@@ -2130,12 +2285,17 @@ public class StoryNpcsApplicationService {
             return false;
         }
 
-        if (!executeTradeMutation(playerUuid, npcId, listingIndex, trade)) {
-            try {
-                tradeOperationJournal.abort(requestId, "REJECTED", "trade validation or delivery failed");
-            } catch (IOException | RuntimeException ignored) {
-                // The prepared record remains visible for explicit recovery.
+        var mutationOutcome = executeTradeMutation(playerUuid, npcId, listingIndex, trade);
+        if (mutationOutcome != TradeMutationOutcome.COMMITTED) {
+            if (mutationOutcome == TradeMutationOutcome.REJECTED) {
+                try {
+                    tradeOperationJournal.abort(requestId, "REJECTED", "trade validation or delivery failed");
+                } catch (IOException | RuntimeException ignored) {
+                    // The prepared record remains visible for explicit recovery.
+                }
             }
+            // RECOVERY_REQUIRED leaves the record prepared: a durable reservation
+            // survived but its rollback could not be proven — never claim a clean abort.
             return false;
         }
         try {
@@ -2146,7 +2306,16 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
-    private boolean executeTradeMutation(UUID playerUuid, NamespacedId npcId, int listingIndex,
+    /**
+     * Result of one trade mutation attempt: {@code COMMITTED} means every leg
+     * landed, {@code REJECTED} means nothing durable survives and the journal may
+     * abort cleanly, {@code RECOVERY_REQUIRED} means a durable reservation may
+     * still stand because its rollback could not be proven — the journal record
+     * must stay pending for explicit recovery rather than claim a clean abort.
+     */
+    private enum TradeMutationOutcome { COMMITTED, REJECTED, RECOVERY_REQUIRED }
+
+    private TradeMutationOutcome executeTradeMutation(UUID playerUuid, NamespacedId npcId, int listingIndex,
                                          com.storynpcs.domain.role.trader.TradeListing trade) {
         if (tradeStateRepository != null && listingIndex >= 0) {
             String listingId = trade.ensureStableId();
@@ -2158,7 +2327,7 @@ public class StoryNpcsApplicationService {
                     trade.setUses(expectedUses);
                     if (!tradeStateRepository.reserveUse(npcId.toString(), listingId,
                             expectedUses, Math.max(0, trade.getMaxUses()))) {
-                        return false;
+                        return TradeMutationOutcome.REJECTED;
                     }
                     reserved = true;
                     boolean executed = executeTradeMutationCore(playerUuid, npcId, trade);
@@ -2169,26 +2338,38 @@ public class StoryNpcsApplicationService {
                         if (!rolledBack) {
                             System.err.println("[StoryNPCs] Trade use rollback requires recovery for "
                                     + npcId + " listing " + listingIndex);
+                            return TradeMutationOutcome.RECOVERY_REQUIRED;
                         }
-                        return false;
+                        return TradeMutationOutcome.REJECTED;
                     }
-                    return true;
+                    return TradeMutationOutcome.COMMITTED;
                 } catch (IOException | RuntimeException e) {
                     if (reserved && expectedUses >= 0) {
                         try {
                             tradeStateRepository.rollbackUse(
                                     npcId.toString(), listingId, expectedUses + 1, expectedUses);
+                            trade.setUses(expectedUses);
+                            return TradeMutationOutcome.REJECTED;
                         } catch (IOException | RuntimeException rollbackFailure) {
                             System.err.println("[StoryNPCs] Trade use rollback failed for "
                                     + npcId + " listing " + listingIndex + ": " + rollbackFailure.getMessage());
+                            trade.setUses(Math.max(0, expectedUses));
+                            return TradeMutationOutcome.RECOVERY_REQUIRED;
                         }
                     }
                     trade.setUses(Math.max(0, expectedUses));
-                    return false;
+                    return TradeMutationOutcome.REJECTED;
                 }
             }
         }
-        return executeTradeMutationCore(playerUuid, npcId, trade);
+        try {
+            return executeTradeMutationCore(playerUuid, npcId, trade)
+                    ? TradeMutationOutcome.COMMITTED
+                    : TradeMutationOutcome.REJECTED;
+        } catch (RuntimeException e) {
+            // Blocked/unreadable progression — reject without granting anything.
+            return TradeMutationOutcome.REJECTED;
+        }
     }
 
     private boolean executeTradeMutationCore(UUID playerUuid, NamespacedId npcId,
@@ -2379,6 +2560,18 @@ public class StoryNpcsApplicationService {
         if (playerUuid == null || bankRepo == null || requestId == null) {
             return BankDepositOperationResult.rejected("INVALID_REQUEST");
         }
+        // Serialize the prepare/commit/recover decision per request id — recovery
+        // must not abort a request between its durable prepare and vault commit.
+        var result = bankRepo.operationJournal().withOperationLock(requestId,
+                () -> depositHeldToBankJournaled(playerUuid, bankRepo, tab, requestId));
+        return result != null ? result : BankDepositOperationResult.recoveryRequired("JOURNAL_UNAVAILABLE");
+    }
+
+    private BankDepositOperationResult depositHeldToBankJournaled(
+            UUID playerUuid,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            int tab,
+            UUID requestId) {
         final String operationType = "bank.deposit_held";
         final String subject = playerUuid.toString();
         var journal = bankRepo.operationJournal();
@@ -2405,7 +2598,12 @@ public class StoryNpcsApplicationService {
                 : held.save(player.level().registryAccess()).toString();
         int count = held.getCount();
 
-        var vault = bankRepo.getOrCreate(playerUuid);
+        final com.storynpcs.domain.role.banker.BankVault vault;
+        try {
+            vault = bankRepo.getOrCreate(playerUuid);
+        } catch (RuntimeException unavailable) {
+            return BankDepositOperationResult.rejected("VAULT_UNAVAILABLE");
+        }
         var before = vault.copy();
         var candidate = before.copy();
         int plannedSlot = candidate.depositAuto(tab, itemId, count, tag);
@@ -2523,7 +2721,23 @@ public class StoryNpcsApplicationService {
             int slot = Integer.parseInt(record.detail());
             var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
             if (marker == null) {
-                return replay
+                if (!replay) {
+                    return BankDepositOperationResult.recoveryRequired("BANK_MARKER_MISSING");
+                }
+                // A backup restore can erase a committed deposit together with its
+                // marker — verify the vault still holds the committed stack before
+                // reporting a replay, or a rolled-back deposit would be misresolved
+                // while the held items were already taken.
+                var intentJson = record.preparedIntent() != null
+                        ? record.preparedIntent() : record.detail();
+                var intent = com.storynpcs.domain.role.RoleSerde.bankOperationIntentFromJson(intentJson);
+                if (intent.isEmpty()) {
+                    return BankDepositOperationResult.recoveryRequired("BANK_MARKER_MISSING");
+                }
+                var operation = intent.get();
+                boolean stackPresent = bankRepo.getOrCreate(playerUuid).getTabItems(operation.tab())
+                        .stream().anyMatch(operation::matches);
+                return stackPresent
                         ? BankDepositOperationResult.replayed(slot)
                         : BankDepositOperationResult.recoveryRequired("BANK_MARKER_MISSING");
             }
@@ -2579,7 +2793,10 @@ public class StoryNpcsApplicationService {
             net.minecraft.server.level.ServerPlayer player,
             net.minecraft.world.item.ItemStack held,
             com.storynpcs.persistence.BankOperationIntent intent) {
-        if (held == null || held.isEmpty() || held.getCount() < intent.count()) return false;
+        // Exact count only: the deposit consumed the whole held stack, so an
+        // un-shrunk replay presents exactly intent.count(). A larger stack can
+        // only be re-acquired items — shrinking it would destroy player items.
+        if (held == null || held.isEmpty() || held.getCount() != intent.count()) return false;
         String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM
                 .getKey(held.getItem()).toString();
         if (!intent.itemId().equals(itemId)) return false;
@@ -2680,6 +2897,7 @@ public class StoryNpcsApplicationService {
         if (playerUuid == null || bankRepo == null) return 0;
         java.util.List<com.storynpcs.persistence.DurableOperationJournal.OperationRecord> pendingRecords;
         java.util.Set<UUID> depositRequestIds = new java.util.LinkedHashSet<>();
+        java.util.Set<UUID> unlockRequestIds = new java.util.LinkedHashSet<>();
         try {
             String playerSubject = playerUuid.toString();
             String compoundSubjectPrefix = playerSubject + "|";
@@ -2691,10 +2909,18 @@ public class StoryNpcsApplicationService {
                     .filter(record -> "bank.deposit_held".equals(record.operationType()))
                     .map(com.storynpcs.persistence.DurableOperationJournal.OperationRecord::operationId)
                     .forEach(depositRequestIds::add);
+            pendingRecords.stream()
+                    .filter(record -> "bank.unlock_tab".equals(record.operationType()))
+                    .map(com.storynpcs.persistence.DurableOperationJournal.OperationRecord::operationId)
+                    .forEach(unlockRequestIds::add);
             bankRepo.getOrCreate(playerUuid).getOperationMarkers().values().stream()
                     .filter(marker -> "bank.deposit_held".equals(marker.getOperationType()))
                     .map(com.storynpcs.domain.role.banker.BankVault.OperationMarker::getOperationId)
                     .forEach(depositRequestIds::add);
+            bankRepo.getOrCreate(playerUuid).getOperationMarkers().values().stream()
+                    .filter(marker -> "bank.unlock_tab".equals(marker.getOperationType()))
+                    .map(com.storynpcs.domain.role.banker.BankVault.OperationMarker::getOperationId)
+                    .forEach(unlockRequestIds::add);
         } catch (IOException | RuntimeException e) {
             return 1;
         }
@@ -2718,63 +2944,394 @@ public class StoryNpcsApplicationService {
                 unresolved++;
             }
         }
+        for (UUID requestId : unlockRequestIds) {
+            boolean resolved;
+            try {
+                resolved = Boolean.TRUE.equals(bankRepo.operationJournal().withOperationLock(requestId,
+                        () -> reconcileBankUnlockRequest(playerUuid, bankRepo, requestId)));
+            } catch (RuntimeException failure) {
+                resolved = false;
+            }
+            if (!resolved) unresolved++;
+        }
         return unresolved;
+    }
+
+    /**
+     * Recovery entry for one tab-unlock request: a still-prepared record is
+     * reconciled against the vault marker; anything else (including a committed
+     * record whose marker cleanup was interrupted) runs the payment finalize.
+     */
+    private boolean reconcileBankUnlockRequest(
+            UUID playerUuid,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            UUID requestId) {
+        try {
+            var record = bankRepo.operationJournal().read(requestId);
+            if (record != null
+                    && record.state() == com.storynpcs.persistence.DurableOperationJournal.State.PREPARED
+                    && "bank.unlock_tab".equals(record.operationType())) {
+                return reconcilePendingBankUnlock(playerUuid, bankRepo, requestId);
+            }
+            return finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+        } catch (IOException | RuntimeException failure) {
+            return false;
+        }
+    }
+
+    /**
+     * Reconciles pending trade.execute records for one player after a restart.
+     * The durable listing use count is the ground truth: when it already
+     * advanced past the captured intent the reservation committed and the
+     * operation stays pending (payment/output ambiguity is never guessed);
+     * when it is unchanged the trade provably never committed and is aborted.
+     *
+     * @return the number of operations still requiring manual recovery
+     */
+    public int recoverTradeOperations(UUID playerUuid) {
+        if (playerUuid == null) return 0;
+        java.util.List<com.storynpcs.persistence.DurableOperationJournal.OperationRecord> pending;
+        try {
+            String subjectPrefix = playerUuid + "|";
+            pending = tradeOperationJournal.pending().stream()
+                    .filter(record -> "trade.execute".equals(record.operationType()))
+                    .filter(record -> record.subject() != null && record.subject().startsWith(subjectPrefix))
+                    .toList();
+        } catch (IOException | RuntimeException e) {
+            return 1;
+        }
+        int unresolved = 0;
+        for (var record : pending) {
+            boolean resolved;
+            try {
+                resolved = Boolean.TRUE.equals(tradeOperationJournal.withOperationLock(
+                        record.operationId(),
+                        () -> reconcilePendingTrade(playerUuid, record.operationId())));
+            } catch (RuntimeException failure) {
+                resolved = false;
+            }
+            if (!resolved) unresolved++;
+        }
+        return unresolved;
+    }
+
+    private boolean reconcilePendingTrade(UUID playerUuid, UUID operationId) {
+        com.storynpcs.persistence.DurableOperationJournal.OperationRecord record;
+        try {
+            record = tradeOperationJournal.read(operationId);
+        } catch (IOException | RuntimeException failure) {
+            return false;
+        }
+        if (record == null || !"trade.execute".equals(record.operationType())) return false;
+        if (record.state() != com.storynpcs.persistence.DurableOperationJournal.State.PREPARED) {
+            return true; // already committed or aborted — nothing to reconcile
+        }
+        String intentJson = record.preparedIntent() != null ? record.preparedIntent() : record.detail();
+        var intent = intentJson == null
+                ? java.util.Optional.<com.storynpcs.persistence.TradeOperationIntent>empty()
+                : com.storynpcs.domain.role.RoleSerde.tradeOperationIntentFromJson(intentJson);
+        if (intent.isEmpty() || !playerUuid.equals(intent.get().playerUuid())) {
+            return false; // malformed or foreign intent — never guess
+        }
+        var operation = intent.get();
+        if (operation.listingIndex() < 0 || operation.listingId() == null || operation.listingId().isBlank()
+                || tradeStateRepository == null) {
+            return false; // no durable listing state to reconcile against — stays pending
+        }
+        final int durableUses;
+        try {
+            durableUses = tradeStateRepository.getUses(operation.npcId(), operation.listingId());
+        } catch (IOException | RuntimeException failure) {
+            return false; // durable listing state unreadable — fail closed
+        }
+        if (durableUses == operation.usesBefore()) {
+            try {
+                tradeOperationJournal.abort(operationId, "TRADE_NOT_COMMITTED",
+                        "durable listing use count was unchanged");
+                return true;
+            } catch (IOException | RuntimeException failure) {
+                return false;
+            }
+        }
+        return false; // reservation committed or diverged — stays pending for explicit recovery
     }
 
     /**
      * Unlock the next bank tab for a player at a banker NPC. Costs {@code tabUpgradeCost}
      * emeralds deducted from the player's inventory (free when cost is 0). Fails when the
      * vault already has all of the banker's tabs unlocked or the player cannot pay.
+     *
+     * <p>The operation is journaled across the two non-atomic stores: the vault
+     * unlock and a durable operation marker commit in one vault write first,
+     * then the inventory payment leg runs. A crash between them is reconciled
+     * by {@link #recoverBankOperations} — payment is never taken twice, and an
+     * ambiguous inventory state stays pending for explicit recovery instead of
+     * guessing.
      */
-    public boolean unlockBankTab(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, com.storynpcs.domain.role.banker.BankerRole banker) {
-        if (bankRepo == null || banker == null) return false;
-        var vault = bankRepo.getOrCreate(playerUuid);
-        int unlocked = vault.getUnlockedTabs();
-        int maxTabs = Math.max(1, banker.getMaxTabs());
-        if (unlocked >= maxTabs) return false;
+    public boolean unlockBankTab(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo,
+                                 com.storynpcs.domain.role.banker.BankerRole banker) {
+        return unlockBankTab(playerUuid, bankRepo, banker, UUID.randomUUID());
+    }
 
-        int cost = Math.max(0, banker.getTabUpgradeCost());
-        java.util.List<net.minecraft.world.item.ItemStack> paidStacks = new java.util.ArrayList<>();
-        java.util.List<Integer> paidCounts = new java.util.ArrayList<>();
+    /** Replay-safe overload used by request-id-carrying adapters. */
+    public boolean unlockBankTab(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo,
+                                 com.storynpcs.domain.role.banker.BankerRole banker, UUID requestId) {
+        if (playerUuid == null || bankRepo == null || banker == null || requestId == null) return false;
+        var journal = bankRepo.operationJournal();
+        return Boolean.TRUE.equals(journal.withOperationLock(requestId,
+                () -> unlockBankTabJournaled(playerUuid, bankRepo, banker, requestId, journal)));
+    }
+
+    private boolean unlockBankTabJournaled(
+            UUID playerUuid,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            com.storynpcs.domain.role.banker.BankerRole banker,
+            UUID requestId,
+            com.storynpcs.persistence.DurableOperationJournal journal) {
+        final String operationType = "bank.unlock_tab";
+        final String subject = playerUuid.toString();
+        try {
+            var existing = journal.read(requestId);
+            if (existing != null) {
+                if (!subject.equals(existing.subject())) {
+                    return false; // request id is bound to a different subject — fail closed
+                }
+                var classification = journal.begin(requestId, operationType, subject);
+                return switch (classification.status()) {
+                    case COMMITTED -> finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+                    case ABORTED -> false;
+                    case PENDING, STARTED -> reconcilePendingBankUnlock(playerUuid, bankRepo, requestId);
+                };
+            }
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+
+        final int unlocked;
+        final int cost;
+        final int emeraldsBefore;
+        final long vaultRevision;
+        try {
+            var vault = bankRepo.getOrCreate(playerUuid);
+            unlocked = vault.getUnlockedTabs();
+            vaultRevision = vault.getRevision();
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
+        if (unlocked >= Math.max(1, banker.getMaxTabs())) return false;
+        cost = Math.max(0, banker.getTabUpgradeCost());
         if (cost > 0) {
             if (minecraftServer == null) return false;
             var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
             if (player == null) return false;
-            var emerald = net.minecraft.world.item.Items.EMERALD;
-            long held = player.getInventory().items.stream()
-                    .filter(s -> !s.isEmpty() && s.getItem() == emerald)
-                    .mapToLong(net.minecraft.world.item.ItemStack::getCount)
-                    .sum();
-            if (held < cost) return false;
-            int toRemove = cost;
-            for (net.minecraft.world.item.ItemStack slot : player.getInventory().items) {
-                if (!slot.isEmpty() && slot.getItem() == emerald && toRemove > 0) {
-                    int take = Math.min(slot.getCount(), toRemove);
-                    slot.shrink(take);
-                    paidStacks.add(slot);
-                    paidCounts.add(take);
-                    toRemove -= take;
-                }
-            }
+            emeraldsBefore = countHeldEmeralds(player);
+            if (emeraldsBefore < cost) return false;
+        } else {
+            emeraldsBefore = 0;
         }
 
-        var result = bankRepo.transact(playerUuid, candidate -> {
+        final com.storynpcs.persistence.BankOperationIntent intent;
+        try {
+            intent = new com.storynpcs.persistence.BankOperationIntent(
+                    playerUuid, com.storynpcs.persistence.BankOperationIntent.ACTION_UNLOCK_TAB,
+                    unlocked, -1, "minecraft:emerald", null,
+                    cost, emeraldsBefore, emeraldsBefore - cost, cost > 0, vaultRevision);
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
+        String intentJson = com.storynpcs.domain.role.RoleSerde.toJson(intent);
+        if (intentJson.length() > com.storynpcs.persistence.DurableOperationJournal.MAX_DETAIL_LENGTH) {
+            return false;
+        }
+        try {
+            var started = journal.begin(requestId, operationType, subject, intentJson);
+            if (started.status() != com.storynpcs.persistence.DurableOperationJournal.BeginStatus.STARTED) {
+                return switch (started.status()) {
+                    case COMMITTED -> finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+                    case ABORTED -> false;
+                    default -> reconcilePendingBankUnlock(playerUuid, bankRepo, requestId);
+                };
+            }
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+
+        // Vault leg: unlock + durable operation marker in ONE atomic commit.
+        var vaultResult = bankRepo.transact(playerUuid, candidate -> {
+            if (candidate.getUnlockedTabs() != unlocked) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false);
+            }
+            // A surviving marker bound to a different intent means this request id
+            // already committed under different terms — never overwrite it.
+            if (!candidate.markOperation(requestId, operationType, intentJson)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false);
+            }
             candidate.setUnlockedTabs(unlocked + 1);
             return com.storynpcs.persistence.BankRepository.BankMutation.changed(true);
         });
-        if (!result.committed()) {
-            // The inventory payment is a second mutable system. Compensate it
-            // immediately when the vault commit fails; crash/restart recovery
-            // still belongs to the journal-backed paid-unlock follow-up.
-            for (int i = 0; i < paidStacks.size(); i++) {
-                paidStacks.get(i).grow(paidCounts.get(i));
+        if (!vaultResult.committed() || !Boolean.TRUE.equals(vaultResult.value())) {
+            try {
+                journal.abort(requestId, "VAULT_COMMIT_FAILED", vaultResult.failureReason());
+            } catch (IOException | RuntimeException ignored) {
+                // The prepared record stays pending for explicit recovery.
             }
             return false;
         }
-        eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
-                unlocked + 1, "minecraft:emerald", cost));
-        return true;
+        try {
+            journal.commit(requestId, "APPLIED", Integer.toString(unlocked + 1));
+        } catch (IOException | RuntimeException e) {
+            // The vault unlock is durable; the payment leg is recovered via the marker.
+        }
+        return finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, false);
+    }
+
+    /**
+     * Reconciles a prepared unlock after a crash: no vault marker means the
+     * vault commit never landed (abort — nothing was paid); a marker means the
+     * vault leg is durable and only the payment leg may still be owed.
+     */
+    private boolean reconcilePendingBankUnlock(
+            UUID playerUuid,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            UUID requestId) {
+        try {
+            var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
+            if (marker == null) {
+                bankRepo.operationJournal().abort(requestId, "BANK_NOT_COMMITTED",
+                        "vault unlock marker was not durable");
+                return true;
+            }
+            bankRepo.operationJournal().commit(requestId, "APPLIED",
+                    Integer.toString(bankRepo.getOrCreate(playerUuid).getUnlockedTabs()));
+            return finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Completes the inventory-payment leg of a vault-committed tab unlock.
+     * Payment is deducted only when the held emerald count still matches the
+     * captured intent exactly — a drifted inventory can never prove whether a
+     * crashed attempt already took payment, so it stays pending for manual
+     * recovery rather than double-charging or granting a free unlock.
+     */
+    private boolean finalizeCommittedBankUnlock(
+            UUID playerUuid,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            UUID requestId,
+            boolean replay) {
+        try {
+            var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
+            if (marker == null) {
+                if (!replay) return false;
+                // A backup restore can erase a committed unlock together with its
+                // marker. Cross-check the vault against the journal's committed
+                // outcome before declaring the request resolved — a rolled-back
+                // unlock must stay pending, not silently vanish after payment.
+                var record = bankRepo.operationJournal().read(requestId);
+                if (record != null && record.detail() != null) {
+                    int committedTabs = Integer.parseInt(record.detail().trim());
+                    if (bankRepo.getOrCreate(playerUuid).getUnlockedTabs() < committedTabs) {
+                        return false;
+                    }
+                }
+                return true; // marker cleaned by a previous finalize — fully applied
+            }
+            var intent = marker.getIntent() == null
+                    ? java.util.Optional.<com.storynpcs.persistence.BankOperationIntent>empty()
+                    : com.storynpcs.domain.role.RoleSerde.bankOperationIntentFromJson(marker.getIntent());
+            if (intent.isEmpty()
+                    || !com.storynpcs.persistence.BankOperationIntent.ACTION_UNLOCK_TAB.equals(intent.get().action())
+                    || !playerUuid.equals(intent.get().playerUuid())) {
+                return false; // foreign or malformed marker — leave for manual recovery
+            }
+            var operation = intent.get();
+            if (marker.isInventoryApplied()) {
+                return cleanupBankUnlockMarker(playerUuid, bankRepo, requestId, replay);
+            }
+            if (!operation.inventoryDeferred() || operation.count() <= 0) {
+                // Free unlock — nothing owed; mark then clean. The event is
+                // published once by the finalizer that observed the unapplied
+                // marker; replays that find no marker return early.
+                var marked = bankRepo.transact(playerUuid, vault ->
+                        vault.markOperationInventoryApplied(requestId)
+                                ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
+                                : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
+                if (!marked.committed()) return false;
+                if (!cleanupBankUnlockMarker(playerUuid, bankRepo, requestId, replay)) {
+                    return false;
+                }
+                eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
+                        playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
+                        operation.tab() + 1, "minecraft:emerald", operation.count()));
+                return true;
+            }
+            if (minecraftServer == null) return false;
+            var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+            if (player == null) return false;
+            int held = countHeldEmeralds(player);
+            if (held != operation.expectedCount() + operation.count()) {
+                return false; // inventory drifted — cannot prove payment was not taken already
+            }
+            deductEmeralds(player, operation.count());
+            var markedApplied = bankRepo.transact(playerUuid, vault ->
+                    vault.markOperationInventoryApplied(requestId)
+                            ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
+                            : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
+            if (!markedApplied.committed()) {
+                // Payment was taken but the durable proof failed — refund immediately.
+                refundEmeralds(player, operation.count());
+                return false;
+            }
+            if (!cleanupBankUnlockMarker(playerUuid, bankRepo, requestId, replay)) {
+                return false;
+            }
+            eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
+                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
+                    operation.tab() + 1, "minecraft:emerald", operation.count()));
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    private boolean cleanupBankUnlockMarker(
+            UUID playerUuid,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            UUID requestId,
+            boolean replay) {
+        var cleanup = bankRepo.transact(playerUuid, vault ->
+                vault.removeOperationMarker(requestId)
+                        ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
+                        : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
+        return cleanup.committed() || replay;
+    }
+
+    private static int countHeldEmeralds(net.minecraft.server.level.ServerPlayer player) {
+        var emerald = net.minecraft.world.item.Items.EMERALD;
+        return (int) player.getInventory().items.stream()
+                .filter(s -> !s.isEmpty() && s.getItem() == emerald)
+                .mapToLong(net.minecraft.world.item.ItemStack::getCount)
+                .sum();
+    }
+
+    private static void deductEmeralds(net.minecraft.server.level.ServerPlayer player, int cost) {
+        var emerald = net.minecraft.world.item.Items.EMERALD;
+        int toRemove = cost;
+        for (net.minecraft.world.item.ItemStack slot : player.getInventory().items) {
+            if (!slot.isEmpty() && slot.getItem() == emerald && toRemove > 0) {
+                int take = Math.min(slot.getCount(), toRemove);
+                slot.shrink(take);
+                toRemove -= take;
+            }
+        }
+        if (toRemove > 0) throw new IllegalStateException("emerald count drifted during payment");
+    }
+
+    private static void refundEmeralds(net.minecraft.server.level.ServerPlayer player, int count) {
+        var stack = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD, count);
+        if (!player.getInventory().add(stack)) player.drop(stack, false);
     }
 
     public java.util.Optional<com.storynpcs.domain.role.banker.BankVault.VaultItem> withdrawFromBank(
@@ -2912,7 +3469,12 @@ public class StoryNpcsApplicationService {
         } catch (IOException | RuntimeException failure) {
             return BankWithdrawalOperationResult.rejected("JOURNAL_FAILED");
         }
-        var vaultSnapshot = bankRepo.getOrCreate(playerUuid).copy();
+        final com.storynpcs.domain.role.banker.BankVault vaultSnapshot;
+        try {
+            vaultSnapshot = bankRepo.getOrCreate(playerUuid).copy();
+        } catch (RuntimeException unavailable) {
+            return BankWithdrawalOperationResult.rejected("VAULT_UNAVAILABLE");
+        }
         var current = vaultSnapshot.getTabItems(tab).stream()
                 .filter(item -> item.getSlot() == slot)
                 .findFirst();
@@ -3039,13 +3601,17 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(factionId, "factionId");
         PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
         int defaultPoints = registry.getFaction(factionId).map(Faction::getDefaultPoints).orElse(0);
-        int oldScore = prog.getFactionScore(factionId, defaultPoints);
-        prog.adjustFactionScore(factionId, delta, defaultPoints);
-        int newScore = prog.getFactionScore(factionId, defaultPoints);
-        try {
-            progressionRepository.save(playerUuid);
-        } catch (IOException e) {
-            System.err.println("Failed to persist progression for " + playerUuid + ": " + e.getMessage());
+        final int oldScore;
+        final int newScore;
+        synchronized (prog) {
+            oldScore = prog.getFactionScore(factionId, defaultPoints);
+            prog.adjustFactionScore(factionId, delta, defaultPoints);
+            newScore = prog.getFactionScore(factionId, defaultPoints);
+            try {
+                progressionRepository.save(playerUuid, prog);
+            } catch (IOException e) {
+                System.err.println("Failed to persist progression for " + playerUuid + ": " + e.getMessage());
+            }
         }
         eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldScore, newScore));
     }

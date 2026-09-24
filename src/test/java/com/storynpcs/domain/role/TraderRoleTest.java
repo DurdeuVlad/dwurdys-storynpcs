@@ -6,7 +6,9 @@ import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.role.trader.TradeListing;
 import com.storynpcs.domain.role.trader.TraderRole;
+import com.storynpcs.persistence.DurableOperationJournal;
 import com.storynpcs.persistence.ProgressionRepository;
+import com.storynpcs.persistence.TradeOperationIntent;
 import com.storynpcs.persistence.TradeStateRepository;
 import com.storynpcs.service.StoryNpcsApplicationService;
 import com.storynpcs.yaml.DefinitionRegistry;
@@ -15,6 +17,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -229,5 +233,84 @@ class TraderRoleTest {
         assertEquals(3, successes.get(), "Exactly maxUses trades may commit");
         assertEquals(3, listing.getUses(), "Recorded uses must match committed trades");
         assertEquals(3, tradeEvents.size(), "Only committed trades may fire events");
+    }
+
+    @Test
+    @DisplayName("Unindexed trades run without a journal record — there is no durable listing state to reconcile")
+    void unindexedTradeWritesNoJournalRecord() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+
+        assertTrue(service.executeTrade(playerUuid, npcId, listing));
+        assertEquals(1, listing.getUses());
+        assertEquals(1, tradeEvents.size());
+
+        Path journalDir = repo.storageDirectory().resolve("trade-operations");
+        try (var files = Files.exists(journalDir)
+                ? Files.list(journalDir)
+                : java.util.stream.Stream.<Path>empty()) {
+            assertEquals(0, files.count(),
+                    "An unindexed trade must not leave an unreconcilable journal record");
+        }
+    }
+
+    @Test
+    @DisplayName("Recovery aborts a prepared trade whose durable listing use count never moved")
+    void preparedTradeWithUnchangedDurableUsesIsAborted(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        service.setTradeStateRepository(new TradeStateRepository(tempDir.resolve("trade-states")));
+
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+        String listingId = listing.ensureStableId();
+
+        UUID requestId = UUID.randomUUID();
+        var intent = new TradeOperationIntent(
+                playerUuid, npcId.toString(), 0, listingId,
+                "minecraft:bread", 4, "minecraft:wheat", 12, 5, 0, "", 0);
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        journal.begin(requestId, "trade.execute",
+                playerUuid + "|" + npcId + "|0|" + listingId
+                        + "|minecraft:bread|4|minecraft:wheat|12|5||0",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        // Crash between durable prepare and the listing reservation: usesBefore
+        // still matches durable state, so the operation provably never landed.
+        assertEquals(0, service.recoverTradeOperations(playerUuid));
+        assertEquals(DurableOperationJournal.State.ABORTED, journal.read(requestId).state());
+        assertEquals("TRADE_NOT_COMMITTED", journal.read(requestId).outcomeCode());
+    }
+
+    @Test
+    @DisplayName("Recovery keeps a prepared trade pending when the durable listing use count advanced")
+    void preparedTradeWithAdvancedDurableUsesStaysPending(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeStateRepository tradeStates = new TradeStateRepository(tempDir.resolve("trade-states"));
+        service.setTradeStateRepository(tradeStates);
+
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+        String listingId = listing.ensureStableId();
+
+        UUID requestId = UUID.randomUUID();
+        var intent = new TradeOperationIntent(
+                playerUuid, npcId.toString(), 0, listingId,
+                "minecraft:bread", 4, "minecraft:wheat", 12, 5, 0, "", 0);
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        journal.begin(requestId, "trade.execute",
+                playerUuid + "|" + npcId + "|0|" + listingId
+                        + "|minecraft:bread|4|minecraft:wheat|12|5||0",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        // The durable reservation landed before the crash but its outcome is
+        // ambiguous — the operation must stay pending rather than guess.
+        assertTrue(tradeStates.reserveUse(npcId.toString(), listingId, 0, 5));
+
+        assertEquals(1, service.recoverTradeOperations(playerUuid));
+        assertEquals(DurableOperationJournal.State.PREPARED, journal.read(requestId).state());
     }
 }

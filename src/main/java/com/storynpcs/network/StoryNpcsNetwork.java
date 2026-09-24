@@ -275,11 +275,6 @@ public class StoryNpcsNetwork {
         }
     }
 
-    private static void sendFactionSaveResult(ServerPlayer player, boolean success, String message) {
-        sendFactionSaveResult(player, success, message, new java.util.UUID(0L, 0L),
-                success ? "APPLIED" : "REJECTED", 0L);
-    }
-
     private static void sendFactionSaveResult(ServerPlayer player, boolean success, String message,
                                                java.util.UUID requestId, String code, long revision) {
         var registry = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getRegistry() : null;
@@ -360,11 +355,6 @@ public class StoryNpcsNetwork {
         }
     }
 
-    private static void sendQuestSaveResult(ServerPlayer player, boolean success, String message) {
-        sendQuestSaveResult(player, success, message, new java.util.UUID(0L, 0L),
-                success ? "APPLIED" : "REJECTED", 0L);
-    }
-
     private static void sendQuestSaveResult(ServerPlayer player, boolean success, String message,
                                             java.util.UUID requestId, String code, long revision) {
         var registry = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getRegistry() : null;
@@ -418,11 +408,6 @@ public class StoryNpcsNetwork {
             sendSaveResult(player, true, "Dialogue '" + id + "' saved to disk and reloaded.",
                     payload.requestId(), mutation.duplicate() ? "DUPLICATE" : "APPLIED", mutation.revision());
         }
-    }
-
-    private static void sendSaveResult(ServerPlayer player, boolean success, String message) {
-        sendSaveResult(player, success, message, new java.util.UUID(0L, 0L),
-                success ? "APPLIED" : "REJECTED", 0L);
     }
 
     private static void sendSaveResult(ServerPlayer player, boolean success, String message,
@@ -485,11 +470,6 @@ public class StoryNpcsNetwork {
             sendNpcSaveResult(player, true, message,
                     payload.requestId(), mutation.duplicate() ? "DUPLICATE" : "APPLIED", mutation.revision());
         }
-    }
-
-    private static void sendNpcSaveResult(ServerPlayer player, boolean success, String message) {
-        sendNpcSaveResult(player, success, message, new java.util.UUID(0L, 0L),
-                success ? "APPLIED" : "REJECTED", 0L);
     }
 
     private static void sendNpcSaveResult(ServerPlayer player, boolean success, String message,
@@ -774,8 +754,9 @@ public class StoryNpcsNetwork {
         var requestAdmission = mod.getRuntimeSessions(player.getServer())
                 .admitRequest(player.getUUID(), payload.requestId());
         // Held-item deposits and whole-stack withdrawals have durable request
-        // journals. Paid unlock remains protected by the in-memory window until
-        // its inventory-side journal is implemented.
+        // journals and classify replays themselves. Unlock uses the in-memory
+        // window for same-session dedupe; its durable journal still classifies
+        // any replay that reaches the service (e.g. after a relog).
         if (requestAdmission != com.storynpcs.runtime.session.RuntimeSessionRegistry.RequestAdmission.NEW
                 && !"deposit_held".equals(payload.action())
                 && !"withdraw".equals(payload.action())) {
@@ -823,7 +804,7 @@ public class StoryNpcsNetwork {
                         + "x " + withdrawal.item().getItemId() + "."), true);
             }
             case "unlock_tab" -> {
-                boolean ok = service.unlockBankTab(player.getUUID(), bankRepo, banker);
+                boolean ok = service.unlockBankTab(player.getUUID(), bankRepo, banker, payload.requestId());
                 if (!ok) {
                     player.sendSystemMessage(Component.literal("§c[StoryNPCs] Tab unlock failed — max tabs reached or not enough emeralds."), true);
                     break;

@@ -57,17 +57,27 @@ public class QuestEditorScreen extends Screen {
     private String rowType;
 
     private int rowScroll;
-    private long expectedRevision;
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
     private final PayloadBoundRequestId deleteRequestId = new PayloadBoundRequestId();
+    /** Definition ids bound to in-flight save/delete requests — revision updates are id-scoped. */
+    private String pendingSaveId;
+    private String pendingDeleteId;
 
     public QuestEditorScreen(List<Quest> quests, String selectId) {
-        this(quests, selectId, 0L);
+        this(quests, selectId, 0L, java.util.Map.of());
     }
 
     public QuestEditorScreen(List<Quest> quests, String selectId, long expectedRevision) {
+        this(quests, selectId, expectedRevision, java.util.Map.of());
+    }
+
+    public QuestEditorScreen(List<Quest> quests, String selectId, long expectedRevision,
+                             java.util.Map<String, Long> revisions) {
         super(Component.literal("Quest Editor"));
-        this.expectedRevision = Math.max(0L, expectedRevision);
+        model.loadExpectedRevisions(revisions);
+        if (selectId != null && !selectId.isBlank()) {
+            model.recordRevisionHint(selectId, Math.max(0L, expectedRevision));
+        }
         model.loadQuests(quests);
         if (selectId != null && !selectId.isBlank()) {
             try {
@@ -80,14 +90,19 @@ public class QuestEditorScreen extends Screen {
 
     public QuestEditorScreenModel getModel() { return model; }
 
-    public void onSaveResult(UUID requestId, boolean success, String message, List<Quest> refreshed) {
+    public void onSaveResult(UUID requestId, boolean success, String message, List<Quest> refreshed,
+                             long committedRevision) {
         boolean saveResponse = saveRequestId.matchesCurrent(requestId);
         boolean deleteResponse = deleteRequestId.matchesCurrent(requestId);
         if (!saveResponse && !deleteResponse) return;
-        model.onSaveResult(success, message, refreshed);
-        if (success) {
-            expectedRevision++;
+        // The response revision is authoritative on success AND on rejection
+        // (the server echoes the current token), so the row's next save is not
+        // stuck on a stale expectation after a lost response.
+        String subjectId = saveResponse ? pendingSaveId : pendingDeleteId;
+        if (subjectId != null) {
+            model.recordCommittedRevision(subjectId, committedRevision);
         }
+        model.onSaveResult(success, message, refreshed);
         if (saveResponse) saveRequestId.acknowledge(requestId);
         if (deleteResponse) deleteRequestId.acknowledge(requestId);
         // refresh the edit-fields if the server replaced our working copy view
@@ -198,10 +213,12 @@ public class QuestEditorScreen extends Screen {
                 .bounds(12, footer, 70, 16).build());
         addRenderableWidget(Button.builder(Component.literal(model.isDeleteArmed() ? "§cSure?" : "§cDelete"), b -> {
             if (model.confirmDeleteClick()) {
+                long revision = model.expectedRevision();
+                pendingDeleteId = q.getId().toString();
                 UUID requestId = deleteRequestId.forPayload(
-                        "quest-delete\n" + q.getId() + "\n" + expectedRevision);
+                        "quest-delete\n" + q.getId() + "\n" + revision);
                 PacketDistributor.sendToServer(new ServerboundQuestDeletePayload(
-                        q.getId().toString(), expectedRevision, requestId));
+                        q.getId().toString(), revision, requestId));
                 model.setStatus("Deleting...", false);
             } else {
                 rebuildWidgets();
@@ -291,9 +308,11 @@ public class QuestEditorScreen extends Screen {
         }
         model.setStatus("Saving...", false);
         String submittedJson = model.saveJson();
+        pendingSaveId = model.getEditing() != null && model.getEditing().getId() != null
+                ? model.getEditing().getId().toString() : null;
         UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundQuestSavePayload(
-                submittedJson, expectedRevision, requestId));
+                submittedJson, model.expectedRevision(), requestId));
     }
 
     // ---------- rendering ----------

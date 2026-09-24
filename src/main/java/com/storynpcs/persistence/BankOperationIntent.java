@@ -38,12 +38,19 @@ public record BankOperationIntent(
                 beforeCount, expectedCount, inventoryDeferred, null);
     }
 
+    /** Tab-unlock intents carry the emerald cost, not a vault slot stack. */
+    public static final String ACTION_UNLOCK_TAB = "unlock_tab";
+
     public BankOperationIntent {
         if (playerUuid == null) throw new IllegalArgumentException("playerUuid cannot be null");
         if (action == null || action.isBlank()) throw new IllegalArgumentException("action cannot be blank");
         if (itemId == null || itemId.isBlank()) throw new IllegalArgumentException("itemId cannot be blank");
-        if (tab < 0 || slot < 0 || slot >= 54 || count <= 0 || beforeCount < 0
-                || expectedCount <= 0 || (vaultRevision != null && vaultRevision < 0)) {
+        boolean unlock = ACTION_UNLOCK_TAB.equals(action);
+        int minSlot = unlock ? -1 : 0;
+        int minCount = unlock ? 0 : 1;
+        int minExpected = unlock ? 0 : 1;
+        if (tab < 0 || slot < minSlot || slot >= 54 || count < minCount || beforeCount < 0
+                || expectedCount < minExpected || (vaultRevision != null && vaultRevision < 0)) {
             throw new IllegalArgumentException("invalid bank operation bounds");
         }
     }

@@ -62,12 +62,12 @@ public class NpcRulesScreen extends Screen {
 
     public NpcRulesScreenModel getModel() { return model; }
 
-    public void onSaveResult(UUID requestId, boolean success, String message) {
+    public void onSaveResult(UUID requestId, boolean success, String message, long revision) {
         if (!saveRequestId.matchesCurrent(requestId)) return;
         model.setStatus(message, !success);
-        if (success) {
-            expectedRevision++;
-        }
+        // The response revision is authoritative on success AND on rejection
+        // (the server echoes the current token) — never guess with ++.
+        expectedRevision = Math.max(0L, revision);
         saveRequestId.acknowledge(requestId);
     }
 
