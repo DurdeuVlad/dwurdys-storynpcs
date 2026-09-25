@@ -106,6 +106,23 @@ class TraderRoleTest {
     }
 
     @Test
+    @DisplayName("A two-input listing is rejected without side effects until execution supports charging both inputs")
+    void testTwoInputListingFailsClosedRatherThanSkippingTheSecondCharge() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+
+        TradeListing listing = new TradeListing(
+                "minecraft:golden_apple", 1, "minecraft:emerald", 5, "minecraft:gold_ingot", 3);
+        listing.setMaxUses(5);
+
+        boolean executed = service.executeTrade(playerUuid, npcId, listing);
+
+        assertFalse(executed, "Execution must fail closed for a two-input listing, not silently skip the second charge");
+        assertEquals(0, listing.getUses(), "A rejected trade must not consume a listing use");
+        assertEquals(0, tradeEvents.size(), "A rejected trade must not publish a TradeExecutedEvent");
+    }
+
+    @Test
     @DisplayName("A repeated trade request replays without charging another listing use")
     void testTradeRequestReplayIsIdempotent() {
         UUID playerUuid = UUID.randomUUID();

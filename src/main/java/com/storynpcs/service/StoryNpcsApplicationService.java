@@ -2782,6 +2782,15 @@ public class StoryNpcsApplicationService {
             return false;
         }
 
+        // Issue #75: the second-input slot exists on TradeListing but this
+        // execution path does not yet resolve/charge/compensate a second price
+        // item. Rather than silently only charging the first input (an
+        // exploitable free-item gap), fail closed until this path is upgraded
+        // to handle both inputs atomically, same as the first.
+        if (trade.hasSecondInput()) {
+            return false;
+        }
+
         // VULN-48: resolve BOTH sides of the exchange before mutating anything, then
         // reserve a specific listing use. Payment is deducted only inside the
         // owned reservation boundary and is compensated if output delivery fails.
