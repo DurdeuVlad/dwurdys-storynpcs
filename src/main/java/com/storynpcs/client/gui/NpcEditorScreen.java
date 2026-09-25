@@ -166,6 +166,13 @@ public class NpcEditorScreen extends Screen {
                     Minecraft.getInstance().setScreen(new NpcRulesScreen(definition, expectedRevision));
                 }).bounds(rightX, startY + 154, colWidth, 14).build());
 
+        // Trade/bank admin configuration sub-screen (issue #44)
+        this.addRenderableWidget(Button.builder(
+                Component.literal("§bTrade & Bank"), b -> {
+                    saveCurrentState();
+                    Minecraft.getInstance().setScreen(new TraderBankerAdminScreen(definition, expectedRevision));
+                }).bounds(rightX, startY + 172, colWidth, 14).build());
+
         // Bottom Action Bar — anchored to the panel bottom so it stays inside
         // the frame when the panel shrinks on short windows
         int actionY = startY + panelHeight - 52;
