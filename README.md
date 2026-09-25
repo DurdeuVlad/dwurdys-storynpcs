@@ -7,9 +7,9 @@ Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capab
 ## Key Features
 
 - 📜 **YAML-First Content**: NPCs, dialogues, quests, and factions defined in clean, readable, versioned YAML files.
-- 🔄 **100% Mutation Parity**: The In-Game GUI, CLI commands, Java API, and scripts all route through a unified Canonical Application Service Layer.
+- 🧭 **Canonical Mutation Path (in progress)**: The GUI, commands, Java API, and future script adapters are being converged on one application-service boundary; cross-surface CustomNPCs parity is not yet claimed. See [P0-2 and the issue register](docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md#p0-2--remove-unsupported-completion-claims).
 - 🕸️ **Directed-Graph Dialogue Engine**: True narrative graphs with branching, deliberate cycles, conditional option gating, and side-effect actions.
-- 🛡️ **Crash-Safe Progression Store**: Authored definitions remain immutable; player progression and world state are journaled separately with atomic file replacement.
+- 🛡️ **Separated Progression (partial)**: Definitions are intended to remain immutable and progression is separated from content, but crash-recovery evidence is still unverified. See [P2-2/P2-3](docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md#p2-2--implement-durable-worldplayer-economy-stores).
 - 🔌 **Event-Driven Extensibility**: Built-in NeoForge domain events for other mods to intercept and extend quests, dialogues, and NPC behavior.
 
 ## Building and Testing
@@ -21,6 +21,10 @@ Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capab
 # Build production mod jar
 ./gradlew build
 ```
+
+## Current truth gate
+
+StoryNPCs is a partial implementation and CustomNPCs parity is an active roadmap, not a delivered feature claim. The exact target inventory, 42-issue implementation sequence, evidence states, and unsupported claims are tracked in the [CustomNPCs parity roadmap](docs/CUSTOMNPCS_PARITY_ROADMAP.md). Static target inventory and passing unit tests do not prove runtime parity.
 
 ## Architecture
 

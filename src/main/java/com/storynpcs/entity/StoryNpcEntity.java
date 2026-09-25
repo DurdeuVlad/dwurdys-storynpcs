@@ -11,6 +11,7 @@ import com.storynpcs.domain.role.follower.FollowerGroup;
 import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationType;
 import com.storynpcs.network.StoryNpcsNetwork;
+import com.storynpcs.runtime.actor.ActorLifecycleService;
 import com.storynpcs.service.DialogueView;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
@@ -47,6 +48,7 @@ public class StoryNpcEntity extends PathfinderMob {
     private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
     private BlockPos startPosition;
     private FollowerRole followerRole;
+    private boolean loadingSavedData;
 
     public StoryNpcEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -123,7 +125,56 @@ public class StoryNpcEntity extends PathfinderMob {
     public void setDefinitionId(String definitionId) {
         this.entityData.set(DEFINITION_ID, definitionId != null ? definitionId : "");
         this.state.setDefinitionId(definitionId);
+        if (!loadingSavedData && (this.state.getActorId() == null || this.state.getActorId().isBlank())) {
+            // Every fresh entity receives its own logical actor. Clones must not
+            // collapse into one actor merely because they share a definition.
+            this.state.setActorId("storynpcs:actor/" + this.getUUID());
+        }
         applyDefinition();
+        if (!loadingSavedData) {
+            refreshActorProjection();
+        }
+    }
+
+    /** Durable logical identity associated with this entity projection. */
+    public String getActorId() {
+        return state.getActorId();
+    }
+
+    public void setActorId(String actorId) {
+        state.setActorId(actorId);
+        refreshActorProjection();
+    }
+
+    private void refreshActorProjection() {
+        if (this.level().isClientSide) {
+            return;
+        }
+        StoryNpcs mod = StoryNpcs.getInstance();
+        net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                ? serverLevel.getServer()
+                : null;
+        if (mod == null || mod.getActorLifecycleService(server) == null) {
+            return;
+        }
+        try {
+            NamespacedId actorId = NamespacedId.of(getActorId());
+            NamespacedId definitionId = NamespacedId.of(getDefinitionId());
+            var result = mod.getActorLifecycleService(server).bindProjection(actorId, definitionId, this.getUUID());
+            if (!result.applied()) {
+                StoryNpcs.LOGGER.warn("Could not bind StoryNPC actor {} to projection {}: {}",
+                        actorId, this.getUUID(), result.diagnostic());
+            }
+        } catch (RuntimeException e) {
+            StoryNpcs.LOGGER.warn("Could not bind StoryNPC projection {}: {}", this.getUUID(), e.getMessage());
+            try {
+                NamespacedId actorId = NamespacedId.of(getActorId());
+                mod.getActorLifecycleService(server).failProjection(actorId, this.getUUID(), e.getMessage());
+            } catch (RuntimeException ignored) {
+                // An invalid logical actor ID cannot be represented in a lifecycle event;
+                // the warning above remains the diagnostic for malformed legacy NBT.
+            }
+        }
     }
 
     public BlockPos getStartPosition() {
@@ -332,9 +383,27 @@ public class StoryNpcEntity extends PathfinderMob {
 
     @Override
     public void remove(RemovalReason reason) {
+        StoryNpcs mod = StoryNpcs.getInstance();
+        net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                ? serverLevel.getServer()
+                : null;
+        if (!this.level().isClientSide && mod != null && mod.getActorLifecycleService(server) != null) {
+            try {
+                NamespacedId actorId = NamespacedId.of(getActorId());
+                if (reason == RemovalReason.UNLOADED_TO_CHUNK) {
+                    mod.getActorLifecycleService(server).unloadProjection(actorId, this.getUUID());
+                } else {
+                    mod.getActorLifecycleService(server).despawnProjection(actorId, this.getUUID());
+                }
+            } catch (RuntimeException e) {
+                StoryNpcs.LOGGER.warn("Could not detach StoryNPC actor from projection {}: {}", this.getUUID(), e.getMessage());
+            }
+        }
         super.remove(reason);
         if (followerRole != null && followerRole.getOwnerUuid() != null) {
-            FollowerGroup.unregister(followerRole.getOwnerUuid(), this.getUUID());
+            if (mod != null) {
+                mod.getFollowerGroup(server).unregister(followerRole.getOwnerUuid(), this.getUUID());
+            }
         }
     }
 
@@ -342,6 +411,7 @@ public class StoryNpcEntity extends PathfinderMob {
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
+        compound.putString("StoryNpcActorId", getActorId());
         if (startPosition != null) {
             compound.putInt("StartX", startPosition.getX());
             compound.putInt("StartY", startPosition.getY());
@@ -365,38 +435,68 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     public void readAdditionalSaveData(CompoundTag compound) {
         super.readAdditionalSaveData(compound);
-        if (compound.contains("StoryNpcDefinitionId")) {
-            setDefinitionId(compound.getString("StoryNpcDefinitionId"));
+        loadingSavedData = true;
+        // Establish durable logical identity before definition binding. This prevents
+        // a replacement projection from first registering a UUID-derived orphan actor.
+        try {
+            if (compound.contains("StoryNpcActorId")) {
+                this.state.setActorId(compound.getString("StoryNpcActorId"));
+            }
+            if (compound.contains("StoryNpcDefinitionId")) {
+                setDefinitionId(compound.getString("StoryNpcDefinitionId"));
+            }
+            if (compound.contains("StartX") && compound.contains("StartY") && compound.contains("StartZ")) {
+                this.startPosition = new BlockPos(compound.getInt("StartX"), compound.getInt("StartY"), compound.getInt("StartZ"));
+            }
+            if (compound.contains("Follower")) {
+                CompoundTag followerTag = compound.getCompound("Follower");
+                this.followerRole = new FollowerRole();
+                if (followerTag.hasUUID("Owner")) {
+                    this.followerRole.setOwnerUuid(followerTag.getUUID("Owner"));
+                }
+                if (followerTag.contains("State")) {
+                    try {
+                        this.followerRole.setState(FollowerRole.State.valueOf(followerTag.getString("State")));
+                    } catch (Exception ignored) {}
+                }
+                if (followerTag.contains("Formation")) {
+                    this.followerRole.setFormation(FormationType.fromString(followerTag.getString("Formation")));
+                }
+                if (followerTag.contains("Slot")) {
+                    this.followerRole.setFormationSlot(followerTag.getInt("Slot"));
+                }
+                if (followerTag.contains("Spacing")) {
+                    this.followerRole.setFormationSpacing(followerTag.getDouble("Spacing"));
+                }
+                if (followerTag.contains("DaysHired")) {
+                    this.followerRole.setDaysHired(followerTag.getInt("DaysHired"));
+                }
+                if (followerTag.contains("DailyRate")) {
+                    this.followerRole.setDailyRate(followerTag.getInt("DailyRate"));
+                }
+            }
+        } finally {
+            loadingSavedData = false;
         }
-        if (compound.contains("StartX") && compound.contains("StartY") && compound.contains("StartZ")) {
-            this.startPosition = new BlockPos(compound.getInt("StartX"), compound.getInt("StartY"), compound.getInt("StartZ"));
-        }
-        if (compound.contains("Follower")) {
-            CompoundTag followerTag = compound.getCompound("Follower");
-            this.followerRole = new FollowerRole();
-            if (followerTag.hasUUID("Owner")) {
-                this.followerRole.setOwnerUuid(followerTag.getUUID("Owner"));
+
+        StoryNpcs mod = StoryNpcs.getInstance();
+        net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                ? serverLevel.getServer()
+                : null;
+        if (!compound.contains("StoryNpcActorId") && mod != null && mod.getActorLifecycleService(server) != null) {
+            try {
+                NamespacedId definitionId = NamespacedId.of(getDefinitionId());
+                var result = mod.getActorLifecycleService(server).bindLegacyProjection(definitionId, this.getUUID());
+                if (result.applied() && result.actorId() != null) {
+                    this.state.setActorId(result.actorId().toString());
+                } else {
+                    this.state.setActorId("");
+                }
+            } catch (RuntimeException e) {
+                StoryNpcs.LOGGER.warn("Could not reconcile legacy StoryNPC projection {}: {}", this.getUUID(), e.getMessage());
             }
-            if (followerTag.contains("State")) {
-                try {
-                    this.followerRole.setState(FollowerRole.State.valueOf(followerTag.getString("State")));
-                } catch (Exception ignored) {}
-            }
-            if (followerTag.contains("Formation")) {
-                this.followerRole.setFormation(FormationType.fromString(followerTag.getString("Formation")));
-            }
-            if (followerTag.contains("Slot")) {
-                this.followerRole.setFormationSlot(followerTag.getInt("Slot"));
-            }
-            if (followerTag.contains("Spacing")) {
-                this.followerRole.setFormationSpacing(followerTag.getDouble("Spacing"));
-            }
-            if (followerTag.contains("DaysHired")) {
-                this.followerRole.setDaysHired(followerTag.getInt("DaysHired"));
-            }
-            if (followerTag.contains("DailyRate")) {
-                this.followerRole.setDailyRate(followerTag.getInt("DailyRate"));
-            }
+        } else if (compound.contains("StoryNpcActorId")) {
+            refreshActorProjection();
         }
     }
 }

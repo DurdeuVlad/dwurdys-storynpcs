@@ -20,6 +20,10 @@ class DiagnosticHintsTest {
                 .contains("hostile"));
         assertTrue(DiagnosticHints.hintFor(DiagnosticError.error("SCHEMA_EMPTY_FILE", "x"))
                 .contains("empty"));
+        assertTrue(DiagnosticHints.hintFor(DiagnosticError.error("YAML_PARSE_ERROR", "x"))
+                .contains("YAML"));
+        assertTrue(DiagnosticHints.hintFor(DiagnosticError.error("YAML_MAPPING_ERROR", "x"))
+                .contains("field"));
     }
 
     @Test

@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "exceptions": [
+    {"path": "docs/CUSTOMNPCS_PARITY_CERTIFICATION.md", "rule": "large_scale_claim", "line_sha256": "95210aa509102eb2a271c31c79b44e431b56e434e4fd894fc627caad96188a50", "reason": "Benchmark workload, not a delivered claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_CERTIFICATION.md", "rule": "large_scale_claim", "line_sha256": "fc2592b8f892688d1363fb75d276add1dc7edb05cbc965f745f4873a0441292c", "reason": "Benchmark workload, not a delivered claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_CERTIFICATION.md", "rule": "large_scale_claim", "line_sha256": "28646be1f493874520f96496464f8b37efd5a97f8a99dd6f2b6c7586e152276c", "reason": "Benchmark workload, not a delivered claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "mutation_parity", "line_sha256": "703cd5dc92eed1175979e07b28446577c323cc52e918d2004ab9d6e2e82741fd", "reason": "P0-2 names the unsupported claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "scripting_api_parity", "line_sha256": "703cd5dc92eed1175979e07b28446577c323cc52e918d2004ab9d6e2e82741fd", "reason": "P0-2 names the unsupported claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "crash_safe_progression", "line_sha256": "703cd5dc92eed1175979e07b28446577c323cc52e918d2004ab9d6e2e82741fd", "reason": "P0-2 names the unsupported claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "large_scale_claim", "line_sha256": "703cd5dc92eed1175979e07b28446577c323cc52e918d2004ab9d6e2e82741fd", "reason": "P0-2 names the unsupported claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "complete_ui_parity", "line_sha256": "703cd5dc92eed1175979e07b28446577c323cc52e918d2004ab9d6e2e82741fd", "reason": "P0-2 names the unsupported claim."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "large_scale_claim", "line_sha256": "85813c1b563ed81c1d39c4ea7ea75445ae06fad352d2851f725c0fd879051e49", "reason": "P0-2 scope text."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "large_scale_claim", "line_sha256": "e4e9fdc1c34cba39f3aef0d1497817dc7bf02bfc74af9f9c3cdb95180cd34e09", "reason": "P0-2 verification text."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md", "rule": "large_scale_claim", "line_sha256": "02350d69205a4619b98c2d834f006c77abbba61e0eb6e0b7f3a7677fca4bfbe5", "reason": "Proposed performance threshold."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "large_scale_claim", "line_sha256": "95de46bbfd055934ae6e03a6dd95f0dbd0fc8639b12ee986e6dfaebc1912e6d4", "reason": "Roadmap benchmark workload."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "large_scale_claim", "line_sha256": "f56f28141782db940e26d639df406314ebfe98003b781fdc319c0512fafeda13", "reason": "Current-state gap statement."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "large_scale_claim", "line_sha256": "2d70369d4c99829cb5dc41263e42708ad9c154dfeabe4d4d7f985828fcdf4649", "reason": "Future issue acceptance workload."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "large_scale_claim", "line_sha256": "30cca60152a94c6cd1347b228d5fdb1b7c48a4bf691ca3b9d219c9c80cb8ffd7", "reason": "Future issue context says implementation is absent."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "large_scale_claim", "line_sha256": "49e3ec99316dcf6c6293f62c9850a6d0a3f459d86cbe3cdabde31288001e4afb", "reason": "Future benchmark fixture."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "large_scale_claim", "line_sha256": "883e8a16d48bbc890b1866342652ed189b891d2dc9276588c9206e8bbb7cc762", "reason": "Final certification workload."},
+    {"path": "docs/CUSTOMNPCS_PARITY_ROADMAP.md", "rule": "all_operations_completion", "line_sha256": "883e8a16d48bbc890b1866342652ed189b891d2dc9276588c9206e8bbb7cc762", "reason": "Final certification criterion."},
+    {"path": "docs/CUSTOMNPCS_PARITY_TRACEABILITY.md", "rule": "mutation_parity", "line_sha256": "26be3fda84548e7504a433d0212235aee799275b16f48afd7d436dbf3b52843e", "reason": "Truth-gate requirement."},
+    {"path": "docs/CUSTOMNPCS_PARITY_TRACEABILITY.md", "rule": "scripting_api_parity", "line_sha256": "26be3fda84548e7504a433d0212235aee799275b16f48afd7d436dbf3b52843e", "reason": "Truth-gate requirement."},
+    {"path": "docs/CUSTOMNPCS_PARITY_TRACEABILITY.md", "rule": "crash_safe_progression", "line_sha256": "26be3fda84548e7504a433d0212235aee799275b16f48afd7d436dbf3b52843e", "reason": "Truth-gate requirement."},
+    {"path": "docs/CUSTOMNPCS_PARITY_TRACEABILITY.md", "rule": "large_scale_claim", "line_sha256": "26be3fda84548e7504a433d0212235aee799275b16f48afd7d436dbf3b52843e", "reason": "Truth-gate requirement."},
+    {"path": "docs/CUSTOMNPCS_PARITY_TRACEABILITY.md", "rule": "complete_ui_parity", "line_sha256": "26be3fda84548e7504a433d0212235aee799275b16f48afd7d436dbf3b52843e", "reason": "Truth-gate requirement."}
+  ]
+}

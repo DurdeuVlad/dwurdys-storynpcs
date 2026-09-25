@@ -101,4 +101,45 @@ class FactionEditorScreenModelTest {
         model.setListFilter("");
         assertThat(model.getFilteredFactions()).hasSize(2);
     }
+
+    @Test
+    void expectedRevisionFollowsTheSelectedDefinitionNotTheOpenedRow() {
+        model.loadExpectedRevisions(java.util.Map.of(
+                "storynpcs:town_guard", 11L,
+                "storynpcs:river_pirates", 2L));
+
+        model.beginEdit(NamespacedId.of("storynpcs:town_guard"));
+        assertThat(model.expectedRevision()).isEqualTo(11L);
+
+        model.backToList();
+        model.beginEdit(NamespacedId.of("storynpcs:river_pirates"));
+        assertThat(model.expectedRevision()).isEqualTo(2L);
+
+        model.backToList();
+        model.beginNew(NamespacedId.of("storynpcs:new_f"), "New");
+        assertThat(model.expectedRevision()).isZero();
+    }
+
+    @Test
+    void committedRevisionBindsToTheSavedIdOnly() {
+        model.loadExpectedRevisions(java.util.Map.of(
+                "storynpcs:town_guard", 11L,
+                "storynpcs:river_pirates", 2L));
+
+        model.beginEdit(NamespacedId.of("storynpcs:river_pirates"));
+        model.recordCommittedRevision("storynpcs:town_guard", 12L);
+
+        assertThat(model.expectedRevision()).isEqualTo(2L);
+        assertThat(model.expectedRevisionFor("storynpcs:town_guard")).isEqualTo(12L);
+    }
+
+    @Test
+    void revisionHintSeedsOnlyUnknownIds() {
+        model.loadExpectedRevisions(java.util.Map.of("storynpcs:town_guard", 11L));
+        model.recordRevisionHint("storynpcs:town_guard", 99L);
+        model.recordRevisionHint("storynpcs:river_pirates", 2L);
+
+        assertThat(model.expectedRevisionFor("storynpcs:town_guard")).isEqualTo(11L);
+        assertThat(model.expectedRevisionFor("storynpcs:river_pirates")).isEqualTo(2L);
+    }
 }

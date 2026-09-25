@@ -15,16 +15,19 @@ import net.minecraft.util.RandomSource;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
+import java.util.UUID;
 
 public class DialogueScreen extends Screen {
 
     private final DialogueScreenModel model;
+    private final UUID sessionId;
     private boolean soundPlayed = false;
 
-    public DialogueScreen(DialogueScreenModel model) {
+    public DialogueScreen(DialogueScreenModel model, UUID sessionId) {
         super(Component.literal(
                 model.getNpcName().isEmpty() ? "StoryNPCs Dialogue" : model.getNpcName()));
         this.model = model;
+        this.sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
     }
 
     public static DialogueScreen create(
@@ -35,7 +38,8 @@ public class DialogueScreen extends Screen {
             List<String> options,
             boolean isTerminal,
             String npcName,
-            List<String> optionHints
+            List<String> optionHints,
+            UUID sessionId
     ) {
         DialogueScreenModel model = new DialogueScreenModel(
                 dialogueId,
@@ -44,11 +48,12 @@ public class DialogueScreen extends Screen {
                 sound,
                 options,
                 isTerminal,
-                index -> PacketDistributor.sendToServer(new ServerboundDialogueChoosePayload(index)),
+                index -> PacketDistributor.sendToServer(new ServerboundDialogueChoosePayload(
+                        index, sessionId, UUID.randomUUID())),
                 npcName,
                 optionHints
         );
-        return new DialogueScreen(model);
+        return new DialogueScreen(model, sessionId);
     }
 
     public DialogueScreenModel getModel() {

@@ -1,6 +1,12 @@
+# Active roadmap notice
+
+This file records historical implementation milestones. The active CustomNPCs-parity direction, gap matrix, and executable issue drafts are maintained in [docs/CUSTOMNPCS_PARITY_ROADMAP.md](docs/CUSTOMNPCS_PARITY_ROADMAP.md).
+
+---
+
 # Dwurdy's StoryNPCs Milestones & Issue Plan
 
-Document status: completed  
+Document status: historical record; not a current parity certification
 Last reviewed: 2026-09-17  
 Owner: Vlad Durdeu  
 
@@ -12,10 +18,10 @@ Owner: Vlad Durdeu
   - Domain models: NamespacedId, NpcDefinition, DialogueGraph, Faction, Quest, PlayerProgression.
   - Jackson-based YamlDefinitionLoader with line/col error diagnostics.
   - CrossReferenceValidator detecting dangling edges and cyclic quest prerequisites.
-  - ProgressionRepository with crash-safe atomic tmp-write and replace.
+  - ProgressionRepository with an atomic tmp-write and replace implementation; crash-recovery behavior remains subject to the active P2-2/P2-3 evidence gate.
   - StoryNpcsApplicationService implementing the 15 canonical parity operations.
   - Domain events on EventPublisher.
-- **Evidence**: 18 automated unit tests passing 100%.
+- **Evidence**: 18 listed automated unit tests passed at the time; this is unit-test evidence, not target runtime parity evidence.
 
 ---
 
@@ -30,7 +36,7 @@ Owner: Vlad Durdeu
     - *Intent*: Hook server lifecycle events to auto-load YAML definitions and synchronize player progression safely.
     - *Deliverables*: `WorldLifecycleHandler.java`, loader folder matching fix in `YamlDefinitionLoader.java`.
     - *Tests*: `WorldLifecycleHandlerTest.java` (3/3 tests PASS).
-- **Evidence**: 100% test pass on entity state, attributes, world initialization, and player progression caching/saving.
+- **Evidence**: Listed tests passed on entity state, attributes, world initialization, and player progression caching/saving; this does not certify target parity or crash recovery.
 
 ---
 

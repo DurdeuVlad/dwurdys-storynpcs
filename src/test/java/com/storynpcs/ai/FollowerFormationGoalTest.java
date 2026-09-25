@@ -51,13 +51,13 @@ class FollowerFormationGoalTest {
         UUID npc1 = UUID.randomUUID();
         UUID npc2 = UUID.randomUUID();
 
-        FollowerGroup.clearAll();
+        FollowerGroup group = new FollowerGroup();
 
         FollowerRole role1 = new FollowerRole(leader, FormationType.WEDGE, -1, 2.0);
         FollowerRole role2 = new FollowerRole(leader, FormationType.WEDGE, -1, 2.0);
 
-        int slot1 = (role1.getFormationSlot() < 0) ? FollowerGroup.getOrAssignSlot(leader, npc1) : role1.getFormationSlot();
-        int slot2 = (role2.getFormationSlot() < 0) ? FollowerGroup.getOrAssignSlot(leader, npc2) : role2.getFormationSlot();
+        int slot1 = (role1.getFormationSlot() < 0) ? group.getOrAssignSlot(leader, npc1) : role1.getFormationSlot();
+        int slot2 = (role2.getFormationSlot() < 0) ? group.getOrAssignSlot(leader, npc2) : role2.getFormationSlot();
 
         assertEquals(0, slot1);
         assertEquals(1, slot2);

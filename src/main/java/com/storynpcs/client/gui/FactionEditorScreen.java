@@ -2,6 +2,7 @@ package com.storynpcs.client.gui;
 
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.faction.Faction;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.editor.FactionEditorScreenModel;
 import com.storynpcs.editor.FactionEditorScreenModel.Mode;
 import com.storynpcs.network.ServerboundFactionDeletePayload;
@@ -14,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * In-game faction authoring surface (issue #25). LIST mode browses the synced
@@ -41,9 +43,27 @@ public class FactionEditorScreen extends Screen {
     private EditBox defaultPointsField;
     private EditBox hostileField;
     private EditBox friendlyField;
+    private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
+    private final PayloadBoundRequestId deleteRequestId = new PayloadBoundRequestId();
+    /** Definition ids bound to in-flight save/delete requests — revision updates are id-scoped. */
+    private String pendingSaveId;
+    private String pendingDeleteId;
 
     public FactionEditorScreen(List<Faction> factions, String selectId) {
+        this(factions, selectId, 0L, java.util.Map.of());
+    }
+
+    public FactionEditorScreen(List<Faction> factions, String selectId, long expectedRevision) {
+        this(factions, selectId, expectedRevision, java.util.Map.of());
+    }
+
+    public FactionEditorScreen(List<Faction> factions, String selectId, long expectedRevision,
+                               java.util.Map<String, Long> revisions) {
         super(Component.literal("Faction Editor"));
+        model.loadExpectedRevisions(revisions);
+        if (selectId != null && !selectId.isBlank()) {
+            model.recordRevisionHint(selectId, Math.max(0L, expectedRevision));
+        }
         model.loadFactions(factions);
         if (selectId != null && !selectId.isBlank()) {
             try {
@@ -56,8 +76,21 @@ public class FactionEditorScreen extends Screen {
 
     public FactionEditorScreenModel getModel() { return model; }
 
-    public void onSaveResult(boolean success, String message, List<Faction> refreshed) {
+    public void onSaveResult(UUID requestId, boolean success, String message, List<Faction> refreshed,
+                             long committedRevision) {
+        boolean saveResponse = saveRequestId.matchesCurrent(requestId);
+        boolean deleteResponse = deleteRequestId.matchesCurrent(requestId);
+        if (!saveResponse && !deleteResponse) return;
+        // The response revision is authoritative on success AND on rejection
+        // (the server echoes the current token), so the row's next save is not
+        // stuck on a stale expectation after a lost response.
+        String subjectId = saveResponse ? pendingSaveId : pendingDeleteId;
+        if (subjectId != null) {
+            model.recordCommittedRevision(subjectId, committedRevision);
+        }
         model.onSaveResult(success, message, refreshed);
+        if (saveResponse) saveRequestId.acknowledge(requestId);
+        if (deleteResponse) deleteRequestId.acknowledge(requestId);
         if (this.minecraft != null) rebuildWidgets();
     }
 
@@ -148,7 +181,12 @@ public class FactionEditorScreen extends Screen {
                 .bounds(12, footer, 70, 16).build());
         addRenderableWidget(Button.builder(Component.literal(model.isDeleteArmed() ? "§cSure?" : "§cDelete"), b -> {
             if (model.confirmDeleteClick()) {
-                PacketDistributor.sendToServer(new ServerboundFactionDeletePayload(f.getId().toString()));
+                long revision = model.expectedRevision();
+                pendingDeleteId = f.getId().toString();
+                UUID requestId = deleteRequestId.forPayload(
+                        "faction-delete\n" + f.getId() + "\n" + revision);
+                PacketDistributor.sendToServer(new ServerboundFactionDeletePayload(
+                        f.getId().toString(), revision, requestId));
                 model.setStatus("Deleting...", false);
             } else {
                 rebuildWidgets();
@@ -180,7 +218,12 @@ public class FactionEditorScreen extends Screen {
             return;
         }
         model.setStatus("Saving...", false);
-        PacketDistributor.sendToServer(new ServerboundFactionSavePayload(model.saveJson()));
+        String submittedJson = model.saveJson();
+        pendingSaveId = model.getEditing() != null && model.getEditing().getId() != null
+                ? model.getEditing().getId().toString() : null;
+        UUID requestId = saveRequestId.forPayload(submittedJson);
+        PacketDistributor.sendToServer(new ServerboundFactionSavePayload(
+                submittedJson, model.expectedRevision(), requestId));
     }
 
     @Override

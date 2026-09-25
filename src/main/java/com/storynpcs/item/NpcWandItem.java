@@ -77,8 +77,11 @@ public class NpcWandItem extends Item {
         String defaultName = "StoryNPC " + uniqueSuffix;
 
         NpcDefinition def = new NpcDefinition(id, defaultName);
-        var result = mod.getApplicationService().saveNpc(def);
-        if (result.hasErrors()) {
+        var service = mod.getApplicationService();
+        var result = service.createNpc(new com.storynpcs.service.MutationRequest(
+                "npc.create", "player:" + serverPlayer.getUUID(), "npc.mutate", id,
+                service.currentRevision("npc", id), java.util.UUID.randomUUID(), 2), def);
+        if (!result.applied()) {
             serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to scaffold NPC: " + result.formatReport(3)));
             return InteractionResult.FAIL;
         }
@@ -97,7 +100,8 @@ public class NpcWandItem extends Item {
         // Open the in-game editor immediately on the admin's client
         PacketDistributor.sendToPlayer(serverPlayer, new ClientboundNpcEditorOpenPayload(
                 id.toString(),
-                NpcDefinitionSerde.toJson(def)
+                NpcDefinitionSerde.toJson(def),
+                mod.getApplicationService().currentRevision("npc", id)
         ));
 
         serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs] Created and spawned '" + defaultName + "' (" + id + ")! Opened editor."));
@@ -112,6 +116,8 @@ public class NpcWandItem extends Item {
             }
 
             if (player instanceof ServerPlayer serverPlayer) {
+                StoryNpcs mod = StoryNpcs.getInstance();
+                if (mod == null) return InteractionResult.FAIL;
                 if (!serverPlayer.hasPermissions(2)) {
                     serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs] You must have operator level 2 to edit NPCs."));
                     return InteractionResult.FAIL;
@@ -121,7 +127,8 @@ public class NpcWandItem extends Item {
                 if (defOpt.isPresent()) {
                     PacketDistributor.sendToPlayer(serverPlayer, new ClientboundNpcEditorOpenPayload(
                             defOpt.get().getId().toString(),
-                            NpcDefinitionSerde.toJson(defOpt.get())
+                            NpcDefinitionSerde.toJson(defOpt.get()),
+                            mod.getApplicationService().currentRevision("npc", defOpt.get().getId())
                     ));
                     return InteractionResult.SUCCESS;
                 } else {

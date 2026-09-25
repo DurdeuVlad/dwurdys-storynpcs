@@ -17,10 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.NoSuchElementException;
-
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AuthoringFlowTest {
 
@@ -126,14 +123,14 @@ class AuthoringFlowTest {
     }
 
     @Test
-    void testAssignDialogueFailsWhenDialogueMissing() {
+    void testAssignDialogueReturnsMachineDiagnosticWhenDialogueMissing() {
         NamespacedId npcId = NamespacedId.of("storynpcs:miner");
         service.createNpc(new NpcDefinition(npcId, "Miner"));
 
         NamespacedId missingDial = NamespacedId.of("storynpcs:non_existent");
-        assertThatThrownBy(() -> service.assignDialogue(npcId, missingDial))
-                .isInstanceOf(NoSuchElementException.class)
-                .hasMessageContaining("Dialogue not found");
+        var result = service.assignDialogue(npcId, missingDial);
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("DIALOGUE_NOT_FOUND");
     }
 
     @Test
@@ -153,14 +150,14 @@ class AuthoringFlowTest {
     }
 
     @Test
-    void testAssignFactionFailsWhenFactionMissing() {
+    void testAssignFactionReturnsMachineDiagnosticWhenFactionMissing() {
         NamespacedId npcId = NamespacedId.of("storynpcs:archer");
         service.createNpc(new NpcDefinition(npcId, "Archer"));
 
         NamespacedId missingFaction = NamespacedId.of("storynpcs:ghost_faction");
-        assertThatThrownBy(() -> service.assignFaction(npcId, missingFaction))
-                .isInstanceOf(NoSuchElementException.class)
-                .hasMessageContaining("Faction not found");
+        var result = service.assignFaction(npcId, missingFaction);
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("FACTION_NOT_FOUND");
     }
 
     @Test

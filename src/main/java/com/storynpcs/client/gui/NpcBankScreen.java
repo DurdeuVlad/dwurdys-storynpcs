@@ -11,6 +11,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Player-facing vault screen for a banker-role NPC. Opened server-side via
@@ -23,14 +24,17 @@ public class NpcBankScreen extends Screen {
     private final String npcId;
     private final BankerRole banker;
     private final BankVault vault;
+    private final UUID sessionId;
+    private final java.util.Map<String, UUID> requestIds = new java.util.HashMap<>();
     private int currentTab = 0;
     private int scrollOffset = 0;
 
-    public NpcBankScreen(String npcId, BankerRole banker, BankVault vault) {
+    public NpcBankScreen(String npcId, BankerRole banker, BankVault vault, UUID sessionId) {
         super(Component.literal(banker.getBankName()));
         this.npcId = npcId != null ? npcId : "";
         this.banker = banker;
         this.vault = vault;
+        this.sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
     }
 
     private int listTop() { return 34; }
@@ -72,7 +76,10 @@ public class NpcBankScreen extends Screen {
             int slot = item.getSlot();
             addRenderableWidget(Button.builder(Component.literal("Withdraw"),
                             b -> PacketDistributor.sendToServer(
-                                    new ServerboundBankActionPayload(npcId, "withdraw", tab, slot)))
+                                new ServerboundBankActionPayload(npcId, "withdraw", tab, slot,
+                                        sessionId, requestIds.computeIfAbsent(
+                                                "withdraw:" + tab + ":" + slot,
+                                                ignored -> UUID.randomUUID()))))
                     .bounds(12 + rowW - wdW, y, wdW, 11)
                     .build());
         }
@@ -81,7 +88,9 @@ public class NpcBankScreen extends Screen {
         int footerY = this.height - 16;
         addRenderableWidget(Button.builder(Component.literal("Deposit held"), b ->
                         PacketDistributor.sendToServer(
-                                new ServerboundBankActionPayload(npcId, "deposit_held", currentTab, 0)))
+                                new ServerboundBankActionPayload(npcId, "deposit_held", currentTab, 0,
+                                        sessionId, requestIds.computeIfAbsent(
+                                                "deposit:" + currentTab, ignored -> UUID.randomUUID()))))
                 .bounds(12, footerY, 90, 12).build());
 
         if (unlockedTabs() < Math.max(1, banker.getMaxTabs())) {
@@ -91,7 +100,9 @@ public class NpcBankScreen extends Screen {
                     : "Unlock tab (free)";
             addRenderableWidget(Button.builder(Component.literal(label), b ->
                             PacketDistributor.sendToServer(
-                                    new ServerboundBankActionPayload(npcId, "unlock_tab", 0, 0)))
+                                new ServerboundBankActionPayload(npcId, "unlock_tab", 0, 0,
+                                        sessionId, requestIds.computeIfAbsent(
+                                                "unlock", ignored -> UUID.randomUUID()))))
                     .bounds(108, footerY, Math.min(140, this.width - 180), 12).build());
         }
 

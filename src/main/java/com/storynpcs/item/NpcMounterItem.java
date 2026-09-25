@@ -13,9 +13,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import com.storynpcs.StoryNpcs;
 
 /**
  * NPC Mounter — Mounts or dismounts entities onto each other (e.g. NPC on Horse).
@@ -24,8 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Sneak-click entity: Dismounts entity.
  */
 public class NpcMounterItem extends Item {
-
-    private static final Map<UUID, Integer> SELECTED_PASSENGERS = new ConcurrentHashMap<>();
 
     public NpcMounterItem(Properties properties) {
         super(properties);
@@ -60,20 +56,27 @@ public class NpcMounterItem extends Item {
             } else {
                 serverPlayer.sendSystemMessage(Component.literal("§7[StoryNPCs Mounter] Entity is neither a passenger nor carrying any."));
             }
-            SELECTED_PASSENGERS.remove(serverPlayer.getUUID());
+            StoryNpcs mod = StoryNpcs.getInstance();
+            if (mod != null) {
+                mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
+            }
             return InteractionResult.SUCCESS;
         }
 
-        Integer passengerId = SELECTED_PASSENGERS.get(serverPlayer.getUUID());
+        StoryNpcs mod = StoryNpcs.getInstance();
+        if (mod == null) {
+            return InteractionResult.FAIL;
+        }
+        Integer passengerId = mod.getRuntimeSessions(serverPlayer.getServer()).selectedPassenger(serverPlayer.getUUID());
         if (passengerId == null) {
             // First click: select passenger
-            SELECTED_PASSENGERS.put(serverPlayer.getUUID(), target.getId());
+            mod.getRuntimeSessions(serverPlayer.getServer()).selectPassenger(serverPlayer.getUUID(), target.getId());
             serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs Mounter] Selected passenger: '§f" + target.getName().getString() + "§a'. Now right-click the vehicle entity to mount."));
             return InteractionResult.SUCCESS;
         } else {
             // Second click: mount onto vehicle
             Entity passenger = serverPlayer.level().getEntity(passengerId);
-            SELECTED_PASSENGERS.remove(serverPlayer.getUUID());
+            mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
 
             if (passenger == null || !passenger.isAlive()) {
                 serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs Mounter] Previously selected passenger is no longer available."));

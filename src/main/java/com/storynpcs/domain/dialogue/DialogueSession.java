@@ -8,6 +8,7 @@ import java.util.*;
  * Live active dialogue session between a player and an NPC.
  */
 public class DialogueSession {
+    private final UUID sessionId = UUID.randomUUID();
     private final UUID playerUuid;
     private final NamespacedId dialogueId;
     private final DialogueGraph graph;
@@ -42,6 +43,7 @@ public class DialogueSession {
     }
 
     public UUID getPlayerUuid() { return playerUuid; }
+    public UUID getSessionId() { return sessionId; }
     public NamespacedId getDialogueId() { return dialogueId; }
     public DialogueGraph getGraph() { return graph; }
     public String getCurrentNodeId() { return currentNodeId; }

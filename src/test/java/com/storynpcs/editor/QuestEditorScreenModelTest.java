@@ -181,4 +181,77 @@ class QuestEditorScreenModelTest {
         model.setListFilter("");
         assertThat(model.getFilteredQuests()).hasSize(2);
     }
+
+    @Test
+    void expectedRevisionFollowsTheSelectedDefinitionNotTheOpenedRow() {
+        // The server sends one token per definition; the token for the row under
+        // the cursor must be used — never the token of the initially opened row.
+        model.loadExpectedRevisions(java.util.Map.of(
+                "storynpcs:bounty_goblins", 3L,
+                "storynpcs:m3test", 7L));
+
+        model.beginEdit(NamespacedId.of("storynpcs:bounty_goblins"));
+        assertThat(model.expectedRevision()).isEqualTo(3L);
+
+        model.backToList();
+        model.beginEdit(NamespacedId.of("storynpcs:m3test"));
+        assertThat(model.expectedRevision()).isEqualTo(7L);
+
+        // A brand-new definition has no committed revision.
+        model.backToList();
+        model.beginNew(NamespacedId.of("storynpcs:fresh_quest"), "Fresh");
+        assertThat(model.expectedRevision()).isZero();
+    }
+
+    @Test
+    void committedRevisionBindsToTheSavedIdOnly() {
+        model.loadExpectedRevisions(java.util.Map.of(
+                "storynpcs:bounty_goblins", 3L,
+                "storynpcs:m3test", 7L));
+
+        // Save commits revision 4 for bounty_goblins while a different row is open.
+        model.beginEdit(NamespacedId.of("storynpcs:m3test"));
+        model.recordCommittedRevision("storynpcs:bounty_goblins", 4L);
+
+        assertThat(model.expectedRevision()).isEqualTo(7L);
+        assertThat(model.expectedRevisionFor("storynpcs:bounty_goblins")).isEqualTo(4L);
+    }
+
+    @Test
+    void revisionHintSeedsOnlyUnknownIds() {
+        model.loadExpectedRevisions(java.util.Map.of("storynpcs:m3test", 7L));
+        // The open-payload hint for the selected row must not clobber the map's token.
+        model.recordRevisionHint("storynpcs:m3test", 99L);
+        model.recordRevisionHint("storynpcs:bounty_goblins", 3L);
+
+        assertThat(model.expectedRevisionFor("storynpcs:m3test")).isEqualTo(7L);
+        assertThat(model.expectedRevisionFor("storynpcs:bounty_goblins")).isEqualTo(3L);
+    }
+
+    @Test
+    void staleOrMalformedRevisionEntriesAreDropped() {
+        java.util.Map<String, Long> revisions = new java.util.HashMap<>();
+        revisions.put("storynpcs:m3test", 5L);
+        revisions.put("", 9L);
+        revisions.put("storynpcs:bad", -1L);
+        revisions.put("storynpcs:nullrev", null);
+        model.loadExpectedRevisions(revisions);
+
+        assertThat(model.expectedRevisionFor("storynpcs:m3test")).isEqualTo(5L);
+        assertThat(model.expectedRevisionFor("storynpcs:bad")).isZero();
+        assertThat(model.expectedRevisionFor("storynpcs:nullrev")).isZero();
+        assertThat(model.expectedRevisionFor("")).isZero();
+        assertThat(model.expectedRevisionFor(null)).isZero();
+    }
+
+    @Test
+    void editorRevisionsJsonRoundTrips() {
+        java.util.Map<String, Long> revisions = java.util.Map.of(
+                "storynpcs:bounty_goblins", 3L, "storynpcs:m3test", 7L);
+        String json = EditorRevisions.toJson(revisions);
+        assertThat(EditorRevisions.parse(json)).containsExactlyInAnyOrderEntriesOf(revisions);
+        assertThat(EditorRevisions.parse("not json")).isEmpty();
+        assertThat(EditorRevisions.parse(null)).isEmpty();
+        assertThat(EditorRevisions.toJson(null)).isEqualTo("{}");
+    }
 }

@@ -1,5 +1,6 @@
 package com.storynpcs.domain.dialogue;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ public class DialogueNode {
         this.options.add(option);
     }
 
+    @JsonIgnore
     public boolean isTerminal() {
         return options == null || options.isEmpty();
     }

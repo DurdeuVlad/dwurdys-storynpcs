@@ -5,6 +5,7 @@ import com.storynpcs.domain.npc.NpcAi;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcDefinitionSerde;
 import com.storynpcs.domain.npc.TacticalStance;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.network.ServerboundNpcSavePayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -13,6 +14,8 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
+
+import java.util.UUID;
 
 public class NpcEditorScreen extends Screen {
 
@@ -33,10 +36,17 @@ public class NpcEditorScreen extends Screen {
 
     private String statusMessage = "";
     private int statusColor = 0xFF4ADE80;
+    private long expectedRevision;
+    private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
 
     public NpcEditorScreen(NpcDefinition definition) {
+        this(definition, 0L);
+    }
+
+    public NpcEditorScreen(NpcDefinition definition, long expectedRevision) {
         super(Component.literal("NPC Editor: " + (definition.getId() != null ? definition.getId().toString() : "Unknown")));
         this.definition = definition;
+        this.expectedRevision = Math.max(0L, expectedRevision);
         this.currentMovement = definition.getAi() != null ? definition.getAi().getMovementType() : NpcAi.MovementType.STANDING;
         this.currentStance = definition.getAi() != null ? definition.getAi().getTacticalStance() : TacticalStance.GUARD;
     }
@@ -45,9 +55,14 @@ public class NpcEditorScreen extends Screen {
         return definition;
     }
 
-    public void onSaveResult(boolean success, String message) {
+    public void onSaveResult(UUID requestId, boolean success, String message, long revision) {
+        if (!saveRequestId.matchesCurrent(requestId)) return;
         this.statusMessage = message;
         this.statusColor = success ? 0xFF4ADE80 : 0xFFF87171;
+        // The response revision is authoritative on success AND on rejection
+        // (the server echoes the current token) — never guess with ++.
+        expectedRevision = Math.max(0L, revision);
+        saveRequestId.acknowledge(requestId);
     }
 
     @Override
@@ -148,7 +163,7 @@ public class NpcEditorScreen extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("§bRules (" + ruleCount + ")"), b -> {
                     saveCurrentState();
-                    Minecraft.getInstance().setScreen(new NpcRulesScreen(definition));
+                    Minecraft.getInstance().setScreen(new NpcRulesScreen(definition, expectedRevision));
                 }).bounds(rightX, startY + 154, colWidth, 14).build());
 
         // Bottom Action Bar — anchored to the panel bottom so it stays inside
@@ -158,9 +173,13 @@ public class NpcEditorScreen extends Screen {
             saveCurrentState();
             statusMessage = "Saving...";
             statusColor = 0xFFEAB308;
+            String submittedJson = NpcDefinitionSerde.toJson(definition);
+            UUID requestId = saveRequestId.forPayload(submittedJson);
             PacketDistributor.sendToServer(new ServerboundNpcSavePayload(
                     definition.getId().toString(),
-                    NpcDefinitionSerde.toJson(definition)
+                    submittedJson,
+                    expectedRevision,
+                    requestId
             ));
         }).bounds(startX + 12, actionY, 140, 18).build());
 
