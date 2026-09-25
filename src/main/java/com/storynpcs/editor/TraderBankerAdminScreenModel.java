@@ -21,10 +21,15 @@ import java.util.List;
  */
 public final class TraderBankerAdminScreenModel {
 
-    /** No pre-existing "supported tab boundary" constant exists in this codebase (searched
-     * BankerRole, BankVault, NpcBankScreen); this is a newly authored, explicit UI/data bound. */
-    public static final int MIN_TABS = 1;
-    public static final int MAX_TABS = 20;
+    /**
+     * Mirrors {@link BankerRole#MIN_TABS}/{@link BankerRole#MAX_TABS} (issue #76:
+     * "tab count cannot exceed six") rather than duplicating a bound of its own —
+     * an earlier version of this screen authored an independent MAX_TABS=20 with
+     * no reference to the actual target spec; that has been corrected to defer
+     * to the domain-level bound so the two can never drift apart again.
+     */
+    public static final int MIN_TABS = BankerRole.MIN_TABS;
+    public static final int MAX_TABS = BankerRole.MAX_TABS;
 
     public enum Tab { TRADER, BANKER }
 
