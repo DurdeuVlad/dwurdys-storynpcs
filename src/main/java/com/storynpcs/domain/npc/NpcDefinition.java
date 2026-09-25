@@ -43,6 +43,12 @@ public class NpcDefinition {
     @JsonProperty
     private com.storynpcs.domain.role.banker.BankerRole banker;
 
+    @JsonProperty
+    private com.storynpcs.domain.role.healer.HealerRole healer;
+
+    @JsonProperty
+    private com.storynpcs.domain.role.bard.BardRole bard;
+
     public NpcDefinition() {}
 
     public NpcDefinition(NamespacedId id, String name) {
@@ -82,5 +88,11 @@ public class NpcDefinition {
 
     public com.storynpcs.domain.role.banker.BankerRole getBanker() { return banker; }
     public void setBanker(com.storynpcs.domain.role.banker.BankerRole banker) { this.banker = banker; }
+
+    public com.storynpcs.domain.role.healer.HealerRole getHealer() { return healer; }
+    public void setHealer(com.storynpcs.domain.role.healer.HealerRole healer) { this.healer = healer; }
+
+    public com.storynpcs.domain.role.bard.BardRole getBard() { return bard; }
+    public void setBard(com.storynpcs.domain.role.bard.BardRole bard) { this.bard = bard; }
 }
 
