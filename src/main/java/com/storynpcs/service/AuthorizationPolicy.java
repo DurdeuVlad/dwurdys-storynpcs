@@ -89,4 +89,35 @@ public final class AuthorizationPolicy {
         if (actor.equals("system")) return AuthorizationDecision.allow();
         return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown faction progression actor: " + actor);
     }
+
+    /**
+     * Authorization for player-scoped progression actions with no numeric payload
+     * (mail read/delete, transport-location unlock; issue #54). Mirrors the
+     * player/dialogue/command/system rules of the Quest and Faction progression
+     * overloads above exactly.
+     */
+    public static AuthorizationDecision evaluate(PlayerProgressionActionRequest request) {
+        String actor = request.actorType();
+        if (actor.equals("script")) {
+            return AuthorizationDecision.deny("SCRIPT_CAPABILITY_REQUIRED",
+                    "Scripts cannot perform player progression actions without an explicit granted capability.");
+        }
+        if (actor.equals("player") || actor.equals("dialogue")) {
+            if (!request.playerUuid().equals(request.actorId())) {
+                return AuthorizationDecision.deny("PLAYER_SUBJECT_MISMATCH",
+                        "Player and dialogue actors may only act on their own progression.");
+            }
+            return AuthorizationDecision.allow();
+        }
+        if (actor.equals("command")) {
+            boolean self = request.playerUuid().equals(request.actorId());
+            if (!self && request.permissionLevel() < 2) {
+                return AuthorizationDecision.deny("PERMISSION_DENIED",
+                        "Acting on another player's progression requires permission level 2.");
+            }
+            return AuthorizationDecision.allow();
+        }
+        if (actor.equals("system")) return AuthorizationDecision.allow();
+        return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown progression actor: " + actor);
+    }
 }

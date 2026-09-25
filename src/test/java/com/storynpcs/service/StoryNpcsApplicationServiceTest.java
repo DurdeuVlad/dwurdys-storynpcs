@@ -1561,6 +1561,62 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void canonicalMailReadAndDeleteRequireAuthorization() {
+        UUID player = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        var message = service.deliverMail(player, "Postmaster", "Welcome", "Hello there.");
+
+        PlayerProgressionActionRequest deniedRead = new PlayerProgressionActionRequest(
+                "mail.read", "player", other, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult readDenied = service.markMailRead(deniedRead, message.getId());
+        assertThat(readDenied.applied()).isFalse();
+        assertThat(readDenied.decision().code()).isEqualTo("PLAYER_SUBJECT_MISMATCH");
+        assertThat(service.getMailbox(player).get(0).isRead()).isFalse();
+
+        PlayerProgressionActionRequest allowedRead = new PlayerProgressionActionRequest(
+                "mail.read", "player", player, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult readApplied = service.markMailRead(allowedRead, message.getId());
+        assertThat(readApplied.applied()).isTrue();
+        assertThat(service.getMailbox(player).get(0).isRead()).isTrue();
+
+        PlayerProgressionActionRequest deniedDelete = new PlayerProgressionActionRequest(
+                "mail.delete", "command", other, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult deleteDenied = service.deleteMail(deniedDelete, message.getId());
+        assertThat(deleteDenied.applied()).isFalse();
+        assertThat(deleteDenied.decision().code()).isEqualTo("PERMISSION_DENIED");
+        assertThat(service.getMailbox(player)).hasSize(1);
+
+        PlayerProgressionActionRequest allowedDelete = new PlayerProgressionActionRequest(
+                "mail.delete", "command", other, player, UUID.randomUUID(), 2);
+        AuthorizedActionResult deleteApplied = service.deleteMail(allowedDelete, message.getId());
+        assertThat(deleteApplied.applied()).isTrue();
+        assertThat(service.getMailbox(player)).isEmpty();
+    }
+
+    @Test
+    void canonicalTransportUnlockRequiresAuthorization() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:vault_city");
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                locationId, "Vault City", "minecraft:overworld", 10, 65, 10);
+        location.setRequiresUnlock(true);
+        service.createTransportLocation(location);
+        UUID player = UUID.randomUUID();
+
+        PlayerProgressionActionRequest scriptRequest = new PlayerProgressionActionRequest(
+                "transport.unlock", "script", player, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult scriptDenied = service.unlockTransportLocation(scriptRequest, locationId);
+        assertThat(scriptDenied.applied()).isFalse();
+        assertThat(scriptDenied.decision().code()).isEqualTo("SCRIPT_CAPABILITY_REQUIRED");
+        assertThat(service.isTransportLocationUnlocked(player, locationId)).isFalse();
+
+        PlayerProgressionActionRequest systemRequest = new PlayerProgressionActionRequest(
+                "transport.unlock", "system", player, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult applied = service.unlockTransportLocation(systemRequest, locationId);
+        assertThat(applied.applied()).isTrue();
+        assertThat(service.isTransportLocationUnlocked(player, locationId)).isTrue();
+    }
+
+    @Test
     void deleteQuestShouldRemoveAndReportDialogueReferences() {
         NamespacedId questId = NamespacedId.of("storynpcs:deletable");
         service.createQuest(questId, "Deletable");
