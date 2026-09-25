@@ -192,6 +192,73 @@ class QuestProgressionMutationTest {
     }
 
     @Test
+    void dailyQuestBlocksImmediateRestartAfterCompletion() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.DAILY);
+        service.startQuest(player, questId);
+        service.completeQuest(player, questId);
+        long revisionAfterCompletion = service.currentQuestProgressionRevision(player);
+
+        CanonicalMutationResult restart = service.mutateQuestProgression(QuestProgressionMutationRequest.start(
+                "system", null, player, questId, revisionAfterCompletion, UUID.randomUUID()));
+
+        assertThat(restart.applied()).isFalse();
+        assertThat(restart.diagnostics().getDiagnostics()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.code()).isEqualTo("QUEST_ALREADY_COMPLETED"));
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+        // Rejection must not consume a revision — a real restart attempt once the
+        // boundary passes should still be checked against this same revision.
+        assertThat(service.currentQuestProgressionRevision(player)).isEqualTo(revisionAfterCompletion);
+    }
+
+    @Test
+    void repeatableQuestStillAllowsImmediateRestartAfterCompletion() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.REPEATABLE);
+        service.startQuest(player, questId);
+        service.completeQuest(player, questId);
+        long revisionAfterCompletion = service.currentQuestProgressionRevision(player);
+
+        CanonicalMutationResult restart = service.mutateQuestProgression(QuestProgressionMutationRequest.start(
+                "system", null, player, questId, revisionAfterCompletion, UUID.randomUUID()));
+
+        assertThat(restart.applied()).isTrue();
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+    }
+
+    @Test
+    void instantQuestAllowsImmediateRestartAfterCompletion() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.INSTANT);
+        service.startQuest(player, questId);
+        service.completeQuest(player, questId);
+        long revisionAfterCompletion = service.currentQuestProgressionRevision(player);
+
+        CanonicalMutationResult restart = service.mutateQuestProgression(QuestProgressionMutationRequest.start(
+                "system", null, player, questId, revisionAfterCompletion, UUID.randomUUID()));
+
+        assertThat(restart.applied()).isTrue();
+    }
+
+    @Test
+    void completingAQuestRecordsTheCompletionTimestamp() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        long before = System.currentTimeMillis();
+        service.startQuest(player, questId);
+        service.completeQuest(player, questId);
+        long after = System.currentTimeMillis();
+
+        long recorded = repository.getOrCreate(player).getQuestState(questId).getLastCompletedAtEpochMillis();
+        assertThat(recorded).isBetween(before, after);
+    }
+
+    @Test
     void reentrantCanonicalListenerCannotOvertakeOuterObjectiveEvent() {
         UUID player = UUID.randomUUID();
         NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
