@@ -2605,7 +2605,18 @@ public final class StoryNpcsCommands {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
         int points = IntegerArgumentType.getInteger(ctx, "points");
         try {
-            StoryNpcs.getInstance().getApplicationService().setFactionPoints(player.getUUID(), id, points);
+            var service = StoryNpcs.getInstance().getApplicationService();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            var request = com.storynpcs.service.FactionProgressionMutationRequest.set(
+                    "command", actorUuid, player.getUUID(), id, points,
+                    service.currentFactionProgressionRevision(player.getUUID()), UUID.randomUUID(),
+                    ctx.getSource().hasPermission(2) ? 2 : 0);
+            var result = service.mutateFactionProgression(request);
+            if (!result.applied()) {
+                ctx.getSource().sendFailure(Component.literal("Failed to set faction points: " + result.formatReport()));
+                return 0;
+            }
             ServerPlayer finalPlayer = player;
             ctx.getSource().sendSuccess(() -> Component.literal(String.format("Set faction '%s' points to %d for %s", id, points, finalPlayer.getScoreboardName())), true);
             return 1;
@@ -2628,7 +2639,18 @@ public final class StoryNpcsCommands {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
         int delta = IntegerArgumentType.getInteger(ctx, "delta");
         try {
-            StoryNpcs.getInstance().getApplicationService().adjustFactionPoints(player.getUUID(), id, delta);
+            var service = StoryNpcs.getInstance().getApplicationService();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            var request = com.storynpcs.service.FactionProgressionMutationRequest.adjust(
+                    "command", actorUuid, player.getUUID(), id, delta,
+                    service.currentFactionProgressionRevision(player.getUUID()), UUID.randomUUID(),
+                    ctx.getSource().hasPermission(2) ? 2 : 0);
+            var result = service.mutateFactionProgression(request);
+            if (!result.applied()) {
+                ctx.getSource().sendFailure(Component.literal("Failed to adjust faction points: " + result.formatReport()));
+                return 0;
+            }
             ServerPlayer finalPlayer = player;
             ctx.getSource().sendSuccess(() -> Component.literal(String.format("Adjusted faction '%s' points by %+d for %s", id, delta, finalPlayer.getScoreboardName())), true);
             return 1;

@@ -39,8 +39,12 @@ public class StoryNpcsApplicationService {
     private final Map<UUID, CompletedMutation> completedMutations = new ConcurrentHashMap<>();
     /** Recent quest progression receipts are process-local; persisted revisions reject replay after restart. */
     private final Map<UUID, CompletedQuestMutation> completedQuestMutations = new ConcurrentHashMap<>();
+    /** Recent faction progression receipts are process-local; persisted revisions reject replay after restart. */
+    private final Map<UUID, CompletedFactionMutation> completedFactionMutations = new ConcurrentHashMap<>();
     private final Object[] questMutationLocks = createQuestMutationLocks();
     private final Object[] progressionMutationLocks = createQuestMutationLocks();
+    private final Object[] factionMutationLocks = createQuestMutationLocks();
+    private final Object[] factionProgressionMutationLocks = createQuestMutationLocks();
     private final QuestEventQueue[] questEventQueues = createQuestEventQueues();
     /** Accessed only while holding canonicalMutationLock; also blocks same-thread reentrant callbacks. */
     private final Map<UUID, MutationRequest> inProgressMutationRequests = new HashMap<>();
@@ -365,6 +369,9 @@ public class StoryNpcsApplicationService {
 
     private record CompletedQuestMutation(
             String payloadFingerprint, CanonicalMutationResult result, boolean completionPending) {}
+
+    private record CompletedFactionMutation(
+            String payloadFingerprint, CanonicalMutationResult result) {}
 
     private record QuestMutationExecution(
             CanonicalMutationResult result, int currentCount, int requiredCount, boolean shouldComplete) {
@@ -1531,8 +1538,15 @@ public class StoryNpcsApplicationService {
                 case ADJUST_FACTION -> {
                     NamespacedId fid = NamespacedId.of(action.getTarget());
                     if (registry.getFaction(fid).isPresent()) {
-                        int delta = Integer.parseInt(action.getValue() != null ? action.getValue().trim() : "0");
-                        adjustFactionPoints(playerUuid, fid, delta);
+                        int rawDelta = Integer.parseInt(action.getValue() != null ? action.getValue().trim() : "0");
+                        // Clamp to the typed request's accepted range up front — the old untyped
+                        // adjustFactionPoints() silently clamped the resulting sum instead of
+                        // rejecting an out-of-range authored delta; preserve that tolerance here
+                        // rather than let an author-supplied huge value throw mid-dialogue.
+                        int delta = Math.max(-100_000, Math.min(100_000, rawDelta));
+                        mutateFactionProgression(FactionProgressionMutationRequest.adjust("dialogue", playerUuid,
+                                playerUuid, fid, delta, currentFactionProgressionRevision(playerUuid),
+                                UUID.randomUUID(), -1));
                     } else {
                         System.err.println("Warning: Dialogue action ADJUST_FACTION references unknown faction: " + action.getTarget());
                     }
@@ -1642,6 +1656,145 @@ public class StoryNpcsApplicationService {
         }
 
         eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, newPoints));
+    }
+
+    /**
+     * Applies one typed, player-scoped, revision-checked, replay-safe faction reputation
+     * mutation. This is the canonical entry point for command/packet/API adapters; the
+     * untyped {@link #setFactionPoints} / {@link #adjustFactionPoints} above remain for
+     * internal callers (e.g. quest-completion reward commits) that are already inside
+     * their own atomic, locked, revisioned transaction.
+     */
+    public CanonicalMutationResult mutateFactionProgression(FactionProgressionMutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        String fingerprint = factionMutationFingerprint(request);
+        Object playerLock = factionProgressionMutationLocks[request.playerUuid().hashCode()
+                & (factionProgressionMutationLocks.length - 1)];
+        if (!authorization.allowed()) {
+            CanonicalMutationResult denied = factionMutationFailure(0, authorization.code(), authorization.message());
+            eventPublisher.publish(factionMutationEvent(request, denied));
+            return denied;
+        }
+
+        Object requestLock = factionMutationLocks[request.requestId().hashCode() & (factionMutationLocks.length - 1)];
+        CanonicalMutationResult result;
+        FactionReputationChangeEvent reputationEvent = null;
+        synchronized (requestLock) {
+            synchronized (playerLock) {
+                PlayerProgression progression;
+                try {
+                    progression = progressionRepository.getOrCreate(request.playerUuid());
+                } catch (RuntimeException unavailable) {
+                    System.err.println("[StoryNPCs] faction mutation blocked for " + request.playerUuid()
+                            + ": " + unavailable.getMessage());
+                    progression = null;
+                }
+                if (progression == null) {
+                    // Fail closed: an unrecoverable durable record must reject every
+                    // mutation instead of silently initializing empty progression.
+                    result = factionMutationFailure(0, "PROGRESSION_UNAVAILABLE",
+                            "Player progression is blocked pending durable-state recovery");
+                } else
+                synchronized (progression) {
+                    CompletedFactionMutation completed = completedFactionMutations.get(request.requestId());
+                    if (completed != null) {
+                        if (!completed.payloadFingerprint().equals(fingerprint)) {
+                            result = factionMutationFailure(progression.getFactionRevision(),
+                                    "REQUEST_PAYLOAD_MISMATCH", "Request ID is already bound to a different faction mutation payload");
+                        } else {
+                            CanonicalMutationResult prior = completed.result();
+                            result = new CanonicalMutationResult(prior.applied(), true, prior.revision(),
+                                    prior.diagnostics(), prior.events(), prior.recoveryOutcome());
+                        }
+                    } else {
+                        Faction faction = registry.getFaction(request.factionId()).orElse(null);
+                        long currentRevision = progression.getFactionRevision();
+                        if (faction == null) {
+                            result = factionMutationFailure(currentRevision, "FACTION_NOT_FOUND",
+                                    "Faction not found: " + request.factionId());
+                            rememberFactionMutation(request, fingerprint, result);
+                        } else if (currentRevision != request.expectedRevision()) {
+                            result = factionMutationFailure(currentRevision, "STALE_REVISION",
+                                    "Expected player progression revision " + request.expectedRevision()
+                                            + " but current revision is " + currentRevision);
+                            rememberFactionMutation(request, fingerprint, result);
+                        } else {
+                            PlayerProgression snapshot = progression.copy();
+                            try {
+                                int oldPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
+                                if (request.action() == FactionProgressionMutationRequest.Action.SET) {
+                                    progression.setFactionScore(request.factionId(), request.value());
+                                } else {
+                                    progression.adjustFactionScore(request.factionId(), request.value(), faction.getDefaultPoints());
+                                }
+                                int newPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
+                                progression.setFactionRevision(Math.addExact(currentRevision, 1L));
+                                progressionRepository.save(request.playerUuid(), progression);
+                                result = new CanonicalMutationResult(true, false, progression.getFactionRevision(),
+                                        ValidationResult.valid(), List.of("FactionReputationChangeEvent"), "COMMITTED");
+                                reputationEvent = new FactionReputationChangeEvent(
+                                        request.playerUuid(), request.factionId(), oldPoints, newPoints);
+                            } catch (Exception failure) {
+                                progression.restoreFrom(snapshot);
+                                result = factionMutationFailure(currentRevision, "PROGRESSION_COMMIT_FAILED",
+                                        "Could not durably save faction progression: " + failure.getMessage());
+                            }
+                            rememberFactionMutation(request, fingerprint, result);
+                        }
+                    }
+                }
+            }
+        }
+
+        // A cache-hit replay must not re-publish the canonical audit event or the
+        // reputation-change event a second time for the same request ID.
+        if (!result.duplicate()) eventPublisher.publish(factionMutationEvent(request, result));
+        if (reputationEvent != null) eventPublisher.publish(reputationEvent);
+        return result;
+    }
+
+    private void rememberFactionMutation(FactionProgressionMutationRequest request, String fingerprint,
+                                          CanonicalMutationResult result) {
+        completedFactionMutations.put(request.requestId(), new CompletedFactionMutation(fingerprint, result.snapshot()));
+        while (completedFactionMutations.size() > 4096) {
+            UUID oldest = completedFactionMutations.keySet().iterator().next();
+            completedFactionMutations.remove(oldest);
+        }
+    }
+
+    private static CanonicalMutationResult factionMutationFailure(long revision, String code, String message) {
+        ValidationResult diagnostics = ValidationResult.valid();
+        diagnostics.addError(code, message == null || message.isBlank() ? code : message);
+        return new CanonicalMutationResult(false, false, revision, diagnostics, List.of(),
+                Set.of("PERMISSION_DENIED", "PLAYER_SUBJECT_MISMATCH", "SCRIPT_CAPABILITY_REQUIRED").contains(code)
+                        ? "REJECTED_AUTHORIZATION" : "REJECTED_NO_SIDE_EFFECTS");
+    }
+
+    private static String factionMutationFingerprint(FactionProgressionMutationRequest request) {
+        String payload = String.join("\u0000", request.actorType(),
+                request.actorId() == null ? "" : request.actorId().toString(),
+                request.playerUuid().toString(), request.factionId().toString(), request.action().name(),
+                Integer.toString(request.value()), Long.toString(request.expectedRevision()));
+        return MutationPayloadFingerprint.of(request.operation(), payload);
+    }
+
+    private CanonicalMutationEvent factionMutationEvent(
+            FactionProgressionMutationRequest request, CanonicalMutationResult result) {
+        return new CanonicalMutationEvent(request.operation(), request.actorType(), request.factionId(),
+                request.requestId(), result.applied(), result.revision(), result.recoveryOutcome(),
+                request.actorId(), request.playerUuid());
+    }
+
+    public long currentFactionProgressionRevision(UUID playerUuid) {
+        UUID subject = Objects.requireNonNull(playerUuid, "playerUuid");
+        Object playerLock = factionProgressionMutationLocks[subject.hashCode() & (factionProgressionMutationLocks.length - 1)];
+        synchronized (playerLock) {
+            PlayerProgression progression = progressionRepository.getOrCreate(subject);
+            synchronized (progression) {
+                return progression.getFactionRevision();
+            }
+        }
     }
 
     // ==========================================
@@ -2123,6 +2276,10 @@ public class StoryNpcsApplicationService {
                             playerUuid, factionId, oldPoints, newPoints));
                     rewardsApplied++;
                 }
+                // Keep the typed faction-mutation revision consistent with this internal,
+                // already-canonical (locked, revisioned quest-completion) reward commit so a
+                // client's cached faction revision never silently goes stale after rewards land.
+                progression.setFactionRevision(Math.addExact(progression.getFactionRevision(), 1L));
             }
             state.setStatus(QuestProgressState.Status.COMPLETED);
             state.advanceStateRevision();
