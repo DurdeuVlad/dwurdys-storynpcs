@@ -1798,6 +1798,94 @@ public class StoryNpcsApplicationService {
     }
 
     // ==========================================
+    // Mail Operations (issue #71 — postman/mailbox role foundation)
+    // ==========================================
+
+    private static final int MAIL_SUBJECT_MAX_LENGTH = 128;
+    private static final int MAIL_BODY_MAX_LENGTH = 2048;
+    private static final int MAIL_SENDER_MAX_LENGTH = 128;
+    private static final int MAILBOX_MAX_MESSAGES = 256;
+
+    /**
+     * Delivers a durable mail message to a player's mailbox, evicting the oldest
+     * message first if the mailbox is at capacity. Returns the delivered message
+     * (with its generated ID) so the caller can reference it.
+     */
+    public com.storynpcs.domain.progression.MailMessage deliverMail(
+            UUID playerUuid, String sender, String subject, String body) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        String boundedSender = bound(sender, MAIL_SENDER_MAX_LENGTH, "mail sender");
+        String boundedSubject = bound(subject, MAIL_SUBJECT_MAX_LENGTH, "mail subject");
+        String boundedBody = bound(body, MAIL_BODY_MAX_LENGTH, "mail body");
+
+        com.storynpcs.domain.progression.MailMessage message = new com.storynpcs.domain.progression.MailMessage(
+                UUID.randomUUID(), boundedSender, boundedSubject, boundedBody, System.currentTimeMillis());
+
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            List<com.storynpcs.domain.progression.MailMessage> mailbox = progression.getMailbox();
+            mailbox.add(message);
+            while (mailbox.size() > MAILBOX_MAX_MESSAGES) {
+                mailbox.remove(0);
+            }
+            saveProgression(playerUuid, progression);
+        }
+        return message;
+    }
+
+    /** Read-only snapshot of a player's mailbox, newest-last. */
+    public List<com.storynpcs.domain.progression.MailMessage> getMailbox(UUID playerUuid) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            List<com.storynpcs.domain.progression.MailMessage> copy = new ArrayList<>();
+            for (var m : progression.getMailbox()) copy.add(m.copy());
+            return copy;
+        }
+    }
+
+    /** Marks a mail message read. Returns false if no message with that ID exists. */
+    public boolean markMailRead(UUID playerUuid, UUID mailId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(mailId, "mailId");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            for (var m : progression.getMailbox()) {
+                if (m.getId().equals(mailId)) {
+                    if (m.isRead()) return true; // idempotent no-op
+                    m.setRead(true);
+                    saveProgression(playerUuid, progression);
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /** Deletes a mail message. Returns false if no message with that ID exists. */
+    public boolean deleteMail(UUID playerUuid, UUID mailId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(mailId, "mailId");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            boolean removed = progression.getMailbox().removeIf(m -> m.getId().equals(mailId));
+            if (removed) saveProgression(playerUuid, progression);
+            return removed;
+        }
+    }
+
+    private static String bound(String raw, int maxLength, String label) {
+        String value = raw == null ? "" : raw;
+        if (value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException(label + " cannot contain a null character");
+        }
+        if (value.length() > maxLength) {
+            throw new IllegalArgumentException(label + " must be at most " + maxLength + " characters");
+        }
+        return value;
+    }
+
+    // ==========================================
     // 4. Quest Operations
     // ==========================================
 

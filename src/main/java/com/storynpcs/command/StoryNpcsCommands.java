@@ -253,6 +253,7 @@ public final class StoryNpcsCommands {
                 .then(questCommands())
                 // Faction commands
                 .then(factionCommands())
+                .then(mailCommands())
                 // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
                         .executes(StoryNpcsCommands::sendFollowerHelp)
@@ -417,6 +418,89 @@ public final class StoryNpcsCommands {
                         .executes(StoryNpcsCommands::deleteQuest)));
 
         return quest;
+    }
+
+    /**
+     * Player-facing mailbox commands (issue #71 — postman/mailbox role foundation).
+     * 1-based indices, matching this repo's other list-then-index UI conventions
+     * (e.g. NpcRulesScreen's row numbering).
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> mailCommands() {
+        return Commands.literal("mail")
+                .executes(ctx -> listMail(ctx, null))
+                .then(Commands.literal("list")
+                        .executes(ctx -> listMail(ctx, null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .requires(source -> source.hasPermission(2))
+                                .executes(ctx -> listMail(ctx, EntityArgument.getPlayer(ctx, "player")))))
+                .then(Commands.literal("read")
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .executes(ctx -> readMail(ctx, IntegerArgumentType.getInteger(ctx, "index")))))
+                .then(Commands.literal("delete")
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .executes(ctx -> deleteMail(ctx, IntegerArgumentType.getInteger(ctx, "index")))));
+    }
+
+    private static int listMail(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
+        ServerPlayer player = targetPlayer;
+        if (player == null) {
+            if (ctx.getSource().getEntity() instanceof ServerPlayer sp) {
+                player = sp;
+            } else {
+                ctx.getSource().sendFailure(Component.literal("Player must be specified when executed from console"));
+                return 0;
+            }
+        }
+        var service = StoryNpcs.getInstance().getApplicationService();
+        var mail = service.getMailbox(player.getUUID());
+        if (mail.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal("§7Mailbox is empty."), false);
+            return 1;
+        }
+        for (int i = 0; i < mail.size(); i++) {
+            var m = mail.get(i);
+            int idx = i + 1;
+            String prefix = m.isRead() ? "§7" : "§f§l";
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    prefix + "[" + idx + "] " + (m.isRead() ? "" : "§e(new) ") + "§bFrom " + m.getSender()
+                            + "§r: " + m.getSubject()), false);
+        }
+        return mail.size();
+    }
+
+    private static int readMail(CommandContext<CommandSourceStack> ctx, int index1Based) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Only a player can read their own mail"));
+            return 0;
+        }
+        var service = StoryNpcs.getInstance().getApplicationService();
+        var mail = service.getMailbox(player.getUUID());
+        if (index1Based < 1 || index1Based > mail.size()) {
+            ctx.getSource().sendFailure(Component.literal("Mail index " + index1Based + " out of range (1-" + mail.size() + ")"));
+            return 0;
+        }
+        var message = mail.get(index1Based - 1);
+        service.markMailRead(player.getUUID(), message.getId());
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§bFrom " + message.getSender() + "§r — §e" + message.getSubject() + "\n§f" + message.getBody()), false);
+        return 1;
+    }
+
+    private static int deleteMail(CommandContext<CommandSourceStack> ctx, int index1Based) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Only a player can delete their own mail"));
+            return 0;
+        }
+        var service = StoryNpcs.getInstance().getApplicationService();
+        var mail = service.getMailbox(player.getUUID());
+        if (index1Based < 1 || index1Based > mail.size()) {
+            ctx.getSource().sendFailure(Component.literal("Mail index " + index1Based + " out of range (1-" + mail.size() + ")"));
+            return 0;
+        }
+        var message = mail.get(index1Based - 1);
+        service.deleteMail(player.getUUID(), message.getId());
+        ctx.getSource().sendSuccess(() -> Component.literal("§7Deleted mail: " + message.getSubject()), false);
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> factionCommands() {

@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class StoryNpcsApplicationServiceTest {
     @TempDir
@@ -1567,5 +1568,96 @@ class StoryNpcsApplicationServiceTest {
         CanonicalMutationResult result = service.deleteFaction(request);
         assertThat(result.applied()).isFalse();
         assertThat(result.formatReport()).contains("FACTION_NOT_FOUND");
+    }
+
+    @Test
+    void deliverMailAppearsInMailboxUnread() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "Guard Captain", "Patrol report", "All quiet on the wall.");
+
+        var mailbox = service.getMailbox(player);
+        assertThat(mailbox).hasSize(1);
+        assertThat(mailbox.get(0).getId()).isEqualTo(message.getId());
+        assertThat(mailbox.get(0).getSender()).isEqualTo("Guard Captain");
+        assertThat(mailbox.get(0).getSubject()).isEqualTo("Patrol report");
+        assertThat(mailbox.get(0).getBody()).isEqualTo("All quiet on the wall.");
+        assertThat(mailbox.get(0).isRead()).isFalse();
+        assertThat(mailbox.get(0).getDeliveredAtEpochMillis()).isGreaterThan(0);
+    }
+
+    @Test
+    void deliveredMailPersistsAcrossRepositoryReload() {
+        UUID player = UUID.randomUUID();
+        service.deliverMail(player, "System", "Welcome", "Welcome to the server!");
+
+        progressionRepository.clearCache();
+        var reloaded = progressionRepository.getOrCreate(player);
+        assertThat(reloaded.getMailbox()).hasSize(1);
+        assertThat(reloaded.getMailbox().get(0).getSubject()).isEqualTo("Welcome");
+    }
+
+    @Test
+    void markMailReadIsIdempotentAndReturnsFalseForUnknownId() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "System", "Hi", "Body");
+
+        assertThat(service.markMailRead(player, message.getId())).isTrue();
+        assertThat(service.getMailbox(player).get(0).isRead()).isTrue();
+        assertThat(service.markMailRead(player, message.getId())).isTrue(); // idempotent
+        assertThat(service.markMailRead(player, UUID.randomUUID())).isFalse();
+    }
+
+    @Test
+    void deleteMailRemovesItAndReturnsFalseForUnknownId() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "System", "Hi", "Body");
+
+        assertThat(service.deleteMail(player, message.getId())).isTrue();
+        assertThat(service.getMailbox(player)).isEmpty();
+        assertThat(service.deleteMail(player, message.getId())).isFalse();
+    }
+
+    @Test
+    void mailboxIsScopedPerPlayer() {
+        UUID playerA = UUID.randomUUID();
+        UUID playerB = UUID.randomUUID();
+        service.deliverMail(playerA, "System", "For A", "Body A");
+
+        assertThat(service.getMailbox(playerA)).hasSize(1);
+        assertThat(service.getMailbox(playerB)).isEmpty();
+    }
+
+    @Test
+    void mailboxEvictsOldestWhenOverCapacity() {
+        UUID player = UUID.randomUUID();
+        for (int i = 0; i < 260; i++) {
+            service.deliverMail(player, "System", "Msg " + i, "Body " + i);
+        }
+        var mailbox = service.getMailbox(player);
+        assertThat(mailbox).hasSize(256);
+        // The oldest messages (0-3) were evicted; the newest (255) remains.
+        assertThat(mailbox.get(mailbox.size() - 1).getSubject()).isEqualTo("Msg 259");
+        assertThat(mailbox.stream().noneMatch(m -> m.getSubject().equals("Msg 0"))).isTrue();
+    }
+
+    @Test
+    void oversizedMailBodyIsRejected() {
+        UUID player = UUID.randomUUID();
+        String hugeBody = "x".repeat(3000);
+        assertThatThrownBy(() -> service.deliverMail(player, "System", "Subject", hugeBody))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mail body");
+    }
+
+    @Test
+    void getMailboxReturnsDefensiveCopyNotLiveState() {
+        UUID player = UUID.randomUUID();
+        service.deliverMail(player, "System", "Subject", "Body");
+
+        var mailbox = service.getMailbox(player);
+        mailbox.get(0).setRead(true); // mutate the returned copy
+
+        // The live mailbox must be unaffected by mutating the returned snapshot.
+        assertThat(service.getMailbox(player).get(0).isRead()).isFalse();
     }
 }
