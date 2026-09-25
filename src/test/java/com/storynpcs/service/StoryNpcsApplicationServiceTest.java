@@ -1537,4 +1537,35 @@ class StoryNpcsApplicationServiceTest {
         assertThat(registry.getQuest(questId)).isEmpty();
         assertThat(service.deleteQuest(questId)).isFalse(); // idempotent-miss
     }
+
+    @Test
+    void deleteFactionRejectsUnknownId() {
+        assertThat(service.deleteFaction(NamespacedId.of("storynpcs:nonexistent_faction"))).isFalse();
+    }
+
+    @Test
+    void deleteFactionShouldRemoveAndReportNpcReferences() {
+        NamespacedId factionId = NamespacedId.of("storynpcs:deletable_faction");
+        service.createFaction(factionId, "Deletable Faction");
+        assertThat(registry.getFaction(factionId)).isPresent();
+
+        NamespacedId npcId = NamespacedId.of("storynpcs:faction_ref_npc");
+        NpcDefinition npc = new NpcDefinition(npcId, "Loyalist");
+        npc.setFactionId(factionId);
+        registry.registerNpc(npc);
+
+        assertThat(service.findNpcsReferencingFaction(factionId)).containsExactly(npcId);
+        assertThat(service.deleteFaction(factionId)).isTrue();
+        assertThat(registry.getFaction(factionId)).isEmpty();
+        assertThat(service.deleteFaction(factionId)).isFalse(); // idempotent-miss
+    }
+
+    @Test
+    void deleteFactionCanonicalRequestReportsNotFoundForUnknownId() {
+        var request = new MutationRequest("faction.delete", "command", "faction.delete",
+                NamespacedId.of("storynpcs:ghost_faction"), 0L, UUID.randomUUID());
+        CanonicalMutationResult result = service.deleteFaction(request);
+        assertThat(result.applied()).isFalse();
+        assertThat(result.formatReport()).contains("FACTION_NOT_FOUND");
+    }
 }
