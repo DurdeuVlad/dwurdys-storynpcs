@@ -118,6 +118,31 @@ class NpcDefinitionSerdeTest {
     }
 
     @Test
+    @DisplayName("Resistances and immunities survive definition JSON round-trip")
+    void resistancesAndImmunitiesRoundTrip() {
+        NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "armored_guard"), "Armored Guard");
+        original.getStats().getResistances().setKnockback(0.5);
+        original.getStats().getResistances().setArrow(0.0);
+        original.getStats().getResistances().setMelee(2.0);
+        original.getStats().getResistances().setExplosion(1.5);
+        original.getStats().getImmunities().setFire(true);
+        original.getStats().getImmunities().setDrowning(true);
+
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
+
+        assertEquals(0.5, restored.getStats().getResistances().getKnockback());
+        assertEquals(0.0, restored.getStats().getResistances().getArrow());
+        assertEquals(2.0, restored.getStats().getResistances().getMelee());
+        assertEquals(1.5, restored.getStats().getResistances().getExplosion());
+        assertTrue(restored.getStats().getImmunities().isFire());
+        assertTrue(restored.getStats().getImmunities().isDrowning());
+        assertFalse(restored.getStats().getImmunities().isPotion());
+        assertFalse(restored.getStats().getImmunities().isFall());
+        assertFalse(restored.getStats().getImmunities().isSunlight());
+        assertFalse(restored.getStats().getImmunities().isCobweb());
+    }
+
+    @Test
     @DisplayName("Healer and bard role config survive definition JSON round-trip")
     void healerAndBardRoleRoundTrip() {
         NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "chapel_healer"), "Chapel Healer");

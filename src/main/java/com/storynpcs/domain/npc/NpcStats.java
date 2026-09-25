@@ -18,6 +18,12 @@ public class NpcStats {
     @JsonProperty
     private int aggroRange = 16;
 
+    @JsonProperty
+    private NpcResistances resistances = new NpcResistances();
+
+    @JsonProperty
+    private NpcImmunities immunities = new NpcImmunities();
+
     public NpcStats() {}
 
     public double getMaxHealth() { return maxHealth; }
@@ -34,4 +40,14 @@ public class NpcStats {
 
     public int getAggroRange() { return aggroRange; }
     public void setAggroRange(int aggroRange) { this.aggroRange = aggroRange; }
+
+    public NpcResistances getResistances() { return resistances; }
+    public void setResistances(NpcResistances resistances) {
+        this.resistances = resistances != null ? resistances : new NpcResistances();
+    }
+
+    public NpcImmunities getImmunities() { return immunities; }
+    public void setImmunities(NpcImmunities immunities) {
+        this.immunities = immunities != null ? immunities : new NpcImmunities();
+    }
 }
