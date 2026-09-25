@@ -28,6 +28,10 @@ public class QuestProgressState {
     @JsonProperty
     private long stateRevision;
 
+    /** Server-clock epoch millis of the most recent COMPLETED transition; 0 if never completed. Drives repeat-mode boundary checks. */
+    @JsonProperty
+    private long lastCompletedAtEpochMillis;
+
     public QuestProgressState() {}
 
     public QuestProgressState(NamespacedId questId) {
@@ -53,6 +57,11 @@ public class QuestProgressState {
         stateRevision = Math.addExact(stateRevision, 1L);
     }
 
+    public long getLastCompletedAtEpochMillis() { return lastCompletedAtEpochMillis; }
+    public void setLastCompletedAtEpochMillis(long lastCompletedAtEpochMillis) {
+        this.lastCompletedAtEpochMillis = lastCompletedAtEpochMillis;
+    }
+
     public int getCount(String objectiveId) {
         return objectiveCounts.getOrDefault(objectiveId, 0);
     }
@@ -69,6 +78,7 @@ public class QuestProgressState {
         copy.status = status;
         copy.objectiveCounts = new HashMap<>(objectiveCounts);
         copy.stateRevision = stateRevision;
+        copy.lastCompletedAtEpochMillis = lastCompletedAtEpochMillis;
         return copy;
     }
 }

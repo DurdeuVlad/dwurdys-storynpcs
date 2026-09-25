@@ -2107,9 +2107,13 @@ public class StoryNpcsApplicationService {
         QuestProgressState current = progression.getQuests().get(request.questId());
         if (request.action() == QuestProgressionMutationRequest.Action.START) {
             if (current != null && current.getStatus() == QuestProgressState.Status.COMPLETED
-                    && quest.getRepeatType() == Quest.RepeatType.ONCE) {
+                    && !com.storynpcs.domain.quest.QuestRepeatPolicy.canRestart(quest.getRepeatType(),
+                            current.getLastCompletedAtEpochMillis(), System.currentTimeMillis(), java.time.ZoneId.systemDefault())) {
                 ValidationResult diagnostics = ValidationResult.valid();
-                diagnostics.addWarning("QUEST_ALREADY_COMPLETED", "This quest is non-repeatable and is already complete");
+                diagnostics.addWarning("QUEST_ALREADY_COMPLETED",
+                        quest.getRepeatType() == Quest.RepeatType.ONCE
+                                ? "This quest is non-repeatable and is already complete"
+                                : "This quest's repeat cooldown (" + quest.getRepeatType() + ") has not elapsed yet");
                 CanonicalMutationResult unchanged = new CanonicalMutationResult(false, false, currentRevision,
                         diagnostics, List.of(), "NO_CHANGE");
                 rememberQuestMutation(request, fingerprint, unchanged);
@@ -2448,6 +2452,7 @@ public class StoryNpcsApplicationService {
                 progression.setFactionRevision(Math.addExact(progression.getFactionRevision(), 1L));
             }
             state.setStatus(QuestProgressState.Status.COMPLETED);
+            state.setLastCompletedAtEpochMillis(System.currentTimeMillis());
             state.advanceStateRevision();
             progression.getPendingQuestCompletions().remove(questId);
             progression.getDeliveredQuestRewards().remove(questId);

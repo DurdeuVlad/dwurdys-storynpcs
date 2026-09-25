@@ -10,7 +10,17 @@ public class Quest {
     public enum RepeatType {
         ONCE,
         REPEATABLE,
-        DAILY
+        DAILY,
+        /** Resets on the server's next ISO week boundary (Monday, server time zone). */
+        WEEKLY,
+        /**
+         * Resets on a schedule, like {@link #DAILY}. Per-player restart eligibility
+         * mirrors DAILY; this does not yet implement the target's server-wide
+         * simultaneous-reset-for-all-players semantics — see QuestRepeatPolicy.
+         */
+        RESET,
+        /** No cooldown — always immediately restartable, same as REPEATABLE. Declared separately for authoring clarity. */
+        INSTANT
     }
 
     @JsonProperty(required = true)
