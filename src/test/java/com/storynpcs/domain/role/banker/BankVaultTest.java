@@ -101,4 +101,21 @@ class BankVaultTest {
         assertTrue(restored.removeOperationMarker(operationId));
         assertFalse(restored.removeOperationMarker(operationId));
     }
+
+    @Test
+    @DisplayName("setUnlockedTabs rejects a tab count above the target's six-tab ceiling")
+    void testSetUnlockedTabsRejectsAboveMaxTabs() {
+        var vault = new BankVault(UUID.randomUUID());
+        assertThrows(IllegalArgumentException.class, () -> vault.setUnlockedTabs(BankerRole.MAX_TABS + 1));
+        assertDoesNotThrow(() -> vault.setUnlockedTabs(BankerRole.MAX_TABS));
+        assertEquals(BankerRole.MAX_TABS, vault.getUnlockedTabs());
+    }
+
+    @Test
+    @DisplayName("setUnlockedTabs rejects a negative tab count")
+    void testSetUnlockedTabsRejectsNegative() {
+        var vault = new BankVault(UUID.randomUUID());
+        assertThrows(IllegalArgumentException.class, () -> vault.setUnlockedTabs(-1));
+        assertDoesNotThrow(() -> vault.setUnlockedTabs(0));
+    }
 }
