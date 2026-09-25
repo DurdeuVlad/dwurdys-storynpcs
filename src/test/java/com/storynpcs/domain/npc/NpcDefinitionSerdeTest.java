@@ -118,6 +118,29 @@ class NpcDefinitionSerdeTest {
     }
 
     @Test
+    @DisplayName("Healer and bard role config survive definition JSON round-trip")
+    void healerAndBardRoleRoundTrip() {
+        NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "chapel_healer"), "Chapel Healer");
+        original.setHealer(new com.storynpcs.domain.role.healer.HealerRole(
+                6.0, 8.0, 5_000L, com.storynpcs.domain.role.healer.HealTargetMode.ANY));
+        original.setBard(new com.storynpcs.domain.role.bard.BardRole(
+                com.storynpcs.domain.role.bard.BardBuffType.STRENGTH, 12.0, 20_000L, 45_000L, 1));
+
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
+
+        assertEquals(6.0, restored.getHealer().getHealAmount());
+        assertEquals(8.0, restored.getHealer().getEffectRadius());
+        assertEquals(5_000L, restored.getHealer().getCooldownMillis());
+        assertEquals(com.storynpcs.domain.role.healer.HealTargetMode.ANY, restored.getHealer().getTargetMode());
+
+        assertEquals(com.storynpcs.domain.role.bard.BardBuffType.STRENGTH, restored.getBard().getBuffType());
+        assertEquals(12.0, restored.getBard().getEffectRadius());
+        assertEquals(20_000L, restored.getBard().getEffectDurationMillis());
+        assertEquals(45_000L, restored.getBard().getCooldownMillis());
+        assertEquals(1, restored.getBard().getBuffAmplifier());
+    }
+
+    @Test
     @DisplayName("Display bounds reject unsafe model and visibility values")
     void testDisplayBounds() {
         NpcDisplay display = new NpcDisplay();
