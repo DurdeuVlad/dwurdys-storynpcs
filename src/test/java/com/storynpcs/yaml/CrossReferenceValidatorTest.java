@@ -201,4 +201,28 @@ class CrossReferenceValidatorTest {
         assertThat(result.isValid()).isFalse();
         assertThat(result.getErrors()).anyMatch(e -> e.code().equals("QUEST_REWARD_FACTION_NOT_FOUND"));
     }
+
+    @Test
+    void shouldDetectDanglingFactionRelationshipReference() {
+        Faction faction = new Faction(NamespacedId.of("storynpcs:townsfolk"), "Townsfolk", 1000, 500, 1500);
+        faction.setRelationshipTo(NamespacedId.of("storynpcs:unknown_faction"),
+                com.storynpcs.domain.faction.FactionStanding.HOSTILE);
+        registry.registerFaction(faction);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.code().equals("REF_FACTION_RELATIONSHIP_MISSING"));
+    }
+
+    @Test
+    void shouldAcceptFactionRelationshipToAnotherRegisteredFaction() {
+        Faction townsfolk = new Faction(NamespacedId.of("storynpcs:townsfolk"), "Townsfolk", 1000, 500, 1500);
+        Faction bandits = new Faction(NamespacedId.of("storynpcs:bandits"), "Bandits", 1000, 500, 1500);
+        townsfolk.setRelationshipTo(bandits.getId(), com.storynpcs.domain.faction.FactionStanding.HOSTILE);
+        registry.registerFaction(townsfolk);
+        registry.registerFaction(bandits);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+        assertThat(result.getErrors()).noneMatch(e -> e.code().equals("REF_FACTION_RELATIONSHIP_MISSING"));
+    }
 }
