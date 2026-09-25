@@ -1822,7 +1822,33 @@ public class StoryNpcsApplicationService {
         }
         if (result.hasErrors()) return result;
         registry.registerTransportLocation(location);
+        definitionRevisions.merge(revisionKey("transport", location.getId()), 1L, Long::sum);
         return result;
+    }
+
+    /**
+     * Creates a transport location through the revisioned, authorization-checked
+     * canonical request boundary (issue #54 — P1-4 authorization policy coverage).
+     * The unguarded {@link #createTransportLocation(com.storynpcs.domain.transport.TransportLocation)}
+     * overload remains for trusted internal/bootstrap callers; adapters that accept
+     * untrusted actor input (commands, packets, scripts) must route through this
+     * overload instead so definition mutation authorization is enforced uniformly,
+     * matching {@link #createQuest(MutationRequest, String)} and
+     * {@link #createFaction(MutationRequest, String)}.
+     */
+    public CanonicalMutationResult createTransportLocation(
+            MutationRequest request, com.storynpcs.domain.transport.TransportLocation location) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(location, "location");
+        return executeCanonicalMutation(request, "transport", "create",
+                MutationPayloadFingerprint.of("transport.create.id", String.valueOf(location.getId())), () -> {
+            if (!request.targetId().equals(location.getId())) {
+                ValidationResult result = ValidationResult.valid();
+                result.addError("TARGET_ID_MISMATCH", "Transport location mutation cannot change the request target ID");
+                return result;
+            }
+            return createTransportLocation(location);
+        });
     }
 
     /** All defined transport locations, regardless of unlock state. */

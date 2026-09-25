@@ -1517,6 +1517,50 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void canonicalTransportLocationCreateRequiresAuthorizationAndTracksRevision() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:harbor");
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                locationId, "Harbor", "minecraft:overworld", 100, 64, 200);
+
+        MutationRequest unprovenPlayer = new MutationRequest(
+                "transport.create", "player:no-proof", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        CanonicalMutationResult denied = service.createTransportLocation(unprovenPlayer, location);
+        assertThat(denied.applied()).isFalse();
+        assertThat(denied.recoveryOutcome()).isEqualTo("REJECTED_AUTHORIZATION");
+        assertThat(registry.getTransportLocation(locationId)).isEmpty();
+
+        MutationRequest authorized = new MutationRequest(
+                "transport.create", "command", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        CanonicalMutationResult created = service.createTransportLocation(authorized, location);
+        assertThat(created.applied()).isTrue();
+        assertThat(registry.getTransportLocation(locationId)).isPresent();
+        assertThat(created.revision()).isEqualTo(1L);
+    }
+
+    @Test
+    void canonicalTransportLocationCreateRejectsDuplicatesAndScripts() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:capital");
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                locationId, "Capital", "minecraft:overworld", 0, 70, 0);
+
+        MutationRequest scriptRequest = new MutationRequest(
+                "transport.create", "script", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        CanonicalMutationResult scriptDenied = service.createTransportLocation(scriptRequest, location);
+        assertThat(scriptDenied.applied()).isFalse();
+        assertThat(scriptDenied.recoveryOutcome()).isEqualTo("REJECTED_AUTHORIZATION");
+
+        MutationRequest first = new MutationRequest(
+                "transport.create", "command", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        assertThat(service.createTransportLocation(first, location).applied()).isTrue();
+
+        MutationRequest duplicate = new MutationRequest(
+                "transport.create", "command", "transport.mutate", locationId, 1L, UUID.randomUUID());
+        CanonicalMutationResult dup = service.createTransportLocation(duplicate, location);
+        assertThat(dup.applied()).isFalse();
+        assertThat(dup.diagnostics().formatReport()).contains("TRANSPORT_LOCATION_ALREADY_EXISTS");
+    }
+
+    @Test
     void deleteQuestShouldRemoveAndReportDialogueReferences() {
         NamespacedId questId = NamespacedId.of("storynpcs:deletable");
         service.createQuest(questId, "Deletable");

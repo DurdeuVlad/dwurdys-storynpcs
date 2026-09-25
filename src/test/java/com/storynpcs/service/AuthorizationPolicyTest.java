@@ -40,4 +40,25 @@ class AuthorizationPolicyTest {
         assertEquals("UNKNOWN_ACTOR",
                 AuthorizationPolicy.evaluate(request("client", "npc.edit", 4)).code());
     }
+
+    @Test
+    void transportCapabilitiesAreRegistered() {
+        assertTrue(AuthorizationPolicy.evaluate(request("command", "transport.mutate", -1)).allowed());
+        assertTrue(AuthorizationPolicy.evaluate(request("adapter", "transport.edit", -1)).allowed());
+        assertTrue(AuthorizationPolicy.evaluate(request("system", "transport.delete", -1)).allowed());
+    }
+
+    @Test
+    void unprovenPlayerTransportMutationIsDenied() {
+        assertEquals("PERMISSION_DENIED",
+                AuthorizationPolicy.evaluate(request("player:abc", "transport.mutate", -1)).code());
+        assertTrue(AuthorizationPolicy.evaluate(request("player:abc", "transport.mutate", 2)).allowed());
+    }
+
+    @Test
+    void scriptsCannotEscalateIntoTransportMutation() {
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request("script", "transport.mutate", -1));
+        assertFalse(decision.allowed());
+        assertEquals("SCRIPT_CAPABILITY_REQUIRED", decision.code());
+    }
 }
