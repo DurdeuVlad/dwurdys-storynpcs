@@ -12,7 +12,8 @@ public final class AuthorizationPolicy {
             "adapter", "command", "packet", "gui", "api", "console", "system");
     private static final Set<String> DEFINITION_CAPABILITIES = Set.of(
             "npc.mutate", "npc.edit", "npc.delete", "dialogue.mutate", "dialogue.edit", "dialogue.delete",
-            "quest.mutate", "quest.edit", "quest.delete", "faction.mutate", "faction.edit", "faction.delete");
+            "quest.mutate", "quest.edit", "quest.delete", "faction.mutate", "faction.edit", "faction.delete",
+            "transport.mutate", "transport.edit", "transport.delete");
 
     private AuthorizationPolicy() {}
 
