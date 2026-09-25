@@ -8,7 +8,7 @@ import java.util.List;
  * {@code docs/parity/target-surface-manifest.json}'s {@code persistence_stores}
  * surface (exactly 18 categories, confirmed via a direct query against that
  * manifest — the same evidence-sourcing method used for #73's JobType, #85's
- * CommandParityCatalog, and #87's Pixelmon/Cobblemon closeout). This directly
+ * CommandParityCatalog, and #87's optional-integrations closeout). This directly
  * satisfies P2-2's own named gap in docs/parity/P2-2-CLOSEOUT.md: "the complete
  * target inventory of 18 persistence categories is not yet mapped to concrete
  * StoryNPCs stores."
