@@ -5,6 +5,7 @@ import com.storynpcs.domain.dialogue.DialogueGraph;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.quest.Quest;
+import com.storynpcs.domain.transport.TransportLocation;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,6 +20,7 @@ public class DefinitionRegistry {
     private final Map<NamespacedId, DialogueGraph> dialogues = new ConcurrentHashMap<>();
     private final Map<NamespacedId, Faction> factions = new ConcurrentHashMap<>();
     private final Map<NamespacedId, Quest> quests = new ConcurrentHashMap<>();
+    private final Map<NamespacedId, TransportLocation> transportLocations = new ConcurrentHashMap<>();
 
     public void registerNpc(NpcDefinition npc) {
         rwLock.writeLock().lock();
@@ -123,6 +125,42 @@ public class DefinitionRegistry {
         rwLock.writeLock().lock();
         try {
             factions.remove(id);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public void registerTransportLocation(TransportLocation location) {
+        rwLock.writeLock().lock();
+        try {
+            transportLocations.put(location.getId(), location);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public Optional<TransportLocation> getTransportLocation(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(transportLocations.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public Collection<TransportLocation> getAllTransportLocations() {
+        rwLock.readLock().lock();
+        try {
+            return List.copyOf(transportLocations.values());
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public void removeTransportLocation(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            transportLocations.remove(id);
         } finally {
             rwLock.writeLock().unlock();
         }

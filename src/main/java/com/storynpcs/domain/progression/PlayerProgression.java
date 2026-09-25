@@ -44,6 +44,10 @@ public class PlayerProgression {
     @JsonProperty
     private List<MailMessage> mailbox = new ArrayList<>();
 
+    /** Unlocked transport destinations (issue #72 — transport locations). */
+    @JsonProperty
+    private Set<NamespacedId> unlockedTransportLocations = new HashSet<>();
+
 
     public PlayerProgression() {}
 
@@ -105,6 +109,12 @@ public class PlayerProgression {
         }
     }
 
+    /** Unlocked transport destination IDs. */
+    public Set<NamespacedId> getUnlockedTransportLocations() { return unlockedTransportLocations; }
+    public void setUnlockedTransportLocations(Set<NamespacedId> unlocked) {
+        this.unlockedTransportLocations = unlocked == null ? new HashSet<>() : new HashSet<>(unlocked);
+    }
+
     /** Durable mailbox — newest-last. */
     public List<MailMessage> getMailbox() { return mailbox; }
     public void setMailbox(List<MailMessage> mailbox) {
@@ -132,6 +142,7 @@ public class PlayerProgression {
         deliveredQuestRewards.forEach((id, keys) -> copy.deliveredQuestRewards.put(id, new HashSet<>(keys)));
         copy.mailbox = new ArrayList<>();
         for (MailMessage m : mailbox) copy.mailbox.add(m.copy());
+        copy.unlockedTransportLocations = new HashSet<>(unlockedTransportLocations);
         return copy;
     }
 
@@ -151,6 +162,7 @@ public class PlayerProgression {
         snapshot.deliveredQuestRewards.forEach((id, keys) -> deliveredQuestRewards.put(id, new HashSet<>(keys)));
         mailbox = new ArrayList<>();
         for (MailMessage m : snapshot.mailbox) mailbox.add(m.copy());
+        unlockedTransportLocations = new HashSet<>(snapshot.unlockedTransportLocations);
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {

@@ -1660,4 +1660,97 @@ class StoryNpcsApplicationServiceTest {
         // The live mailbox must be unaffected by mutating the returned snapshot.
         assertThat(service.getMailbox(player).get(0).isRead()).isFalse();
     }
+
+    @Test
+    void createTransportLocationRejectsInvalidDestination() {
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:bad_spot"), "Bad Spot", "", 0, 0, 0);
+        var result = service.createTransportLocation(location);
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(registry.getTransportLocation(location.getId())).isEmpty();
+    }
+
+    @Test
+    void createTransportLocationRegistersValidDestination() {
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:capital"), "Capital City", "minecraft:overworld", 0, 64, 0);
+        var result = service.createTransportLocation(location);
+        assertThat(result.hasErrors()).isFalse();
+        assertThat(registry.getTransportLocation(location.getId())).isPresent();
+    }
+
+    @Test
+    void duplicateTransportLocationIdIsRejected() {
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:capital"), "Capital City", "minecraft:overworld", 0, 64, 0);
+        service.createTransportLocation(location);
+        var duplicate = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:capital"), "Again", "minecraft:overworld", 1, 65, 1);
+        var result = service.createTransportLocation(duplicate);
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("TRANSPORT_LOCATION_ALREADY_EXISTS");
+    }
+
+    @Test
+    void freeLocationIsAlwaysAvailableWithoutUnlock() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:town_square"), "Town Square", "minecraft:overworld", 0, 64, 0);
+        service.createTransportLocation(location);
+
+        assertThat(service.isTransportLocationUnlocked(player, location.getId())).isTrue();
+        assertThat(service.listAvailableTransportLocations(player)).extracting(l -> l.getId())
+                .containsExactly(location.getId());
+    }
+
+    @Test
+    void gatedLocationRequiresUnlock() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
+        location.setRequiresUnlock(true);
+        service.createTransportLocation(location);
+
+        assertThat(service.isTransportLocationUnlocked(player, location.getId())).isFalse();
+        assertThat(service.listAvailableTransportLocations(player)).isEmpty();
+
+        boolean unlocked = service.unlockTransportLocation(player, location.getId());
+        assertThat(unlocked).isTrue();
+        assertThat(service.isTransportLocationUnlocked(player, location.getId())).isTrue();
+        assertThat(service.listAvailableTransportLocations(player)).extracting(l -> l.getId())
+                .containsExactly(location.getId());
+    }
+
+    @Test
+    void unlockingTwiceIsIdempotent() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
+        location.setRequiresUnlock(true);
+        service.createTransportLocation(location);
+
+        assertThat(service.unlockTransportLocation(player, location.getId())).isTrue();
+        assertThat(service.unlockTransportLocation(player, location.getId())).isTrue();
+        assertThat(service.listAvailableTransportLocations(player)).hasSize(1);
+    }
+
+    @Test
+    void unlockingUnknownLocationFails() {
+        UUID player = UUID.randomUUID();
+        assertThat(service.unlockTransportLocation(player, NamespacedId.of("storynpcs:nonexistent"))).isFalse();
+    }
+
+    @Test
+    void unlockStatePersistsAcrossRepositoryReload() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
+        location.setRequiresUnlock(true);
+        service.createTransportLocation(location);
+        service.unlockTransportLocation(player, location.getId());
+
+        progressionRepository.clearCache();
+        assertThat(progressionRepository.getOrCreate(player).getUnlockedTransportLocations())
+                .containsExactly(location.getId());
+    }
 }

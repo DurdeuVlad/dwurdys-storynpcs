@@ -1798,6 +1798,84 @@ public class StoryNpcsApplicationService {
     }
 
     // ==========================================
+    // Transport Location Operations (issue #72 — transport locations foundation)
+    // ==========================================
+    //
+    // Scope boundary: this defines and validates the destination CONTRACT and
+    // per-player UNLOCK STATE only. Executing a live, safe teleport (loaded-chunk
+    // check, non-obstructed landing, cross-dimension timeout/recovery) requires a
+    // real ServerLevel and is intentionally NOT implemented here.
+
+    /** Creates a transport location definition after validating its destination contract. */
+    public ValidationResult createTransportLocation(
+            com.storynpcs.domain.transport.TransportLocation location) {
+        Objects.requireNonNull(location, "location");
+        Objects.requireNonNull(location.getId(), "location.id");
+        ValidationResult result = ValidationResult.valid();
+        if (registry.getTransportLocation(location.getId()).isPresent()) {
+            result.addError("TRANSPORT_LOCATION_ALREADY_EXISTS",
+                    "Transport location '" + location.getId() + "' already exists");
+            return result;
+        }
+        for (String error : location.validateDestinationContract()) {
+            result.addError("TRANSPORT_LOCATION_INVALID", error);
+        }
+        if (result.hasErrors()) return result;
+        registry.registerTransportLocation(location);
+        return result;
+    }
+
+    /** All defined transport locations, regardless of unlock state. */
+    public java.util.Collection<com.storynpcs.domain.transport.TransportLocation> getAllTransportLocations() {
+        return registry.getAllTransportLocations();
+    }
+
+    /**
+     * Locations currently selectable by this player: every location that does not
+     * require an unlock, plus every location this player has unlocked.
+     */
+    public java.util.List<com.storynpcs.domain.transport.TransportLocation> listAvailableTransportLocations(UUID playerUuid) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        java.util.Set<NamespacedId> unlocked;
+        synchronized (progression) {
+            unlocked = new java.util.HashSet<>(progression.getUnlockedTransportLocations());
+        }
+        java.util.List<com.storynpcs.domain.transport.TransportLocation> available = new ArrayList<>();
+        for (var location : registry.getAllTransportLocations()) {
+            if (!location.isRequiresUnlock() || unlocked.contains(location.getId())) {
+                available.add(location);
+            }
+        }
+        return available;
+    }
+
+    public boolean isTransportLocationUnlocked(UUID playerUuid, NamespacedId locationId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(locationId, "locationId");
+        var location = registry.getTransportLocation(locationId).orElse(null);
+        if (location == null) return false;
+        if (!location.isRequiresUnlock()) return true;
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            return progression.getUnlockedTransportLocations().contains(locationId);
+        }
+    }
+
+    /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. */
+    public boolean unlockTransportLocation(UUID playerUuid, NamespacedId locationId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(locationId, "locationId");
+        if (registry.getTransportLocation(locationId).isEmpty()) return false;
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            boolean added = progression.getUnlockedTransportLocations().add(locationId);
+            if (added) saveProgression(playerUuid, progression);
+        }
+        return true;
+    }
+
+    // ==========================================
     // Mail Operations (issue #71 — postman/mailbox role foundation)
     // ==========================================
 
