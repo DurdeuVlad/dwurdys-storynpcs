@@ -26,6 +26,13 @@ neoForge {
             programArgument '--nogui'
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
+        gameTestServer {
+            // moddev-gradle has no gameTestServer() shorthand (unlike client()/server());
+            // 'gameTestServer' is nonetheless a real run type NeoForge's userdev config
+            // defines (main class + args resolved from that config at this neo_version).
+            type = 'gameTestServer'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
     }
 
     mods {
