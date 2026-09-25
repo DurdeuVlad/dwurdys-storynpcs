@@ -1901,6 +1901,20 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
+    /**
+     * Authorization-checked unlock (issue #54 — P1-4 coverage). Adapters that accept
+     * untrusted actor input should route through this overload instead of the
+     * unguarded {@link #unlockTransportLocation(UUID, NamespacedId)}, which remains
+     * for trusted internal callers.
+     */
+    public AuthorizedActionResult unlockTransportLocation(PlayerProgressionActionRequest request, NamespacedId locationId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(locationId, "locationId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
+        return AuthorizedActionResult.of(unlockTransportLocation(request.playerUuid(), locationId));
+    }
+
     // ==========================================
     // Mail Operations (issue #71 — postman/mailbox role foundation)
     // ==========================================
@@ -1966,6 +1980,20 @@ public class StoryNpcsApplicationService {
         }
     }
 
+    /**
+     * Authorization-checked mail-read (issue #54 — P1-4 coverage). Adapters that
+     * accept untrusted actor input should route through this overload instead of
+     * the unguarded {@link #markMailRead(UUID, UUID)}, which remains for trusted
+     * internal callers.
+     */
+    public AuthorizedActionResult markMailRead(PlayerProgressionActionRequest request, UUID mailId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(mailId, "mailId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
+        return AuthorizedActionResult.of(markMailRead(request.playerUuid(), mailId));
+    }
+
     /** Deletes a mail message. Returns false if no message with that ID exists. */
     public boolean deleteMail(UUID playerUuid, UUID mailId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
@@ -1976,6 +2004,20 @@ public class StoryNpcsApplicationService {
             if (removed) saveProgression(playerUuid, progression);
             return removed;
         }
+    }
+
+    /**
+     * Authorization-checked mail deletion (issue #54 — P1-4 coverage). Adapters that
+     * accept untrusted actor input should route through this overload instead of
+     * the unguarded {@link #deleteMail(UUID, UUID)}, which remains for trusted
+     * internal callers.
+     */
+    public AuthorizedActionResult deleteMail(PlayerProgressionActionRequest request, UUID mailId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(mailId, "mailId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
+        return AuthorizedActionResult.of(deleteMail(request.playerUuid(), mailId));
     }
 
     private static String bound(String raw, int maxLength, String label) {
