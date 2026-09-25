@@ -15,6 +15,7 @@ import java.util.Set;
  * - NPC dialogue and faction bindings.
  * - Dialogue internal node links, conditions, and actions.
  * - Quest prerequisites and cycle avoidance.
+ * - Faction relationship matrix references.
  */
 public class CrossReferenceValidator {
 
@@ -141,6 +142,17 @@ public class CrossReferenceValidator {
                                             quest.getId(), reward.getTarget()));
                         }
                     }
+                }
+            }
+        }
+
+        // 4. Validate faction relationship matrix references (issue #70)
+        for (com.storynpcs.domain.faction.Faction faction : registry.getAllFactions()) {
+            for (NamespacedId relatedId : faction.getRelationships().keySet()) {
+                if (registry.getFaction(relatedId).isEmpty()) {
+                    result.addError("REF_FACTION_RELATIONSHIP_MISSING",
+                            String.format("Faction '%s' declares a relationship to unknown faction '%s'",
+                                    faction.getId(), relatedId));
                 }
             }
         }
