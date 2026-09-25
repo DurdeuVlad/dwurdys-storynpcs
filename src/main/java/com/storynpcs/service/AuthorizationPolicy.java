@@ -62,4 +62,30 @@ public final class AuthorizationPolicy {
         if (actor.equals("system")) return AuthorizationDecision.allow();
         return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown quest progression actor: " + actor);
     }
+
+    /** Authorization for player-scoped faction mutations; the subject is not inferred from a faction ID. */
+    public static AuthorizationDecision evaluate(FactionProgressionMutationRequest request) {
+        String actor = request.actorType();
+        if (actor.equals("script")) {
+            return AuthorizationDecision.deny("SCRIPT_CAPABILITY_REQUIRED",
+                    "Scripts cannot mutate faction reputation without an explicit granted capability.");
+        }
+        if (actor.equals("player") || actor.equals("dialogue")) {
+            if (!request.playerUuid().equals(request.actorId())) {
+                return AuthorizationDecision.deny("PLAYER_SUBJECT_MISMATCH",
+                        "Player and dialogue actors may only mutate their own faction reputation.");
+            }
+            return AuthorizationDecision.allow();
+        }
+        if (actor.equals("command")) {
+            boolean self = request.playerUuid().equals(request.actorId());
+            if (!self && request.permissionLevel() < 2) {
+                return AuthorizationDecision.deny("PERMISSION_DENIED",
+                        "Changing another player's faction reputation requires permission level 2.");
+            }
+            return AuthorizationDecision.allow();
+        }
+        if (actor.equals("system")) return AuthorizationDecision.allow();
+        return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown faction progression actor: " + actor);
+    }
 }
