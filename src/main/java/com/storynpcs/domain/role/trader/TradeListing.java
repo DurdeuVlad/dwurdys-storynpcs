@@ -27,6 +27,13 @@ public class TradeListing {
     @JsonProperty
     private int priceCount = 1;
 
+    /** Optional second price/input slot (issue #75 — "up to two inputs/one output"). Null = single-input listing. */
+    @JsonProperty
+    private String secondPriceItemId;
+
+    @JsonProperty
+    private int secondPriceCount = 1;
+
     @JsonProperty
     private int maxUses = 0; // 0 = unlimited
 
@@ -54,6 +61,14 @@ public class TradeListing {
         this.priceCount = priceCount;
     }
 
+    /** Two-input constructor (issue #75). */
+    public TradeListing(String offerItemId, int offerCount, String priceItemId, int priceCount,
+                         String secondPriceItemId, int secondPriceCount) {
+        this(offerItemId, offerCount, priceItemId, priceCount);
+        setSecondPriceItemId(secondPriceItemId);
+        this.secondPriceCount = secondPriceCount;
+    }
+
     public String getOfferItemId() { return offerItemId; }
     public void setOfferItemId(String offerItemId) { this.offerItemId = offerItemId; }
 
@@ -65,6 +80,17 @@ public class TradeListing {
 
     public int getPriceCount() { return priceCount; }
     public void setPriceCount(int priceCount) { this.priceCount = priceCount; }
+
+    /** Second price/input item, or null for a single-input listing. */
+    public String getSecondPriceItemId() { return secondPriceItemId; }
+    public void setSecondPriceItemId(String secondPriceItemId) {
+        this.secondPriceItemId = (secondPriceItemId == null || secondPriceItemId.isBlank()) ? null : secondPriceItemId;
+    }
+
+    public int getSecondPriceCount() { return secondPriceCount; }
+    public void setSecondPriceCount(int secondPriceCount) { this.secondPriceCount = secondPriceCount; }
+
+    public boolean hasSecondInput() { return secondPriceItemId != null; }
 
     public int getMaxUses() { return maxUses; }
     public void setMaxUses(int maxUses) { this.maxUses = maxUses; }
@@ -113,10 +139,21 @@ public class TradeListing {
         return listingId;
     }
 
+    /**
+     * Backward-compatibility invariant: a single-input listing (no second price
+     * item) must hash to exactly the same string this method produced before
+     * the second-input slot existed, so previously persisted {@code legacy-<hash>}
+     * listing IDs never change out from under an already-shipped world. The
+     * second-input fields are only appended when {@link #hasSecondInput()}.
+     */
     String contractIdentity() {
-        return String.valueOf(offerItemId) + "|" + offerCount + "|"
+        String base = String.valueOf(offerItemId) + "|" + offerCount + "|"
                 + String.valueOf(priceItemId) + "|" + priceCount + "|" + maxUses + "|"
                 + String.valueOf(requiredFaction) + "|" + requiredFactionPoints;
+        if (hasSecondInput()) {
+            base += "|" + secondPriceItemId + "|" + secondPriceCount;
+        }
+        return base;
     }
 
     private static String digest(String value) {

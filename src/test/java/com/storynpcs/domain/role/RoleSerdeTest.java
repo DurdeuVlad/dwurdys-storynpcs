@@ -27,13 +27,20 @@ class RoleSerdeTest {
         listing.setMaxUses(10);
         listing.setUses(4);
         trader.addListing(listing);
+        var twoInputListing = new TradeListing(
+                "minecraft:golden_apple", 1, "minecraft:emerald", 5, "minecraft:gold_ingot", 3);
+        trader.addListing(twoInputListing);
 
         var restoredTrader = RoleSerde.traderFromJson(RoleSerde.toJson(trader));
         assertTrue(restoredTrader.isPresent());
         assertEquals("Riverside Market", restoredTrader.get().getMarketName());
         assertEquals(12000, restoredTrader.get().getRestockIntervalTicks());
-        assertEquals(1, restoredTrader.get().getListings().size());
+        assertEquals(2, restoredTrader.get().getListings().size());
         assertEquals(4, restoredTrader.get().getListings().get(0).getUses());
+        assertFalse(restoredTrader.get().getListings().get(0).hasSecondInput());
+        assertTrue(restoredTrader.get().getListings().get(1).hasSecondInput());
+        assertEquals("minecraft:gold_ingot", restoredTrader.get().getListings().get(1).getSecondPriceItemId());
+        assertEquals(3, restoredTrader.get().getListings().get(1).getSecondPriceCount());
 
         var banker = new BankerRole("Iron Vault");
         banker.setMaxTabs(3);
