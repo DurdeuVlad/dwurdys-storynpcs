@@ -141,6 +141,25 @@ class NpcDefinitionSerdeTest {
     }
 
     @Test
+    @DisplayName("Transporter role config survives definition JSON round-trip")
+    void transporterRoleRoundTrip() {
+        NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "ferryman"), "Ferryman");
+        com.storynpcs.domain.role.transporter.TransporterRole transporter =
+                new com.storynpcs.domain.role.transporter.TransporterRole(
+                        java.util.Set.of(NamespacedId.of("storynpcs", "harbor"), NamespacedId.of("storynpcs", "capital")),
+                        25);
+        original.setTransporter(transporter);
+
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
+
+        assertEquals(2, restored.getTransporter().getOfferedDestinationIds().size());
+        assertTrue(restored.getTransporter().offers(NamespacedId.of("storynpcs", "harbor")));
+        assertTrue(restored.getTransporter().offers(NamespacedId.of("storynpcs", "capital")));
+        assertEquals(25, restored.getTransporter().getFeeOverride());
+        assertTrue(restored.getTransporter().hasFeeOverride());
+    }
+
+    @Test
     @DisplayName("Display bounds reject unsafe model and visibility values")
     void testDisplayBounds() {
         NpcDisplay display = new NpcDisplay();

@@ -16,6 +16,7 @@ import java.util.Set;
  * - Dialogue internal node links, conditions, and actions.
  * - Quest prerequisites and cycle avoidance.
  * - Faction relationship matrix references.
+ * - Transporter role destination references.
  */
 public class CrossReferenceValidator {
 
@@ -153,6 +154,19 @@ public class CrossReferenceValidator {
                     result.addError("REF_FACTION_RELATIONSHIP_MISSING",
                             String.format("Faction '%s' declares a relationship to unknown faction '%s'",
                                     faction.getId(), relatedId));
+                }
+            }
+        }
+
+        // 5. Validate transporter role destination references (issue #72)
+        for (NpcDefinition npc : registry.getAllNpcs()) {
+            if (npc.getTransporter() != null) {
+                for (NamespacedId destinationId : npc.getTransporter().getOfferedDestinationIds()) {
+                    if (registry.getTransportLocation(destinationId).isEmpty()) {
+                        result.addError("REF_TRANSPORTER_DESTINATION_MISSING",
+                                String.format("NPC '%s' transporter role offers unknown destination '%s'",
+                                        npc.getId(), destinationId));
+                    }
                 }
             }
         }
