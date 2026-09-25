@@ -49,6 +49,9 @@ public class NpcDefinition {
     @JsonProperty
     private com.storynpcs.domain.role.bard.BardRole bard;
 
+    @JsonProperty
+    private com.storynpcs.domain.role.transporter.TransporterRole transporter;
+
     public NpcDefinition() {}
 
     public NpcDefinition(NamespacedId id, String name) {
@@ -94,5 +97,8 @@ public class NpcDefinition {
 
     public com.storynpcs.domain.role.bard.BardRole getBard() { return bard; }
     public void setBard(com.storynpcs.domain.role.bard.BardRole bard) { this.bard = bard; }
+
+    public com.storynpcs.domain.role.transporter.TransporterRole getTransporter() { return transporter; }
+    public void setTransporter(com.storynpcs.domain.role.transporter.TransporterRole transporter) { this.transporter = transporter; }
 }
 

@@ -225,4 +225,44 @@ class CrossReferenceValidatorTest {
         ValidationResult result = CrossReferenceValidator.validate(registry);
         assertThat(result.getErrors()).noneMatch(e -> e.code().equals("REF_FACTION_RELATIONSHIP_MISSING"));
     }
+
+    @Test
+    void shouldDetectDanglingTransporterDestinationReference() {
+        NpcDefinition npc = new NpcDefinition(NamespacedId.of("storynpcs:ferryman"), "Ferryman");
+        com.storynpcs.domain.role.transporter.TransporterRole transporter =
+                new com.storynpcs.domain.role.transporter.TransporterRole();
+        transporter.addOfferedDestination(NamespacedId.of("storynpcs:unknown_destination"));
+        npc.setTransporter(transporter);
+        registry.registerNpc(npc);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.code().equals("REF_TRANSPORTER_DESTINATION_MISSING"));
+    }
+
+    @Test
+    void shouldAcceptTransporterOfferingARegisteredDestination() {
+        NpcDefinition npc = new NpcDefinition(NamespacedId.of("storynpcs:ferryman"), "Ferryman");
+        com.storynpcs.domain.transport.TransportLocation destination = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:harbor"), "Harbor", "minecraft:overworld", 100, 64, 200);
+        registry.registerTransportLocation(destination);
+
+        com.storynpcs.domain.role.transporter.TransporterRole transporter =
+                new com.storynpcs.domain.role.transporter.TransporterRole();
+        transporter.addOfferedDestination(destination.getId());
+        npc.setTransporter(transporter);
+        registry.registerNpc(npc);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+        assertThat(result.getErrors()).noneMatch(e -> e.code().equals("REF_TRANSPORTER_DESTINATION_MISSING"));
+    }
+
+    @Test
+    void shouldIgnoreNpcsWithoutATransporterRole() {
+        NpcDefinition npc = new NpcDefinition(NamespacedId.of("storynpcs:villager"), "Villager");
+        registry.registerNpc(npc);
+
+        ValidationResult result = CrossReferenceValidator.validate(registry);
+        assertThat(result.getErrors()).noneMatch(e -> e.code().equals("REF_TRANSPORTER_DESTINATION_MISSING"));
+    }
 }
