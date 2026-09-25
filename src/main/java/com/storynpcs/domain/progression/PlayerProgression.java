@@ -40,6 +40,10 @@ public class PlayerProgression {
     @JsonProperty
     private Map<NamespacedId, Set<String>> deliveredQuestRewards = new HashMap<>();
 
+    /** Durable mailbox (issue #71 — postman/mailbox role). Newest-last insertion order. */
+    @JsonProperty
+    private List<MailMessage> mailbox = new ArrayList<>();
+
 
     public PlayerProgression() {}
 
@@ -101,6 +105,19 @@ public class PlayerProgression {
         }
     }
 
+    /** Durable mailbox — newest-last. */
+    public List<MailMessage> getMailbox() { return mailbox; }
+    public void setMailbox(List<MailMessage> mailbox) {
+        this.mailbox = new ArrayList<>();
+        if (mailbox == null) return;
+        for (MailMessage m : mailbox) {
+            if (m == null || m.getId() == null) {
+                throw new IllegalArgumentException("mailbox messages require a non-null id");
+            }
+            this.mailbox.add(m);
+        }
+    }
+
     /** Deep snapshot used to restore cached progression after a failed durable write. */
     public PlayerProgression copy() {
         PlayerProgression copy = new PlayerProgression(playerUuid);
@@ -113,6 +130,8 @@ public class PlayerProgression {
         copy.pendingQuestCompletions = new HashMap<>(pendingQuestCompletions);
         copy.deliveredQuestRewards = new HashMap<>();
         deliveredQuestRewards.forEach((id, keys) -> copy.deliveredQuestRewards.put(id, new HashSet<>(keys)));
+        copy.mailbox = new ArrayList<>();
+        for (MailMessage m : mailbox) copy.mailbox.add(m.copy());
         return copy;
     }
 
@@ -130,6 +149,8 @@ public class PlayerProgression {
         pendingQuestCompletions = new HashMap<>(snapshot.pendingQuestCompletions);
         deliveredQuestRewards = new HashMap<>();
         snapshot.deliveredQuestRewards.forEach((id, keys) -> deliveredQuestRewards.put(id, new HashSet<>(keys)));
+        mailbox = new ArrayList<>();
+        for (MailMessage m : snapshot.mailbox) mailbox.add(m.copy());
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {
