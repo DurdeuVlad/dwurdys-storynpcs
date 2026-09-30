@@ -8,6 +8,8 @@ Status: `IN-PROGRESS` for all four issues (local implementation).
 - `NpcView`: immutable detached snapshot (id, faction, dialogue, display name/model, hitboxState).
 - `StoryNpcsApi` facade is read-only: negotiate → immutable views + diagnostics. The unsafe
   `canonical()` service escape hatch was removed; safe typed writes still require capability grants.
+- `StoryNpcsApiAccess` is the supported Level/Entity/MinecraftServer resolver and returns only
+  `Optional<StoryNpcsApi>`; runtime resolver helpers remain internal and are not a sandbox boundary.
 
 ## P9-2 — Scripting host
 

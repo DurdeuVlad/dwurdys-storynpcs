@@ -61,6 +61,8 @@ public final class SimulationScheduler {
                 String reason = actor.inCombat() && prev.tier().ordinal() > SimulationTier.DISTANT.ordinal()
                         ? "COMBAT_ENGAGE" : "DISTANCE";
                 fresh.add(new TierTransition(actor.actorId(), prev.tier(), next, reason));
+            } else if (prev.inCombat() != actor.inCombat()) {
+                states.put(actor.actorId(), new ActorSimulationState(actor.actorId(), next, actor.inCombat()));
             }
         }
         // Actors not reported this evaluation are treated as unloaded.

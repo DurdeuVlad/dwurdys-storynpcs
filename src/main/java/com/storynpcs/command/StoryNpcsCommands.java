@@ -2011,13 +2011,16 @@ public final class StoryNpcsCommands {
         } catch (IllegalArgumentException noFallbackArg) {
             // Overload without the fallback argument — plan must be viable without one.
         }
-        // FactionDeletionPlanner: NPC references block deletion unless a fallback
-        // faction re-points them; relationship-matrix entries are always stripped.
+        // FactionDeletionPlanner: primary NPC bindings need a fallback,
+        // matrix entries are stripped, and other dependents must be repaired first.
         var registry = mod.getRegistry();
         var npcs = new java.util.ArrayList<>(registry.getAllNpcs());
         var factions = new java.util.ArrayList<>(registry.getAllFactions());
         var planner = new com.storynpcs.domain.faction.FactionDeletionPlanner();
-        var plan = planner.plan(id, npcs, factions, fallback);
+        var plan = planner.plan(id, npcs, new java.util.ArrayList<>(registry.getAllTemplates()), factions,
+                new java.util.ArrayList<>(registry.getAllDialogues()),
+                new java.util.ArrayList<>(registry.getAllQuests()),
+                new java.util.ArrayList<>(registry.getAllTransports()), fallback);
         if (!plan.viable()) {
             ctx.getSource().sendFailure(Component.literal(
                     "[StoryNPCs] Faction deletion blocked:\n " + String.join("\n ", plan.diagnostics())));

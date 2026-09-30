@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import com.storynpcs.sim.cert.PerformanceContract.BenchmarkReport;
@@ -14,8 +15,8 @@ import com.storynpcs.sim.cert.PerformanceContract.CertificationResult;
 
 /**
  * P11-3: run the three certification scenarios headlessly, validate every
- * numeric threshold, prove repeatability across seeds, and record evidence
- * artifacts under docs/parity/reports/. Metrics are headless-JVM numbers —
+ * numeric threshold for each seed, assert deterministic work for a fixed seed,
+ * and record evidence artifacts under docs/parity/reports/. Metrics are headless-JVM numbers —
  * the artifacts themselves say so; live-server MSPT remains a separate
  * target-runtime probe.
  */
@@ -25,10 +26,10 @@ class SimCertificationBenchmarkTest {
     private static final long[] SEEDS = {0x5EEDL, 0xCAFEL, 0xBEEFL};
 
     @Test
-    void allThreeScenariosPassThresholdsAndRepeat() throws Exception {
+    void allThreeScenariosPassThresholdsAndRepeatWorkDeterministically() throws Exception {
         Files.createDirectories(REPORT_DIR);
         // JVM-level warmup: the first measured run must not pay JIT
-        // compilation — cross-seed repeatability compares steady state.
+        // compilation.
         HeadlessBenchmark.run("siege", 0xDEADBEEFL);
         HeadlessBenchmark.run("population", 0xDEADBEEFL);
         for (var spec : HeadlessBenchmark.SCENARIOS) {
@@ -45,14 +46,20 @@ class SimCertificationBenchmarkTest {
                         .isTrue();
             }
             // Headless repeatability = identical work for identical seeds.
-            // Wall-clock spread across seeds is environment noise and is
-            // RECORDED in the artifact, not asserted — sub-millisecond timing
-            // at ±10% is not achievable on a shared machine.
+            // Wall-clock spread is environment-dependent and is not summarized
+            // as a pass/fail claim in the artifact.
             var fingerprint = HeadlessBenchmark.run(spec.scenario(), SEEDS[0]).workFingerprint();
             assertThat(HeadlessBenchmark.run(spec.scenario(), SEEDS[0]).workFingerprint())
                     .as("identical seed produced different workload work")
                     .isEqualTo(fingerprint);
             writeArtifact(spec.scenario(), runs, results);
+            var artifact = new ObjectMapper().readTree(
+                    Files.readString(REPORT_DIR.resolve("benchmark-" + spec.scenario() + ".json")));
+            assertThat(artifact.get("timing_repeatable_within_10pct").isNull())
+                    .as("wall-clock repeatability is not asserted for %s", spec.scenario())
+                    .isTrue();
+            assertThat(artifact.get("timing_repeatability_note").asText())
+                    .contains("not asserted");
         }
     }
 
@@ -113,8 +120,8 @@ class SimCertificationBenchmarkTest {
             json.append("    }").append(i + 1 < runs.size() ? ",\n" : "\n");
         }
         json.append("  ],\n");
-        json.append("  \"timing_repeatable_within_10pct\": ").append(PerformanceContract.repeatable(runs)).append(",\n");
-        json.append("  \"timing_repeatability_note\": \"Contract repeatability over wall-clock p95 across seeds; environment noise makes sub-ms ±10% unstable on shared machines. Workload determinism (identical seeds → identical work counters) is asserted separately in SimCertificationBenchmarkTest.\",\n");
+        json.append("  \"timing_repeatable_within_10pct\": null,\n");
+        json.append("  \"timing_repeatability_note\": \"Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately.\",\n");
         json.append("  \"certification_state\": \"HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED\"\n");
         json.append("}\n");
         Files.writeString(REPORT_DIR.resolve("benchmark-" + scenario + ".json"), json.toString());

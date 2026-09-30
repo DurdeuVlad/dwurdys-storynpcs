@@ -84,7 +84,7 @@ class NpcStatsTest {
 
     @Test
     void resistanceChannelsClampToTargetContract() {
-        NpcStats.Resistances resistances = new NpcStats.Resistances();
+        NpcResistances resistances = new NpcResistances();
 
         // All four channels default to normal damage (1.0) and clamp to [0, 2].
         assertThat(resistances.getKnockback()).isEqualTo(1.0);
@@ -109,7 +109,7 @@ class NpcStatsTest {
 
     @Test
     void knockbackMultiplierPreservesNeutralAndAppliesImmunityAndAmplification() {
-        NpcStats.Resistances resistances = new NpcStats.Resistances();
+        NpcResistances resistances = new NpcResistances();
 
         assertThat(resistances.scaleKnockback(0.8F)).isEqualTo(0.8F);
         resistances.setKnockback(0.0);
@@ -120,22 +120,22 @@ class NpcStatsTest {
 
     @Test
     void allSixImmunityTogglesRoundTrip() {
-        NpcStats.Immunities immunities = new NpcStats.Immunities();
-        assertThat(immunities.isPotionImmune()).isFalse();
+        NpcImmunities immunities = new NpcImmunities();
+        assertThat(immunities.isPotion()).isFalse();
 
-        immunities.setPotionImmune(true);
-        immunities.setFallImmune(true);
-        immunities.setSunlightImmune(true);
-        immunities.setFireImmune(true);
-        immunities.setDrowningImmune(true);
-        immunities.setCobwebImmune(true);
+        immunities.setPotion(true);
+        immunities.setFall(true);
+        immunities.setSunlight(true);
+        immunities.setFire(true);
+        immunities.setDrowning(true);
+        immunities.setCobweb(true);
 
-        assertThat(immunities.isPotionImmune()).isTrue();
-        assertThat(immunities.isFallImmune()).isTrue();
-        assertThat(immunities.isSunlightImmune()).isTrue();
-        assertThat(immunities.isFireImmune()).isTrue();
-        assertThat(immunities.isDrowningImmune()).isTrue();
-        assertThat(immunities.isCobwebImmune()).isTrue();
+        assertThat(immunities.isPotion()).isTrue();
+        assertThat(immunities.isFall()).isTrue();
+        assertThat(immunities.isSunlight()).isTrue();
+        assertThat(immunities.isFire()).isTrue();
+        assertThat(immunities.isDrowning()).isTrue();
+        assertThat(immunities.isCobweb()).isTrue();
     }
 
     @Test
@@ -158,14 +158,23 @@ class NpcStatsTest {
     @Test
     void nullSectionsAreRejectedWithoutPartialMutation() {
         NpcStats stats = new NpcStats();
+        NpcStats.Melee melee = stats.getMelee();
+        NpcStats.Ranged ranged = stats.getRanged();
+        NpcResistances resistances = stats.getResistances();
+        NpcImmunities immunities = stats.getImmunities();
+        NpcStats.Defeat defeat = stats.getDefeat();
+
         assertThatThrownBy(() -> stats.setMelee(null));
         assertThatThrownBy(() -> stats.setRanged(null));
         assertThatThrownBy(() -> stats.setResistances(null));
         assertThatThrownBy(() -> stats.setImmunities(null));
         assertThatThrownBy(() -> stats.setDefeat(null));
-        // Original references survive: the failed sets left fields untouched.
-        assertThat(stats.getMelee()).isNotNull();
-        assertThat(stats.getResistances().getArrow()).isEqualTo(1.0);
+
+        assertThat(stats.getMelee()).isSameAs(melee);
+        assertThat(stats.getRanged()).isSameAs(ranged);
+        assertThat(stats.getResistances()).isSameAs(resistances);
+        assertThat(stats.getImmunities()).isSameAs(immunities);
+        assertThat(stats.getDefeat()).isSameAs(defeat);
     }
 
     @Test
@@ -190,8 +199,8 @@ class NpcStatsTest {
         stats.getRanged().setGravityAffected(false);
         stats.getResistances().setArrow(0.25);
         stats.getResistances().setExplosion(1.5);
-        stats.getImmunities().setFireImmune(true);
-        stats.getImmunities().setDrowningImmune(true);
+        stats.getImmunities().setFire(true);
+        stats.getImmunities().setDrowning(true);
         stats.getDefeat().setMode(NpcStats.Defeat.Mode.FLEE);
         stats.getDefeat().setFleeHealthPercent(20);
         stats.getDefeat().setDropsProfileId("storynpcs:drops/warlord");
@@ -213,8 +222,8 @@ class NpcStatsTest {
         assertThat(restoredStats.getRanged().isGravityAffected()).isFalse();
         assertThat(restoredStats.getResistances().getArrow()).isEqualTo(0.25);
         assertThat(restoredStats.getResistances().getExplosion()).isEqualTo(1.5);
-        assertThat(restoredStats.getImmunities().isFireImmune()).isTrue();
-        assertThat(restoredStats.getImmunities().isDrowningImmune()).isTrue();
+        assertThat(restoredStats.getImmunities().isFire()).isTrue();
+        assertThat(restoredStats.getImmunities().isDrowning()).isTrue();
         assertThat(restoredStats.getDefeat().getMode()).isEqualTo(NpcStats.Defeat.Mode.FLEE);
         assertThat(restoredStats.getDefeat().getFleeHealthPercent()).isEqualTo(20);
         assertThat(restoredStats.getDefeat().getDropsProfileId())

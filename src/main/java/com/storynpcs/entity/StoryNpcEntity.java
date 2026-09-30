@@ -919,23 +919,23 @@ public class StoryNpcEntity extends PathfinderMob {
         var authoredImmunities = defOpt.get().getStats() != null
                 ? defOpt.get().getStats().getImmunities() : null;
         if (authoredImmunities != null) {
-            if (authoredImmunities.isFallImmune()
+            if (authoredImmunities.isFall()
                     && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL)) {
                 return true;
             }
-            if (authoredImmunities.isFireImmune()
+            if (authoredImmunities.isFire()
                     && source.is(net.minecraft.tags.DamageTypeTags.IS_FIRE)) {
                 return true;
             }
-            if (authoredImmunities.isDrowningImmune()
+            if (authoredImmunities.isDrowning()
                     && source.is(net.minecraft.tags.DamageTypeTags.IS_DROWNING)) {
                 return true;
             }
-            if (authoredImmunities.isSunlightImmune()
+            if (authoredImmunities.isSunlight()
                     && source.is(net.minecraft.world.damagesource.DamageTypes.DRY_OUT)) {
                 return true;
             }
-            if (authoredImmunities.isPotionImmune()
+            if (authoredImmunities.isPotion()
                     && (source.is(net.minecraft.world.damagesource.DamageTypes.MAGIC)
                     || source.is(net.minecraft.world.damagesource.DamageTypes.INDIRECT_MAGIC))) {
                 return true;
@@ -1015,7 +1015,7 @@ public class StoryNpcEntity extends PathfinderMob {
         // complementing the magic-damage veto in isInvulnerableTo.
         var stats = getDefinition().map(d -> d.getStats()).orElse(null);
         var immunities = stats != null ? stats.getImmunities() : null;
-        if (immunities != null && immunities.isPotionImmune()
+        if (immunities != null && immunities.isPotion()
                 && effectInstance.getEffect().value().getCategory()
                         == net.minecraft.world.effect.MobEffectCategory.HARMFUL) {
             return false;
@@ -1030,7 +1030,7 @@ public class StoryNpcEntity extends PathfinderMob {
         // slowdown multiplier; other makeStuckInBlock blocks behave normally.
         var stats = getDefinition().map(d -> d.getStats()).orElse(null);
         var immunities = stats != null ? stats.getImmunities() : null;
-        if (immunities != null && immunities.isCobwebImmune()
+        if (immunities != null && immunities.isCobweb()
                 && state.is(net.minecraft.world.level.block.Blocks.COBWEB)) {
             return;
         }

@@ -14,16 +14,26 @@ public record TradeOperationIntent(
         int offerCount,
         String priceItemId,
         int priceCount,
+        String secondaryPriceItemId,
+        int secondaryPriceCount,
         int maxUses,
         int usesBefore,
         String requiredFactionId,
         int requiredFactionPoints
 ) {
+    public TradeOperationIntent(UUID playerUuid, String npcId, int listingIndex, String listingId,
+                                String offerItemId, int offerCount, String priceItemId, int priceCount,
+                                int maxUses, int usesBefore, String requiredFactionId,
+                                int requiredFactionPoints) {
+        this(playerUuid, npcId, listingIndex, listingId, offerItemId, offerCount, priceItemId,
+                priceCount, "", 0, maxUses, usesBefore, requiredFactionId, requiredFactionPoints);
+    }
+
     public TradeOperationIntent(UUID playerUuid, String npcId, int listingIndex,
                                 String offerItemId, int offerCount, String priceItemId,
                                 int priceCount, int maxUses, int usesBefore) {
         this(playerUuid, npcId, listingIndex, "", offerItemId, offerCount, priceItemId,
-                priceCount, maxUses, usesBefore, "", 0);
+                priceCount, "", 0, maxUses, usesBefore, "", 0);
     }
 
     public TradeOperationIntent {
@@ -39,6 +49,17 @@ public record TradeOperationIntent(
         }
         if (priceItemId == null || priceItemId.isBlank() || priceCount <= 0) {
             throw new IllegalArgumentException("invalid price");
+        }
+        secondaryPriceItemId = secondaryPriceItemId == null ? "" : secondaryPriceItemId.trim();
+        if (secondaryPriceItemId.isEmpty()) {
+            if (secondaryPriceCount != 0) {
+                throw new IllegalArgumentException("secondary price count requires an item id");
+            }
+        } else {
+            if (secondaryPriceItemId.length() > 256 || secondaryPriceCount < 1 || secondaryPriceCount > 64) {
+                throw new IllegalArgumentException("invalid secondary price");
+            }
+            NamespacedId.of(secondaryPriceItemId);
         }
         if (maxUses < 0 || usesBefore < 0) throw new IllegalArgumentException("invalid use bounds");
         if (requiredFactionId == null || requiredFactionId.length() > 256) {

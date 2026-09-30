@@ -8,9 +8,13 @@ Status: `IN-PROGRESS` for all five issues (local implementation).
   bounded setRelationship (HOSTILE/NEUTRAL/FRIENDLY) — pairwise entries consumed by
   FactionRelationshipProvider (P3-3 symmetric normalization).
 - `FactionReputationChangeEvent` + `source` (request actorType / quest / system).
-- `FactionDeletionPlanner`: enumerate references (NPC factionId + other factions' matrix
-  entries), plan with fallback faction, fail-with-diagnostics naming blockers, `apply`
-  re-points NPCs and strips matrix entries — non-viable plans throw.
+- `FactionDeletionPlanner`: enumerate NPC primary/AI/trader/rule references, faction matrix
+  entries, dialogue conditions/actions, quest faction rewards, and transport unlock conditions.
+  Primary NPC bindings are repaired through a fallback and matrix entries are removed; other
+  definition references block deletion with diagnostics. Durable player reputation entries are
+  cleared before faction removal and restored if a progression write or YAML delete fails.
+  Faction revisions advance for cached and durable profiles even without explicit scores, fencing
+  stale mutations across same-ID recreation.
 - Points remain clamped (no overflow); team sharing stays explicit via TeamProgression.
 
 ## P6-2 — Service/social roles

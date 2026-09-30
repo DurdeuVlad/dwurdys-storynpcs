@@ -31,5 +31,5 @@ the tool cannot judge.
 ## Explicitly NOT certified (blocks any stronger claim)
 
 - Target-runtime parity — no CustomNPCs probe exists; `UNVERIFIED_TARGET_RUNTIME` everywhere it matters.
-- Live-server certification — benchmarks are headless-JVM; `timing_repeatable_within_10pct` recorded, not claimed.
+- Live-server certification — benchmarks are headless-JVM; `timing_repeatable_within_10pct` is `null` because wall-clock repeatability is unasserted. Deterministic work fingerprints are asserted separately.
 - GUI/packet wire behavior at runtime; CustomNPCs world/NBT import (`UNSUPPORTED_NEEDS_EVIDENCE`).

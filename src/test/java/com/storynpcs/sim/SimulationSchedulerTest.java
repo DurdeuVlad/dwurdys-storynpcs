@@ -78,6 +78,20 @@ class SimulationSchedulerTest {
     }
 
     @Test
+    void combatStatusUpdatesWhenTierDoesNotChange() {
+        UUID fighter = UUID.nameUUIDFromBytes("same-tier-combat".getBytes());
+        scheduler.evaluate(List.of(new ActorInput(fighter, 10, false)));
+        assertThat(scheduler.stateOf(fighter).inCombat()).isFalse();
+
+        scheduler.evaluate(List.of(new ActorInput(fighter, 10, true)));
+        assertThat(scheduler.stateOf(fighter).tier()).isEqualTo(SimulationTier.ACTIVE);
+        assertThat(scheduler.stateOf(fighter).inCombat()).isTrue();
+
+        scheduler.evaluate(List.of(new ActorInput(fighter, 10, false)));
+        assertThat(scheduler.stateOf(fighter).inCombat()).isFalse();
+    }
+
+    @Test
     void capabilityGatingHonorsBudgets() {
         UUID distant = UUID.nameUUIDFromBytes("d".getBytes());
         UUID dormant = UUID.nameUUIDFromBytes("e".getBytes());

@@ -78,13 +78,15 @@ class P6DomainTest {
         List<NpcDefinition> npcs = List.of(npc);
 
         // No fallback → NPC reference blocks deletion.
-        var blocked = planner.plan(id("guards"), npcs, factions, null);
+        var blocked = planner.plan(id("guards"), npcs, List.of(), factions,
+                List.of(), List.of(), List.of(), null);
         assertThat(blocked.viable()).isFalse();
         assertThat(blocked.diagnostics().get(0)).contains("guard-1");
         assertThat(blocked.references()).hasSize(2);
 
         // Fallback → viable; apply re-points NPC and strips matrix entry.
-        var viable = planner.plan(id("guards"), npcs, factions, id("villagers"));
+        var viable = planner.plan(id("guards"), npcs, List.of(), factions,
+                List.of(), List.of(), List.of(), id("villagers"));
         assertThat(viable.viable()).isTrue();
         var repaired = planner.apply(viable, npcs, factions);
         assertThat(repaired).hasSize(2);

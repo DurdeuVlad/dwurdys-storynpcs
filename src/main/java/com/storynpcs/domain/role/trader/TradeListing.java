@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.storynpcs.domain.common.NamespacedId;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -212,15 +213,35 @@ public class TradeListing {
     /** Assigns a deterministic legacy identity from the authored trade contract. */
     public String ensureStableId() {
         if (listingId == null || listingId.isBlank()) {
-            listingId = "legacy-" + digest(contractIdentity());
+            listingId = generatedId(contractIdentity());
+        } else if (hasTwoInputs() && listingId.equals(generatedId(legacyContractIdentity()))) {
+            listingId = generatedId(contractIdentity());
         }
         return listingId;
     }
 
+    public Optional<String> legacyListingIdForMigration() {
+        if (!hasTwoInputs()) return Optional.empty();
+        String currentId = ensureStableId();
+        return currentId.equals(generatedId(contractIdentity()))
+                ? Optional.of(generatedId(legacyContractIdentity())) : Optional.empty();
+    }
+
     String contractIdentity() {
+        String identity = legacyContractIdentity();
+        return hasTwoInputs()
+                ? identity + "|" + secondaryPriceItemId.trim() + "|" + secondaryPriceCount
+                : identity;
+    }
+
+    private String legacyContractIdentity() {
         return String.valueOf(offerItemId) + "|" + offerCount + "|"
                 + String.valueOf(priceItemId) + "|" + priceCount + "|" + maxUses + "|"
                 + String.valueOf(requiredFaction) + "|" + requiredFactionPoints;
+    }
+
+    private static String generatedId(String identity) {
+        return "legacy-" + digest(identity);
     }
 
     private static String digest(String value) {

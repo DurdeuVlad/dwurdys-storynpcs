@@ -336,6 +336,29 @@ class P6P9WiringTest {
                         .equals(StoryNpcsApplicationService.class))).isTrue();
     }
 
+    @Test
+    void supportedExtensionResolverExposesOnlyTheReadOnlyFacade() {
+        assertThat(com.storynpcs.api.StoryNpcsApiAccess.api(
+                (net.minecraft.world.level.LevelAccessor) null)).isEmpty();
+        assertThat(com.storynpcs.api.StoryNpcsApiAccess.api(
+                (net.minecraft.world.entity.Entity) null)).isEmpty();
+        assertThat(com.storynpcs.api.StoryNpcsApiAccess.api(
+                (net.minecraft.server.MinecraftServer) null)).isEmpty();
+        var apiResolvers = java.util.Arrays.stream(com.storynpcs.api.StoryNpcsApiAccess.class.getDeclaredMethods())
+                .filter(method -> java.lang.reflect.Modifier.isPublic(method.getModifiers()))
+                .toList();
+        assertThat(apiResolvers).hasSize(3);
+        assertThat(apiResolvers).allSatisfy(method -> {
+            assertThat(method.getName()).isEqualTo("api");
+            assertThat(method.getGenericReturnType().getTypeName())
+                    .isEqualTo("java.util.Optional<com.storynpcs.api.StoryNpcsApi>");
+        });
+        assertThat(java.util.Arrays.stream(com.storynpcs.StoryNpcsAccess.class.getDeclaredMethods())
+                .filter(method -> java.lang.reflect.Modifier.isPublic(method.getModifiers()))
+                .map(java.lang.reflect.Method::getReturnType))
+                .doesNotContain(com.storynpcs.api.StoryNpcsApi.class);
+    }
+
     // ── registry revision (P10-2 staleness primitive) ───────────────────────
 
     @Test

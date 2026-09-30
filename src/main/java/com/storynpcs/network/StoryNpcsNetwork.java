@@ -620,7 +620,9 @@ public class StoryNpcsNetwork {
         if (tradeState != null) {
             for (var listing : trader.getListings()) {
                 try {
-                    listing.setUses(tradeState.getUses(npc.getId().toString(), listing.getListingId()));
+                    listing.setUses(tradeState.getUsesOrMigrateLegacy(
+                            npc.getId().toString(), listing.getListingId(),
+                            listing.legacyListingIdForMigration().orElse(null)));
                 } catch (java.io.IOException | RuntimeException ignored) {
                     // The service will fail closed if the durable projection is unavailable.
                 }

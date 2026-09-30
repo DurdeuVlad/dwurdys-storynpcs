@@ -39,10 +39,10 @@ public class NpcStats {
     private Ranged ranged = new Ranged();
 
     @JsonProperty
-    private Resistances resistances = new Resistances();
+    private NpcResistances resistances = new NpcResistances();
 
     @JsonProperty
-    private Immunities immunities = new Immunities();
+    private NpcImmunities immunities = new NpcImmunities();
 
     @JsonProperty
     private Defeat defeat = new Defeat();
@@ -100,14 +100,14 @@ public class NpcStats {
         this.ranged = ranged;
     }
 
-    public Resistances getResistances() { return resistances; }
-    public void setResistances(Resistances resistances) {
+    public NpcResistances getResistances() { return resistances; }
+    public void setResistances(NpcResistances resistances) {
         if (resistances == null) throw new IllegalArgumentException("resistances cannot be null");
         this.resistances = resistances;
     }
 
-    public Immunities getImmunities() { return immunities; }
-    public void setImmunities(Immunities immunities) {
+    public NpcImmunities getImmunities() { return immunities; }
+    public void setImmunities(NpcImmunities immunities) {
         if (immunities == null) throw new IllegalArgumentException("immunities cannot be null");
         this.immunities = immunities;
     }
@@ -313,89 +313,6 @@ public class NpcStats {
         public void setTrailParticleId(String trailParticleId) {
             this.trailParticleId = boundedText(trailParticleId, "trailParticleId", 256);
         }
-    }
-
-    /**
-     * Incoming-effect multipliers per channel, clamped to [0, 2]: 1.0 is normal,
-     * 0 disables the effect, and values above 1 amplify it. The four channels
-     * match the target contract: knockback, arrow, melee, explosion.
-     */
-    public static class Resistances {
-        private static final double MIN_MULTIPLIER = 0.0;
-        private static final double NEUTRAL_MULTIPLIER = 1.0;
-        private static final double MAX_MULTIPLIER = 2.0;
-
-        @JsonProperty
-        private double knockback = NEUTRAL_MULTIPLIER;
-
-        @JsonProperty
-        private double arrow = NEUTRAL_MULTIPLIER;
-
-        @JsonProperty
-        private double melee = NEUTRAL_MULTIPLIER;
-
-        @JsonProperty
-        private double explosion = NEUTRAL_MULTIPLIER;
-
-        public double getKnockback() { return knockback; }
-        public void setKnockback(double knockback) { this.knockback = clamp(knockback); }
-
-        public float scaleKnockback(float strength) {
-            return (float) (strength * knockback);
-        }
-
-        public double getArrow() { return arrow; }
-        public void setArrow(double arrow) { this.arrow = clamp(arrow); }
-
-        public double getMelee() { return melee; }
-        public void setMelee(double melee) { this.melee = clamp(melee); }
-
-        public double getExplosion() { return explosion; }
-        public void setExplosion(double explosion) { this.explosion = clamp(explosion); }
-
-        private static double clamp(double value) {
-            if (Double.isNaN(value)) return NEUTRAL_MULTIPLIER;
-            return Math.max(MIN_MULTIPLIER, Math.min(MAX_MULTIPLIER, value));
-        }
-    }
-
-    /** Six toggleable damage sources matching the target immunity contract. */
-    public static class Immunities {
-        @JsonProperty
-        private boolean potion = false;
-
-        @JsonProperty
-        private boolean fall = false;
-
-        @JsonProperty
-        private boolean sunlight = false;
-
-        @JsonProperty
-        private boolean fire = false;
-
-        @JsonProperty
-        private boolean drowning = false;
-
-        @JsonProperty
-        private boolean cobweb = false;
-
-        public boolean isPotionImmune() { return potion; }
-        public void setPotionImmune(boolean potion) { this.potion = potion; }
-
-        public boolean isFallImmune() { return fall; }
-        public void setFallImmune(boolean fall) { this.fall = fall; }
-
-        public boolean isSunlightImmune() { return sunlight; }
-        public void setSunlightImmune(boolean sunlight) { this.sunlight = sunlight; }
-
-        public boolean isFireImmune() { return fire; }
-        public void setFireImmune(boolean fire) { this.fire = fire; }
-
-        public boolean isDrowningImmune() { return drowning; }
-        public void setDrowningImmune(boolean drowning) { this.drowning = drowning; }
-
-        public boolean isCobwebImmune() { return cobweb; }
-        public void setCobwebImmune(boolean cobweb) { this.cobweb = cobweb; }
     }
 
     /** Defeat behavior: how the NPC resolves fatal damage and respawn. */

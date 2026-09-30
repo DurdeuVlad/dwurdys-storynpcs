@@ -57,6 +57,27 @@ class TradeStateRepositoryTest {
     }
 
     @Test
+    @DisplayName("Legacy use counts migrate to split listing identities without losing the alias")
+    void legacyUseCountsMigrateToSplitListingIdentities(@TempDir Path tempDir) throws IOException {
+        String npcId = "storynpcs:merchant";
+        TradeStateRepository repository = new TradeStateRepository(tempDir.resolve("trade"));
+        assertTrue(repository.reserveUse(npcId, "legacy-base", 0, 4));
+
+        assertEquals(1, repository.getUsesOrMigrateLegacy(npcId, "legacy-coal", "legacy-base"));
+        assertTrue(repository.reserveUse(npcId, "legacy-coal", 1, 4));
+        assertEquals(1, repository.getUsesOrMigrateLegacy(npcId, "legacy-iron", "legacy-base"));
+
+        assertEquals(2, repository.getUses(npcId, "legacy-coal"));
+        assertEquals(1, repository.getUses(npcId, "legacy-iron"));
+        assertEquals(1, repository.getUses(npcId, "legacy-base"));
+
+        TradeStateRepository reloaded = new TradeStateRepository(tempDir.resolve("trade"));
+        assertEquals(2, reloaded.getUses(npcId, "legacy-coal"));
+        assertEquals(1, reloaded.getUses(npcId, "legacy-iron"));
+        assertEquals(1, reloaded.getUses(npcId, "legacy-base"));
+    }
+
+    @Test
     @DisplayName("Different stable listing identities never share usage state")
     void testListingIdentityIsolation(@TempDir Path tempDir) throws IOException {
         TradeStateRepository repository = new TradeStateRepository(tempDir.resolve("trade"));

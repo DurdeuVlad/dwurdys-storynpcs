@@ -131,6 +131,331 @@ class TraderRoleTest {
     }
 
     @Test
+    @DisplayName("Prepared trade intent retains the secondary payment contract")
+    void preparedTradeIntentRetainsSecondaryPayment() throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        UUID requestId = UUID.randomUUID();
+        TradeListing listing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        listing.setMaxUses(3);
+        listing.setSecondaryPriceItemId("minecraft:coal");
+        listing.setSecondaryPriceCount(1);
+
+        assertTrue(service.executeTrade(playerUuid, npcId, 0, listing, requestId));
+
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        var record = journal.read(requestId);
+        var intent = com.storynpcs.domain.role.RoleSerde
+                .tradeOperationIntentFromJson(record.preparedIntent()).orElseThrow();
+        assertEquals("minecraft:coal", intent.secondaryPriceItemId());
+        assertEquals(1, intent.secondaryPriceCount());
+    }
+
+    @Test
+    @DisplayName("Legacy prepared trade intents default to a single payment input")
+    void legacyPreparedTradeIntentDefaultsSecondaryPayment() {
+        String legacyIntent = """
+                {"playerUuid":"00000000-0000-0000-0000-000000000001",
+                 "npcId":"storynpcs:merchant","listingIndex":0,"listingId":"legacy-abc",
+                 "offerItemId":"minecraft:bread","offerCount":1,
+                 "priceItemId":"minecraft:wheat","priceCount":2,
+                 "maxUses":3,"usesBefore":0,"requiredFactionId":"","requiredFactionPoints":0}
+                """;
+
+        var restored = com.storynpcs.domain.role.RoleSerde
+                .tradeOperationIntentFromJson(legacyIntent).orElseThrow();
+
+        assertEquals("", restored.secondaryPriceItemId());
+        assertEquals(0, restored.secondaryPriceCount());
+    }
+
+    @Test
+    @DisplayName("Committed legacy two-input trade requests replay after listing identity migration")
+    void committedLegacyTwoInputTradeReplayRemainsIdempotent() throws IOException {
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+
+        for (boolean authoredListingId : List.of(false, true)) {
+            UUID playerUuid = UUID.randomUUID();
+            UUID requestId = UUID.randomUUID();
+            TradeListing legacyListing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+            legacyListing.setMaxUses(3);
+            if (authoredListingId) legacyListing.setListingId("merchant-listing");
+            String legacyListingId = legacyListing.ensureStableId();
+
+            TradeListing currentListing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+            currentListing.setMaxUses(3);
+            currentListing.setSecondaryPriceItemId("minecraft:coal");
+            currentListing.setSecondaryPriceCount(1);
+            currentListing.setListingId(legacyListingId);
+
+            String legacySubject = playerUuid + "|" + npcId + "|0|" + legacyListingId
+                    + "|minecraft:bread|1|minecraft:wheat|2|3||0";
+            var legacyIntent = new TradeOperationIntent(
+                    playerUuid, npcId.toString(), 0, legacyListingId,
+                    "minecraft:bread", 1, "minecraft:wheat", 2,
+                    3, 0, "", 0);
+            journal.begin(requestId, "trade.execute", legacySubject,
+                    com.storynpcs.domain.role.RoleSerde.toJson(legacyIntent));
+            journal.commit(requestId, "APPLIED", "1");
+
+            assertTrue(service.executeTrade(playerUuid, npcId, 0, currentListing, requestId));
+
+            if (authoredListingId) {
+                assertEquals(legacyListingId, currentListing.getListingId());
+            } else {
+                assertNotEquals(legacyListingId, currentListing.getListingId());
+            }
+            assertEquals(0, currentListing.getUses());
+            assertEquals(DurableOperationJournal.State.COMMITTED, journal.read(requestId).state());
+        }
+
+        assertTrue(tradeEvents.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Prepared legacy two-input trade requests reconcile by their old listing identity")
+    void preparedLegacyTwoInputTradeReplayReconcilesByLegacyListingId(@TempDir Path tempDir)
+            throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        UUID requestId = UUID.randomUUID();
+        service.setTradeStateRepository(new TradeStateRepository(tempDir.resolve("trade-states")));
+
+        TradeListing legacyListing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        legacyListing.setMaxUses(3);
+        String legacyListingId = legacyListing.ensureStableId();
+        TradeListing currentListing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        currentListing.setMaxUses(3);
+        currentListing.setSecondaryPriceItemId("minecraft:coal");
+        currentListing.setSecondaryPriceCount(1);
+        currentListing.setListingId(legacyListingId);
+
+        String legacySubject = playerUuid + "|" + npcId + "|0|" + legacyListingId
+                + "|minecraft:bread|1|minecraft:wheat|2|3||0";
+        var legacyIntent = new TradeOperationIntent(
+                playerUuid, npcId.toString(), 0, legacyListingId,
+                "minecraft:bread", 1, "minecraft:wheat", 2,
+                3, 0, "", 0);
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        journal.begin(requestId, "trade.execute", legacySubject,
+                com.storynpcs.domain.role.RoleSerde.toJson(legacyIntent));
+
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, currentListing, requestId));
+
+        assertEquals(DurableOperationJournal.State.ABORTED, journal.read(requestId).state());
+        assertEquals("TRADE_NOT_COMMITTED", journal.read(requestId).outcomeCode());
+        assertEquals(0, currentListing.getUses());
+        assertTrue(tradeEvents.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Legacy single-input listing identity remains stable")
+    void legacySingleInputListingIdentityRemainsStable() {
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+
+        assertEquals("legacy-89225e309de8ec9a", listing.ensureStableId());
+    }
+
+    @Test
+    @DisplayName("Legacy listing identity includes the second payment input")
+    void legacyListingIdentityIncludesSecondaryPrice() {
+        TradeListing coalOffer = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        coalOffer.setMaxUses(3);
+        coalOffer.setSecondaryPriceItemId("minecraft:coal");
+        coalOffer.setSecondaryPriceCount(1);
+
+        TradeListing ironOffer = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        ironOffer.setMaxUses(3);
+        ironOffer.setSecondaryPriceItemId("minecraft:iron_ingot");
+        ironOffer.setSecondaryPriceCount(1);
+
+        assertNotEquals(coalOffer.ensureStableId(), ironOffer.ensureStableId());
+    }
+
+    @Test
+    @DisplayName("Secondary price identity changes retain legacy listing limits")
+    void secondaryPriceIdentityMigrationPreservesDurableUseLimit(@TempDir Path tempDir) throws IOException {
+        TradeStateRepository tradeState = new TradeStateRepository(tempDir.resolve("trade"));
+        service.setTradeStateRepository(tradeState);
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+
+        TradeListing legacy = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        legacy.setMaxUses(1);
+        String legacyListingId = legacy.ensureStableId();
+        assertTrue(tradeState.reserveUse(npcId.toString(), legacyListingId, 0, 1));
+
+        TradeListing current = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        current.setMaxUses(1);
+        current.setSecondaryPriceItemId("minecraft:coal");
+        current.setSecondaryPriceCount(1);
+
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, current, UUID.randomUUID()));
+
+        String currentListingId = current.ensureStableId();
+        assertNotEquals(legacyListingId, currentListingId);
+        assertEquals(1, tradeState.getUses(npcId.toString(), legacyListingId));
+        assertEquals(1, tradeState.getUses(npcId.toString(), currentListingId));
+        assertEquals(1, current.getUses());
+        assertEquals(0, tradeEvents.size());
+    }
+
+    @Test
+    @DisplayName("Persisted legacy listing IDs are rebased without losing their durable use count")
+    void persistedLegacyListingIdRetainsDurableUseCount(@TempDir Path tempDir) throws IOException {
+        TradeStateRepository tradeState = new TradeStateRepository(tempDir.resolve("trade"));
+        service.setTradeStateRepository(tradeState);
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant_persisted_legacy");
+
+        TradeListing legacy = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        legacy.setMaxUses(1);
+        String legacyListingId = legacy.ensureStableId();
+        assertTrue(tradeState.reserveUse(npcId.toString(), legacyListingId, 0, 1));
+
+        TradeListing current = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        current.setMaxUses(1);
+        current.setSecondaryPriceItemId("minecraft:iron_ingot");
+        current.setSecondaryPriceCount(1);
+        current.setListingId(legacyListingId);
+
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, current, UUID.randomUUID()));
+
+        assertNotEquals(legacyListingId, current.getListingId());
+        assertEquals(1, tradeState.getUses(npcId.toString(), current.getListingId()));
+        assertEquals(1, tradeState.getUses(npcId.toString(), legacyListingId));
+        assertEquals(0, tradeEvents.size());
+    }
+
+    @Test
+    @DisplayName("Prepared trade intent captures durable rather than definition-local uses")
+    void preparedIntentCapturesDurableUseCount(@TempDir Path tempDir) throws IOException {
+        TradeStateRepository tradeState = new TradeStateRepository(tempDir.resolve("trade"));
+        service.setTradeStateRepository(tradeState);
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant_durable_uses");
+        TradeListing listing = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        listing.setMaxUses(4);
+        String listingId = listing.ensureStableId();
+        assertTrue(tradeState.reserveUse(npcId.toString(), listingId, 0, 4));
+        listing.setUses(0);
+        UUID requestId = UUID.randomUUID();
+
+        assertTrue(service.executeTrade(playerUuid, npcId, 0, listing, requestId));
+
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        var record = journal.read(requestId);
+        var intent = com.storynpcs.domain.role.RoleSerde
+                .tradeOperationIntentFromJson(record.preparedIntent()).orElseThrow();
+        assertEquals(1, intent.usesBefore());
+        assertEquals(2, tradeState.getUses(npcId.toString(), listingId));
+    }
+
+    @Test
+    @DisplayName("A trade request ID cannot replay with a changed second payment input")
+    void tradeReplayWithChangedSecondaryPriceIsRejected() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        UUID requestId = UUID.randomUUID();
+
+        TradeListing first = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        first.setListingId("merchant-listing");
+        first.setMaxUses(3);
+        first.setSecondaryPriceItemId("minecraft:coal");
+        first.setSecondaryPriceCount(1);
+        assertTrue(service.executeTrade(playerUuid, npcId, 0, first, requestId));
+
+        TradeListing changed = new TradeListing("minecraft:bread", 1, "minecraft:wheat", 2);
+        changed.setListingId("merchant-listing");
+        changed.setMaxUses(3);
+        changed.setSecondaryPriceItemId("minecraft:iron_ingot");
+        changed.setSecondaryPriceCount(1);
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, changed, requestId));
+        assertEquals(0, changed.getUses());
+        assertEquals(1, tradeEvents.size());
+    }
+
+    private static TradeListing listingPausedAfterDurableSnapshot(
+            java.util.concurrent.CyclicBarrier intentBarrier,
+            java.util.concurrent.atomic.AtomicInteger failedRendezvous) {
+        return new TradeListing("minecraft:bread", 1, "minecraft:wheat", 1) {
+            private int offerItemIdReads;
+
+            @Override
+            public String getOfferItemId() {
+                if (++offerItemIdReads == 2) {
+                    try {
+                        intentBarrier.await(2, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (java.util.concurrent.TimeoutException
+                            | java.util.concurrent.BrokenBarrierException failure) {
+                        failedRendezvous.incrementAndGet();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("trade test interrupted", interrupted);
+                    }
+                }
+                return super.getOfferItemId();
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("Concurrent indexed trades do not reject remaining durable uses")
+    void concurrentIndexedTradesDoNotRejectRemainingDurableUses(@TempDir Path tempDir) throws Exception {
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant_indexed_race");
+        TradeStateRepository tradeState = new TradeStateRepository(tempDir.resolve("trade"));
+        service.setTradeStateRepository(tradeState);
+        var intentBarrier = new java.util.concurrent.CyclicBarrier(2);
+        var failedRendezvous = new java.util.concurrent.atomic.AtomicInteger();
+        TradeListing firstListing = listingPausedAfterDurableSnapshot(intentBarrier, failedRendezvous);
+        TradeListing secondListing = listingPausedAfterDurableSnapshot(intentBarrier, failedRendezvous);
+        firstListing.setListingId("shared-listing");
+        secondListing.setListingId("shared-listing");
+        firstListing.setMaxUses(2);
+        secondListing.setMaxUses(2);
+        List<UUID> requestIds = List.of(
+                UUID.fromString("00000000-0000-0000-0000-000000000000"),
+                UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        assertEquals(0, requestIds.get(0).hashCode());
+        assertEquals(1, requestIds.get(1).hashCode());
+
+        var ready = new java.util.concurrent.CountDownLatch(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var outcomes = new ArrayList<java.util.concurrent.Future<Boolean>>();
+        try {
+            for (int index = 0; index < requestIds.size(); index++) {
+                TradeListing listing = List.of(firstListing, secondListing).get(index);
+                UUID playerUuid = UUID.randomUUID();
+                UUID requestId = requestIds.get(index);
+                outcomes.add(pool.submit(() -> {
+                    ready.countDown();
+                    if (!start.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("trade concurrency test did not start");
+                    }
+                    return service.executeTrade(playerUuid, npcId, 0, listing, requestId);
+                }));
+            }
+            assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            start.countDown();
+            int successes = 0;
+            for (var outcome : outcomes) {
+                if (outcome.get(10, java.util.concurrent.TimeUnit.SECONDS)) successes++;
+            }
+            assertEquals(2, successes);
+            assertEquals(2, failedRendezvous.get());
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+        }
+
+        assertEquals(2, tradeState.getUses(npcId.toString(), "shared-listing"));
+        assertEquals(2, tradeEvents.size());
+    }
+
+    @Test
     @DisplayName("Indexed live trades use durable listing state instead of definition-local uses")
     void testIndexedTradePersistsListingUses(@TempDir Path tempDir) throws Exception {
         service.setTradeStateRepository(new TradeStateRepository(tempDir.resolve("trade")));

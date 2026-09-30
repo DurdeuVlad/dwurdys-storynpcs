@@ -57,6 +57,24 @@ class YamlDefinitionLoaderTest {
     }
 
     @Test
+    void shouldRejectExplicitNullCombatSections() {
+        for (String section : java.util.List.of("resistances", "immunities")) {
+            NamespacedId id = NamespacedId.of("storynpcs:null_" + section);
+            String yaml = """
+                    id: "%s"
+                    stats:
+                      %s: null
+                    """.formatted(id, section);
+            ValidationResult result = ValidationResult.valid();
+
+            assertThat(loader.loadNpc(yaml, section + ".yaml", result)).isNull();
+            assertThat(result.getErrors()).singleElement().satisfies(error ->
+                    assertThat(error.code()).isEqualTo("YAML_MAPPING_ERROR"));
+            assertThat(registry.getNpc(id)).isEmpty();
+        }
+    }
+
+    @Test
     void explicitTextureSkinSourceSurvivesYamlLoadWhenStalePlayerNameIsPresent() {
         String yaml = """
                 id: "storynpcs:yaml_skin_source_order"

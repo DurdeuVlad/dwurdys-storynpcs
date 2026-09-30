@@ -6,12 +6,9 @@ import net.minecraft.world.level.LevelAccessor;
 import net.neoforged.neoforge.attachment.IAttachmentHolder;
 
 /**
- * Resolution channel for the constructed {@link StoryNpcs} instance. The mod
- * publishes itself onto every loaded {@link net.minecraft.world.level.Level}
- * (server dimensions and the client world) through the {@link
- * StoryNpcsAttachments#MOD_HANDLE} data attachment at {@code LevelEvent.Load},
- * so consumers reach it through the lifecycle objects they already hold —
- * levels, entities, servers — instead of a mutable static singleton.
+ * Internal lifecycle resolver for StoryNPCs runtime adapters. This public
+ * bridge is not a stable extension API or an authorization boundary; extensions
+ * should use {@link com.storynpcs.api.StoryNpcsApiAccess} for read-only access.
  *
  * <p>Resolution is null-safe: paths that can legitimately run before a level
  * exists or after teardown (early packet dispatch, class init, unit tests)

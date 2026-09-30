@@ -9,10 +9,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.505648,
-        "tick_p95_ms": 0.789304,
-        "tick_p99_ms": 1.15912,
-        "heap_after_gc_bytes": 26385568,
+        "tick_p50_ms": 0.290836,
+        "tick_p95_ms": 0.409976,
+        "tick_p99_ms": 0.432656,
+        "heap_after_gc_bytes": 26648120,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -21,8 +21,8 @@
         "duplicated_events": 0
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.789304, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 1.15912, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.409976, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.432656, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -36,10 +36,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.370684,
-        "tick_p95_ms": 0.417236,
-        "tick_p99_ms": 0.443984,
-        "heap_after_gc_bytes": 26386256,
+        "tick_p50_ms": 0.356696,
+        "tick_p95_ms": 0.444332,
+        "tick_p99_ms": 0.685308,
+        "heap_after_gc_bytes": 26648424,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -48,8 +48,8 @@
         "duplicated_events": 0
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.417236, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.443984, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.444332, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.685308, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -63,10 +63,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.392192,
-        "tick_p95_ms": 0.487428,
-        "tick_p99_ms": 0.70252,
-        "heap_after_gc_bytes": 26386256,
+        "tick_p50_ms": 0.307436,
+        "tick_p95_ms": 0.408736,
+        "tick_p99_ms": 0.432448,
+        "heap_after_gc_bytes": 26648776,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -75,8 +75,8 @@
         "duplicated_events": 0
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.487428, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.70252, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.408736, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.432448, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -86,7 +86,7 @@
       "scenario_pass": true
     }
   ],
-  "timing_repeatable_within_10pct": false,
-  "timing_repeatability_note": "Contract repeatability over wall-clock p95 across seeds; environment noise makes sub-ms ±10% unstable on shared machines. Workload determinism (identical seeds → identical work counters) is asserted separately in SimCertificationBenchmarkTest.",
+  "timing_repeatable_within_10pct": null,
+  "timing_repeatability_note": "Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately.",
   "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED"
 }

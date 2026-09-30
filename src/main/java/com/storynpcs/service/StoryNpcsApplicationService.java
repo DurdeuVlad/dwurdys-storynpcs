@@ -39,6 +39,7 @@ public class StoryNpcsApplicationService {
     /** Revision clocks are scoped by definition kind; NPC and quest IDs may legally overlap. */
     private final Map<String, Long> definitionRevisions = new ConcurrentHashMap<>();
     private static final int MAX_REPLAY_RECORDS = 4096;
+    private static final int MUTATION_LOCK_STRIPES = 256;
 
     private final BoundedReplayCache<UUID, CompletedMutation> completedMutations =
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
@@ -69,8 +70,9 @@ public class StoryNpcsApplicationService {
      * tick counter via {@link #setChoiceTickSource}.
      */
     private volatile java.util.function.LongSupplier choiceTickSource = () -> System.currentTimeMillis() / 50;
-    private final Object[] questMutationLocks = createQuestMutationLocks();
-    private final Object[] progressionMutationLocks = createQuestMutationLocks();
+    private final Object[] questMutationLocks = createMutationLocks();
+    private final Object[] progressionMutationLocks = createMutationLocks();
+    private final Object[] tradeMutationLocks = createMutationLocks();
     private final QuestEventQueue[] questEventQueues = createQuestEventQueues();
     /** Accessed only while holding canonicalMutationLock; also blocks same-thread reentrant callbacks. */
     private final Map<UUID, MutationRequest> inProgressMutationRequests = new HashMap<>();
@@ -588,8 +590,8 @@ public class StoryNpcsApplicationService {
         }
     }
 
-    private static Object[] createQuestMutationLocks() {
-        Object[] locks = new Object[256];
+    private static Object[] createMutationLocks() {
+        Object[] locks = new Object[MUTATION_LOCK_STRIPES];
         Arrays.setAll(locks, ignored -> new Object());
         return locks;
     }
@@ -936,7 +938,14 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveDialogue(NamespacedId expectedId, DialogueGraph graph) {
+    public ValidationResult saveDialogue(NamespacedId expectedId, DialogueGraph graph) {
+        synchronized (canonicalMutationLock) {
+            return saveDialogueUnderCanonicalLock(expectedId, graph);
+        }
+    }
+
+    private synchronized ValidationResult saveDialogueUnderCanonicalLock(
+            NamespacedId expectedId, DialogueGraph graph) {
         Objects.requireNonNull(expectedId, "expectedId");
         Objects.requireNonNull(graph, "graph");
         ValidationResult result = ValidationResult.valid();
@@ -1036,7 +1045,13 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveQuest(Quest quest) {
+    public ValidationResult saveQuest(Quest quest) {
+        synchronized (canonicalMutationLock) {
+            return saveQuestUnderCanonicalLock(quest);
+        }
+    }
+
+    private synchronized ValidationResult saveQuestUnderCanonicalLock(Quest quest) {
         Objects.requireNonNull(quest, "quest");
         ValidationResult result = ValidationResult.valid();
 
@@ -1163,7 +1178,13 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveFaction(Faction faction) {
+    public ValidationResult saveFaction(Faction faction) {
+        synchronized (canonicalMutationLock) {
+            return saveFactionUnderCanonicalLock(faction);
+        }
+    }
+
+    private synchronized ValidationResult saveFactionUnderCanonicalLock(Faction faction) {
         Objects.requireNonNull(faction, "faction");
         ValidationResult result = ValidationResult.valid();
 
@@ -1212,7 +1233,13 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveTemplate(
+    public ValidationResult saveTemplate(com.storynpcs.creator.template.NpcTemplate template) {
+        synchronized (canonicalMutationLock) {
+            return saveTemplateUnderCanonicalLock(template);
+        }
+    }
+
+    private synchronized ValidationResult saveTemplateUnderCanonicalLock(
             com.storynpcs.creator.template.NpcTemplate template) {
         Objects.requireNonNull(template, "template");
         ValidationResult result = ValidationResult.valid();
@@ -1332,8 +1359,9 @@ public class StoryNpcsApplicationService {
     }
 
     /**
-     * Deletes a faction and repairs its NPC and relationship-matrix references
-     * within one canonical operation. If a write or delete fails, previously
+     * Deletes a faction and repairs primary NPC and relationship-matrix references
+     * within one canonical operation. Deletion is rejected while other definition
+     * references still require manual repair. If a write or delete fails, previously
      * committed definitions are restored before the operation is rejected.
      */
     public CanonicalMutationResult deleteFactionWithRepairs(
@@ -1341,46 +1369,56 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(request, "request");
         String fingerprint = MutationPayloadFingerprint.of("faction.delete.withReferences",
                 request.targetId() + "\u0000" + String.valueOf(fallbackFactionId));
-        return executeCanonicalMutation(request, "faction", "delete", fingerprint, () -> {
-            NamespacedId factionId = request.targetId();
-            if (registry.getFaction(factionId).isEmpty()) {
-                ValidationResult missing = ValidationResult.valid();
-                missing.addError("FACTION_NOT_FOUND", "Faction not found: " + factionId);
-                return missing;
+        return executeCanonicalMutation(request, "faction", "delete", fingerprint,
+                () -> deleteFactionUnderCanonicalLock(request.targetId(), fallbackFactionId));
+    }
+
+    private ValidationResult deleteFactionUnderCanonicalLock(
+            NamespacedId factionId, NamespacedId fallbackFactionId) {
+        if (registry.getFaction(factionId).isEmpty()) {
+            ValidationResult missing = ValidationResult.valid();
+            missing.addError("FACTION_NOT_FOUND", "Faction not found: " + factionId);
+            return missing;
+        }
+        com.storynpcs.domain.faction.FactionDeletionPlanner.DeletionPlan plan;
+        FactionReferenceSnapshots snapshots;
+        try {
+            plan = planFactionDeletion(factionId, fallbackFactionId);
+            snapshots = snapshotFactionReferences(factionId, plan.references());
+        } catch (IOException | RuntimeException invalidPlan) {
+            ValidationResult failure = ValidationResult.valid();
+            failure.addError("FACTION_DELETE_BLOCKED", invalidPlan.getMessage());
+            return failure;
+        }
+        Set<UUID> changedPlayerProgressions = new LinkedHashSet<>();
+        try {
+            applyFactionReferenceRepairs(factionId, plan.fallbackFactionId(), plan.references());
+            applyFactionProgressionRepairs(
+                    factionId, snapshots.playerProgressions(), changedPlayerProgressions);
+            if (!deleteFactionSource(factionId)) {
+                throw new IllegalStateException("Faction YAML source could not be deleted");
             }
-            com.storynpcs.domain.faction.FactionDeletionPlanner.DeletionPlan plan;
-            FactionReferenceSnapshots snapshots;
-            try {
-                plan = planFactionDeletion(factionId, fallbackFactionId);
-                snapshots = snapshotFactionReferences(plan.references());
-            } catch (RuntimeException invalidPlan) {
-                ValidationResult failure = ValidationResult.valid();
-                failure.addError("FACTION_DELETE_BLOCKED", invalidPlan.getMessage());
-                return failure;
-            }
-            try {
-                applyFactionReferenceRepairs(factionId, plan.fallbackFactionId(), plan.references());
-                if (!deleteFaction(factionId)) {
-                    throw new IllegalStateException("Faction YAML source could not be deleted");
-                }
-                return ValidationResult.valid();
-            } catch (RuntimeException failure) {
-                boolean restored = restoreFactionReferenceSnapshots(snapshots);
-                ValidationResult rejected = ValidationResult.valid();
-                rejected.addError(restored ? "FACTION_DELETE_ROLLED_BACK" : "ROLLBACK_INCOMPLETE",
-                        "Faction deletion failed: " + failure.getMessage()
-                                + (restored ? "; reference repairs were restored"
-                                        : "; some reference repairs could not be restored"));
-                return rejected;
-            }
-        });
+            return ValidationResult.valid();
+        } catch (IOException | RuntimeException failure) {
+            boolean restored = restoreFactionReferenceSnapshots(
+                    factionId, snapshots, changedPlayerProgressions);
+            ValidationResult rejected = ValidationResult.valid();
+            rejected.addError(restored ? "FACTION_DELETE_ROLLED_BACK" : "ROLLBACK_INCOMPLETE",
+                    "Faction deletion failed: " + failure.getMessage()
+                            + (restored ? "; reference repairs were restored"
+                                    : "; some reference repairs could not be restored"));
+            return rejected;
+        }
     }
 
     private com.storynpcs.domain.faction.FactionDeletionPlanner.DeletionPlan planFactionDeletion(
             NamespacedId factionId, NamespacedId fallbackFactionId) {
         var planner = new com.storynpcs.domain.faction.FactionDeletionPlanner();
         var plan = planner.plan(factionId, List.copyOf(registry.getAllNpcs()),
-                List.copyOf(registry.getAllFactions()), fallbackFactionId);
+                List.copyOf(registry.getAllTemplates()), List.copyOf(registry.getAllFactions()),
+                List.copyOf(registry.getAllDialogues()),
+                List.copyOf(registry.getAllQuests()), List.copyOf(registry.getAllTransports()),
+                fallbackFactionId);
         if (!plan.viable()) {
             throw new IllegalStateException(String.join("\n", plan.diagnostics()));
         }
@@ -1388,10 +1426,12 @@ public class StoryNpcsApplicationService {
     }
 
     private record FactionReferenceSnapshots(
-            Map<NamespacedId, NpcDefinition> npcs, Map<NamespacedId, Faction> factions) {}
+            Map<NamespacedId, NpcDefinition> npcs,
+            Map<NamespacedId, Faction> factions,
+            Map<UUID, ProgressionRepository.FactionProgressionSnapshot> playerProgressions) {}
 
-    private FactionReferenceSnapshots snapshotFactionReferences(
-            List<com.storynpcs.domain.faction.FactionDeletionPlanner.Reference> references) {
+    private FactionReferenceSnapshots snapshotFactionReferences(NamespacedId factionId,
+            List<com.storynpcs.domain.faction.FactionDeletionPlanner.Reference> references) throws IOException {
         Map<NamespacedId, NpcDefinition> npcSnapshots = new LinkedHashMap<>();
         Map<NamespacedId, Faction> factionSnapshots = new LinkedHashMap<>();
         for (var reference : references) {
@@ -1405,7 +1445,8 @@ public class StoryNpcsApplicationService {
                                 com.storynpcs.domain.faction.FactionSerde.toJson(faction)).orElseThrow()));
             }
         }
-        return new FactionReferenceSnapshots(npcSnapshots, factionSnapshots);
+        return new FactionReferenceSnapshots(npcSnapshots, factionSnapshots,
+                progressionRepository.factionProgressionSnapshots(factionId));
     }
 
     private void applyFactionReferenceRepairs(
@@ -1437,7 +1478,32 @@ public class StoryNpcsApplicationService {
         }
     }
 
-    private boolean restoreFactionReferenceSnapshots(FactionReferenceSnapshots snapshots) {
+    private void applyFactionProgressionRepairs(NamespacedId factionId,
+            Map<UUID, ProgressionRepository.FactionProgressionSnapshot> playerProgressions,
+            Set<UUID> changedPlayerProgressions) throws IOException {
+        for (var entry : playerProgressions.entrySet()) {
+            UUID playerUuid = entry.getKey();
+            ProgressionRepository.FactionProgressionSnapshot snapshot = entry.getValue();
+            progressionRepository.withProgression(playerUuid, progression -> {
+                Map<NamespacedId, Integer> factionPoints = progression.getFactionPoints();
+                if (factionPoints == null || progression.getFactionRevision() != snapshot.revision()
+                        || factionPoints.containsKey(factionId) != snapshot.hasFactionPoints()
+                        || (snapshot.hasFactionPoints()
+                                && !Objects.equals(factionPoints.get(factionId), snapshot.factionPoints()))) {
+                    throw new IllegalStateException(
+                            "faction reputation changed while deleting " + factionId + " for player " + playerUuid);
+                }
+                long nextRevision = Math.addExact(snapshot.revision(), 1L);
+                factionPoints.remove(factionId);
+                progression.setFactionRevision(nextRevision);
+                changedPlayerProgressions.add(playerUuid);
+                progressionRepository.save(playerUuid, progression);
+            });
+        }
+    }
+
+    private boolean restoreFactionReferenceSnapshots(NamespacedId factionId,
+            FactionReferenceSnapshots snapshots, Set<UUID> changedPlayerProgressions) {
         boolean restored = true;
         for (NpcDefinition npc : snapshots.npcs().values()) {
             try {
@@ -1450,6 +1516,34 @@ public class StoryNpcsApplicationService {
             try {
                 if (saveFaction(faction).hasErrors()) restored = false;
             } catch (RuntimeException failure) {
+                restored = false;
+            }
+        }
+        for (UUID playerUuid : changedPlayerProgressions) {
+            var snapshot = snapshots.playerProgressions().get(playerUuid);
+            if (snapshot == null) {
+                restored = false;
+                continue;
+            }
+            try {
+                progressionRepository.withProgression(playerUuid, progression -> {
+                    Map<NamespacedId, Integer> factionPoints = progression.getFactionPoints();
+                    if (factionPoints == null) {
+                        throw new IllegalStateException(
+                                "faction reputation map is unavailable for player " + playerUuid);
+                    }
+                    long currentRevision = progression.getFactionRevision();
+                    if (currentRevision < Long.MAX_VALUE) {
+                        progression.setFactionRevision(currentRevision + 1L);
+                    }
+                    if (snapshot.hasFactionPoints()) {
+                        factionPoints.put(factionId, snapshot.factionPoints());
+                    } else {
+                        factionPoints.remove(factionId);
+                    }
+                    progressionRepository.save(playerUuid, progression);
+                });
+            } catch (IOException | RuntimeException failure) {
                 restored = false;
             }
         }
@@ -1541,13 +1635,16 @@ public class StoryNpcsApplicationService {
     }
 
     /**
-     * Removes a faction definition from the live registry and removes its YAML file
-     * from disk. Mirrors {@link #deleteNpc}. Callers should check
-     * {@link #findNpcsReferencingFaction(NamespacedId)} first — NPCs bound to a
-     * deleted faction lose their faction binding.
+     * Compatibility delegate for the canonical, reference-aware faction deletion operation.
      */
-    public synchronized boolean deleteFaction(NamespacedId id) {
+    public boolean deleteFaction(NamespacedId id) {
         Objects.requireNonNull(id, "id");
+        MutationRequest request = new MutationRequest("faction.delete", "system", "faction.delete",
+                id, currentRevision("faction", id), UUID.randomUUID(), -1);
+        return deleteFaction(request).applied();
+    }
+
+    private synchronized boolean deleteFactionSource(NamespacedId id) {
         if (registry.getFaction(id).isEmpty()) {
             return false;
         }
@@ -2121,24 +2218,26 @@ public class StoryNpcsApplicationService {
         CanonicalMutationResult result;
         List<StoryNpcsEvent> notifications = new ArrayList<>();
         QuestEventQueue dispatchQueue;
-        synchronized (requestLock) {
-            synchronized (playerLock) {
-                PlayerProgression progression;
-                try {
-                    progression = progressionRepository.getOrCreate(request.playerUuid());
-                } catch (RuntimeException unavailable) {
-                    System.err.println("[StoryNPCs] faction mutation blocked for " + request.playerUuid()
-                            + ": " + unavailable.getMessage());
-                    progression = null;
+        synchronized (canonicalMutationLock) {
+            synchronized (requestLock) {
+                synchronized (playerLock) {
+                    PlayerProgression progression;
+                    try {
+                        progression = progressionRepository.getOrCreate(request.playerUuid());
+                    } catch (RuntimeException unavailable) {
+                        System.err.println("[StoryNPCs] faction mutation blocked for " + request.playerUuid()
+                                + ": " + unavailable.getMessage());
+                        progression = null;
+                    }
+                    if (progression == null) {
+                        result = factionMutationFailure(0, "PROGRESSION_UNAVAILABLE",
+                                "Player progression is blocked pending durable-state recovery");
+                    } else synchronized (progression) {
+                        result = applyFactionProgressionMutation(request, fingerprint, progression, notifications);
+                    }
+                    if (!result.duplicate()) notifications.add(0, factionMutationEvent(request, result));
+                    dispatchQueue = enqueueQuestEvents(request.playerUuid(), notifications);
                 }
-                if (progression == null) {
-                    result = factionMutationFailure(0, "PROGRESSION_UNAVAILABLE",
-                            "Player progression is blocked pending durable-state recovery");
-                } else synchronized (progression) {
-                    result = applyFactionProgressionMutation(request, fingerprint, progression, notifications);
-                }
-                if (!result.duplicate()) notifications.add(0, factionMutationEvent(request, result));
-                dispatchQueue = enqueueQuestEvents(request.playerUuid(), notifications);
             }
         }
 
@@ -2234,10 +2333,12 @@ public class StoryNpcsApplicationService {
     public long currentFactionProgressionRevision(UUID playerUuid) {
         UUID subject = Objects.requireNonNull(playerUuid, "playerUuid");
         Object playerLock = progressionMutationLocks[subject.hashCode() & (progressionMutationLocks.length - 1)];
-        synchronized (playerLock) {
-            PlayerProgression progression = progressionRepository.getOrCreate(subject);
-            synchronized (progression) {
-                return progression.getFactionRevision();
+        synchronized (canonicalMutationLock) {
+            synchronized (playerLock) {
+                PlayerProgression progression = progressionRepository.getOrCreate(subject);
+                synchronized (progression) {
+                    return progression.getFactionRevision();
+                }
             }
         }
     }
@@ -3321,8 +3422,16 @@ public class StoryNpcsApplicationService {
         // Serialize the prepare/commit/recover decision per request id — recovery
         // must not abort a prepared record between its durable intent and the
         // listing-use commit decision.
-        var outcome = tradeOperationJournal.withOperationLock(requestId,
-                () -> executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId));
+        var outcome = tradeOperationJournal.withOperationLock(requestId, () -> {
+            if (tradeStateRepository == null || listingIndex < 0) {
+                return executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId);
+            }
+            String listingId = trade.ensureStableId();
+            int lockIndex = Math.floorMod(Objects.hash(npcId, listingId), tradeMutationLocks.length);
+            synchronized (tradeMutationLocks[lockIndex]) {
+                return executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId);
+            }
+        });
         return outcome != null && outcome;
     }
 
@@ -3330,17 +3439,27 @@ public class StoryNpcsApplicationService {
                                           com.storynpcs.domain.role.trader.TradeListing trade,
                                           UUID requestId) {
         String listingId = trade.ensureStableId();
+        String legacyListingId = trade.legacyListingIdForMigration().orElse(null);
         String requiredFactionId = trade.getRequiredFaction() == null
                 ? "" : trade.getRequiredFaction().toString();
-        final String subject = playerUuid + "|" + npcId + "|" + listingIndex
-                + "|" + listingId + "|" + trade.getOfferItemId() + "|" + Math.max(1, trade.getOfferCount())
-                + "|" + trade.getPriceItemId() + "|" + Math.max(1, trade.getPriceCount())
-                + "|" + Math.max(0, trade.getMaxUses()) + "|" + requiredFactionId
-                + "|" + Math.max(0, trade.getRequiredFactionPoints());
+        String secondaryPriceItemId = trade.hasTwoInputs()
+                ? trade.getSecondaryPriceItemId().trim() : "";
+        int secondaryPriceCount = trade.hasTwoInputs() ? trade.getSecondaryPriceCount() : 0;
+        String subject = tradeOperationSubject(playerUuid, npcId, listingIndex, listingId,
+                trade, requiredFactionId, secondaryPriceItemId, secondaryPriceCount);
+        String legacySubject = trade.hasTwoInputs()
+                ? tradeOperationSubject(playerUuid, npcId, listingIndex,
+                        legacyListingId == null ? listingId : legacyListingId,
+                        trade, requiredFactionId, "", 0)
+                : null;
         try {
             var existing = tradeOperationJournal.read(requestId);
             if (existing != null) {
-                var replay = tradeOperationJournal.begin(requestId, "trade.execute", subject);
+                boolean legacyReplay = legacySubject != null
+                        && "trade.execute".equals(existing.operationType())
+                        && legacySubject.equals(existing.subject());
+                String replaySubject = legacyReplay ? legacySubject : subject;
+                var replay = tradeOperationJournal.begin(requestId, "trade.execute", replaySubject);
                 if (replay.status() == com.storynpcs.persistence.DurableOperationJournal.BeginStatus.PENDING
                         && listingIndex >= 0) {
                     // A still-prepared record means the first attempt crashed
@@ -3348,12 +3467,22 @@ public class StoryNpcsApplicationService {
                     // durable listing use count instead of leaving the request
                     // id pending and failing every retry forever.
                     reconcilePendingTrade(playerUuid, requestId);
-                    replay = tradeOperationJournal.begin(requestId, "trade.execute", subject);
+                    replay = tradeOperationJournal.begin(requestId, "trade.execute", replaySubject);
                 }
                 return replay.status() == com.storynpcs.persistence.DurableOperationJournal.BeginStatus.COMMITTED;
             }
         } catch (IOException | RuntimeException e) {
             return false;
+        }
+
+        int usesBefore = Math.max(0, trade.getUses());
+        if (tradeStateRepository != null && listingIndex >= 0) {
+            try {
+                usesBefore = tradeStateRepository.getUsesOrMigrateLegacy(
+                        npcId.toString(), listingId, legacyListingId);
+            } catch (IOException | RuntimeException unavailable) {
+                return false;
+            }
         }
 
         com.storynpcs.persistence.TradeOperationIntent intent;
@@ -3362,7 +3491,8 @@ public class StoryNpcsApplicationService {
                     playerUuid, npcId.toString(), listingIndex, listingId,
                     trade.getOfferItemId(), Math.max(1, trade.getOfferCount()),
                     trade.getPriceItemId(), Math.max(1, trade.getPriceCount()),
-                    Math.max(0, trade.getMaxUses()), Math.max(0, trade.getUses()),
+                    secondaryPriceItemId, secondaryPriceCount,
+                    Math.max(0, trade.getMaxUses()), usesBefore,
                     requiredFactionId, Math.max(0, trade.getRequiredFactionPoints()));
         } catch (RuntimeException invalid) {
             return false;
@@ -3378,7 +3508,7 @@ public class StoryNpcsApplicationService {
             return false;
         }
 
-        var mutationOutcome = executeTradeMutation(playerUuid, npcId, listingIndex, trade);
+        var mutationOutcome = executeTradeMutation(playerUuid, npcId, listingIndex, trade, usesBefore);
         if (mutationOutcome != TradeMutationOutcome.COMMITTED) {
             if (mutationOutcome == TradeMutationOutcome.REJECTED) {
                 try {
@@ -3399,6 +3529,20 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
+    private static String tradeOperationSubject(UUID playerUuid, NamespacedId npcId, int listingIndex,
+            String listingId, com.storynpcs.domain.role.trader.TradeListing trade,
+            String requiredFactionId, String secondaryPriceItemId, int secondaryPriceCount) {
+        String subject = playerUuid + "|" + npcId + "|" + listingIndex
+                + "|" + listingId + "|" + trade.getOfferItemId() + "|" + Math.max(1, trade.getOfferCount())
+                + "|" + trade.getPriceItemId() + "|" + Math.max(1, trade.getPriceCount())
+                + "|" + Math.max(0, trade.getMaxUses()) + "|" + requiredFactionId
+                + "|" + Math.max(0, trade.getRequiredFactionPoints());
+        if (!secondaryPriceItemId.isEmpty()) {
+            subject += "|secondary|" + secondaryPriceItemId + "|" + secondaryPriceCount;
+        }
+        return subject;
+    }
+
     /**
      * Result of one trade mutation attempt: {@code COMMITTED} means every leg
      * landed, {@code REJECTED} means nothing durable survives and the journal may
@@ -3409,14 +3553,13 @@ public class StoryNpcsApplicationService {
     private enum TradeMutationOutcome { COMMITTED, REJECTED, RECOVERY_REQUIRED }
 
     private TradeMutationOutcome executeTradeMutation(UUID playerUuid, NamespacedId npcId, int listingIndex,
-                                         com.storynpcs.domain.role.trader.TradeListing trade) {
+                                         com.storynpcs.domain.role.trader.TradeListing trade, int usesBefore) {
         if (tradeStateRepository != null && listingIndex >= 0) {
             String listingId = trade.ensureStableId();
             synchronized (trade) {
-                int expectedUses = -1;
+                int expectedUses = Math.max(0, usesBefore);
                 boolean reserved = false;
                 try {
-                    expectedUses = tradeStateRepository.getUses(npcId.toString(), listingId);
                     trade.setUses(expectedUses);
                     if (!tradeStateRepository.reserveUse(npcId.toString(), listingId,
                             expectedUses, Math.max(0, trade.getMaxUses()))) {
