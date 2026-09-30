@@ -60,6 +60,23 @@ class StoryNpcsFixtureRunnerTest(unittest.TestCase):
             source.write_text("class Example { int changed; }", encoding="utf-8")
             self.assertNotEqual(before, source_fingerprint(root))
 
+    def test_source_fingerprint_is_stable_across_crlf_and_lf_checkouts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src" / "main").mkdir(parents=True)
+            source = root / "src" / "main" / "Example.java"
+            binary = root / "src" / "main" / "texture.bin"
+
+            source.write_bytes(b"class Example {\r\n    int x;\r\n}\r\n")
+            binary.write_bytes(b"\x89PNG\r\n\x1a\n\xff\xd8")
+            crlf = source_fingerprint(root)
+
+            source.write_bytes(b"class Example {\n    int x;\n}\n")
+            self.assertEqual(crlf, source_fingerprint(root))
+
+            source.write_bytes(b"class Example {\r\n    int x;\r\n}\r\nchanged")
+            self.assertNotEqual(crlf, source_fingerprint(root))
+
     def test_gradle_command_clears_previous_test_reports_before_running(self):
         self.assertIn("cleanTest test --rerun-tasks", gradle_test_command())
 

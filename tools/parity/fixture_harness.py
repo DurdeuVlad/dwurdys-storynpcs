@@ -114,6 +114,21 @@ FINGERPRINT_FILES = (
 )
 
 
+def _fingerprint_content(path: Path) -> bytes:
+    """Canonical content bytes for fingerprinting.
+
+    Text payloads are normalized to LF so the fingerprint is identical on
+    CRLF (``core.autocrlf`` Windows) and LF checkouts; payloads that do not
+    decode as UTF-8 are hashed verbatim.
+    """
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def source_fingerprint(root: Path) -> str:
     paths = {root / name for name in FINGERPRINT_FILES if (root / name).is_file()}
     for directory in FINGERPRINT_DIRS:
@@ -128,7 +143,7 @@ def source_fingerprint(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(paths, key=lambda item: item.relative_to(root).as_posix()):
         relative = path.relative_to(root).as_posix().encode("utf-8")
-        content = path.read_bytes()
+        content = _fingerprint_content(path)
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
         digest.update(len(content).to_bytes(8, "big"))

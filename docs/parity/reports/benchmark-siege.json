@@ -9,10 +9,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.048,
-        "tick_p95_ms": 0.089532,
-        "tick_p99_ms": 0.284412,
-        "heap_after_gc_bytes": 37161568,
+        "tick_p50_ms": 0.056436,
+        "tick_p95_ms": 0.087528,
+        "tick_p99_ms": 0.1506,
+        "heap_after_gc_bytes": 38091096,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -21,8 +21,8 @@
         "duplicated_events": 0
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.089532, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.284412, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.087528, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.1506, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -36,10 +36,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.048512,
-        "tick_p95_ms": 0.13816,
-        "tick_p99_ms": 0.190588,
-        "heap_after_gc_bytes": 37162816,
+        "tick_p50_ms": 0.064172,
+        "tick_p95_ms": 0.10008,
+        "tick_p99_ms": 0.135444,
+        "heap_after_gc_bytes": 38090480,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -48,8 +48,8 @@
         "duplicated_events": 0
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.13816, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.190588, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.10008, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.135444, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -63,10 +63,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.05046,
-        "tick_p95_ms": 0.115976,
-        "tick_p99_ms": 0.170604,
-        "heap_after_gc_bytes": 37160920,
+        "tick_p50_ms": 0.06062,
+        "tick_p95_ms": 0.088004,
+        "tick_p99_ms": 0.177804,
+        "heap_after_gc_bytes": 38091728,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -75,8 +75,8 @@
         "duplicated_events": 0
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.115976, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.170604, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.088004, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.177804, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
