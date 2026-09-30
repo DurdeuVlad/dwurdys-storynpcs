@@ -6,6 +6,7 @@ import com.storynpcs.api.event.QuestCompleteEvent;
 import com.storynpcs.api.event.StoryNpcsEvent;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.faction.Faction;
+import com.storynpcs.domain.progression.PendingQuestCompletion;
 import com.storynpcs.domain.progression.PlayerProgression;
 import com.storynpcs.domain.progression.QuestProgressState;
 import com.storynpcs.domain.quest.Quest;
@@ -784,6 +785,156 @@ class QuestProgressionMutationTest {
     }
 
     @Test
+    void loginRecoveryResumesInterruptedRewardFanOutExactlyOnce() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRewards(List.of(
+                new QuestReward(QuestReward.Type.EXPERIENCE, "levels", 5),
+                new QuestReward(QuestReward.Type.ITEM, "minecraft:diamond", 1)));
+        service.startQuest(player, questId);
+
+        // Durable crash state: objectives met, completion in flight, leg 1 marked
+        // durably (delivery already attempted), leg 2 never reached.
+        PlayerProgression crashed = repository.getOrCreate(player);
+        QuestProgressState state = crashed.getQuestState(questId);
+        state.incrementCount("logs", 10);
+        crashed.getPendingQuestCompletions().put(questId, new PendingQuestCompletion(
+                UUID.randomUUID(), questId, "sha256:" + "0".repeat(64), state.getStateRevision()));
+        crashed.getDeliveredQuestRewards()
+                .computeIfAbsent(questId, key -> new java.util.HashSet<>())
+                .add("0|EXPERIENCE|levels|5");
+        repository.save(player, crashed);
+
+        // Restart + login: recovery resumes the fan-out — only the unmarked leg is
+        // delivered, the marked leg is never re-delivered, and the terminal state
+        // plus intent/marks cleanup commit exactly once.
+        repository.clearCache();
+        StoryNpcsApplicationService restarted = new StoryNpcsApplicationService(registry, repository, events);
+        List<QuestReward> recoveredLegs = new ArrayList<>();
+        restarted.setRewardSideEffectOverride((p, reward) -> recoveredLegs.add(reward));
+
+        int unresolved = restarted.recoverQuestCompletions(player);
+
+        assertThat(unresolved).isZero();
+        assertThat(recoveredLegs).singleElement().satisfies(reward -> {
+            assertThat(reward.getType()).isEqualTo(QuestReward.Type.ITEM);
+            assertThat(reward.getTarget()).isEqualTo("minecraft:diamond");
+        });
+        PlayerProgression recovered = repository.getOrCreate(player);
+        assertThat(recovered.getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+        assertThat(recovered.getPendingQuestCompletions()).doesNotContainKey(questId);
+        assertThat(recovered.getDeliveredQuestRewards()).doesNotContainKey(questId);
+        assertThat(publishedEvents).anySatisfy(event -> assertThat(event).isInstanceOf(QuestCompleteEvent.class));
+    }
+
+    @Test
+    void loginRecoveryResumesEligibleIntentWithoutRewardMarks() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRewards(
+                List.of(new QuestReward(QuestReward.Type.EXPERIENCE, "levels", 5)));
+
+        // Save order: start(1) -> progress+pending-intent(2) -> reward mark(3) ->
+        // terminal commit(4). Failing save 3 leaves a durable pending intent with
+        // no marks — the process stopped before the fan-out could write its first mark.
+        java.util.concurrent.atomic.AtomicInteger saves = new java.util.concurrent.atomic.AtomicInteger();
+        ProgressionRepository failMark = new ProgressionRepository(tempDir.resolve("pre-mark-crash")) {
+            @Override
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression) throws IOException {
+                if (saves.incrementAndGet() == 3) {
+                    throw new IOException("injected crash before the first reward mark");
+                }
+                super.writeProgression(playerUuid, progression);
+            }
+        };
+        StoryNpcsApplicationService crashedService = new StoryNpcsApplicationService(registry, failMark, events);
+        java.util.concurrent.atomic.AtomicInteger deliveries = new java.util.concurrent.atomic.AtomicInteger();
+        crashedService.setRewardSideEffectOverride((p, reward) -> deliveries.incrementAndGet());
+
+        crashedService.startQuest(player, questId);
+        crashedService.mutateQuestProgression(QuestProgressionMutationRequest.progress(
+                "system", null, player, questId, "logs", 10,
+                crashedService.currentQuestProgressionRevision(player), UUID.randomUUID()));
+
+        assertThat(deliveries.get()).isZero();
+        assertThat(failMark.getOrCreate(player).getPendingQuestCompletions()).containsKey(questId);
+        assertThat(failMark.getOrCreate(player).getDeliveredQuestRewards()).doesNotContainKey(questId);
+        assertThat(failMark.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+
+        // Restart + login: the intent is still eligible, so recovery completes the
+        // in-flight completion — the XP leg is delivered exactly once.
+        failMark.clearCache();
+        StoryNpcsApplicationService restarted = new StoryNpcsApplicationService(registry, failMark, events);
+        restarted.setRewardSideEffectOverride((p, reward) -> deliveries.incrementAndGet());
+
+        int unresolved = restarted.recoverQuestCompletions(player);
+
+        assertThat(unresolved).isZero();
+        assertThat(deliveries.get()).isEqualTo(1);
+        PlayerProgression recovered = failMark.getOrCreate(player);
+        assertThat(recovered.getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+        assertThat(recovered.getPendingQuestCompletions()).doesNotContainKey(questId);
+    }
+
+    @Test
+    void loginRecoveryDropsStaleIntentOnCompletedQuest() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        service.startQuest(player, questId);
+        assertThat(service.completeQuest(player, questId).outcome())
+                .isEqualTo(QuestCompletionResult.Outcome.COMPLETED);
+
+        // Inject a durable stale intent — commit removes pending and completed
+        // atomically, so this state is only reachable through corruption.
+        PlayerProgression loaded = repository.getOrCreate(player);
+        loaded.getPendingQuestCompletions().put(questId, new PendingQuestCompletion(
+                UUID.randomUUID(), questId, "sha256:" + "0".repeat(64), 0));
+        repository.save(player, loaded);
+
+        int unresolved = service.recoverQuestCompletions(player);
+
+        assertThat(unresolved).isZero();
+        PlayerProgression recovered = repository.getOrCreate(player);
+        assertThat(recovered.getPendingQuestCompletions()).doesNotContainKey(questId);
+        assertThat(recovered.getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+    }
+
+    @Test
+    void loginRecoveryReportsIneligibleInFlightIntentWithoutDelivering() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRewards(
+                List.of(new QuestReward(QuestReward.Type.EXPERIENCE, "levels", 5)));
+        service.startQuest(player, questId);
+
+        // A delivered mark with a pending intent whose revision no longer matches
+        // proves fan-out started but cannot be proven eligible: fail closed.
+        PlayerProgression loaded = repository.getOrCreate(player);
+        QuestProgressState state = loaded.getQuestState(questId);
+        loaded.getPendingQuestCompletions().put(questId, new PendingQuestCompletion(
+                UUID.randomUUID(), questId, "sha256:" + "0".repeat(64),
+                state.getStateRevision() + 99));
+        loaded.getDeliveredQuestRewards()
+                .computeIfAbsent(questId, key -> new java.util.HashSet<>())
+                .add("0|EXPERIENCE|levels|5");
+        repository.save(player, loaded);
+
+        java.util.concurrent.atomic.AtomicInteger deliveries = new java.util.concurrent.atomic.AtomicInteger();
+        service.setRewardSideEffectOverride((p, reward) -> deliveries.incrementAndGet());
+        int unresolved = service.recoverQuestCompletions(player);
+
+        assertThat(unresolved).isEqualTo(1);
+        assertThat(deliveries.get()).isZero();
+        assertThat(repository.getOrCreate(player).getPendingQuestCompletions()).containsKey(questId);
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+    }
+
+    @Test
     void unavailableProgressionFailsQuestCompletionAndMutationClosed() throws IOException {
         UUID player = UUID.randomUUID();
         NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
@@ -801,5 +952,302 @@ class QuestProgressionMutationTest {
                 assertThat(diagnostic.code()).isEqualTo("PROGRESSION_UNAVAILABLE"));
         // No success events may escape for a blocked player.
         assertThat(publishedEvents).noneMatch(QuestCompleteEvent.class::isInstance);
+    }
+
+    // ---- Repeat-type enforcement at the canonical START gate ----
+
+    private void completeQuestImmediately(UUID player, NamespacedId questId) {
+        service.startQuest(player, questId);
+        assertThat(service.completeQuest(player, questId).outcome())
+                .isEqualTo(QuestCompletionResult.Outcome.COMPLETED);
+    }
+
+    private CanonicalMutationResult restartQuest(UUID player, NamespacedId questId) {
+        return service.mutateQuestProgression(QuestProgressionMutationRequest.start(
+                "system", null, player, questId,
+                service.currentQuestProgressionRevision(player), UUID.randomUUID()));
+    }
+
+    private void backdateLastCompletion(UUID player, NamespacedId questId, long millisAgo) throws IOException {
+        PlayerProgression progression = repository.getOrCreate(player);
+        progression.getQuestState(questId)
+                .setLastCompletedAtEpochMillis(System.currentTimeMillis() - millisAgo);
+        repository.save(player, progression);
+    }
+
+    @Test
+    void dailyQuestRejectsSameDayRestartAndReopensAfterDayBoundary() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.DAILY);
+        completeQuestImmediately(player, questId);
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getLastCompletedAtEpochMillis())
+                .isGreaterThan(0);
+
+        CanonicalMutationResult sameDay = restartQuest(player, questId);
+        assertThat(sameDay.applied()).isFalse();
+        assertThat(sameDay.diagnostics().getDiagnostics()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.code()).isEqualTo("QUEST_ALREADY_COMPLETED"));
+
+        backdateLastCompletion(player, questId, java.time.Duration.ofDays(2).toMillis());
+        CanonicalMutationResult nextDay = restartQuest(player, questId);
+        assertThat(nextDay.applied()).isTrue();
+        // The re-run starts clean: the prior run's satisfied counts must not carry over.
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getCount("logs")).isZero();
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+    }
+
+    @Test
+    void weeklyQuestRejectsSameWeekRestartAndReopensAfterWeekBoundary() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.WEEKLY);
+        completeQuestImmediately(player, questId);
+
+        CanonicalMutationResult sameWeek = restartQuest(player, questId);
+        assertThat(sameWeek.applied()).isFalse();
+
+        backdateLastCompletion(player, questId, java.time.Duration.ofDays(8).toMillis());
+        assertThat(restartQuest(player, questId).applied()).isTrue();
+    }
+
+    @Test
+    void resetQuestCannotBeRestartedWithoutAnExplicitReset() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.RESET);
+        completeQuestImmediately(player, questId);
+
+        CanonicalMutationResult restart = restartQuest(player, questId);
+
+        assertThat(restart.applied()).isFalse();
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+    }
+
+    @Test
+    void repeatableQuestRestartClearsObjectiveCountsForAFreshRun() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.REPEATABLE);
+        completeQuestImmediately(player, questId);
+
+        CanonicalMutationResult restart = restartQuest(player, questId);
+        assertThat(restart.applied()).isTrue();
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getCount("logs")).isZero();
+
+        // Progress below the requirement must not instantly re-complete the run.
+        CanonicalMutationResult progress = service.mutateQuestProgression(
+                QuestProgressionMutationRequest.progress("system", null, player, questId, "logs", 5,
+                        service.currentQuestProgressionRevision(player), UUID.randomUUID()));
+        assertThat(progress.applied()).isTrue();
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+    }
+
+    @Test
+    void instantQuestCompletesOnStartWhenItHasNoObjectives() {
+        UUID player = UUID.randomUUID();
+        NamespacedId instantId = NamespacedId.of("storynpcs:instant_blessing");
+        NamespacedId factionId = NamespacedId.of("storynpcs:instant_faction");
+        registry.registerFaction(new Faction(factionId, "Instant faction", 0, -100, 100));
+        Quest instant = new Quest(instantId, "Instant blessing");
+        instant.setRepeatType(Quest.RepeatType.INSTANT);
+        instant.setRewards(List.of(new QuestReward(QuestReward.Type.FACTION_POINTS, factionId.toString(), 4)));
+        registry.registerQuest(instant);
+
+        CanonicalMutationResult started = service.mutateQuestProgression(
+                QuestProgressionMutationRequest.start("system", null, player, instantId, 0, UUID.randomUUID()));
+
+        assertThat(started.applied()).isTrue();
+        assertThat(repository.getOrCreate(player).getQuestState(instantId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+        assertThat(repository.getOrCreate(player).getFactionScore(factionId, 0)).isEqualTo(4);
+        assertThat(publishedEvents.stream().filter(QuestCompleteEvent.class::isInstance)).hasSize(1);
+    }
+
+    @Test
+    void instantQuestWithObjectivesCompletesOnSatisfactionWithoutTurnIn() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.INSTANT);
+        service.startQuest(player, questId);
+        // START alone does not complete — objectives are still unsatisfied.
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+
+        service.mutateQuestProgression(QuestProgressionMutationRequest.progress(
+                "system", null, player, questId, "logs", 10,
+                service.currentQuestProgressionRevision(player), UUID.randomUUID()));
+
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+    }
+
+    @Test
+    void repeatEligibilitySurvivesRestartThroughDurableTimestamp() throws IOException {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.DAILY);
+        completeQuestImmediately(player, questId);
+
+        repository.clearCache();
+        StoryNpcsApplicationService restarted = new StoryNpcsApplicationService(registry, repository, events);
+        CanonicalMutationResult sameDay = restarted.mutateQuestProgression(
+                QuestProgressionMutationRequest.start("system", null, player, questId,
+                        restarted.currentQuestProgressionRevision(player), UUID.randomUUID()));
+        assertThat(sameDay.applied()).isFalse();
+    }
+
+    // ---- Explicit RESET action: the reachable reset RepeatType.RESET needs ----
+
+    private CanonicalMutationResult resetQuest(UUID player, NamespacedId questId) {
+        return service.mutateQuestProgression(QuestProgressionMutationRequest.reset(
+                "system", null, player, questId,
+                service.currentQuestProgressionRevision(player), UUID.randomUUID(), -1));
+    }
+
+    @Test
+    void resetQuestClearsCompletedStateAndReopensTheRun() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.RESET);
+        completeQuestImmediately(player, questId);
+        long preResetRevision = service.currentQuestProgressionRevision(player);
+
+        // The completed quest stays locked against a bare restart.
+        assertThat(restartQuest(player, questId).applied()).isFalse();
+
+        // The explicit reset commits, advances the revision, and clears state.
+        CanonicalMutationResult reset = resetQuest(player, questId);
+        assertThat(reset.applied()).isTrue();
+        assertThat(reset.revision()).isEqualTo(preResetRevision + 1);
+        assertThat(reset.events()).contains("QuestResetEvent");
+        assertThat(reset.recoveryOutcome()).isEqualTo("COMMITTED");
+        assertThat(repository.getOrCreate(player).getQuests()).doesNotContainKey(questId);
+        assertThat(publishedEvents)
+                .anyMatch(com.storynpcs.api.event.QuestResetEvent.class::isInstance);
+
+        // The reopened quest starts a fresh run and completes again.
+        assertThat(restartQuest(player, questId).applied()).isTrue();
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
+        service.mutateQuestProgression(QuestProgressionMutationRequest.progress(
+                "system", null, player, questId, "logs", 10,
+                service.currentQuestProgressionRevision(player), UUID.randomUUID()));
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+    }
+
+    @Test
+    void resetRejectsNonResettableQuestsAndUncompletedState() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+
+        // NORMAL-repeat quest: an explicit reset is not part of its contract.
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.NORMAL);
+        completeQuestImmediately(player, questId);
+        CanonicalMutationResult notResettable = resetQuest(player, questId);
+        assertThat(notResettable.applied()).isFalse();
+        assertThat(notResettable.recoveryOutcome()).isEqualTo("NO_CHANGE");
+        assertThat(repository.getOrCreate(player).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+
+        // A RESET-type quest that never completed has nothing to clear.
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.RESET);
+        UUID freshPlayer = UUID.randomUUID();
+        CanonicalMutationResult neverStarted = service.mutateQuestProgression(
+                QuestProgressionMutationRequest.reset("system", null, freshPlayer, questId,
+                        service.currentQuestProgressionRevision(freshPlayer), UUID.randomUUID(), -1));
+        assertThat(neverStarted.applied()).isFalse();
+        assertThat(neverStarted.recoveryOutcome()).isEqualTo("NO_CHANGE");
+
+        // In-progress but not yet completed also rejects — only a finished
+        // run may be reset.
+        UUID working = UUID.randomUUID();
+        service.startQuest(working, questId);
+        CanonicalMutationResult inProgress = resetQuest(working, questId);
+        assertThat(inProgress.applied()).isFalse();
+        assertThat(inProgress.recoveryOutcome()).isEqualTo("NO_CHANGE");
+    }
+
+    @Test
+    void resetRequestsAreIdempotentAcrossReplayAndRestart() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.RESET);
+        completeQuestImmediately(player, questId);
+
+        UUID requestId = UUID.randomUUID();
+        QuestProgressionMutationRequest request = QuestProgressionMutationRequest.reset(
+                "system", null, player, questId,
+                service.currentQuestProgressionRevision(player), requestId, -1);
+        CanonicalMutationResult reset = service.mutateQuestProgression(request);
+        assertThat(reset.applied()).isTrue();
+
+        // Same-process replay: durable idempotency — no second event, no change.
+        CanonicalMutationResult replay = service.mutateQuestProgression(request);
+        assertThat(replay.applied()).isTrue();
+        assertThat(replay.duplicate()).isTrue();
+        assertThat(publishedEvents.stream()
+                .filter(com.storynpcs.api.event.QuestResetEvent.class::isInstance)).hasSize(1);
+
+        // Cross-restart replay: the persisted revision moved past the request's
+        // expectation — the replay classifies as stale, never a second reset.
+        repository.clearCache();
+        StoryNpcsApplicationService restarted = new StoryNpcsApplicationService(registry, repository, events);
+        CanonicalMutationResult afterRestart = restarted.mutateQuestProgression(request);
+        assertThat(afterRestart.applied()).isFalse();
+        assertThat(afterRestart.diagnostics().getErrors()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.code()).isEqualTo("STALE_REVISION"));
+        assertThat(repository.getOrCreate(player).getQuests()).doesNotContainKey(questId);
+    }
+
+    @Test
+    void resetSubjectAuthorizationMatchesOtherQuestMutations() {
+        UUID actor = UUID.randomUUID();
+        UUID subject = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        registry.getQuest(questId).orElseThrow().setRepeatType(Quest.RepeatType.RESET);
+        completeQuestImmediately(subject, questId);
+
+        // Another player's actor identity cannot reset the subject's quest.
+        CanonicalMutationResult denied = service.mutateQuestProgression(new QuestProgressionMutationRequest(
+                "player", actor, subject, questId, QuestProgressionMutationRequest.Action.RESET,
+                "", 0, service.currentQuestProgressionRevision(subject), UUID.randomUUID(), 0));
+        assertThat(denied.applied()).isFalse();
+        assertThat(denied.diagnostics().getErrors()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.code()).isEqualTo("PLAYER_SUBJECT_MISMATCH"));
+
+        // An unproven cross-subject command hits the admin-scope boundary.
+        CanonicalMutationResult unproven = service.mutateQuestProgression(new QuestProgressionMutationRequest(
+                "command", actor, subject, questId, QuestProgressionMutationRequest.Action.RESET,
+                "", 0, service.currentQuestProgressionRevision(subject), UUID.randomUUID(), 0));
+        assertThat(unproven.applied()).isFalse();
+        assertThat(unproven.diagnostics().getErrors()).anySatisfy(diagnostic ->
+                assertThat(diagnostic.code()).isEqualTo("PERMISSION_DENIED"));
+
+        // The authorized operator path still resets.
+        CanonicalMutationResult allowed = service.mutateQuestProgression(new QuestProgressionMutationRequest(
+                "command", actor, subject, questId, QuestProgressionMutationRequest.Action.RESET,
+                "", 0, service.currentQuestProgressionRevision(subject), UUID.randomUUID(), 2));
+        assertThat(allowed.applied()).isTrue();
+    }
+
+    @Test
+    void resetRequestContractRejectsObjectiveAndAmountFields() {
+        UUID player = UUID.randomUUID();
+        NamespacedId questId = NamespacedId.of("storynpcs:collect_wood");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        new QuestProgressionMutationRequest("system", null, player, questId,
+                                QuestProgressionMutationRequest.Action.RESET, "logs", 0,
+                                0, UUID.randomUUID(), -1))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        new QuestProgressionMutationRequest("system", null, player, questId,
+                                QuestProgressionMutationRequest.Action.RESET, "", 5,
+                                0, UUID.randomUUID(), -1))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

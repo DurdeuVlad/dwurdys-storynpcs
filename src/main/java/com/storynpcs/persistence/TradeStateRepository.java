@@ -43,7 +43,29 @@ public final class TradeStateRepository {
     }
 
     public synchronized int getUses(String npcId, String listingId) throws IOException {
-        return state().getUses().getOrDefault(key(npcId, listingId), 0);
+        return getUsesOrMigrateLegacy(npcId, listingId, null);
+    }
+
+    public synchronized int getUsesOrMigrateLegacy(
+            String npcId, String listingId, String legacyListingId) throws IOException {
+        String currentKey = key(npcId, listingId);
+        State current = state();
+        Integer uses = current.getUses().get(currentKey);
+        if (uses != null) return uses;
+        if (legacyListingId == null || legacyListingId.isBlank() || legacyListingId.equals(listingId)) {
+            return 0;
+        }
+        Integer legacyUses = current.getUses().get(key(npcId, legacyListingId));
+        if (legacyUses == null || legacyUses == 0) return 0;
+        State snapshot = copy(current);
+        current.getUses().put(currentKey, legacyUses);
+        try {
+            store().write(current);
+            return legacyUses;
+        } catch (IOException | RuntimeException failure) {
+            state = snapshot;
+            throw failure;
+        }
     }
 
     /** Atomically reserves one durable listing use if the expected projection still matches. */

@@ -61,17 +61,10 @@ class FixtureHarnessTest(unittest.TestCase):
         self.assertEqual(set(catalog["required_domains"]), DOMAINS)
         self.assertTrue(all("target-runtime" not in fixture["required_layers"] for fixture in catalog["fixtures"]))
         self.assertTrue(all(fixture["target_probe_policy"] == "optional" for fixture in catalog["fixtures"]))
-        self.assertEqual(
-            {fixture_id: blocker["owner_issue_ids"]
-             for fixture_id, blocker in catalog["storynpcs_test_blockers"].items()},
-            {
-                "P0-4.jobs": ["P6-4"],
-                "P0-4.transport": ["P6-3"],
-                "P0-4.spawner": ["P8-1"],
-                "P0-4.creator-tools": ["P8-2", "P8-3"],
-                "P0-4.scripting": ["P9-1", "P9-2"],
-            },
-        )
+        # P11-2: every fixture now has real JUnit selectors — no declared blockers remain.
+        self.assertEqual(catalog["storynpcs_test_blockers"], {})
+        self.assertTrue(all(catalog["storynpcs_test_map"][fixture["fixture_id"]]
+                            for fixture in catalog["fixtures"]))
 
     def test_catalog_expands_to_blocked_unverified_evidence(self):
         root = Path(__file__).resolve().parents[2]
@@ -81,18 +74,10 @@ class FixtureHarnessTest(unittest.TestCase):
         self.assertEqual(report["status"], "BLOCKED")
         self.assertEqual(report["source_provenance_status"], "UNVERIFIED")
         self.assertEqual(report["coverage"]["fixture_count"], 25)
-        self.assertEqual(report["coverage"]["mapped_junit_fixture_count"], 20)
-        self.assertEqual(len(report["coverage"]["unmapped_junit_fixture_ids"]), 5)
-        reported_blockers = {
-            entry["fixture_id"]: entry["owner_issue_ids"]
-            for entry in report["coverage"]["unmapped_junit_fixture_blockers"]
-        }
-        self.assertEqual(set(reported_blockers), set(catalog["storynpcs_test_blockers"]))
-        self.assertTrue(all(
-            reported_blockers[fixture_id] == blocker["owner_issue_ids"]
-            for fixture_id, blocker in catalog["storynpcs_test_blockers"].items()
-        ))
-        self.assertEqual(report["storynpcs_execution_coverage"], "INCOMPLETE")
+        self.assertEqual(report["coverage"]["mapped_junit_fixture_count"], 25)
+        self.assertEqual(report["coverage"]["unmapped_junit_fixture_ids"], [])
+        self.assertEqual(report["coverage"]["unmapped_junit_fixture_blockers"], [])
+        self.assertEqual(report["storynpcs_execution_coverage"], "MAPPED")
         self.assertEqual(report["evidence"]["parity_status"], "BLOCKED")
         self.assertFalse(report["evidence"]["certification_eligible"])
         self.assertEqual(len(expand_fixtures(catalog)), 25)
@@ -287,7 +272,8 @@ class FixtureHarnessTest(unittest.TestCase):
     def test_empty_selector_fixtures_require_exact_blocker_records(self):
         root = Path(__file__).resolve().parents[2]
         catalog = load_catalog(root / "docs" / "parity" / "fixture-catalog.json")
-        del catalog["storynpcs_test_blockers"]["P0-4.jobs"]
+        # Synthesize an empty-selector fixture with no matching blocker record.
+        catalog["storynpcs_test_map"]["P0-4.jobs"] = []
 
         errors = validate_catalog(catalog)
 
@@ -296,7 +282,11 @@ class FixtureHarnessTest(unittest.TestCase):
     def test_empty_selector_blocker_owners_must_be_issue_ids_on_the_fixture(self):
         root = Path(__file__).resolve().parents[2]
         catalog = load_catalog(root / "docs" / "parity" / "fixture-catalog.json")
-        catalog["storynpcs_test_blockers"]["P0-4.jobs"]["owner_issue_ids"] = ["P2-3"]
+        catalog["storynpcs_test_map"]["P0-4.jobs"] = []
+        catalog["storynpcs_test_blockers"]["P0-4.jobs"] = {
+            "owner_issue_ids": ["P2-3"],
+            "reason": "Synthesized blocker for validator coverage.",
+        }
 
         errors = validate_catalog(catalog)
 

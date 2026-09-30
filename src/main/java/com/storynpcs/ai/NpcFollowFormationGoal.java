@@ -1,6 +1,7 @@
 package com.storynpcs.ai;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.role.follower.FollowerRole;
 import com.storynpcs.domain.role.follower.FormationCalculator;
 import com.storynpcs.domain.role.follower.FormationOffset;
@@ -97,7 +98,7 @@ public class NpcFollowFormationGoal extends Goal {
         // Calculate slot index (explicit or dynamically allocated from group)
         int slotIndex = role.getFormationSlot();
         if (slotIndex < 0) {
-            StoryNpcs mod = StoryNpcs.getInstance();
+            StoryNpcs mod = StoryNpcsAccess.mod(npc);
             net.minecraft.server.MinecraftServer server = npc.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                     ? serverLevel.getServer()
                     : null;

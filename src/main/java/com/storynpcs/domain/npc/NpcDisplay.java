@@ -101,13 +101,15 @@ public class NpcDisplay {
     public NpcDisplay() {}
 
     public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public void setName(String name) { this.name = name == null ? "StoryNPC" : name; }
 
     public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
+    public void setTitle(String title) { this.title = title == null ? "" : title; }
 
     public String getSkinTexture() { return skinTexture; }
-    public void setSkinTexture(String skinTexture) { this.skinTexture = skinTexture; }
+    public void setSkinTexture(String skinTexture) {
+        this.skinTexture = boundedText(skinTexture, "skinTexture", 512);
+    }
 
     public SkinSource getSkinSource() { return skinSource; }
     public void setSkinSource(SkinSource skinSource) {
@@ -146,7 +148,7 @@ public class NpcDisplay {
     public void setVisibility(int visibility) { this.visibility = boundedInt(visibility, 0, 2, "visibility"); }
 
     public String getModelType() { return modelType; }
-    public void setModelType(String modelType) { this.modelType = modelType; }
+    public void setModelType(String modelType) { this.modelType = modelType == null ? "humanoid" : modelType; }
 
     public String getModelId() { return modelId; }
     public void setModelId(String modelId) { this.modelId = boundedText(modelId, "modelId", 256); }

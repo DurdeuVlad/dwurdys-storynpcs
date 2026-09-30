@@ -1,6 +1,7 @@
 package com.storynpcs.network;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.common.DiagnosticHints;
 import com.storynpcs.service.DialogueView;
 import com.storynpcs.service.MutationRequest;
@@ -212,7 +213,7 @@ public class StoryNpcsNetwork {
                     payload.requestId(), "PERMISSION_DENIED", payload.expectedRevision());
             return;
         }
-        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
         if (service == null) {
             sendFactionSaveResult(player, false, "StoryNPCs service is not available on this server.",
                     payload.requestId(), "SERVICE_UNAVAILABLE", payload.expectedRevision());
@@ -247,7 +248,7 @@ public class StoryNpcsNetwork {
                     payload.requestId(), "PERMISSION_DENIED", payload.expectedRevision());
             return;
         }
-        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
         if (service == null) {
             sendFactionSaveResult(player, false, "StoryNPCs service is not available on this server.",
                     payload.requestId(), "SERVICE_UNAVAILABLE", payload.expectedRevision());
@@ -277,7 +278,7 @@ public class StoryNpcsNetwork {
 
     private static void sendFactionSaveResult(ServerPlayer player, boolean success, String message,
                                                java.util.UUID requestId, String code, long revision) {
-        var registry = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getRegistry() : null;
+        var registry = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getRegistry() : null;
         String factionsJson = registry != null
                 ? com.storynpcs.domain.faction.FactionSerde.toJsonList(List.copyOf(registry.getAllFactions()))
                 : "[]";
@@ -292,7 +293,7 @@ public class StoryNpcsNetwork {
                     payload.requestId(), "PERMISSION_DENIED", payload.expectedRevision());
             return;
         }
-        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
         if (service == null) {
             sendQuestSaveResult(player, false, "StoryNPCs service is not available on this server.",
                     payload.requestId(), "SERVICE_UNAVAILABLE", payload.expectedRevision());
@@ -327,7 +328,7 @@ public class StoryNpcsNetwork {
                     payload.requestId(), "PERMISSION_DENIED", payload.expectedRevision());
             return;
         }
-        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
         if (service == null) {
             sendQuestSaveResult(player, false, "StoryNPCs service is not available on this server.",
                     payload.requestId(), "SERVICE_UNAVAILABLE", payload.expectedRevision());
@@ -357,7 +358,7 @@ public class StoryNpcsNetwork {
 
     private static void sendQuestSaveResult(ServerPlayer player, boolean success, String message,
                                             java.util.UUID requestId, String code, long revision) {
-        var registry = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getRegistry() : null;
+        var registry = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getRegistry() : null;
         String questsJson = registry != null
                 ? com.storynpcs.domain.quest.QuestSerde.toJsonList(List.copyOf(registry.getAllQuests()))
                 : "[]";
@@ -373,7 +374,7 @@ public class StoryNpcsNetwork {
                     payload.requestId(), "PERMISSION_DENIED", payload.expectedRevision());
             return;
         }
-        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
         if (service == null) {
             sendSaveResult(player, false, "StoryNPCs service is not available on this server.",
                     payload.requestId(), "SERVICE_UNAVAILABLE", payload.expectedRevision());
@@ -423,7 +424,7 @@ public class StoryNpcsNetwork {
                     payload.requestId(), "PERMISSION_DENIED", payload.expectedRevision());
             return;
         }
-        var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+        var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
         if (service == null) {
             sendNpcSaveResult(player, false, "StoryNPCs service is not available on this server.",
                     payload.requestId(), "SERVICE_UNAVAILABLE", payload.expectedRevision());
@@ -486,7 +487,7 @@ public class StoryNpcsNetwork {
     /** Returns true when the player's trade/bank action should be dropped as spam. */
     private static boolean isRoleActionThrottled(ServerPlayer player) {
         long now = System.currentTimeMillis();
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         return mod != null && mod.getRuntimeSessions(player.getServer()).throttleRoleAction(
                 player.getUUID(), now, ROLE_ACTION_MIN_INTERVAL_MILLIS);
     }
@@ -494,14 +495,14 @@ public class StoryNpcsNetwork {
     private static void handleDialogueChoose(ServerPlayer player, ServerboundDialogueChoosePayload payload) {
         // Prevent dead or spectator player exploiting dialogue (VULN-12)
         if (!player.isAlive() || player.isSpectator()) {
-            var service = StoryNpcs.getInstance() != null ? StoryNpcs.getInstance().getApplicationService() : null;
+            var service = StoryNpcsAccess.mod(player) != null ? StoryNpcsAccess.mod(player).getApplicationService() : null;
             if (service != null) service.closeDialogue(player.getUUID());
             sendCloseDialogue(player);
             return;
         }
 
         // Rate-limit incoming choice packets to prevent main-thread disk I/O DoS (VULN-13)
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         if (mod == null) {
             sendCloseDialogue(player);
             return;
@@ -521,7 +522,7 @@ public class StoryNpcsNetwork {
         }
 
         try {
-            service = StoryNpcs.getInstance().getApplicationService();
+            service = mod.getApplicationService();
             if (service != null) {
                 // Validate interaction distance and dimension (VULN-11)
                 var sessionOpt = service.getActiveSession(player.getUUID());
@@ -545,7 +546,8 @@ public class StoryNpcsNetwork {
                     }
                 }
 
-                DialogueView view = service.chooseDialogueOption(player.getUUID(), payload.optionIndex());
+                // Choice is authorized by the opaque single-use token (P5-2), never by index
+                DialogueView view = service.chooseDialogueOption(player.getUUID(), payload.choiceToken());
                 if (view.isTerminal()) {
                     if (view.options().isEmpty()) {
                         if (view.nodeId().isEmpty()) {
@@ -568,15 +570,8 @@ public class StoryNpcsNetwork {
         }
     }
 
-    public static void clearPlayer(java.util.UUID playerUuid) {
-        var mod = StoryNpcs.getInstance();
-        if (mod != null) {
-            mod.getRuntimeSessions().clearPlayer(playerUuid);
-        }
-    }
-
     public static void clearPlayer(net.minecraft.server.MinecraftServer server, java.util.UUID playerUuid) {
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(server);
         if (mod != null) {
             mod.getRuntimeSessions(server).clearPlayer(playerUuid);
         }
@@ -602,9 +597,10 @@ public class StoryNpcsNetwork {
                         view.isTerminal(),
                         view.npcName() != null ? view.npcName() : "",
                         sanitizedHints,
-                        StoryNpcs.getInstance().getApplicationService().getActiveSession(player.getUUID())
+                        StoryNpcsAccess.require(player).getApplicationService().getActiveSession(player.getUUID())
                                 .map(com.storynpcs.domain.dialogue.DialogueSession::getSessionId)
-                                .orElse(new java.util.UUID(0L, 0L))
+                                .orElse(new java.util.UUID(0L, 0L)),
+                        view.optionTokens() != null ? view.optionTokens() : java.util.List.of()
                 )
         );
     }
@@ -617,14 +613,16 @@ public class StoryNpcsNetwork {
 
     /** Opens the trade screen for an NPC whose definition has a trader role. */
     public static void sendTradeOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc) {
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         if (mod == null || npc.getTrader() == null) return;
         var trader = com.storynpcs.domain.role.RoleSerde.copyTrader(npc.getTrader());
         var tradeState = mod.getTradeStateRepository();
         if (tradeState != null) {
             for (var listing : trader.getListings()) {
                 try {
-                    listing.setUses(tradeState.getUses(npc.getId().toString(), listing.getListingId()));
+                    listing.setUses(tradeState.getUsesOrMigrateLegacy(
+                            npc.getId().toString(), listing.getListingId(),
+                            listing.legacyListingIdForMigration().orElse(null)));
                 } catch (java.io.IOException | RuntimeException ignored) {
                     // The service will fail closed if the durable projection is unavailable.
                 }
@@ -652,15 +650,37 @@ public class StoryNpcsNetwork {
 
     /** Opens the bank screen for an NPC whose definition has a banker role. */
     public static void sendBankOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc) {
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         if (mod == null || npc.getBanker() == null || mod.getBankRepository() == null) return;
+        // The vault owner resolves from the authored banker role — never from a
+        // client field — so a member can only reach a shared vault they are
+        // authorized for, and cannot select an arbitrary vault owner.
+        java.util.UUID vaultOwner = resolveBankVaultOwner(npc, player.getUUID());
+        var vault = mod.getBankRepository().getOrCreate(vaultOwner);
+        if (!vaultOwner.equals(player.getUUID())
+                && !vault.canAccess(player.getUUID())
+                && !player.hasPermissions(2)) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] You are not a member of this shared vault."), true);
+            return;
+        }
         var sessionId = mod.getRuntimeSessions(player.getServer()).openRoleSession(
                 player.getUUID(), "bank", npc.getId());
-        var vault = mod.getBankRepository().getOrCreate(player.getUUID());
         PacketDistributor.sendToPlayer(player, new ClientboundBankOpenPayload(
                 npc.getId().toString(),
                 com.storynpcs.domain.role.RoleSerde.toJson(npc.getBanker()),
                 com.storynpcs.domain.role.RoleSerde.toJson(vault), sessionId));
+    }
+
+    /**
+     * Resolves the durable vault identity served by a banker NPC: the authored
+     * {@code vaultOwnerUuid} when present, otherwise the interacting player.
+     */
+    private static java.util.UUID resolveBankVaultOwner(
+            com.storynpcs.domain.npc.NpcDefinition npc, java.util.UUID playerUuid) {
+        var banker = npc.getBanker();
+        if (banker == null) return playerUuid;
+        return banker.authoredVaultOwner().orElse(playerUuid);
     }
 
     /** True when a live entity of the given definition is within interaction range of the player. */
@@ -673,7 +693,7 @@ public class StoryNpcsNetwork {
 
     private static com.storynpcs.domain.npc.NpcDefinition resolveRoleNpc(
             ServerPlayer player, String npcIdRaw) {
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         if (mod == null) return null;
         com.storynpcs.domain.common.NamespacedId npcId;
         try {
@@ -695,7 +715,7 @@ public class StoryNpcsNetwork {
 
     private static void handleTradeExecute(ServerPlayer player, ServerboundTradeExecutePayload payload) {
         if (isRoleActionThrottled(player)) return;
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         if (mod == null) return;
         com.storynpcs.domain.common.NamespacedId requestedNpc;
         try {
@@ -724,22 +744,34 @@ public class StoryNpcsNetwork {
             sendTradeOpen(player, npc);
             return;
         }
-        var listing = listings.get(idx);
-        var npcId = requestedNpc;
-        boolean ok = mod.getApplicationService()
-                .executeTrade(player.getUUID(), npcId, idx, listing, payload.requestId());
-        if (ok) {
-            player.sendSystemMessage(Component.literal("§aTraded: "
-                    + com.storynpcs.domain.role.trader.TradeSummaries.describe(listing)), true);
-        } else {
-            player.sendSystemMessage(Component.literal("§cTrade failed — sold out, insufficient payment, or faction requirement not met."), true);
+        try {
+            var listing = listings.get(idx);
+            var npcId = requestedNpc;
+            boolean ok = mod.getApplicationService()
+                    .executeTrade(new com.storynpcs.service.TradeExecutionRequest(
+                            "player", player.getUUID(), player.getUUID(), npcId, idx,
+                            payload.requestId(), -1), listing)
+                    .applied();
+            if (ok) {
+                player.sendSystemMessage(Component.literal("§aTraded: "
+                        + com.storynpcs.domain.role.trader.TradeSummaries.describe(listing)), true);
+            } else {
+                player.sendSystemMessage(Component.literal(
+                        "§cTrade failed — sold out, insufficient payment, full inventory, or faction requirement not met."), true);
+            }
+            sendTradeOpen(player, npc); // refresh listing availability/uses
+        } catch (RuntimeException failure) {
+            // A malformed or stale packet must fail closed here — an uncaught
+            // throw escapes enqueueWork onto the server thread.
+            System.err.println("Error processing trade for player " + player.getName().getString()
+                    + ": " + failure.getMessage());
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] Trade request could not be processed."), true);
         }
-        sendTradeOpen(player, npc); // refresh listing availability/uses
     }
 
     private static void handleBankAction(ServerPlayer player, ServerboundBankActionPayload payload) {
         if (isRoleActionThrottled(player)) return;
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(player);
         if (mod == null) return;
         com.storynpcs.domain.common.NamespacedId requestedNpc;
         try {
@@ -774,13 +806,30 @@ public class StoryNpcsNetwork {
             player.sendSystemMessage(Component.literal("§c[StoryNPCs] Banking is unavailable right now."), true);
             return;
         }
+        // Bound client-controlled indices before constructing canonical
+        // requests: BankOperationRequest's contract throws on out-of-range
+        // values, and an uncaught throw here escapes enqueueWork onto the
+        // server thread (VULN-class: malformed packet crashes the server).
+        int tab = payload.tab();
+        int slot = payload.slot();
+        if (!com.storynpcs.service.BankOperationRequest.isValidTab(tab)
+                || !com.storynpcs.service.BankOperationRequest.isValidSlot(slot)) {
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] Malformed bank action — rejected."), true);
+            return;
+        }
         var service = mod.getApplicationService();
         var npcId = requestedNpc;
+        // Authored shared-vault target — resolved server-side from the banker
+        // definition; the packet never carries a vault owner.
+        java.util.UUID vaultOwner = resolveBankVaultOwner(npc, player.getUUID());
 
-        switch (payload.action()) {
+        try {
+            switch (payload.action()) {
             case "deposit_held" -> {
-                var deposit = service.depositHeldToBank(player.getUUID(), bankRepo,
-                        payload.tab(), payload.requestId());
+                var deposit = service.depositToBank(new com.storynpcs.service.BankOperationRequest(
+                        "player", player.getUUID(), player.getUUID(), npcId,
+                        com.storynpcs.service.BankOperationRequest.Action.DEPOSIT_HELD,
+                        payload.tab(), -1, null, 0, payload.requestId(), -1, vaultOwner), bankRepo, null);
                 if (!deposit.accepted()) {
                     player.sendSystemMessage(Component.literal("§c[StoryNPCs] Deposit failed — " + deposit.code() + "."), true);
                     break;
@@ -789,8 +838,10 @@ public class StoryNpcsNetwork {
                         + " in " + banker.getBankName() + " (tab " + (payload.tab() + 1) + ")."), true);
             }
             case "withdraw" -> {
-                var withdrawal = service.withdrawAndDeliverFromBank(player.getUUID(), bankRepo,
-                        payload.tab(), payload.slot(), payload.requestId());
+                var withdrawal = service.withdrawFromBank(new com.storynpcs.service.BankOperationRequest(
+                        "player", player.getUUID(), player.getUUID(), npcId,
+                        com.storynpcs.service.BankOperationRequest.Action.WITHDRAW_STACK,
+                        payload.tab(), payload.slot(), null, 0, payload.requestId(), -1, vaultOwner), bankRepo);
                 if ("REPLAYED".equals(withdrawal.code())) {
                     player.sendSystemMessage(Component.literal("§e[StoryNPCs] Withdrawal already applied; no duplicate item was created."), true);
                     break;
@@ -804,7 +855,11 @@ public class StoryNpcsNetwork {
                         + "x " + withdrawal.item().getItemId() + "."), true);
             }
             case "unlock_tab" -> {
-                boolean ok = service.unlockBankTab(player.getUUID(), bankRepo, banker, payload.requestId());
+                boolean ok = service.unlockBankTab(new com.storynpcs.service.BankOperationRequest(
+                        "player", player.getUUID(), player.getUUID(), npcId,
+                        com.storynpcs.service.BankOperationRequest.Action.UNLOCK_TAB,
+                        payload.tab(), -1, null, 0, payload.requestId(), -1, vaultOwner), bankRepo, banker)
+                        .applied();
                 if (!ok) {
                     player.sendSystemMessage(Component.literal("§c[StoryNPCs] Tab unlock failed — max tabs reached or not enough emeralds."), true);
                     break;
@@ -812,8 +867,15 @@ public class StoryNpcsNetwork {
                 player.sendSystemMessage(Component.literal("§aUnlocked a new vault tab in " + banker.getBankName() + "."), true);
             }
             default -> player.sendSystemMessage(Component.literal("§c[StoryNPCs] Unknown bank action."), true);
+            }
+            sendBankOpen(player, npc); // refresh vault view
+        } catch (RuntimeException failure) {
+            // Same fail-closed boundary as the trade handler: a malformed or
+            // stale packet must never escape onto the server thread.
+            System.err.println("Error processing bank action for player " + player.getName().getString()
+                    + ": " + failure.getMessage());
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] Bank action could not be processed."), true);
         }
-        sendBankOpen(player, npc); // refresh vault view
     }
 
 }

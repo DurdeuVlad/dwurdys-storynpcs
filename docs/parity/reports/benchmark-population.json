@@ -1,0 +1,92 @@
+{
+  "artifact_kind": "benchmark-evidence",
+  "scenario": "population",
+  "runtime_kind": "storynpcs-headless-jvm",
+  "honesty_note": "Headless scheduler/path/squad benchmark on a plain JVM. Numbers are scheduler tick times, NOT live-server MSPT. Live runtime certification requires a NeoForge server probe that remains unavailable (no live MC testing permitted)."
+  ,"runs": [
+    {
+      "seed": 24301,
+      "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
+      "ticks": 1500,
+      "metrics": {
+        "tick_p50_ms": 0.290836,
+        "tick_p95_ms": 0.409976,
+        "tick_p99_ms": 0.432656,
+        "heap_after_gc_bytes": 26648120,
+        "dormant_incremental_bytes": 1,
+        "path_queue_max_depth": 0,
+        "path_queue_dropped": 0,
+        "correctness_failures": 0,
+        "lost_events": 0,
+        "duplicated_events": 0
+      },
+      "threshold_results": [
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.409976, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.432656, "pass": true},
+        {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
+        {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
+        {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
+        {"metric": "lostEvents", "limit": "=0", "actual": 0.0, "pass": true},
+        {"metric": "duplicatedEvents", "limit": "=0", "actual": 0.0, "pass": true}
+      ],
+      "scenario_pass": true
+    },
+    {
+      "seed": 51966,
+      "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
+      "ticks": 1500,
+      "metrics": {
+        "tick_p50_ms": 0.356696,
+        "tick_p95_ms": 0.444332,
+        "tick_p99_ms": 0.685308,
+        "heap_after_gc_bytes": 26648424,
+        "dormant_incremental_bytes": 1,
+        "path_queue_max_depth": 0,
+        "path_queue_dropped": 0,
+        "correctness_failures": 0,
+        "lost_events": 0,
+        "duplicated_events": 0
+      },
+      "threshold_results": [
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.444332, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.685308, "pass": true},
+        {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
+        {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
+        {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
+        {"metric": "lostEvents", "limit": "=0", "actual": 0.0, "pass": true},
+        {"metric": "duplicatedEvents", "limit": "=0", "actual": 0.0, "pass": true}
+      ],
+      "scenario_pass": true
+    },
+    {
+      "seed": 48879,
+      "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
+      "ticks": 1500,
+      "metrics": {
+        "tick_p50_ms": 0.307436,
+        "tick_p95_ms": 0.408736,
+        "tick_p99_ms": 0.432448,
+        "heap_after_gc_bytes": 26648776,
+        "dormant_incremental_bytes": 1,
+        "path_queue_max_depth": 0,
+        "path_queue_dropped": 0,
+        "correctness_failures": 0,
+        "lost_events": 0,
+        "duplicated_events": 0
+      },
+      "threshold_results": [
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.408736, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.432448, "pass": true},
+        {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
+        {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
+        {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
+        {"metric": "lostEvents", "limit": "=0", "actual": 0.0, "pass": true},
+        {"metric": "duplicatedEvents", "limit": "=0", "actual": 0.0, "pass": true}
+      ],
+      "scenario_pass": true
+    }
+  ],
+  "timing_repeatable_within_10pct": null,
+  "timing_repeatability_note": "Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately.",
+  "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED"
+}

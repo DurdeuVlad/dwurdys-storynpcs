@@ -2,19 +2,24 @@ package com.storynpcs.domain.template;
 
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
+import com.storynpcs.domain.npc.NpcInventory;
+import com.storynpcs.domain.npc.NpcItemStack;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class NpcTemplateTest {
 
+    private static final NamespacedId IRON_SWORD = NamespacedId.of("minecraft:iron_sword");
+    private static final NamespacedId SHIELD = NamespacedId.of("minecraft:shield");
+    private static final NamespacedId GOLDEN_APPLE = NamespacedId.of("minecraft:golden_apple");
+
     private static NpcDefinition sourceNpc() {
         NpcDefinition def = new NpcDefinition(NamespacedId.of("storynpcs:source_npc"), "Source NPC");
-        def.setInventory(new ArrayList<>(List.of("minecraft:iron_sword", "minecraft:shield")));
+        def.getInventory().equip(NpcInventory.ItemSlot.RIGHT_HAND, NpcItemStack.single(IRON_SWORD));
+        def.getInventory().equip(NpcInventory.ItemSlot.LEFT_HAND, NpcItemStack.single(SHIELD));
         return def;
     }
 
@@ -39,12 +44,15 @@ class NpcTemplateTest {
         NpcTemplate template = NpcTemplate.capture(
                 NamespacedId.of("storynpcs:guard_template"), source.getId(), source);
 
-        source.getInventory().add("minecraft:diamond_sword");
+        source.getInventory().equip(NpcInventory.ItemSlot.PROJECTILE, NpcItemStack.single(GOLDEN_APPLE));
         source.getDisplay().setName("Mutated After Capture");
 
         Optional<NpcDefinition> instantiated = template.instantiate(NamespacedId.of("storynpcs:guard_clone_1"));
         assertThat(instantiated).isPresent();
-        assertThat(instantiated.get().getInventory()).containsExactly("minecraft:iron_sword", "minecraft:shield");
+        var equipment = instantiated.get().getInventory().getEquipment();
+        assertThat(equipment.get(NpcInventory.ItemSlot.RIGHT_HAND).itemId()).isEqualTo(IRON_SWORD);
+        assertThat(equipment.get(NpcInventory.ItemSlot.LEFT_HAND).itemId()).isEqualTo(SHIELD);
+        assertThat(equipment).hasSize(2);
         assertThat(instantiated.get().getDisplay().getName()).isEqualTo("Source NPC");
     }
 
@@ -69,11 +77,14 @@ class NpcTemplateTest {
         NpcDefinition first = template.instantiate(NamespacedId.of("storynpcs:clone_a")).orElseThrow();
         NpcDefinition second = template.instantiate(NamespacedId.of("storynpcs:clone_b")).orElseThrow();
 
-        first.getInventory().add("minecraft:golden_apple");
+        first.getInventory().equip(NpcInventory.ItemSlot.HELMET, NpcItemStack.single(GOLDEN_APPLE));
 
-        assertThat(first.getInventory()).contains("minecraft:golden_apple");
-        assertThat(second.getInventory()).doesNotContain("minecraft:golden_apple");
-        assertThat(second.getInventory()).containsExactly("minecraft:iron_sword", "minecraft:shield");
+        var firstEquipment = first.getInventory().getEquipment();
+        assertThat(firstEquipment.get(NpcInventory.ItemSlot.HELMET).itemId()).isEqualTo(GOLDEN_APPLE);
+        var secondEquipment = second.getInventory().getEquipment();
+        assertThat(secondEquipment).doesNotContainKey(NpcInventory.ItemSlot.HELMET);
+        assertThat(secondEquipment.get(NpcInventory.ItemSlot.RIGHT_HAND).itemId()).isEqualTo(IRON_SWORD);
+        assertThat(secondEquipment.get(NpcInventory.ItemSlot.LEFT_HAND).itemId()).isEqualTo(SHIELD);
     }
 
     @Test

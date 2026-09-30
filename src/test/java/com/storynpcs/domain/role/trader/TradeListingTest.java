@@ -9,30 +9,30 @@ class TradeListingTest {
     @Test
     void singleInputListingHasNoSecondInput() {
         TradeListing listing = new TradeListing("minecraft:bread", 3, "minecraft:emerald", 1);
-        assertThat(listing.hasSecondInput()).isFalse();
-        assertThat(listing.getSecondPriceItemId()).isNull();
+        assertThat(listing.hasTwoInputs()).isFalse();
+        assertThat(listing.getSecondaryPriceItemId()).isNull();
     }
 
     @Test
     void twoInputConstructorSetsTheSecondInput() {
         TradeListing listing = new TradeListing(
                 "minecraft:golden_apple", 1, "minecraft:emerald", 5, "minecraft:gold_ingot", 3);
-        assertThat(listing.hasSecondInput()).isTrue();
-        assertThat(listing.getSecondPriceItemId()).isEqualTo("minecraft:gold_ingot");
-        assertThat(listing.getSecondPriceCount()).isEqualTo(3);
+        assertThat(listing.hasTwoInputs()).isTrue();
+        assertThat(listing.getSecondaryPriceItemId()).isEqualTo("minecraft:gold_ingot");
+        assertThat(listing.getSecondaryPriceCount()).isEqualTo(3);
     }
 
     @Test
     void settingSecondPriceItemIdToBlankOrNullClearsIt() {
         TradeListing listing = new TradeListing(
                 "minecraft:golden_apple", 1, "minecraft:emerald", 5, "minecraft:gold_ingot", 3);
-        listing.setSecondPriceItemId("");
-        assertThat(listing.hasSecondInput()).isFalse();
+        listing.setSecondaryPriceItemId("");
+        assertThat(listing.hasTwoInputs()).isFalse();
 
-        listing.setSecondPriceItemId("minecraft:iron_ingot");
-        assertThat(listing.hasSecondInput()).isTrue();
-        listing.setSecondPriceItemId(null);
-        assertThat(listing.hasSecondInput()).isFalse();
+        listing.setSecondaryPriceItemId("minecraft:iron_ingot");
+        assertThat(listing.hasTwoInputs()).isTrue();
+        listing.setSecondaryPriceItemId(null);
+        assertThat(listing.hasTwoInputs()).isFalse();
     }
 
     @Test

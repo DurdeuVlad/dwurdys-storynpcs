@@ -2,7 +2,7 @@ package com.storynpcs.domain.companion;
 
 /**
  * Pure wage-scheduling math for companion hiring (issue #74). Mirrors
- * {@code com.storynpcs.domain.quest.QuestRepeatPolicy}'s pure-function style.
+ * {@code com.storynpcs.domain.quest.RepeatSchedule}'s pure-function style.
  *
  * <p><b>Exactly-once and recoverable, by construction:</b> {@link #periodsOwed}
  * is a pure function of {@code (lastPaidAtEpochMillis, nowEpochMillis,

@@ -16,16 +16,17 @@ class NetworkPayloadsTest {
     @Test
     @DisplayName("ServerboundDialogueChoosePayload encode and decode matches")
     void testServerboundDialogueChoosePayloadCodec() {
+        String token = UUID.randomUUID().toString();
         ServerboundDialogueChoosePayload payload = new ServerboundDialogueChoosePayload(
-                3, UUID.randomUUID(), UUID.randomUUID());
-        assertEquals(3, payload.optionIndex());
+                UUID.randomUUID(), UUID.randomUUID(), token);
+        assertEquals(token, payload.choiceToken());
         assertEquals(ServerboundDialogueChoosePayload.TYPE, payload.type());
 
         ByteBuf buf = Unpooled.buffer();
         ServerboundDialogueChoosePayload.STREAM_CODEC.encode(buf, payload);
 
         ServerboundDialogueChoosePayload decoded = ServerboundDialogueChoosePayload.STREAM_CODEC.decode(buf);
-        assertEquals(3, decoded.optionIndex());
+        assertEquals(token, decoded.choiceToken());
         assertEquals(payload, decoded);
     }
 
@@ -43,7 +44,8 @@ class NetworkPayloadsTest {
     void rejectsTrailingFrameBytes() {
         ByteBuf buf = Unpooled.buffer();
         ServerboundDialogueChoosePayload.STREAM_CODEC.encode(
-                buf, new ServerboundDialogueChoosePayload(1, UUID.randomUUID(), UUID.randomUUID()));
+                buf, new ServerboundDialogueChoosePayload(UUID.randomUUID(), UUID.randomUUID(),
+                        UUID.randomUUID().toString()));
         buf.writeByte(0x7F);
         assertThrows(IllegalArgumentException.class,
                 () -> ServerboundDialogueChoosePayload.STREAM_CODEC.decode(buf));

@@ -84,7 +84,9 @@ class DurableOperationJournalTest {
     @Test
     @DisplayName("Journal write failure leaves no false committed outcome")
     void testFailureInjection(@TempDir Path tempDir) throws IOException {
+        // Record-commit stages only — INDEX_UPDATE belongs to indexed stores above this layer.
         for (DurableJsonStore.FailurePoint failurePoint : DurableJsonStore.FailurePoint.values()) {
+            if (failurePoint == DurableJsonStore.FailurePoint.INDEX_UPDATE) continue;
             Path journalDir = tempDir.resolve(failurePoint.name().toLowerCase());
             DurableOperationJournal journal = new DurableOperationJournal(journalDir, point -> {
                 if (point == failurePoint) throw new IOException("injected journal failure");
@@ -94,5 +96,100 @@ class DurableOperationJournalTest {
                     () -> journal.begin(operationId, "bank.deposit", "player:test"), failurePoint.toString());
             assertNull(journal.read(operationId), failurePoint.toString());
         }
+    }
+
+    // ── terminal-record retention ─────────────────────────────────────────
+
+    private static int countFiles(Path dir, String suffix) throws IOException {
+        if (!Files.exists(dir)) return 0;
+        try (var paths = Files.list(dir)) {
+            return (int) paths.filter(p -> p.getFileName().toString().endsWith(suffix)).count();
+        }
+    }
+
+    private static int countFilesContaining(Path dir, String fragment) throws IOException {
+        if (!Files.exists(dir)) return 0;
+        try (var paths = Files.list(dir)) {
+            return (int) paths.filter(p -> p.getFileName().toString().contains(fragment)).count();
+        }
+    }
+
+    @Test
+    @DisplayName("Pruning deletes terminal records, their locks and backups, but keeps prepared work")
+    void pruneDeletesTerminalKeepsPrepared(@TempDir Path tempDir) throws IOException {
+        Path journalDir = tempDir.resolve("journal");
+        DurableOperationJournal journal = new DurableOperationJournal(journalDir);
+        UUID committed = UUID.randomUUID();
+        UUID aborted = UUID.randomUUID();
+        UUID pending = UUID.randomUUID();
+        journal.begin(committed, "bank.deposit", "player:test");
+        journal.commit(committed, "APPLIED", "slot=1"); // transition write rotates a .bak.1
+        journal.begin(aborted, "trade.execute", "player:test");
+        journal.abort(aborted, "REJECTED", "sold out");
+        journal.begin(pending, "bank.withdraw", "player:test");
+        assertEquals(3, countFiles(journalDir, ".json"));
+        assertEquals(3, countFiles(journalDir, ".json.lock"));
+
+        assertEquals(2, journal.pruneTerminalRecords(0, 0));
+
+        assertEquals(1, countFiles(journalDir, ".json"), "Only the prepared record remains");
+        assertEquals(1, countFiles(journalDir, ".json.lock"), "Terminal lock files are removed");
+        assertEquals(0, countFiles(journalDir, ".bak.1"), "Backup generations are removed too");
+        assertEquals(1, journal.pending().size());
+        assertNull(journal.read(committed));
+        assertNull(journal.read(aborted));
+    }
+
+    @Test
+    @DisplayName("Pruning keeps the newest terminal records regardless of age")
+    void pruneRetainsNewestTerminal(@TempDir Path tempDir) throws IOException {
+        Path journalDir = tempDir.resolve("journal");
+        DurableOperationJournal journal = new DurableOperationJournal(journalDir);
+        for (int i = 0; i < 5; i++) {
+            UUID id = UUID.randomUUID();
+            journal.begin(id, "trade.execute", "player:test");
+            journal.commit(id, "APPLIED", Integer.toString(i));
+        }
+
+        assertEquals(3, journal.pruneTerminalRecords(0, 2));
+        assertEquals(2, countFiles(journalDir, ".json"), "Two newest terminal records survive");
+    }
+
+    @Test
+    @DisplayName("Pruning respects the age cutoff and removes orphaned lock files")
+    void pruneRespectsAgeAndOrphanLocks(@TempDir Path tempDir) throws IOException {
+        Path journalDir = tempDir.resolve("journal");
+        DurableOperationJournal journal = new DurableOperationJournal(journalDir);
+        UUID committed = UUID.randomUUID();
+        journal.begin(committed, "trade.execute", "player:test");
+        journal.commit(committed, "APPLIED", "ok");
+
+        // Younger than the cutoff — nothing is pruned.
+        assertEquals(0, journal.pruneTerminalRecords(
+                java.time.Duration.ofDays(30).toMillis(), 0));
+        assertEquals(2, countFiles(journalDir, ".json.lock") + countFiles(journalDir, ".json"));
+
+        // An orphaned .lock left by a crash between lock creation and the first
+        // write is deleted once it ages past the cutoff.
+        Path orphanLock = journalDir.resolve(UUID.randomUUID() + ".json.lock");
+        Files.writeString(orphanLock, "");
+        Files.setLastModifiedTime(orphanLock,
+                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 1000));
+        journal.pruneTerminalRecords(0, 0);
+        assertFalse(Files.exists(orphanLock), "Aged orphan lock files are swept");
+    }
+
+    @Test
+    @DisplayName("Pruning never deletes a corrupt record — it may be recovery evidence")
+    void pruneKeepsCorruptRecords(@TempDir Path tempDir) throws IOException {
+        Path journalDir = tempDir.resolve("journal");
+        Files.createDirectories(journalDir);
+        Path corrupt = journalDir.resolve(UUID.randomUUID() + ".json");
+        Files.writeString(corrupt, "{\"schemaVersion\":99,\"data\":{}}\n");
+
+        DurableOperationJournal journal = new DurableOperationJournal(journalDir);
+        journal.pruneTerminalRecords(0, 0);
+        assertTrue(Files.exists(corrupt) || countFilesContaining(journalDir, ".corrupted.") > 0,
+                "Corrupt files stay on disk for manual recovery");
     }
 }

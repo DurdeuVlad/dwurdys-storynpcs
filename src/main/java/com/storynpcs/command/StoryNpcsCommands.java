@@ -11,9 +11,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.storynpcs.StoryNpcs;
 import com.storynpcs.domain.common.NamespacedId;
-import com.storynpcs.domain.dialogue.DialogueEdge;
 import com.storynpcs.domain.dialogue.DialogueGraph;
-import com.storynpcs.domain.dialogue.DialogueNode;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.progression.PlayerProgression;
@@ -63,6 +61,21 @@ public final class StoryNpcsCommands {
     private StoryNpcsCommands() {}
 
     /**
+     * Resolves the mod instance from the executing command's level — every
+     * handler's {@link CommandContext} carries a {@link CommandSourceStack}
+     * bound to a loaded {@link net.minecraft.server.level.ServerLevel}, which
+     * holds the mod handle installed at level load ({@link com.storynpcs.StoryNpcsAccess}).
+     */
+    private static StoryNpcs mod(CommandContext<CommandSourceStack> ctx) {
+        return com.storynpcs.StoryNpcsAccess.require(ctx.getSource().getLevel());
+    }
+
+    /** Nullable variant for paths that degrade gracefully when the world isn't attached yet. */
+    private static StoryNpcs modOrNull(CommandContext<CommandSourceStack> ctx) {
+        return com.storynpcs.StoryNpcsAccess.mod(ctx.getSource().getLevel());
+    }
+
+    /**
      * Registry-backed tab-completion for definition IDs — admins should never have to
      * memorize or retype 'storynpcs:guard_captain'-style identifiers. Degrades to no
      * suggestions when the registry isn't available (unit tests, early boot).
@@ -70,12 +83,15 @@ public final class StoryNpcsCommands {
     private static SuggestionProvider<CommandSourceStack> idSuggestions(
             java.util.function.Function<DefinitionRegistry, java.util.stream.Stream<String>> extractor) {
         return (ctx, builder) -> {
-            StoryNpcs mod = StoryNpcs.getInstance();
+            StoryNpcs mod = modOrNull(ctx);
             if (mod == null || mod.getRegistry() == null) {
                 return builder.buildFuture();
             }
-            return SharedSuggestionProvider.suggest(
-                    extractor.apply(mod.getRegistry()).sorted().toList(), builder);
+            // CommandSuggestionEngine filters tab-invalid tokens before matching.
+            var candidates = CommandSuggestionEngine.suggest(
+                    CommandSuggestionEngine.ArgKind.NPC_ID, builder.getRemaining(),
+                    () -> extractor.apply(mod.getRegistry()).toList());
+            return SharedSuggestionProvider.suggest(candidates, builder);
         };
     }
 
@@ -114,6 +130,42 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("quickstart")
                         .requires(source -> source.hasPermission(2))
                         .executes(StoryNpcsCommands::quickstart))
+                // P6-3 transport: player-facing list + server-evaluated transfer
+                .then(Commands.literal("transport")
+                        .executes(StoryNpcsCommands::listTransports)
+                        .then(Commands.argument("location_id", ResourceLocationArgument.id())
+                                .executes(StoryNpcsCommands::transport)))
+                // P8-1 templates: list + instantiate-into-NPC through saveNpc
+                .then(Commands.literal("template")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listTemplates))
+                        .then(Commands.literal("apply")
+                                .then(Commands.argument("template_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .executes(StoryNpcsCommands::applyTemplate)))))
+                // P11-1 import: dry-run by default; `apply` executes with rollback
+                .then(Commands.literal("import")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("package", StringArgumentType.word())
+                                .executes(ctx -> runImport(ctx, "skip", true))
+                                .then(Commands.argument("policy", StringArgumentType.word())
+                                        .suggests((ctx, sb) -> sb.suggest("skip").suggest("fail")
+                                                .suggest("replace").suggest("rename").buildFuture())
+                                        .executes(ctx -> runImport(ctx,
+                                                StringArgumentType.getString(ctx, "policy"), true))
+                                        .then(Commands.literal("apply")
+                                                .executes(ctx -> runImport(ctx,
+                                                        StringArgumentType.getString(ctx, "policy"), false))))))
+                // P2-2 store manifest: live view of the 18-store persistence map
+                .then(Commands.literal("stores")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(StoryNpcsCommands::listStores))
+                // P10-2 authoring: validate a patch plan against the live schema bundle
+                .then(Commands.literal("author")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("validate")
+                                .then(Commands.argument("plan", StringArgumentType.word())
+                                        .executes(StoryNpcsCommands::validatePatchPlan))))
                 // NPC commands
                 .then(Commands.literal("npc")
                         .executes(StoryNpcsCommands::sendNpcHelp)
@@ -349,6 +401,15 @@ public final class StoryNpcsCommands {
                         .executes(ctx -> completeQuest(ctx, EntityArgument.getPlayer(ctx, "player"))));
         quest.then(Commands.literal("complete").requires(s -> s.hasPermission(2)).then(questIdComplete));
 
+        // Explicit reset — reopens a completed RESET-type quest (issue #8 parity:
+        // quests whose repeat policy requires an operator reset).
+        var questIdReset = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .suggests(QUEST_IDS)
+                .executes(ctx -> resetQuest(ctx, null))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> resetQuest(ctx, EntityArgument.getPlayer(ctx, "player"))));
+        quest.then(Commands.literal("reset").requires(s -> s.hasPermission(2)).then(questIdReset));
+
         // Authoring — create / set / objective / reward (issue #17)
         var questIdCreate = Commands.argument("quest_id", ResourceLocationArgument.id())
                 .executes(ctx -> createQuest(ctx, null))
@@ -366,7 +427,7 @@ public final class StoryNpcsCommands {
         questIdSet.then(Commands.literal("repeatType")
                 .then(Commands.argument("value", StringArgumentType.word())
                         .suggests((c, b) -> SharedSuggestionProvider.suggest(
-                                List.of("ONCE", "REPEATABLE", "DAILY"), b))
+                                List.of("ONCE", "NORMAL", "REPEATABLE", "DAILY", "WEEKLY", "RESET", "INSTANT"), b))
                         .executes(ctx -> setQuestField(ctx, "repeatType"))));
         quest.then(Commands.literal("set").requires(s -> s.hasPermission(2)).then(questIdSet));
 
@@ -451,7 +512,7 @@ public final class StoryNpcsCommands {
                 return 0;
             }
         }
-        var service = StoryNpcs.getInstance().getApplicationService();
+        var service = mod(ctx).getApplicationService();
         var mail = service.getMailbox(player.getUUID());
         if (mail.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component.literal("§7Mailbox is empty."), false);
@@ -473,7 +534,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("Only a player can read their own mail"));
             return 0;
         }
-        var service = StoryNpcs.getInstance().getApplicationService();
+        var service = mod(ctx).getApplicationService();
         var mail = service.getMailbox(player.getUUID());
         if (index1Based < 1 || index1Based > mail.size()) {
             ctx.getSource().sendFailure(Component.literal("Mail index " + index1Based + " out of range (1-" + mail.size() + ")"));
@@ -491,7 +552,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("Only a player can delete their own mail"));
             return 0;
         }
-        var service = StoryNpcs.getInstance().getApplicationService();
+        var service = mod(ctx).getApplicationService();
         var mail = service.getMailbox(player.getUUID());
         if (index1Based < 1 || index1Based > mail.size()) {
             ctx.getSource().sendFailure(Component.literal("Mail index " + index1Based + " out of range (1-" + mail.size() + ")"));
@@ -559,7 +620,10 @@ public final class StoryNpcsCommands {
         faction.then(Commands.literal("delete").requires(s -> s.hasPermission(2))
                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
                         .suggests(FACTION_IDS)
-                        .executes(StoryNpcsCommands::deleteFaction)));
+                        .executes(StoryNpcsCommands::deleteFaction)
+                        .then(Commands.argument("fallback_id", ResourceLocationArgument.id())
+                                .suggests(FACTION_IDS)
+                                .executes(StoryNpcsCommands::deleteFaction))));
 
         return faction;
     }
@@ -711,6 +775,20 @@ public final class StoryNpcsCommands {
                         .suggests(NPC_IDS)
                         .executes(StoryNpcsCommands::disableBanker)));
 
+        // bank share <owner> PRIVATE | SHARED [memberUuidCsv] — configures a
+        // vault's access policy through the canonical bank-access mutation.
+        var shareOwner = Commands.argument("owner", EntityArgument.player())
+                .then(Commands.argument("policy", StringArgumentType.word())
+                        .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                List.of("PRIVATE", "SHARED"), b))
+                        .executes(ctx -> shareBankAccess(ctx, null))
+                        .then(Commands.argument("members", StringArgumentType.greedyString())
+                                .executes(ctx -> shareBankAccess(ctx,
+                                        StringArgumentType.getString(ctx, "members")))));
+        bank.then(Commands.literal("share")
+                .requires(s -> s.hasPermission(2))
+                .then(shareOwner));
+
         return bank;
     }
 
@@ -767,11 +845,7 @@ public final class StoryNpcsCommands {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("[StoryNPCs] Reloading YAML definitions..."), true);
 
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
 
         try {
             Path worldDir = source.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
@@ -811,12 +885,13 @@ public final class StoryNpcsCommands {
 
     private static NamespacedId getNamespacedId(CommandContext<CommandSourceStack> ctx, String argName) {
         ResourceLocation loc = ResourceLocationArgument.getId(ctx, argName);
-        return NamespacedId.of(loc.getNamespace(), loc.getPath());
+        return CommandSuggestionEngine.parseId(loc.toString())
+                .orElse(NamespacedId.of(loc.getNamespace(), loc.getPath()));
     }
 
     // NPC Handlers
     private static int listNpcs(CommandContext<CommandSourceStack> ctx) {
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         Collection<NpcDefinition> npcs = reg.getAllNpcs();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- StoryNPCs (%d loaded) ---", npcs.size())), false);
         for (NpcDefinition npc : npcs) {
@@ -833,7 +908,7 @@ public final class StoryNpcsCommands {
 
     private static int infoNpc(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         var npcOpt = reg.getNpc(id);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("NPC not found: " + id));
@@ -886,11 +961,7 @@ public final class StoryNpcsCommands {
     private static int setNpcName(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         String value = StringArgumentType.getString(ctx, "value").trim();
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -909,11 +980,7 @@ public final class StoryNpcsCommands {
     private static int setNpcTitle(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         String value = StringArgumentType.getString(ctx, "value").trim();
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -932,11 +999,7 @@ public final class StoryNpcsCommands {
     private static int setNpcSkin(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         String texture = StringArgumentType.getString(ctx, "texture").trim();
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -955,11 +1018,7 @@ public final class StoryNpcsCommands {
     private static int setNpcHealth(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -978,11 +1037,7 @@ public final class StoryNpcsCommands {
     private static int setNpcDamage(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -1001,11 +1056,7 @@ public final class StoryNpcsCommands {
     private static int setNpcSpeed(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -1024,11 +1075,7 @@ public final class StoryNpcsCommands {
     private static int setNpcRange(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         int value = IntegerArgumentType.getInteger(ctx, "value");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -1054,11 +1101,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Invalid movement type: " + typeStr + ". Valid: STANDING, WANDERING, PATHING"));
             return 0;
         }
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -1084,11 +1127,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Invalid tactical stance: " + stanceStr + ". Valid: PASSIVE, NEUTRAL, GUARD, AGGRESSIVE, EVASIVE"));
             return 0;
         }
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(npcId);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
@@ -1107,11 +1146,7 @@ public final class StoryNpcsCommands {
     private static int setNpcDialogue(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         NamespacedId dialogueId = getNamespacedId(ctx, "dialogue_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         try {
             var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
                     npc -> npc.setDialogueId(dialogueId));
@@ -1131,11 +1166,7 @@ public final class StoryNpcsCommands {
     private static int setNpcFaction(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         NamespacedId factionId = getNamespacedId(ctx, "faction_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         try {
             var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
                     npc -> npc.setFactionId(factionId));
@@ -1156,7 +1187,7 @@ public final class StoryNpcsCommands {
         CommandSourceStack source = ctx.getSource();
         NamespacedId id = getNamespacedId(ctx, "npc_id");
 
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         if (reg.getNpc(id).isEmpty()) {
             source.sendFailure(Component.literal("[StoryNPCs] NPC definition not found: " + id));
             return 0;
@@ -1192,7 +1223,7 @@ public final class StoryNpcsCommands {
 
     private static int deleteNpc(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = mod(ctx);
         var result = mod.getApplicationService().deleteNpc(
                 commandMutationRequest(ctx, mod.getApplicationService(), "npc", "delete", id));
         if (result.applied()) {
@@ -1212,11 +1243,7 @@ public final class StoryNpcsCommands {
     private static int createNpc(CommandContext<CommandSourceStack> ctx, String name) {
         CommandSourceStack source = ctx.getSource();
         NamespacedId id = getNamespacedId(ctx, "npc_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         if (mod.getRegistry().getNpc(id).isPresent()) {
             source.sendFailure(Component.literal("[StoryNPCs] NPC '" + id + "' already exists — use '/storynpcs npc info " + id + "'"));
             return 0;
@@ -1294,25 +1321,6 @@ public final class StoryNpcsCommands {
                 .isPresent();
     }
 
-    /**
-     * A minimal but real directed-graph dialogue for the fallback demo NPC:
-     * an entry node branching to two reachable terminal nodes.
-     */
-    static DialogueGraph buildQuickstartDialogue() {
-        DialogueGraph graph = new DialogueGraph(QUICKSTART_DEMO_DIALOGUE, "Quickstart Demo", "greeting");
-        DialogueNode greeting = new DialogueNode("greeting",
-                "Hey there! I'm a StoryNPCs demo — right-click me with the Dialogue Wand to see my graph.");
-        greeting.addOption(new DialogueEdge("What can this mod do?", "about"));
-        greeting.addOption(new DialogueEdge("Just saying hi.", "farewell"));
-        graph.addNode(greeting);
-        DialogueNode about = new DialogueNode("about",
-                "NPCs like me get branching dialogue, quests, factions and behavior rules — all editable in-game.");
-        about.addOption(new DialogueEdge("Neat. Bye!", "farewell"));
-        graph.addNode(about);
-        graph.addNode(new DialogueNode("farewell", "See you around!"));
-        return graph;
-    }
-
     private static int quickstart(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player;
@@ -1322,49 +1330,18 @@ public final class StoryNpcsCommands {
             source.sendFailure(Component.literal("[StoryNPCs] /storynpcs quickstart must be run by a player in-game"));
             return 0;
         }
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         DefinitionRegistry reg = mod.getRegistry();
 
-        // 1. Demo definition: bundled starter NPC if talkable, else scaffold a throwaway one
+        // 1. Demo definition: bundled starter content only — quickstart resolves
+        // loaded YAML definitions and never constructs or persists them from Java.
         NamespacedId demoId = resolveDemoNpcId(reg);
         if (demoId == null) {
-            boolean scaffoldDialogueCreated = false;
-            if (reg.getDialogue(QUICKSTART_DEMO_DIALOGUE).isEmpty()) {
-                var dialogueResult = mod.getApplicationService().createDialogue(
-                        commandMutationRequest(ctx, mod.getApplicationService(),
-                                "dialogue", "create", QUICKSTART_DEMO_DIALOGUE), buildQuickstartDialogue());
-                if (!dialogueResult.applied()) {
-                    source.sendFailure(Component.literal("[StoryNPCs] Demo dialogue scaffold rejected (nothing written):\n"
-                            + dialogueResult.formatReport(10)));
-                    return 0;
-                }
-                scaffoldDialogueCreated = true;
-            }
-            NpcDefinition def = new NpcDefinition(QUICKSTART_DEMO_NPC, "Demo NPC");
-            def.setDialogueId(QUICKSTART_DEMO_DIALOGUE);
-            var npcResult = mod.getApplicationService().createNpc(
-                    commandMutationRequest(ctx, mod.getApplicationService(), "npc", "create", QUICKSTART_DEMO_NPC), def);
-            if (!npcResult.applied()) {
-                String compensation = "An existing demo dialogue was left unchanged.";
-                if (scaffoldDialogueCreated) {
-                    var rollback = mod.getApplicationService().deleteUnreferencedDialogue(
-                            commandMutationRequest(ctx, mod.getApplicationService(), "dialogue", "delete",
-                                    QUICKSTART_DEMO_DIALOGUE));
-                    compensation = rollback.applied()
-                            ? "The newly created, unreferenced dialogue scaffold was removed."
-                            : reg.getDialogue(QUICKSTART_DEMO_DIALOGUE).isPresent()
-                                    ? "The dialogue remains; safe cleanup was rejected:\n" + rollback.formatReport(10)
-                                    : "The dialogue is already absent; no further cleanup was needed.";
-                }
-                source.sendFailure(Component.literal("[StoryNPCs] Demo NPC scaffold rejected:\n"
-                        + npcResult.formatReport(10) + "\n" + compensation));
-                return 0;
-            }
-            demoId = QUICKSTART_DEMO_NPC;
+            source.sendFailure(Component.literal("[StoryNPCs] No talkable demo definition is loaded. Expected bundled"
+                    + " YAML for " + QUICKSTART_SEEDED_NPC + " or " + QUICKSTART_DEMO_NPC
+                    + " under world/storynpcs/definitions/ — check the startup loader diagnostics,"
+                    + " then /storynpcs definitions reload."));
+            return 0;
         }
 
         // 2. Spawn-or-reuse: a living quickstart NPC within radius is reused, never duplicated
@@ -1412,7 +1389,7 @@ public final class StoryNpcsCommands {
 
     // Dialogue Handlers
     private static int listDialogues(CommandContext<CommandSourceStack> ctx) {
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         Collection<DialogueGraph> dialogues = reg.getAllDialogues();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- Dialogues (%d loaded) ---", dialogues.size())), false);
         for (DialogueGraph d : dialogues) {
@@ -1428,7 +1405,7 @@ public final class StoryNpcsCommands {
 
     private static int infoDialogue(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         var dOpt = reg.getDialogue(id);
         if (dOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("Dialogue not found: " + id));
@@ -1438,7 +1415,7 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("=== Dialogue: %s ('%s') ===", d.getId(), d.getTitle())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Entry Node: %s", d.getEntryNodeId())), false);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Total Nodes: %d", d.getNodes().size())), false);
-        var referencingNpcs = StoryNpcs.getInstance().getApplicationService().findNpcsReferencingDialogue(id);
+        var referencingNpcs = mod(ctx).getApplicationService().findNpcsReferencingDialogue(id);
         if (!referencingNpcs.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component.literal(String.format(" Referenced by NPCs: %s", referencingNpcs)), false);
         }
@@ -1461,11 +1438,7 @@ public final class StoryNpcsCommands {
     private static int createDialogue(CommandContext<CommandSourceStack> ctx, String title) {
         CommandSourceStack source = ctx.getSource();
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            source.sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         if (mod.getRegistry().getDialogue(id).isPresent()) {
             source.sendFailure(Component.literal("[StoryNPCs] Dialogue '" + id + "' already exists — use '/storynpcs dialogue edit " + id + "'"));
             return 0;
@@ -1506,11 +1479,7 @@ public final class StoryNpcsCommands {
 
     private static int deleteDialogue(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var referencingNpcs = mod.getApplicationService().findNpcsReferencingDialogue(id);
         var result = mod.getApplicationService().deleteDialogue(
                 commandMutationRequest(ctx, mod.getApplicationService(), "dialogue", "delete", id));
@@ -1539,7 +1508,7 @@ public final class StoryNpcsCommands {
         }
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
         try {
-            DialogueView view = StoryNpcs.getInstance().getApplicationService().startDialogue(
+            DialogueView view = mod(ctx).getApplicationService().startDialogue(
                     player.getUUID(), id, null,
                     player.level().dimension().location().toString(),
                     player.getX(), player.getY(), player.getZ()
@@ -1557,7 +1526,7 @@ public final class StoryNpcsCommands {
     // Quest Handlers
     private static int editDialogue(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "dialogue_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = mod(ctx);
         var dialogueOpt = mod.getRegistry().getDialogue(id);
         if (dialogueOpt.isEmpty()) {
             MutableComponent failMsg = Component.literal("[StoryNPCs] Dialogue not found: '" + id + "'  ")
@@ -1583,7 +1552,7 @@ public final class StoryNpcsCommands {
     }
 
     private static int listQuests(CommandContext<CommandSourceStack> ctx) {
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         Collection<Quest> quests = reg.getAllQuests();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- Quests (%d loaded) ---", quests.size())), false);
         for (Quest q : quests) {
@@ -1599,7 +1568,7 @@ public final class StoryNpcsCommands {
 
     private static int infoQuest(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "quest_id");
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         var qOpt = reg.getQuest(id);
         if (qOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("Quest not found: " + id));
@@ -1648,7 +1617,7 @@ public final class StoryNpcsCommands {
         }
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         try {
-            var service = StoryNpcs.getInstance().getApplicationService();
+            var service = mod(ctx).getApplicationService();
             UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
                     ? actor.getUUID() : null;
             var request = new com.storynpcs.service.QuestProgressionMutationRequest(
@@ -1674,6 +1643,44 @@ public final class StoryNpcsCommands {
         }
     }
 
+    private static int resetQuest(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
+        ServerPlayer player = targetPlayer;
+        if (player == null) {
+            if (ctx.getSource().getEntity() instanceof ServerPlayer sp) {
+                player = sp;
+            } else {
+                ctx.getSource().sendFailure(Component.literal("Player must be specified when executed from console"));
+                return 0;
+            }
+        }
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        try {
+            var service = mod(ctx).getApplicationService();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            var request = com.storynpcs.service.QuestProgressionMutationRequest.reset(
+                    "command", actorUuid, player.getUUID(), id,
+                    service.currentQuestProgressionRevision(player.getUUID()), UUID.randomUUID(),
+                    ctx.getSource().hasPermission(2) ? 2 : 0);
+            var result = service.mutateQuestProgression(request);
+            if (result.hasErrors()) {
+                ctx.getSource().sendFailure(Component.literal("Failed to reset quest: " + result.formatReport()));
+                return 0;
+            }
+            if (!result.applied()) {
+                ctx.getSource().sendFailure(Component.literal(result.formatReport()));
+                return 0;
+            }
+            ServerPlayer finalPlayer = player;
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    String.format("Reset quest '%s' for %s — it can be taken again", id, finalPlayer.getScoreboardName())), true);
+            return 1;
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("Failed to reset quest: " + e.getMessage()));
+            return 0;
+        }
+    }
+
     private static int completeQuest(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
         ServerPlayer player = targetPlayer;
         if (player == null) {
@@ -1686,8 +1693,14 @@ public final class StoryNpcsCommands {
         }
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         try {
-            QuestCompletionResult result = StoryNpcs.getInstance().getApplicationService()
-                    .completeQuest(player.getUUID(), id);
+            var service = mod(ctx).getApplicationService();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            QuestCompletionResult result = service.completeQuest(
+                    new com.storynpcs.service.QuestCompletionMutationRequest(
+                            "command", actorUuid, player.getUUID(), id,
+                            service.currentQuestProgressionRevision(player.getUUID()), UUID.randomUUID(),
+                            ctx.getSource().hasPermission(2) ? 2 : 0));
             ServerPlayer finalPlayer = player;
             CompletionFeedback feedback = completionFeedback(id, finalPlayer.getScoreboardName(), result);
             if (feedback.success()) {
@@ -1725,11 +1738,7 @@ public final class StoryNpcsCommands {
      */
     private static int createQuest(CommandContext<CommandSourceStack> ctx, String title) {
         NamespacedId id = getNamespacedId(ctx, "quest_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var result = mod.getApplicationService().createQuest(
                 commandMutationRequest(ctx, mod.getApplicationService(), "quest", "create", id), title);
         if (!result.applied()) {
@@ -1750,11 +1759,7 @@ public final class StoryNpcsCommands {
     private static int setQuestField(CommandContext<CommandSourceStack> ctx, String field) {
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         String value = StringArgumentType.getString(ctx, "value").trim();
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var questOpt = mod.getRegistry().getQuest(id);
         if (questOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
@@ -1763,10 +1768,10 @@ public final class StoryNpcsCommands {
         Quest.RepeatType repeatType = null;
         if ("repeatType".equals(field)) {
             try {
-                repeatType = Quest.RepeatType.valueOf(value.toUpperCase(Locale.ROOT));
+                repeatType = Quest.RepeatType.fromString(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 ctx.getSource().sendFailure(Component.literal(
-                        "[StoryNPCs] Invalid repeatType '" + value + "' — expected ONCE, REPEATABLE, or DAILY."));
+                        "[StoryNPCs] Invalid repeatType '" + value + "' — expected NORMAL, REPEATABLE, DAILY, WEEKLY, RESET, or INSTANT (legacy: ONCE)."));
                 return 0;
             }
         } else if (!field.equals("description") && !field.equals("category")) {
@@ -1801,11 +1806,7 @@ public final class StoryNpcsCommands {
         String typeRaw = StringArgumentType.getString(ctx, "type");
         String target = StringArgumentType.getString(ctx, "target").trim();
         int count = IntegerArgumentType.getInteger(ctx, "requiredCount");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         QuestObjective.Type type;
         try {
             type = QuestObjective.Type.valueOf(typeRaw.toUpperCase(Locale.ROOT));
@@ -1846,11 +1847,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] The quest editor can only be opened by a player, not the console."));
             return 0;
         }
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         if (questId != null && mod.getRegistry().getQuest(questId).isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + questId));
             return 0;
@@ -1881,11 +1878,7 @@ public final class StoryNpcsCommands {
     private static int removeQuestObjective(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         String objectiveId = StringArgumentType.getString(ctx, "objective_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var questOpt = mod.getRegistry().getQuest(id);
         if (questOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
@@ -1922,11 +1915,7 @@ public final class StoryNpcsCommands {
         String typeRaw = StringArgumentType.getString(ctx, "type");
         String target = StringArgumentType.getString(ctx, "target").trim();
         int amount = IntegerArgumentType.getInteger(ctx, "amount");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         QuestReward.Type type;
         try {
             type = QuestReward.Type.valueOf(typeRaw.toUpperCase(Locale.ROOT));
@@ -1961,11 +1950,7 @@ public final class StoryNpcsCommands {
     private static int removeQuestReward(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "quest_id");
         int index = IntegerArgumentType.getInteger(ctx, "index");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var questOpt = mod.getRegistry().getQuest(id);
         if (questOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
@@ -1998,11 +1983,7 @@ public final class StoryNpcsCommands {
      */
     private static int deleteQuest(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "quest_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var service = mod.getApplicationService();
         List<NamespacedId> referencing = service.findDialoguesStartingQuest(id);
         var result = service.deleteQuest(commandMutationRequest(ctx, service, "quest", "delete", id));
@@ -2023,11 +2004,7 @@ public final class StoryNpcsCommands {
     /** /storynpcs faction create — scaffolds a faction with domain defaults. */
     private static int createFaction(CommandContext<CommandSourceStack> ctx, String name) {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var result = mod.getApplicationService().createFaction(
                 commandMutationRequest(ctx, mod.getApplicationService(), "faction", "create", id), name);
         if (!result.applied()) {
@@ -2049,11 +2026,7 @@ public final class StoryNpcsCommands {
     private static int configureFaction(CommandContext<CommandSourceStack> ctx, String field) {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
         int value = IntegerArgumentType.getInteger(ctx, "value");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var factionOpt = mod.getRegistry().getFaction(id);
         if (factionOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction not found: " + id));
@@ -2089,11 +2062,7 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] The faction editor can only be opened by a player, not the console."));
             return 0;
         }
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         if (factionId != null && mod.getRegistry().getFaction(factionId).isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction not found: " + factionId));
             return 0;
@@ -2113,28 +2082,46 @@ public final class StoryNpcsCommands {
     }
 
     /**
-     * /storynpcs faction delete — removes the faction definition via the application
-     * service (registry + YAML file). NPCs bound to it are captured BEFORE deletion
-     * so the admin is warned about dangling faction bindings.
+     * /storynpcs faction delete — repairs references and deletes the faction in one
+     * canonical service operation, with a detached-snapshot rollback on write failure.
      */
     private static int deleteFaction(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var service = mod.getApplicationService();
-        List<NamespacedId> referencing = service.findNpcsReferencingFaction(id);
-        var result = service.deleteFaction(commandMutationRequest(ctx, service, "faction", "delete", id));
-        if (!result.applied()) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction deletion rejected: " + result.diagnostics().formatReport(3)));
+        NamespacedId fallback = null;
+        try {
+            fallback = getNamespacedId(ctx, "fallback_id");
+        } catch (IllegalArgumentException noFallbackArg) {
+            // Overload without the fallback argument — plan must be viable without one.
+        }
+        // FactionDeletionPlanner: primary NPC bindings need a fallback,
+        // matrix entries are stripped, and other dependents must be repaired first.
+        var registry = mod.getRegistry();
+        var npcs = new java.util.ArrayList<>(registry.getAllNpcs());
+        var factions = new java.util.ArrayList<>(registry.getAllFactions());
+        var planner = new com.storynpcs.domain.faction.FactionDeletionPlanner();
+        var plan = planner.plan(id, npcs, new java.util.ArrayList<>(registry.getAllTemplates()), factions,
+                new java.util.ArrayList<>(registry.getAllDialogues()),
+                new java.util.ArrayList<>(registry.getAllQuests()),
+                new java.util.ArrayList<>(registry.getAllTransportLocations()), fallback);
+        if (!plan.viable()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Faction deletion blocked:\n " + String.join("\n ", plan.diagnostics())));
             return 0;
         }
-        if (!referencing.isEmpty()) {
+        var result = service.deleteFactionWithRepairs(
+                commandMutationRequest(ctx, service, "faction", "delete", id),
+                plan.fallbackFactionId());
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Faction deletion rejected: " + result.formatReport(5)));
+            return 0;
+        }
+        if (plan.hasReferences()) {
             ctx.getSource().sendSuccess(() -> Component.literal(
-                    "[StoryNPCs] WARNING: " + referencing.size() + " NPC(s) still reference faction '" + id
-                            + "' — their faction bindings are now dangling: " + referencing + "."), true);
+                    "[StoryNPCs] Repaired " + plan.references().size()
+                            + " faction reference(s) before deletion."), true);
         }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "[StoryNPCs] Deleted faction '" + id + "' (removed from registry and YAML)."), true);
@@ -2151,11 +2138,7 @@ public final class StoryNpcsCommands {
     /** /storynpcs npc rule list — readable rule summary with clickable remove. */
     private static int listNpcRules(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(id);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
@@ -2186,11 +2169,7 @@ public final class StoryNpcsCommands {
     private static int removeNpcRule(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
         int index = IntegerArgumentType.getInteger(ctx, "index");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(id);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
@@ -2220,11 +2199,7 @@ public final class StoryNpcsCommands {
     /** /storynpcs npc rule add — builds a one-condition/one-action rule and persists via saveNpc. */
     private static int addNpcRule(CommandContext<CommandSourceStack> ctx, String cond, String condOp, String act) {
         NamespacedId id = getNamespacedId(ctx, "npc_id");
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return 0;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(id);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
@@ -2289,7 +2264,7 @@ public final class StoryNpcsCommands {
         var trader = marketName != null
                 ? new com.storynpcs.domain.role.trader.TraderRole(marketName)
                 : new com.storynpcs.domain.role.trader.TraderRole();
-        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated ->
+        var result = mutateNpc(ctx, mod(ctx).getApplicationService(), npc.getId(), updated ->
                 updated.setTrader(trader));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
@@ -2314,7 +2289,7 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var removed = npc.getTrader();
-        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated -> updated.setTrader(null));
+        var result = mutateNpc(ctx, mod(ctx).getApplicationService(), npc.getId(), updated -> updated.setTrader(null));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -2374,7 +2349,7 @@ public final class StoryNpcsCommands {
         var listing = new com.storynpcs.domain.role.trader.TradeListing(
                 offerItem.toString(), offerCount, priceItem.toString(), priceCount);
         listing.setMaxUses(maxUses);
-        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated -> {
+        var result = mutateNpc(ctx, mod(ctx).getApplicationService(), npc.getId(), updated -> {
             var trader = updated.getTrader();
             if (trader == null) {
                 trader = new com.storynpcs.domain.role.trader.TraderRole();
@@ -2409,7 +2384,7 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var removed = listings.get(index - 1);
-        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated ->
+        var result = mutateNpc(ctx, mod(ctx).getApplicationService(), npc.getId(), updated ->
                 updated.getTrader().removeListing(index - 1));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
@@ -2433,7 +2408,7 @@ public final class StoryNpcsCommands {
         var banker = bankName != null
                 ? new com.storynpcs.domain.role.banker.BankerRole(bankName)
                 : new com.storynpcs.domain.role.banker.BankerRole();
-        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated ->
+        var result = mutateNpc(ctx, mod(ctx).getApplicationService(), npc.getId(), updated ->
                 updated.setBanker(banker));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
@@ -2458,7 +2433,7 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var removed = npc.getBanker();
-        var result = mutateNpc(ctx, StoryNpcs.getInstance().getApplicationService(), npc.getId(), updated -> updated.setBanker(null));
+        var result = mutateNpc(ctx, mod(ctx).getApplicationService(), npc.getId(), updated -> updated.setBanker(null));
         if (result.hasErrors()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
             return 0;
@@ -2467,6 +2442,61 @@ public final class StoryNpcsCommands {
                 "[StoryNPCs] Removed banker role ('%s') from NPC '%s' (persisted to YAML).",
                 removed.getBankName(), npc.getId())), true);
         return 1;
+    }
+
+    private static int shareBankAccess(CommandContext<CommandSourceStack> ctx, String membersRaw) {
+        try {
+            ServerPlayer owner = EntityArgument.getPlayer(ctx, "owner");
+            String policyRaw = StringArgumentType.getString(ctx, "policy").toUpperCase(Locale.ROOT);
+            com.storynpcs.domain.role.banker.BankVault.AccessPolicy policy;
+            try {
+                policy = com.storynpcs.domain.role.banker.BankVault.AccessPolicy.valueOf(policyRaw);
+            } catch (IllegalArgumentException invalid) {
+                ctx.getSource().sendFailure(Component.literal(
+                        "[StoryNPCs] Invalid access policy '" + policyRaw + "' — expected PRIVATE or SHARED."));
+                return 0;
+            }
+            java.util.Set<UUID> members = new java.util.LinkedHashSet<>();
+            if (membersRaw != null && !membersRaw.isBlank()) {
+                for (String token : membersRaw.trim().split("[,\\s]+")) {
+                    if (token.isBlank()) continue;
+                    try {
+                        members.add(UUID.fromString(token));
+                    } catch (IllegalArgumentException invalid) {
+                        ctx.getSource().sendFailure(Component.literal(
+                                "[StoryNPCs] Invalid member UUID: '" + token + "'."));
+                        return 0;
+                    }
+                }
+            }
+            var mod = mod(ctx);
+            var bankRepo = mod.getBankRepository();
+            if (bankRepo == null) {
+                ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Banking is unavailable right now."));
+                return 0;
+            }
+            long revision = bankRepo.getOrCreate(owner.getUUID()).getRevision();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            var request = new com.storynpcs.service.BankAccessMutationRequest(
+                    "command", actorUuid, owner.getUUID(), policy, members,
+                    revision, UUID.randomUUID(), ctx.getSource().hasPermission(2) ? 2 : 0);
+            var result = mod.getApplicationService().configureBankAccess(request, bankRepo);
+            if (result.hasErrors() || !result.applied()) {
+                ctx.getSource().sendFailure(Component.literal(
+                        "[StoryNPCs] Vault sharing update rejected: " + result.formatReport()));
+                return 0;
+            }
+            String memberText = policy == com.storynpcs.domain.role.banker.BankVault.AccessPolicy.SHARED
+                    ? " — members: " + (members.isEmpty() ? "(none)" : members.size() + " listed")
+                    : "";
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "[StoryNPCs] Vault of %s set to %s%s.", owner.getScoreboardName(), policy, memberText)), true);
+            return 1;
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to update vault sharing: " + e.getMessage()));
+            return 0;
+        }
     }
 
     private static com.storynpcs.service.MutationRequest commandMutationRequest(
@@ -2513,11 +2543,7 @@ public final class StoryNpcsCommands {
     /** Shared lookup: resolves the npc_id argument to a loaded definition, messaging failures. */
     private static NpcDefinition requireNpc(CommandContext<CommandSourceStack> ctx, String argName) {
         NamespacedId id = getNamespacedId(ctx, argName);
-        StoryNpcs mod = StoryNpcs.getInstance();
-        if (mod == null) {
-            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod instance not initialized"));
-            return null;
-        }
+        StoryNpcs mod = mod(ctx);
         var npcOpt = mod.getRegistry().getNpc(id);
         if (npcOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
@@ -2633,7 +2659,7 @@ public final class StoryNpcsCommands {
 
     // Faction Handlers
     private static int listFactions(CommandContext<CommandSourceStack> ctx) {
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         Collection<Faction> factions = reg.getAllFactions();
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("--- Factions (%d loaded) ---", factions.size())), false);
         for (Faction f : factions) {
@@ -2649,7 +2675,7 @@ public final class StoryNpcsCommands {
 
     private static int infoFaction(CommandContext<CommandSourceStack> ctx) {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
-        DefinitionRegistry reg = StoryNpcs.getInstance().getRegistry();
+        DefinitionRegistry reg = mod(ctx).getRegistry();
         var fOpt = reg.getFaction(id);
         if (fOpt.isEmpty()) {
             ctx.getSource().sendFailure(Component.literal("Faction not found: " + id));
@@ -2689,15 +2715,16 @@ public final class StoryNpcsCommands {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
         int points = IntegerArgumentType.getInteger(ctx, "points");
         try {
-            var service = StoryNpcs.getInstance().getApplicationService();
+            var service = mod(ctx).getApplicationService();
             UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
                     ? actor.getUUID() : null;
-            var request = com.storynpcs.service.FactionProgressionMutationRequest.set(
-                    "command", actorUuid, player.getUUID(), id, points,
+            var request = new com.storynpcs.service.FactionProgressionMutationRequest(
+                    "command", actorUuid, player.getUUID(), id,
+                    com.storynpcs.service.FactionProgressionMutationRequest.Action.SET, points,
                     service.currentFactionProgressionRevision(player.getUUID()), UUID.randomUUID(),
                     ctx.getSource().hasPermission(2) ? 2 : 0);
             var result = service.mutateFactionProgression(request);
-            if (!result.applied()) {
+            if (result.hasErrors() || !result.applied()) {
                 ctx.getSource().sendFailure(Component.literal("Failed to set faction points: " + result.formatReport()));
                 return 0;
             }
@@ -2723,15 +2750,16 @@ public final class StoryNpcsCommands {
         NamespacedId id = getNamespacedId(ctx, "faction_id");
         int delta = IntegerArgumentType.getInteger(ctx, "delta");
         try {
-            var service = StoryNpcs.getInstance().getApplicationService();
+            var service = mod(ctx).getApplicationService();
             UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
                     ? actor.getUUID() : null;
-            var request = com.storynpcs.service.FactionProgressionMutationRequest.adjust(
-                    "command", actorUuid, player.getUUID(), id, delta,
+            var request = new com.storynpcs.service.FactionProgressionMutationRequest(
+                    "command", actorUuid, player.getUUID(), id,
+                    com.storynpcs.service.FactionProgressionMutationRequest.Action.ADJUST, delta,
                     service.currentFactionProgressionRevision(player.getUUID()), UUID.randomUUID(),
                     ctx.getSource().hasPermission(2) ? 2 : 0);
             var result = service.mutateFactionProgression(request);
-            if (!result.applied()) {
+            if (result.hasErrors() || !result.applied()) {
                 ctx.getSource().sendFailure(Component.literal("Failed to adjust faction points: " + result.formatReport()));
                 return 0;
             }
@@ -2761,7 +2789,7 @@ public final class StoryNpcsCommands {
                 npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
         );
 
-        var appService = StoryNpcs.getInstance().getApplicationService();
+        var appService = mod(ctx).getApplicationService();
         if (appService == null) {
             source.sendFailure(Component.literal("[StoryNPCs] Canonical application service is unavailable."));
             return 0;
@@ -2770,8 +2798,12 @@ public final class StoryNpcsCommands {
         for (StoryNpcEntity npc : entities) {
             FollowerRole role = npc.getFollowerRole();
             int finalSlot = slot < 0 ? -1 : (slot + entityIdx);
-            appService.setFollowerFormation(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, type, finalSlot, spacing);
-            updated++;
+            var formationResult = appService.mutateFollowerState(
+                    com.storynpcs.service.FollowerStateMutationRequest.setFormation(
+                            "command", player.getUUID(), player.getUUID(),
+                            NamespacedId.of(npc.getDefinitionId()), type, finalSlot, spacing, UUID.randomUUID()),
+                    role);
+            if (formationResult.applied()) updated++;
             entityIdx++;
         }
 
@@ -2803,15 +2835,19 @@ public final class StoryNpcsCommands {
                 npc -> npc.getFollowerRole() != null && npc.getFollowerRole().isOwnedBy(player.getUUID())
         );
 
-        var appService = StoryNpcs.getInstance().getApplicationService();
+        var appService = mod(ctx).getApplicationService();
         if (appService == null) {
             source.sendFailure(Component.literal("[StoryNPCs] Canonical application service is unavailable."));
             return 0;
         }
         for (StoryNpcEntity npc : entities) {
             FollowerRole role = npc.getFollowerRole();
-            appService.setFollowerState(player.getUUID(), NamespacedId.of(npc.getDefinitionId()), role, state);
-            updated++;
+            var stateResult = appService.mutateFollowerState(
+                    com.storynpcs.service.FollowerStateMutationRequest.setState(
+                            "command", player.getUUID(), player.getUUID(),
+                            NamespacedId.of(npc.getDefinitionId()), state, UUID.randomUUID()),
+                    role);
+            if (stateResult.applied()) updated++;
         }
 
         final int count = updated;
@@ -2895,7 +2931,7 @@ public final class StoryNpcsCommands {
             }
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = mod(ctx);
         var repo = mod != null ? mod.getProgressionRepository() : null;
         if (repo == null) {
             source.sendFailure(Component.literal("[StoryNPCs] Progression store is not available."));
@@ -3069,5 +3105,295 @@ public final class StoryNpcsCommands {
                 "§e/storynpcs follower formation <COLUMN|WEDGE|ROW|CIRCLE> [slot] [spacing] §7- Change formation pattern\n" +
                 "§e/storynpcs follower state <FOLLOWING|STAYING|GUARDING> §7- Change follower tactical state"), false);
         return 1;
+    }
+
+    // ── P6-3 transport ───────────────────────────────────────────────────────
+
+    private static int listTransports(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        UUID playerUuid = ctx.getSource().getEntity() instanceof ServerPlayer player
+                ? player.getUUID() : null;
+        var locations = service.listTransports(playerUuid);
+        if (locations.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] No transport destinations unlocked. YAML: definitions/transports/"), false);
+            return 1;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                String.format("--- StoryNPCs Transports (%d) ---", locations.size())), false);
+        for (var loc : locations) {
+            final var line = Component.literal(String.format(" §e%s§r — %s (%.0f, %.0f, %.0f) fee=%d",
+                    loc.getId(), loc.getName(),
+                    loc.getX(), loc.getY(), loc.getZ(), loc.getFee()));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        return 1;
+    }
+
+    private static int transport(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        net.minecraft.server.level.ServerPlayer player;
+        try {
+            player = ctx.getSource().getPlayerOrException();
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Only players can use transport."));
+            return 0;
+        }
+        var locationId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "location_id").toString());
+        var result = service.requestTransport(player.getUUID(), locationId);
+        if (!result.approved()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Transport refused: " + result.detail()));
+            return 0;
+        }
+        final String msg = result.feeCharged() > 0
+                ? "§aTransported to " + result.destinationName() + " (fee: " + result.feeCharged() + " emeralds)"
+                : "§aTransported to " + result.destinationName();
+        ctx.getSource().sendSuccess(() -> Component.literal(msg), true);
+        return 1;
+    }
+
+    // ── P8-1 templates ───────────────────────────────────────────────────────
+
+    private static int listTemplates(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var templates = mod.getRegistry().getAllTemplates();
+        if (templates.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] No templates loaded. YAML: definitions/templates/"), false);
+            return 1;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                String.format("--- StoryNPCs Templates (%d) ---", templates.size())), false);
+        for (var t : templates) {
+            final var line = Component.literal(String.format(" §e%s§r v%d — %s %s",
+                    t.getId(), t.getSchemaVersion(), t.getDescription(),
+                    t.getTags().isEmpty() ? "" : t.getTags()));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        return 1;
+    }
+
+    private static int applyTemplate(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var templateId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "template_id").toString());
+        var npcId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "npc_id").toString());
+        var template = mod.getRegistry().getTemplate(templateId).orElse(null);
+        if (template == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template not found: " + templateId));
+            return 0;
+        }
+        // instantiate() deep-copies — the cloned definition never shares state
+        // with the template and is persisted through the canonical create path.
+        var definition = template.instantiate(npcId);
+        var result = service.createNpc(
+                commandMutationRequest(ctx, service, "npc", "create", npcId), definition);
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template apply rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aCreated NPC " + npcId + " from template " + templateId), true);
+        return 1;
+    }
+
+    // ── P11-1 definition import ──────────────────────────────────────────────
+
+    private static final java.util.Set<String> IMPORT_FAMILY_DIRS =
+            java.util.Set.of("npcs", "dialogues", "quests", "factions", "templates");
+
+    private static int runImport(CommandContext<CommandSourceStack> ctx,
+                                 String policyName, boolean dryRun) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var policy = switch (policyName.toLowerCase(java.util.Locale.ROOT)) {
+            case "skip" -> com.storynpcs.migration.ConflictPolicy.SKIP;
+            case "fail" -> com.storynpcs.migration.ConflictPolicy.FAIL;
+            case "replace" -> com.storynpcs.migration.ConflictPolicy.REPLACE;
+            case "rename" -> com.storynpcs.migration.ConflictPolicy.RENAME;
+            default -> null;
+        };
+        if (policy == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Unknown policy '" + policyName + "' (skip|fail|replace|rename)"));
+            return 0;
+        }
+        String packageName = StringArgumentType.getString(ctx, "package");
+        if (!packageName.matches("[a-zA-Z0-9_.-]+") || packageName.contains("..")) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Invalid package name — a single safe directory segment is required."));
+            return 0;
+        }
+        var server = ctx.getSource().getServer();
+        var importDir = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
+                .resolve("storynpcs").resolve("import").resolve(packageName);
+        if (!java.nio.file.Files.isDirectory(importDir)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Import package not found: " + importDir));
+            return 0;
+        }
+        java.util.Map<String, java.util.Map<String, String>> documents = new java.util.TreeMap<>();
+        try (var stream = java.nio.file.Files.walk(importDir)) {
+            for (var file : stream.filter(java.nio.file.Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"))
+                    .sorted().toList()) {
+                var parent = file.getParent().getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                String family = switch (parent) {
+                    case "npcs", "npc" -> "npc";
+                    case "dialogues", "dialogue" -> "dialogue";
+                    case "quests", "quest" -> "quest";
+                    case "factions", "faction" -> "faction";
+                    case "templates", "template" -> "template";
+                    default -> parent; // forwarded so the importer can quarantine it
+                };
+                documents.computeIfAbsent(family, k -> new java.util.TreeMap<>())
+                        .put(file.getFileName().toString(), java.nio.file.Files.readString(file));
+            }
+        } catch (java.io.IOException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Could not read import package: " + e.getMessage()));
+            return 0;
+        }
+        if (documents.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Package contains no YAML documents: " + importDir));
+            return 0;
+        }
+        var definitionsRoot = mod.getLoader().getLastLoadedRootPath();
+        if (definitionsRoot == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Definitions root unknown — world not fully loaded."));
+            return 0;
+        }
+        var sink = new com.storynpcs.migration.RegistryImportSink(
+                service, mod.getRegistry());
+        var importer = new com.storynpcs.migration.DefinitionImporter();
+        var source = new com.storynpcs.migration.ImportSource(
+                com.storynpcs.migration.ImportSource.Kind.STORYNPCS_YAML_PACKAGE,
+                packageName, com.storynpcs.migration.ImportSource.CURRENT_FORMAT_VERSION,
+                importDir.toString());
+        var plan = importer.plan(source, policy, documents, sink);
+        var report = dryRun ? importer.dryRun(plan) : importer.apply(plan, sink);
+        final boolean wasDryRun = report.dryRun();
+        long applied = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.APPLIED);
+        long wouldApply = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.WOULD_APPLY);
+        long quarantined = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.QUARANTINED);
+        long failed = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.FAILED);
+        long skipped = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.SKIPPED);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Import %s '%s' (policy=%s): %d apply, %d skip, %d quarantine, %d failed — rollback=%s",
+                wasDryRun ? "dry-run" : "apply", packageName, policyName,
+                wasDryRun ? wouldApply : applied, skipped, quarantined, failed,
+                report.rollbackOutcome())), true);
+        for (var r : report.steps()) {
+            final var line = Component.literal(String.format("  §7[%s] %s/%s%s — %s",
+                    r.outcome(), r.family(), r.sourceName(),
+                    r.resolvedId() != null && !r.resolvedId().equals(r.definitionId())
+                            ? "→" + r.resolvedId() : "",
+                    r.detail()));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        if (!report.failureReason().isBlank()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + report.failureReason()));
+        }
+        return report.steps().isEmpty() ? 0 : 1;
+    }
+
+    // ── P2-2 persistence store manifest ─────────────────────────────────────
+
+    private static int listStores(CommandContext<CommandSourceStack> ctx) {
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "--- StoryNPCs Persistence Stores (18-store manifest) ---"), false);
+        for (var entry : com.storynpcs.persistence.PersistenceStoreMap.all()) {
+            final var line = Component.literal(String.format(
+                    " §7%s§r [%s/%s] → %s §8(issue %s)",
+                    entry.targetSymbol(), entry.ownership(), entry.status(), entry.store(), entry.ownerIssue()));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        return 1;
+    }
+
+    // ── P10-2 patch-plan validation ──────────────────────────────────────────
+
+    private static int validatePatchPlan(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        String planName = StringArgumentType.getString(ctx, "plan");
+        if (!planName.matches("[a-zA-Z0-9_.-]+") || planName.contains("..")) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Invalid plan name — a single safe filename stem is required."));
+            return 0;
+        }
+        var server = ctx.getSource().getServer();
+        var planFile = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
+                .resolve("storynpcs").resolve("patches").resolve(planName + ".yaml");
+        if (!java.nio.file.Files.isRegularFile(planFile)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Patch plan not found: " + planFile));
+            return 0;
+        }
+        com.storynpcs.authoring.ai.PatchPlan plan;
+        try {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper(
+                    new com.fasterxml.jackson.dataformat.yaml.YAMLFactory());
+            plan = mapper.readValue(planFile.toFile(), com.storynpcs.authoring.ai.PatchPlan.class);
+        } catch (java.io.IOException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Patch plan could not be parsed: " + e.getMessage()));
+            return 0;
+        }
+        var existingIds = new java.util.HashSet<String>();
+        mod.getRegistry().getAllNpcs().forEach(n -> existingIds.add(n.getId().toString()));
+        mod.getRegistry().getAllDialogues().forEach(d -> existingIds.add(d.getId().toString()));
+        mod.getRegistry().getAllQuests().forEach(q -> existingIds.add(q.getId().toString()));
+        mod.getRegistry().getAllFactions().forEach(f -> existingIds.add(f.getId().toString()));
+        var report = new com.storynpcs.authoring.ai.PatchPlanValidator().dryRun(
+                plan, com.storynpcs.authoring.ai.SchemaBundle.current(),
+                existingIds, mod.getRegistry().revision());
+        var diagnostics = report.diagnostics();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Patch plan '%s': %d ops, %d dependencies — %s",
+                planName, plan.deduplicated().ops().size(), report.dependencies().size(),
+                diagnostics.hasErrors() ? "REJECTED" : "valid")), true);
+        if (!diagnostics.getDiagnostics().isEmpty()) {
+            final var issues = Component.literal(diagnostics.formatReport(10));
+            ctx.getSource().sendSuccess(() -> issues, false);
+        }
+        for (var summary : report.operationSummary()) {
+            final var line = Component.literal("  §7" + summary);
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        return diagnostics.hasErrors() ? 0 : 1;
     }
 }

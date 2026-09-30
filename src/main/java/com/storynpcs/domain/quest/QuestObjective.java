@@ -23,6 +23,14 @@ public class QuestObjective {
     @JsonProperty
     private int requiredCount = 1;
 
+    /**
+     * Namespaced handler id for {@link Type#CUSTOM} objectives — the typed
+     * extension contract for manual/custom progress sources. Required and
+     * ignored otherwise.
+     */
+    @JsonProperty
+    private String customType = "";
+
     public QuestObjective() {}
 
     public QuestObjective(String id, Type type, String target, int requiredCount) {
@@ -43,4 +51,7 @@ public class QuestObjective {
 
     public int getRequiredCount() { return requiredCount; }
     public void setRequiredCount(int requiredCount) { this.requiredCount = requiredCount; }
+
+    public String getCustomType() { return customType; }
+    public void setCustomType(String customType) { this.customType = customType == null ? "" : customType; }
 }

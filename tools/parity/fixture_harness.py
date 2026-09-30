@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import json
 import re
 import sys
@@ -98,6 +99,41 @@ BASELINE_EVIDENCE_TEMPLATE = {
     "comparison": {"rule": "target-runtime-required", "outcome": "NOT_COMPARABLE"},
     "evidence_state": "UNVERIFIED_TARGET_RUNTIME",
 }
+
+
+FINGERPRINT_DIRS = ("src/main", "src/test", "tools/parity", "docs/creator")
+FINGERPRINT_FILES = (
+    "build.gradle",
+    "gradle.properties",
+    "settings.gradle",
+    "gradle/wrapper/gradle-wrapper.properties",
+    "docs/parity/evidence-schema.json",
+    "docs/parity/fixture-catalog.json",
+    "docs/parity/target-surface-manifest.json",
+    "docs/parity/truth-gate-exceptions.json",
+)
+
+
+def source_fingerprint(root: Path) -> str:
+    paths = {root / name for name in FINGERPRINT_FILES if (root / name).is_file()}
+    for directory in FINGERPRINT_DIRS:
+        base = root / directory
+        if base.is_dir():
+            paths.update(
+                path for path in base.rglob("*")
+                if path.is_file()
+                and "__pycache__" not in path.parts
+                and (directory != "tools/parity" or path.suffix == ".py")
+            )
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
 
 
 def load_catalog(path: Path) -> dict[str, Any]:

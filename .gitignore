@@ -1,4 +1,6 @@
 .gradle/
+.gradle-*/
+.*_diff.txt
 build/
 bin/
 out/

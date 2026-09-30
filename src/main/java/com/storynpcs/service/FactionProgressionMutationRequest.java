@@ -6,14 +6,14 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** Immutable command for a player-scoped faction-reputation mutation. */
+/** Immutable command for a player-scoped faction-standing mutation. */
 public record FactionProgressionMutationRequest(
         String actorType,
         UUID actorId,
         UUID playerUuid,
         NamespacedId factionId,
         Action action,
-        int value,
+        int amount,
         long expectedRevision,
         UUID requestId,
         int permissionLevel) {
@@ -32,9 +32,13 @@ public record FactionProgressionMutationRequest(
         Objects.requireNonNull(requestId, "requestId");
         if (expectedRevision < 0) throw new IllegalArgumentException("expectedRevision must be non-negative");
         if (permissionLevel < -1) throw new IllegalArgumentException("permissionLevel must be >= -1");
-        if (value < -100_000 || value > 100_000) {
-            throw new IllegalArgumentException("value must be between -100000 and 100000");
-        }
+        // amount is intentionally unbounded: the domain clamps faction standing to +/-100_000.
+    }
+
+    public static FactionProgressionMutationRequest set(
+            String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
+            int points, long expectedRevision, UUID requestId) {
+        return set(actorType, actorId, playerUuid, factionId, points, expectedRevision, requestId, -1);
     }
 
     public static FactionProgressionMutationRequest set(
@@ -46,16 +50,22 @@ public record FactionProgressionMutationRequest(
 
     public static FactionProgressionMutationRequest adjust(
             String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
+            int delta, long expectedRevision, UUID requestId) {
+        return adjust(actorType, actorId, playerUuid, factionId, delta, expectedRevision, requestId, -1);
+    }
+
+    public static FactionProgressionMutationRequest adjust(
+            String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
             int delta, long expectedRevision, UUID requestId, int permissionLevel) {
         return new FactionProgressionMutationRequest(actorType, actorId, playerUuid, factionId,
                 Action.ADJUST, delta, expectedRevision, requestId, permissionLevel);
     }
 
     public String operation() {
-        return action == Action.SET ? "faction.set" : "faction.adjust";
+        return action == Action.SET ? "faction.progress.set" : "faction.progress.adjust";
     }
 
     public String capability() {
-        return action == Action.SET ? "faction.set" : "faction.adjust";
+        return operation();
     }
 }

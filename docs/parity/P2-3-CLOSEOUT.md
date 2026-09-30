@@ -55,3 +55,26 @@ Status: `IN-REVIEW`
 - Faction changes, companion wages, equipment, teleport unlocks, and world/container effects have no operation-specific exactly-once journal fixtures yet.
 - Quest reward fan-out still needs a durable outbox/ledger; other bank actions and paid unlock still lack crash-spanning journal state.
 - Three independent read-only reviews of the overall implementation slice were completed in the current implementation-flow cycle; each found an acceptance gap, with fixes and residual risks recorded in `docs/parity/reviews/2026-09-22-*.md`. A targeted follow-up review approved the bank concurrency remediation. This closeout remains `IN-REVIEW`, not `DONE-LOCAL`, because target-runtime certification and other operation-specific recovery work remain open.
+
+## P2-3 follow-up pass — login-time quest-completion recovery
+
+- Added `StoryNpcsApplicationService.recoverQuestCompletions(UUID)`, wired into `WorldLifecycleHandler.handlePlayerLogin` alongside bank/trade recovery.
+- A durable `PendingQuestCompletion` means a completion was in flight when the process stopped. If the intent is still eligible (same quest-state revision, objectives still met), recovery resumes through `completeQuestUnderLock`: the mark-before-deliver protocol delivers only reward legs with no durable mark, so XP/item legs never double-deliver, and faction/status/intent/marks commit in one write.
+- Ineligible intents (quest removed, state moved on, objectives withdrawn) stay pending and are counted as unresolved for manual recovery — fail closed, never guessed.
+- Stale intents on already-COMPLETED quests are dropped durably; a failure to persist that cleanup is counted unresolved.
+- Restart fixture `loginRecoveryResumesInterruptedRewardFanOutExactlyOnce` proves a crash mid-fan-out resumes after restart and delivers exactly the unmarked leg once. `loginRecoveryResumesEligibleIntentWithoutRewardMarks` covers the crash-before-first-mark window. Stale-intent cleanup and ineligible fail-closed behavior are each covered.
+- Full suite after this pass: `BUILD SUCCESSFUL`, 55 suites, 484 tests, 0 failures. No live MC testing.
+
+### Residual limits added by this pass
+
+- A pending intent is only resumed when `isPendingQuestCompletionEligible` holds — an explicit `completeQuest` that bypassed objectives and then crashed leaves an intent whose eligibility can never be proven; it stays pending for manual recovery, matching `retryPendingQuestCompletion` semantics.
+- `recoverQuestCompletions` returns a count only; per-intent diagnostics are logged per quest, consistent with the bank/trade recovery surface.
+- Marked-but-possibly-undelivered legs remain prefer-loss-over-duplicate, as documented in `completeQuestUnderLock`; recovery reports but does not re-deliver them.
+
+## P2-3 review-remediation pass — economy exactly-once gaps
+
+Independent review found three exploitable defects in this slice; all three are remediated with regression fixtures:
+
+- **Trade under-charge with identical inputs.** `TradeListing.validate()` previously validated each input leg independently, so a listing like `40 emerald + 40 emerald` passed two independent held-checks against the same inventory and under-deducted. `validate()` now rejects identical primary/secondary item IDs, and `executeTradeMutationCore` additionally asserts each deduction loop consumed the full requested amount — on any shortfall the catch restores every removed stack (`ItemStack.grow` on the recorded paid stacks) and rolls back the owned reservation. Regression: `identicalTwoInputListingIsRejectedBeforeAnyExchange`.
+- **Unjournaled withdrawal compatibility path.** `withdrawAndDeliverFromBank(uuid, repo, tab, slot)` carried a `null` request ID down an explicitly untracked leg. The untracked path no longer exists: `withdrawAndDeliverInternal` mints a fresh `UUID` when the caller supplies none, so every whole-stack withdrawal holds a `bank.withdraw` journal record; the former unjournaled helper is renamed `withdrawAndDeliverCore` and is only reachable inside the journal. Regression: `compatWithdrawalWithoutRequestIdJournalsOperation` blocks the vault transaction mid-flight and asserts a `STARTED bank.withdraw` journal record exists during the compat call.
+- **Quest-mail claim TOCTOU.** `QuestMailStore.claim()` was a check-then-write across two separately synchronized store calls, so two concurrent claimants could both succeed and duplicate reward delivery. The claim now runs through `IndexedRecordStore.computeIfPresent` — read, claimed-check, mark, and durable write as one critical section under the store monitor. Regression: `concurrentClaimsOnTheSameMailSucceedExactlyOnce` races 16 claimants and asserts exactly one success, durable across reopen.

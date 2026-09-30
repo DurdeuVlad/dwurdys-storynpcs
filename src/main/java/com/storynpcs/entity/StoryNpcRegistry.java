@@ -24,6 +24,15 @@ public final class StoryNpcRegistry {
                             .build(StoryNpcs.MOD_ID + ":npc")
             );
 
+    public static final DeferredHolder<EntityType<?>, EntityType<NpcProjectileEntity>> NPC_PROJECTILE =
+            ENTITY_TYPES.register("npc_projectile", () ->
+                    EntityType.Builder.of(NpcProjectileEntity::new, MobCategory.MISC)
+                            .sized(0.5F, 0.5F)
+                            .clientTrackingRange(4)
+                            .updateInterval(20)
+                            .build(StoryNpcs.MOD_ID + ":npc_projectile")
+            );
+
     public static void register(IEventBus modEventBus) {
         ENTITY_TYPES.register(modEventBus);
         modEventBus.addListener(StoryNpcRegistry::onEntityAttributeCreation);

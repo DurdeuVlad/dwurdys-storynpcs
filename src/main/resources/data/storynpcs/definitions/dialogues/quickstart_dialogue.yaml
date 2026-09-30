@@ -1,0 +1,22 @@
+schemaVersion: 1
+id: "storynpcs:quickstart_dialogue"
+title: "Quickstart Demo"
+entryNodeId: "greeting"
+nodes:
+  greeting:
+    id: "greeting"
+    text: "Hey there! I'm a StoryNPCs demo — right-click me with the Dialogue Wand to see my graph."
+    options:
+      - text: "What can this mod do?"
+        targetNodeId: "about"
+      - text: "Just saying hi."
+        targetNodeId: "farewell"
+  about:
+    id: "about"
+    text: "NPCs like me get branching dialogue, quests, factions and behavior rules — all editable in-game."
+    options:
+      - text: "Neat. Bye!"
+        targetNodeId: "farewell"
+  farewell:
+    id: "farewell"
+    text: "See you around!"

@@ -46,6 +46,8 @@ then asserts on the resulting live entity/world state.
 
 ### What this tier does not cover
 
+GameTests prove StoryNPCs behavior only; they are not CustomNPCs target-parity or `VERIFIED_PARITY` evidence.
+
 Actual pixel-level rendering (GUI layout, HUD appearance, model/texture
 previews) is out of reach in this environment — there is no way to launch
 a windowed Minecraft client here. That's exactly why GUI logic is split

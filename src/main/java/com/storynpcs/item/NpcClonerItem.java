@@ -1,6 +1,7 @@
 package com.storynpcs.item;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.entity.StoryNpcEntity;
@@ -52,7 +53,7 @@ public class NpcClonerItem extends Item {
                 var defOpt = npc.getDefinition();
                 if (defOpt.isPresent()) {
                     NpcDefinition def = defOpt.get();
-                    StoryNpcs mod = StoryNpcs.getInstance();
+                    StoryNpcs mod = StoryNpcsAccess.mod(player);
                     if (mod == null) {
                         return InteractionResult.FAIL;
                     }
@@ -85,7 +86,7 @@ public class NpcClonerItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = StoryNpcsAccess.mod(player);
         if (mod == null) {
             return InteractionResult.FAIL;
         }

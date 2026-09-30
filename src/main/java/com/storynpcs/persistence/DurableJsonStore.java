@@ -288,7 +288,9 @@ public final class DurableJsonStore {
         TEMP_WRITE,
         FORCE,
         BACKUP_ROTATION,
-        TARGET_RENAME
+        TARGET_RENAME,
+        /** Between a record commit and its index commit in an indexed store. */
+        INDEX_UPDATE
     }
 
     @FunctionalInterface

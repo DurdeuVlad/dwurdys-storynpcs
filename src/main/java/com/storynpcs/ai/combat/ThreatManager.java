@@ -18,10 +18,32 @@ public class ThreatManager {
 
     public record StrikeRecord(int count, long lastTick) {}
 
+    /** Receives (target, isAggro, reason) whenever the engaged target changes. */
+    @FunctionalInterface
+    public interface AggroEventSink {
+        void onAggroChange(UUID targetUuid, boolean isAggro, String reason);
+    }
+
     private final Map<UUID, StrikeRecord> strikes = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> threatTable = new ConcurrentHashMap<>();
     private UUID currentTarget = null;
     private int aggroTimer = 0;
+    private volatile AggroEventSink aggroEventSink;
+
+    /** Optional sink for target-change reasons; a null sink keeps prior silent behavior. */
+    public void setAggroEventSink(AggroEventSink sink) {
+        this.aggroEventSink = sink;
+    }
+
+    private void setCurrentTarget(UUID target, String reason) {
+        UUID previous = this.currentTarget;
+        this.currentTarget = target;
+        AggroEventSink sink = this.aggroEventSink;
+        if (sink != null && !java.util.Objects.equals(previous, target)) {
+            // Disengagements report the entity being released; engagements the new target.
+            sink.onAggroChange(target != null ? target : previous, target != null, reason);
+        }
+    }
 
     /**
      * Evaluates an incoming hit against the strike tolerance window.
@@ -70,8 +92,12 @@ public class ThreatManager {
     }
 
     public void recalculateTarget() {
+        recalculateTarget("THREAT_PRIORITY_CHANGE");
+    }
+
+    private void recalculateTarget(String reason) {
         if (threatTable.isEmpty()) {
-            this.currentTarget = null;
+            setCurrentTarget(null, reason);
             return;
         }
         UUID highest = null;
@@ -82,12 +108,12 @@ public class ThreatManager {
                 highest = entry.getKey();
             }
         }
-        this.currentTarget = highest;
+        setCurrentTarget(highest, reason);
     }
 
     public void tick(int decayRate) {
         if (threatTable.isEmpty()) {
-            this.currentTarget = null;
+            setCurrentTarget(null, "THREAT_CLEARED");
             this.aggroTimer = 0;
             return;
         }
@@ -100,7 +126,7 @@ public class ThreatManager {
             // Decay threat when timer expires
             threatTable.replaceAll((k, v) -> Math.max(0, v - decayRate));
             threatTable.entrySet().removeIf(e -> e.getValue() <= 0);
-            recalculateTarget();
+            recalculateTarget("THREAT_DECAYED");
         }
     }
 
@@ -118,7 +144,7 @@ public class ThreatManager {
             strikes.remove(targetUuid);
             threatTable.remove(targetUuid);
             if (targetUuid.equals(currentTarget)) {
-                recalculateTarget();
+                recalculateTarget("TARGET_FORGIVEN");
             }
         }
     }
@@ -126,7 +152,7 @@ public class ThreatManager {
     public void clearAll() {
         strikes.clear();
         threatTable.clear();
-        currentTarget = null;
+        setCurrentTarget(null, "THREAT_CLEARED");
         aggroTimer = 0;
     }
 

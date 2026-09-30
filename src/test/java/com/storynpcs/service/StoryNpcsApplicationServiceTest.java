@@ -86,9 +86,10 @@ class StoryNpcsApplicationServiceTest {
         service.updateNpcAi(npcId, ai);
         assertThat(registry.getNpc(npcId).get().getAi().getMovementType()).isEqualTo(NpcAi.MovementType.WANDERING);
 
-        // 5. Update Inventory
+        // 5. Update Inventory (legacy flat adapter lands on the visible drop slots)
         service.updateNpcInventory(npcId, List.of("minecraft:iron_sword", "minecraft:shield"));
-        assertThat(registry.getNpc(npcId).get().getInventory()).containsExactly("minecraft:iron_sword", "minecraft:shield");
+        assertThat(registry.getNpc(npcId).get().getInventory().legacyItemIds())
+                .containsExactly("minecraft:iron_sword", "minecraft:shield");
 
         // 6. Set and Clear Mark
         service.setNpcMark(npcId, new NpcMark(1, 0xFFFF00, "!"));
@@ -334,7 +335,7 @@ class StoryNpcsApplicationServiceTest {
 
         NamespacedId questId = NamespacedId.of("storynpcs:one_time_bounty");
         Quest quest = new Quest(questId, "Bounty");
-        quest.setRepeatType(Quest.RepeatType.ONCE);
+        quest.setRepeatType(Quest.RepeatType.NORMAL);
         quest.setRewards(List.of(new QuestReward(QuestReward.Type.FACTION_POINTS, factionId.toString(), 100)));
         registry.registerQuest(quest);
 
@@ -1598,7 +1599,13 @@ class StoryNpcsApplicationServiceTest {
         NamespacedId locationId = NamespacedId.of("storynpcs:vault_city");
         var location = new com.storynpcs.domain.transport.TransportLocation(
                 locationId, "Vault City", "minecraft:overworld", 10, 65, 10);
-        location.setRequiresUnlock(true);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
         service.createTransportLocation(location);
         UUID player = UUID.randomUUID();
 
@@ -1656,8 +1663,18 @@ class StoryNpcsApplicationServiceTest {
         registry.registerNpc(npc);
 
         assertThat(service.findNpcsReferencingFaction(factionId)).containsExactly(npcId);
-        assertThat(service.deleteFaction(factionId)).isTrue();
+        // No fallback: deletion is blocked rather than silently orphaning the NPC binding.
+        assertThat(service.deleteFaction(factionId)).isFalse();
+        assertThat(registry.getFaction(factionId)).isPresent();
+
+        NamespacedId fallbackId = NamespacedId.of("storynpcs:fallback_faction");
+        service.createFaction(fallbackId, "Fallback Faction");
+        MutationRequest request = new MutationRequest("faction.delete", "command", "faction.delete",
+                factionId, service.currentRevision("faction", factionId), UUID.randomUUID(), -1);
+        assertThat(service.deleteFactionWithRepairs(request, fallbackId).applied()).isTrue();
         assertThat(registry.getFaction(factionId)).isEmpty();
+        assertThat(registry.getNpc(npcId)).hasValueSatisfying(
+                repointed -> assertThat(repointed.getFactionId()).isEqualTo(fallbackId));
         assertThat(service.deleteFaction(factionId)).isFalse(); // idempotent-miss
     }
 
@@ -1808,7 +1825,13 @@ class StoryNpcsApplicationServiceTest {
         UUID player = UUID.randomUUID();
         var location = new com.storynpcs.domain.transport.TransportLocation(
                 NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
-        location.setRequiresUnlock(true);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
         service.createTransportLocation(location);
 
         assertThat(service.isTransportLocationUnlocked(player, location.getId())).isFalse();
@@ -1826,7 +1849,13 @@ class StoryNpcsApplicationServiceTest {
         UUID player = UUID.randomUUID();
         var location = new com.storynpcs.domain.transport.TransportLocation(
                 NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
-        location.setRequiresUnlock(true);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
         service.createTransportLocation(location);
 
         assertThat(service.unlockTransportLocation(player, location.getId())).isTrue();
@@ -1845,7 +1874,13 @@ class StoryNpcsApplicationServiceTest {
         UUID player = UUID.randomUUID();
         var location = new com.storynpcs.domain.transport.TransportLocation(
                 NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
-        location.setRequiresUnlock(true);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
         service.createTransportLocation(location);
         service.unlockTransportLocation(player, location.getId());
 

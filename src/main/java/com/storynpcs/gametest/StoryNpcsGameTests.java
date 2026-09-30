@@ -1,6 +1,7 @@
 package com.storynpcs.gametest;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.entity.StoryNpcEntity;
@@ -43,15 +44,14 @@ public final class StoryNpcsGameTests {
         NamespacedId definitionId = NamespacedId.of("storynpcs:test/gametest_npc");
         NpcDefinition definition = new NpcDefinition(definitionId, "GameTest NPC");
 
-        StoryNpcs mod = StoryNpcs.getInstance();
-        helper.assertTrue(mod != null, "StoryNpcs.getInstance() must be initialized while a mod-loaded server is running");
+        BlockPos spawnAt = new BlockPos(1, 1, 1);
+        StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
+        StoryNpcs mod = StoryNpcsAccess.mod(npc);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
 
         // Canonical mutation path per AGENTS.md: every definition write goes through
         // StoryNpcsApplicationService, never a direct registry poke.
         mod.getApplicationService().createNpc(definition);
-
-        BlockPos spawnAt = new BlockPos(1, 1, 1);
-        StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
         npc.setDefinitionId(definitionId.toString());
 
         helper.assertTrue(npc.getDefinition().isPresent(),

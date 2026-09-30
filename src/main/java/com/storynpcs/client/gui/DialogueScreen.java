@@ -39,8 +39,10 @@ public class DialogueScreen extends Screen {
             boolean isTerminal,
             String npcName,
             List<String> optionHints,
-            UUID sessionId
+            UUID sessionId,
+            List<String> optionTokens
     ) {
+        final List<String> tokens = optionTokens != null ? optionTokens : List.of();
         DialogueScreenModel model = new DialogueScreenModel(
                 dialogueId,
                 nodeId,
@@ -48,10 +50,14 @@ public class DialogueScreen extends Screen {
                 sound,
                 options,
                 isTerminal,
+                // The server accepts only the opaque single-use token issued for
+                // this option (P5-2) — never a raw index.
                 index -> PacketDistributor.sendToServer(new ServerboundDialogueChoosePayload(
-                        index, sessionId, UUID.randomUUID())),
+                        sessionId, UUID.randomUUID(),
+                        index >= 0 && index < tokens.size() ? tokens.get(index) : "")),
                 npcName,
-                optionHints
+                optionHints,
+                optionTokens
         );
         return new DialogueScreen(model, sessionId);
     }

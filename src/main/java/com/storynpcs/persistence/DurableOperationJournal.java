@@ -9,9 +9,12 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -31,6 +34,18 @@ public final class DurableOperationJournal {
     public static final int MAX_OUTCOME_CODE_LENGTH = 128;
     public static final int MAX_DETAIL_LENGTH = 4096;
     public static final int MAX_PENDING_RECORDS = 4096;
+
+    /**
+     * Terminal records at least this old are eligible for the default
+     * retention sweep; prepared records are never pruned.
+     */
+    public static final long DEFAULT_TERMINAL_RETENTION_MILLIS = Duration.ofDays(30).toMillis();
+
+    /**
+     * The newest terminal records always retained, so a sweep never erases
+     * the most recent audit trail even when every record is past the cutoff.
+     */
+    public static final int MIN_TERMINAL_RECORDS_RETAINED = 256;
 
     private final Path storageDirectory;
     private final ObjectMapper mapper;
@@ -191,6 +206,98 @@ public final class DurableOperationJournal {
             }
         }
         return List.copyOf(pending);
+    }
+
+    /**
+     * Applies the default retention policy: terminal records older than
+     * {@link #DEFAULT_TERMINAL_RETENTION_MILLIS} are deleted once more than
+     * {@link #MIN_TERMINAL_RECORDS_RETAINED} newer terminal records remain.
+     *
+     * @return the number of record files deleted
+     */
+    public synchronized int pruneTerminalRecords() throws IOException {
+        return pruneTerminalRecords(DEFAULT_TERMINAL_RETENTION_MILLIS, MIN_TERMINAL_RECORDS_RETAINED);
+    }
+
+    /**
+     * Deletes terminal (committed/aborted) record files that are both older
+     * than {@code maxAgeMillis} and beyond the {@code minRetained} newest
+     * terminal records, together with each record's {@code .lock} file and
+     * rotated {@code .bak.*} generations. {@link State#PREPARED} records,
+     * quarantined {@code .corrupted.*} artifacts, and unreadable record files
+     * are never touched — they may be evidence for manual recovery. Orphaned
+     * {@code .lock} files whose record is gone are removed once they age past
+     * the same cutoff; fresh orphans are left alone because another process
+     * may be mid-{@link #begin} on them. Individual delete failures are
+     * skipped so a locked file cannot abort the sweep.
+     *
+     * @return the number of record files deleted
+     */
+    public synchronized int pruneTerminalRecords(long maxAgeMillis, int minRetained) throws IOException {
+        if (maxAgeMillis < 0) throw new IllegalArgumentException("maxAgeMillis cannot be negative");
+        if (minRetained < 0) throw new IllegalArgumentException("minRetained cannot be negative");
+        if (!Files.exists(storageDirectory)) return 0;
+        long cutoff = System.currentTimeMillis() - maxAgeMillis;
+
+        Map<String, Path> filesByName = new HashMap<>();
+        try (var paths = Files.list(storageDirectory)) {
+            for (Path path : paths.toList()) {
+                filesByName.put(path.getFileName().toString(), path);
+            }
+        }
+
+        List<OperationRecord> terminal = new ArrayList<>();
+        for (Map.Entry<String, Path> entry : filesByName.entrySet()) {
+            if (!entry.getKey().endsWith(".json")) continue;
+            OperationRecord record;
+            try {
+                record = readExisting(entry.getValue());
+            } catch (IOException | RuntimeException unreadable) {
+                continue; // a corrupt record may be evidence — never auto-delete
+            }
+            if (record != null && record.state() != State.PREPARED) terminal.add(record);
+        }
+        terminal.sort(Comparator.comparingLong(OperationRecord::updatedAtEpochMillis).reversed());
+
+        int deleted = 0;
+        for (int index = minRetained; index < terminal.size(); index++) {
+            OperationRecord record = terminal.get(index);
+            if (record.updatedAtEpochMillis() > cutoff) continue;
+            String baseName = record.operationId() + ".json";
+            if (!deleteQuietly(filesByName.get(baseName))) continue;
+            deleteQuietly(filesByName.get(baseName + ".lock"));
+            for (Map.Entry<String, Path> entry : filesByName.entrySet()) {
+                String name = entry.getKey();
+                if (name.startsWith(baseName + ".bak.") && !name.contains(".corrupted.")) {
+                    deleteQuietly(entry.getValue());
+                }
+            }
+            deleted++;
+        }
+
+        String lockSuffix = ".lock";
+        for (Map.Entry<String, Path> entry : filesByName.entrySet()) {
+            String name = entry.getKey();
+            if (!name.endsWith(".json.lock")) continue;
+            Path owner = entry.getValue().resolveSibling(
+                    name.substring(0, name.length() - lockSuffix.length()));
+            if (filesByName.containsKey(owner.getFileName().toString())) continue;
+            try {
+                if (Files.getLastModifiedTime(entry.getValue()).toMillis() <= cutoff) {
+                    deleteQuietly(entry.getValue());
+                }
+            } catch (IOException | RuntimeException ignored) { }
+        }
+        return deleted;
+    }
+
+    private static boolean deleteQuietly(Path path) {
+        if (path == null) return false;
+        try {
+            return Files.deleteIfExists(path);
+        } catch (IOException | RuntimeException ignored) {
+            return false;
+        }
     }
 
     private OperationRecord transition(UUID operationId, State targetState,

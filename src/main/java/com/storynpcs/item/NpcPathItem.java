@@ -1,6 +1,7 @@
 package com.storynpcs.item;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.ai.Waypoint;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcAi;
@@ -53,7 +54,7 @@ public class NpcPathItem extends Item {
                 var defOpt = npc.getDefinition();
                 if (defOpt.isPresent()) {
                     NamespacedId id = defOpt.get().getId();
-                    StoryNpcs mod = StoryNpcs.getInstance();
+                    StoryNpcs mod = StoryNpcsAccess.mod(player);
                     if (mod == null) {
                         return InteractionResult.FAIL;
                     }
@@ -84,7 +85,7 @@ public class NpcPathItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = StoryNpcsAccess.mod(player);
         if (mod == null) return InteractionResult.FAIL;
 
         NamespacedId id = mod.getRuntimeSessions(serverPlayer.getServer()).selectedPathNpc(serverPlayer.getUUID());
@@ -144,7 +145,7 @@ public class NpcPathItem extends Item {
                         "§c[StoryNPCs] You must have operator level 2 to clear an NPC path."));
                 return InteractionResultHolder.fail(player.getItemInHand(hand));
             }
-            StoryNpcs mod = StoryNpcs.getInstance();
+            StoryNpcs mod = StoryNpcsAccess.mod(player);
             NamespacedId id = mod == null ? null : mod.getRuntimeSessions(serverPlayer.getServer()).selectedPathNpc(serverPlayer.getUUID());
             if (id != null) {
                 if (mod != null) {

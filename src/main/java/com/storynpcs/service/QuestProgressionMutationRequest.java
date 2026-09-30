@@ -19,7 +19,7 @@ public record QuestProgressionMutationRequest(
         UUID requestId,
         int permissionLevel) {
 
-    public enum Action { START, PROGRESS }
+    public enum Action { START, PROGRESS, RESET }
 
     private static final Set<String> ACTORS = Set.of("command", "dialogue", "player", "script", "system");
 
@@ -33,11 +33,11 @@ public record QuestProgressionMutationRequest(
         Objects.requireNonNull(requestId, "requestId");
         if (expectedRevision < 0) throw new IllegalArgumentException("expectedRevision must be non-negative");
         if (permissionLevel < -1) throw new IllegalArgumentException("permissionLevel must be >= -1");
-        if (action == Action.START) {
+        if (action == Action.START || action == Action.RESET) {
             if (objectiveId != null && !objectiveId.isBlank()) {
-                throw new IllegalArgumentException("START requests cannot name an objective");
+                throw new IllegalArgumentException(action + " requests cannot name an objective");
             }
-            if (amount != 0) throw new IllegalArgumentException("START requests cannot carry an amount");
+            if (amount != 0) throw new IllegalArgumentException(action + " requests cannot carry an amount");
             objectiveId = "";
         } else {
             if (objectiveId == null || objectiveId.isBlank()) {
@@ -66,11 +66,22 @@ public record QuestProgressionMutationRequest(
                 Action.PROGRESS, objectiveId, amount, expectedRevision, requestId, -1);
     }
 
+    public static QuestProgressionMutationRequest reset(
+            String actorType, UUID actorId, UUID playerUuid, NamespacedId questId,
+            long expectedRevision, UUID requestId, int permissionLevel) {
+        return new QuestProgressionMutationRequest(actorType, actorId, playerUuid, questId,
+                Action.RESET, "", 0, expectedRevision, requestId, permissionLevel);
+    }
+
     public String operation() {
-        return action == Action.START ? "quest.start" : "quest.progress";
+        return switch (action) {
+            case START -> "quest.start";
+            case PROGRESS -> "quest.progress";
+            case RESET -> "quest.reset";
+        };
     }
 
     public String capability() {
-        return action == Action.START ? "quest.start" : "quest.progress";
+        return operation();
     }
 }

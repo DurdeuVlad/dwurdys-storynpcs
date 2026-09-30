@@ -3,7 +3,7 @@ package com.storynpcs.domain.role;
 /**
  * Pure cooldown-elapsed check shared by every role whose ability is rate-limited
  * (healer casts, bard performances, and any future role with the same shape).
- * Mirrors {@code com.storynpcs.domain.quest.QuestRepeatPolicy}'s pure-function style.
+ * Mirrors {@code com.storynpcs.domain.quest.RepeatSchedule}'s pure-function style.
  */
 public final class RoleCooldownPolicy {
 

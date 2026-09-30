@@ -25,6 +25,7 @@ public class PlayerProgression {
     @JsonProperty
     private long questRevision;
 
+    /** Optimistic-concurrency clock for faction-standing mutations. */
     @JsonProperty
     private long factionRevision;
 

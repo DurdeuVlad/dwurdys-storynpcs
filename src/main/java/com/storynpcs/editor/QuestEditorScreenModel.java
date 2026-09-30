@@ -217,7 +217,7 @@ public final class QuestEditorScreenModel {
     public Quest.RepeatType cycleRepeatType() {
         if (editing == null) return null;
         Quest.RepeatType[] vals = Quest.RepeatType.values();
-        Quest.RepeatType cur = editing.getRepeatType() != null ? editing.getRepeatType() : Quest.RepeatType.ONCE;
+        Quest.RepeatType cur = editing.getRepeatType() != null ? editing.getRepeatType() : Quest.RepeatType.NORMAL;
         Quest.RepeatType next = vals[(cur.ordinal() + 1) % vals.length];
         editing.setRepeatType(next);
         touch();

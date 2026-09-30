@@ -9,22 +9,22 @@ import java.util.Set;
  */
 public final class AuthorizationPolicy {
     private static final Set<String> ADAPTER_ACTORS = Set.of(
-            "adapter", "command", "packet", "gui", "api", "console", "system");
-    private static final Set<String> DEFINITION_CAPABILITIES = Set.of(
-            "npc.mutate", "npc.edit", "npc.delete", "dialogue.mutate", "dialogue.edit", "dialogue.delete",
-            "quest.mutate", "quest.edit", "quest.delete", "faction.mutate", "faction.edit", "faction.delete",
-            "transport.mutate", "transport.edit", "transport.delete");
+            "adapter", "command", "packet", "gui", "console", "system");
 
     private AuthorizationPolicy() {}
 
     public static AuthorizationDecision evaluate(MutationRequest request) {
         String actor = request.actorType();
         String capability = request.capability();
+        if (actor.equals("api")) {
+            return AuthorizationDecision.deny("REMOTE_AUTH_UNAVAILABLE",
+                    "API mutations are disabled until server-owned capability sessions are integrated.");
+        }
         boolean playerActor = actor.startsWith("player:") && actor.length() > "player:".length();
         if (!playerActor && !ADAPTER_ACTORS.contains(actor) && !actor.equals("script")) {
             return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown mutation actor type: " + actor);
         }
-        if (!DEFINITION_CAPABILITIES.contains(capability)) {
+        if (CapabilityRegistry.policyOf(capability) != CapabilityRegistry.Policy.DEFINITION) {
             return AuthorizationDecision.deny("UNKNOWN_CAPABILITY", "Capability is not registered: " + capability);
         }
         if (actor.equals("script")) {
@@ -40,54 +40,96 @@ public final class AuthorizationPolicy {
 
     /** Authorization for player-scoped quest mutations; the subject is not inferred from a quest ID. */
     public static AuthorizationDecision evaluate(QuestProgressionMutationRequest request) {
-        String actor = request.actorType();
-        if (actor.equals("script")) {
-            return AuthorizationDecision.deny("SCRIPT_CAPABILITY_REQUIRED",
-                    "Scripts cannot mutate quest progression without an explicit granted capability.");
-        }
-        if (actor.equals("player") || actor.equals("dialogue")) {
-            if (!request.playerUuid().equals(request.actorId())) {
-                return AuthorizationDecision.deny("PLAYER_SUBJECT_MISMATCH",
-                        "Player and dialogue actors may only mutate their own quest progression.");
-            }
-            return AuthorizationDecision.allow();
-        }
-        if (actor.equals("command")) {
-            boolean self = request.playerUuid().equals(request.actorId());
-            if (!self && request.permissionLevel() < 2) {
-                return AuthorizationDecision.deny("PERMISSION_DENIED",
-                        "Changing another player's quest progression requires permission level 2.");
-            }
-            return AuthorizationDecision.allow();
-        }
-        if (actor.equals("system")) return AuthorizationDecision.allow();
-        return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown quest progression actor: " + actor);
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.playerUuid(), request.permissionLevel(), "quest progression",
+                request.operation());
     }
 
-    /** Authorization for player-scoped faction mutations; the subject is not inferred from a faction ID. */
+    /** Authorization for player-scoped quest completion; the subject is not inferred from a quest ID. */
+    public static AuthorizationDecision evaluate(QuestCompletionMutationRequest request) {
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.playerUuid(), request.permissionLevel(), "quest completion",
+                request.operation());
+    }
+
+    /** Authorization for player-scoped faction-standing mutations. */
     public static AuthorizationDecision evaluate(FactionProgressionMutationRequest request) {
-        String actor = request.actorType();
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.playerUuid(), request.permissionLevel(), "faction progression",
+                request.operation());
+    }
+
+    /** Authorization for owner-scoped follower state mutations. */
+    public static AuthorizationDecision evaluate(FollowerStateMutationRequest request) {
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.playerUuid(), request.permissionLevel(), "follower state",
+                request.operation());
+    }
+
+    /** Authorization for player-scoped bank vault operations (deposit/withdraw/unlock). */
+    public static AuthorizationDecision evaluate(BankOperationRequest request) {
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.playerUuid(), request.permissionLevel(), "bank vault",
+                request.capability());
+    }
+
+    /**
+     * Authorization for vault-sharing configuration. The subject is the vault
+     * owner — configuring sharing mutates the owner's durable vault record.
+     */
+    public static AuthorizationDecision evaluate(BankAccessMutationRequest request) {
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.vaultOwnerUuid(), request.permissionLevel(), "bank access",
+                request.capability());
+    }
+
+    /** Authorization for player-scoped trade execution. */
+    public static AuthorizationDecision evaluate(TradeExecutionRequest request) {
+        return evaluatePlayerScoped(request.actorType(), request.actorId(),
+                request.playerUuid(), request.permissionLevel(), "trade",
+                request.capability());
+    }
+
+    /** Remote mutations fail closed until a server-owned capability-session registry is integrated. */
+    public static AuthorizationDecision evaluateRemote(MutationRequest request,
+            com.storynpcs.admin.RemoteAccessProof proof, long nowTick) {
+        return AuthorizationDecision.deny("REMOTE_AUTH_UNAVAILABLE",
+                "Remote mutations are disabled until a server-owned capability session is validated.");
+    }
+
+    private static AuthorizationDecision evaluatePlayerScoped(
+            String actor, java.util.UUID actorId, java.util.UUID playerUuid,
+            int permissionLevel, String domain, String capability) {
+        if (CapabilityRegistry.policyOf(capability) != CapabilityRegistry.Policy.PLAYER_SCOPED) {
+            return AuthorizationDecision.deny("UNKNOWN_CAPABILITY",
+                    "Capability is not registered for " + domain + " operations: " + capability);
+        }
         if (actor.equals("script")) {
             return AuthorizationDecision.deny("SCRIPT_CAPABILITY_REQUIRED",
-                    "Scripts cannot mutate faction reputation without an explicit granted capability.");
+                    "Scripts cannot mutate " + domain + " without an explicit granted capability.");
         }
         if (actor.equals("player") || actor.equals("dialogue")) {
-            if (!request.playerUuid().equals(request.actorId())) {
+            if (!playerUuid.equals(actorId)) {
                 return AuthorizationDecision.deny("PLAYER_SUBJECT_MISMATCH",
-                        "Player and dialogue actors may only mutate their own faction reputation.");
+                        "Player and dialogue actors may only mutate their own " + domain + ".");
             }
             return AuthorizationDecision.allow();
         }
         if (actor.equals("command")) {
-            boolean self = request.playerUuid().equals(request.actorId());
-            if (!self && request.permissionLevel() < 2) {
+            // P9-4: operator data scope — SELF for unproven/low-permission
+            // actors, ADMIN once permission level 2 is established. The scope
+            // makes the cross-player boundary explicit and testable.
+            var scope = permissionLevel >= 2
+                    ? com.storynpcs.admin.PlayerDataScope.ADMIN
+                    : com.storynpcs.admin.PlayerDataScope.SELF;
+            if (!scope.permits(actorId, playerUuid)) {
                 return AuthorizationDecision.deny("PERMISSION_DENIED",
-                        "Changing another player's faction reputation requires permission level 2.");
+                        "Changing another player's " + domain + " requires permission level 2.");
             }
             return AuthorizationDecision.allow();
         }
         if (actor.equals("system")) return AuthorizationDecision.allow();
-        return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown faction progression actor: " + actor);
+        return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown " + domain + " actor: " + actor);
     }
 
     /**

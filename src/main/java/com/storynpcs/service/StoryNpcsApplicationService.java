@@ -13,6 +13,7 @@ import com.storynpcs.domain.quest.Quest;
 import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.domain.quest.QuestReward;
 import com.storynpcs.domain.quest.QuestSerde;
+import com.storynpcs.domain.quest.RepeatSchedule;
 import com.storynpcs.persistence.ProgressionRepository;
 import com.storynpcs.yaml.CrossReferenceValidator;
 import com.storynpcs.yaml.DefinitionRegistry;
@@ -20,6 +21,7 @@ import com.storynpcs.yaml.YamlDefinitionLoader;
 import com.storynpcs.yaml.YamlDefinitionWriter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -36,15 +38,42 @@ public class StoryNpcsApplicationService {
     private final Map<UUID, DialogueSession> activeSessions = new ConcurrentHashMap<>();
     /** Revision clocks are scoped by definition kind; NPC and quest IDs may legally overlap. */
     private final Map<String, Long> definitionRevisions = new ConcurrentHashMap<>();
-    private final Map<UUID, CompletedMutation> completedMutations = new ConcurrentHashMap<>();
+    private static final int MAX_REPLAY_RECORDS = 4096;
+    private static final int MUTATION_LOCK_STRIPES = 256;
+
+    private final BoundedReplayCache<UUID, CompletedMutation> completedMutations =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
     /** Recent quest progression receipts are process-local; persisted revisions reject replay after restart. */
-    private final Map<UUID, CompletedQuestMutation> completedQuestMutations = new ConcurrentHashMap<>();
+    private final BoundedReplayCache<UUID, CompletedQuestMutation> completedQuestMutations =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
     /** Recent faction progression receipts are process-local; persisted revisions reject replay after restart. */
-    private final Map<UUID, CompletedFactionMutation> completedFactionMutations = new ConcurrentHashMap<>();
-    private final Object[] questMutationLocks = createQuestMutationLocks();
-    private final Object[] progressionMutationLocks = createQuestMutationLocks();
-    private final Object[] factionMutationLocks = createQuestMutationLocks();
-    private final Object[] factionProgressionMutationLocks = createQuestMutationLocks();
+    private final BoundedReplayCache<UUID, CompletedFactionMutation> completedFactionMutations =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    private final BoundedReplayCache<UUID, CompletedQuestCompletion> completedQuestCompletions =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    private final BoundedReplayCache<UUID, CompletedFollowerMutation> completedFollowerMutations =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+
+    /**
+     * Bounded live runtime configuration (P9-4) — shared with the owning mod
+     * instance via {@link #setRuntimeTunables}; mutated only through
+     * {@link #mutateRuntimeTunables}, which stages changes inside a
+     * {@link com.storynpcs.admin.ConfigTransaction}.
+     */
+    private volatile com.storynpcs.admin.RuntimeTunables runtimeTunables =
+            new com.storynpcs.admin.RuntimeTunables();
+    /** Opaque single-use choice tokens for every rendered dialogue view (P5-2). */
+    private final DialogueChoiceProtocol choiceProtocol =
+            new DialogueChoiceProtocol(this::runtimeTunables);
+    /**
+     * Tick source for choice-token expiry. Defaults to wall-clock 50 ms ticks so
+     * headless runs get real 30-second expiry; production may bind the server's
+     * tick counter via {@link #setChoiceTickSource}.
+     */
+    private volatile java.util.function.LongSupplier choiceTickSource = () -> System.currentTimeMillis() / 50;
+    private final Object[] questMutationLocks = createMutationLocks();
+    private final Object[] progressionMutationLocks = createMutationLocks();
+    private final Object[] tradeMutationLocks = createMutationLocks();
     private final QuestEventQueue[] questEventQueues = createQuestEventQueues();
     /** Accessed only while holding canonicalMutationLock; also blocks same-thread reentrant callbacks. */
     private final Map<UUID, MutationRequest> inProgressMutationRequests = new HashMap<>();
@@ -58,6 +87,11 @@ public class StoryNpcsApplicationService {
     private YamlDefinitionLoader loader;
     /** Test seam: observes the non-atomic XP/item reward boundary for exactly-once proofs. */
     private volatile java.util.function.BiConsumer<UUID, QuestReward> rewardSideEffectOverride;
+    /**
+     * Repeat-boundary policy applied at the canonical quest START gate:
+     * UTC day starts and Monday week starts — deterministic across servers.
+     */
+    private static final RepeatSchedule QUEST_REPEAT_SCHEDULE = RepeatSchedule.utcDefault();
 
     void setRewardSideEffectOverride(java.util.function.BiConsumer<UUID, QuestReward> override) {
         this.rewardSideEffectOverride = override;
@@ -69,6 +103,73 @@ public class StoryNpcsApplicationService {
 
     public void setTradeStateRepository(com.storynpcs.persistence.TradeStateRepository tradeStateRepository) {
         this.tradeStateRepository = tradeStateRepository;
+    }
+
+    /** Read-only runtime tunable view backing dialogue/script budget consumers. */
+    public com.storynpcs.admin.RuntimeTunablesView runtimeTunables() {
+        return runtimeTunables.readOnlyView();
+    }
+
+    /** Wiring-time injection of the shared store — must run before sessions start. */
+    public void setRuntimeTunables(com.storynpcs.admin.RuntimeTunables runtimeTunables) {
+        this.runtimeTunables = java.util.Objects.requireNonNull(runtimeTunables, "runtimeTunables");
+    }
+
+    /**
+     * Canonical runtime-config mutation: authorization + expected-revision
+     * staging through {@link com.storynpcs.admin.ConfigTransaction}. A stale
+     * revision or failed validation rolls the transaction back — the live
+     * tunable map is never partially applied.
+     */
+    public CanonicalMutationResult mutateRuntimeTunables(
+            MutationRequest request, java.util.Map<String, String> changes) {
+        Objects.requireNonNull(request, "request");
+        return mutateRuntimeTunables(request, changes, AuthorizationPolicy.evaluate(request));
+    }
+
+    /** Remote API writes fail closed until server-owned capability sessions are integrated. */
+    public CanonicalMutationResult mutateRuntimeTunables(
+            MutationRequest request, java.util.Map<String, String> changes,
+            com.storynpcs.admin.RemoteAccessProof proof, long nowTick) {
+        Objects.requireNonNull(request, "request");
+        return mutateRuntimeTunables(request, changes,
+                AuthorizationPolicy.evaluateRemote(request, proof, nowTick));
+    }
+
+    private CanonicalMutationResult mutateRuntimeTunables(
+            MutationRequest request, java.util.Map<String, String> changes,
+            AuthorizationDecision authorization) {
+        synchronized (canonicalMutationLock) {
+            if (!authorization.allowed()) {
+                ValidationResult denied = ValidationResult.valid();
+                denied.addError(authorization.code(), authorization.message());
+                var result = new CanonicalMutationResult(false, false, runtimeTunables.revision(), denied,
+                        List.of(request.operation() + ":authorization-denied"), "REJECTED_AUTHORIZATION");
+                publishCanonicalEvent(request, result);
+                return result;
+            }
+            var outcome = runtimeTunables.applyChanges(changes, request.expectedRevision());
+            if (!outcome.committed()) {
+                boolean stale = outcome.detail() != null && outcome.detail().startsWith("stale revision");
+                String code = stale ? "STALE_REVISION" : "VALIDATION_FAILED";
+                ValidationResult failure = ValidationResult.valid();
+                failure.addError(code, outcome.detail());
+                var result = new CanonicalMutationResult(false, false, runtimeTunables.revision(), failure,
+                        List.of(request.operation() + ":rejected"), code);
+                publishCanonicalEvent(request, result);
+                return result;
+            }
+            var result = new CanonicalMutationResult(true, false, outcome.newRevision(),
+                    ValidationResult.valid(), List.of("RuntimeConfigChangeEvent"), "COMMITTED");
+            publishCanonicalEvent(request, result);
+            return result;
+        }
+    }
+
+    private volatile com.storynpcs.domain.quest.QuestMailStore questMailStore;
+
+    public void setQuestMailStore(com.storynpcs.domain.quest.QuestMailStore questMailStore) {
+        this.questMailStore = questMailStore;
     }
 
     public StoryNpcsApplicationService(DefinitionRegistry registry,
@@ -135,6 +236,41 @@ public class StoryNpcsApplicationService {
         if (definition.getId() == null) {
             result.addError("NPC_ID_MISSING", "NPC definition must have an ID");
             return result;
+        }
+
+        // Load-path parity: the loader rejects these shapes, so the canonical
+        // write path must too — otherwise a malformed definition would persist
+        // and "work" live, then fail on the next reload and silently remove
+        // the NPC from the registry.
+        if (definition.getJob() != null) {
+            try {
+                definition.getJob().validate();
+            } catch (RuntimeException jobFailure) {
+                result.addError("JOB_CONFIG_INVALID",
+                        "Invalid job configuration: " + jobFailure.getMessage());
+                return result;
+            }
+        }
+        if (definition.getTrader() != null) {
+            var listings = definition.getTrader().getListings();
+            for (int i = 0; i < listings.size(); i++) {
+                var listing = listings.get(i);
+                try {
+                    if (listing == null) {
+                        throw new IllegalStateException("null listing");
+                    }
+                    listing.validate();
+                } catch (RuntimeException listingFailure) {
+                    String label = listing != null && !listing.getListingId().isBlank()
+                            ? listing.getListingId() : "?";
+                    result.addError("TRADE_LISTING_INVALID",
+                            "Invalid trade listing #" + i + " (" + label
+                                    + "): " + listingFailure.getMessage());
+                }
+            }
+            if (result.hasErrors()) {
+                return result;
+            }
         }
 
         DefinitionRegistry snapshot = new DefinitionRegistry();
@@ -353,10 +489,13 @@ public class StoryNpcsApplicationService {
                 diagnostics.addError("CANONICAL_MUTATION_REJECTED", "Canonical mutation returned no diagnostics");
             }
             long revision = definitionRevisions.getOrDefault(revisionKey(request), currentRevision);
+            boolean rollbackIncomplete = diagnostics.getErrors().stream()
+                    .anyMatch(error -> "ROLLBACK_INCOMPLETE".equals(error.code()));
             CanonicalMutationResult result = new CanonicalMutationResult(
                     !diagnostics.hasErrors(), false, revision, diagnostics,
                     List.of(request.operation() + (diagnostics.hasErrors() ? ":rejected" : ":applied")),
-                    diagnostics.hasErrors() ? "REJECTED_NO_SIDE_EFFECTS" : "COMMITTED");
+                    rollbackIncomplete ? "ROLLBACK_INCOMPLETE"
+                            : diagnostics.hasErrors() ? "REJECTED_NO_SIDE_EFFECTS" : "COMMITTED");
             completedMutations.put(request.requestId(),
                     new CompletedMutation(request, payloadFingerprint, result.snapshot()));
             publishCanonicalEvent(request, result);
@@ -371,6 +510,12 @@ public class StoryNpcsApplicationService {
             String payloadFingerprint, CanonicalMutationResult result, boolean completionPending) {}
 
     private record CompletedFactionMutation(
+            String payloadFingerprint, CanonicalMutationResult result) {}
+
+    private record CompletedQuestCompletion(
+            String payloadFingerprint, QuestCompletionResult result) {}
+
+    private record CompletedFollowerMutation(
             String payloadFingerprint, CanonicalMutationResult result) {}
 
     private record QuestMutationExecution(
@@ -442,8 +587,8 @@ public class StoryNpcsApplicationService {
         }
     }
 
-    private static Object[] createQuestMutationLocks() {
-        Object[] locks = new Object[256];
+    private static Object[] createMutationLocks() {
+        Object[] locks = new Object[MUTATION_LOCK_STRIPES];
         Arrays.setAll(locks, ignored -> new Object());
         return locks;
     }
@@ -550,8 +695,25 @@ public class StoryNpcsApplicationService {
         requireSuccessfulMutation(mutateNpc(id, npc -> npc.setAi(Objects.requireNonNull(ai, "ai"))));
     }
 
-    public void updateNpcInventory(NamespacedId id, List<String> inventory) {
-        requireSuccessfulMutation(mutateNpc(id, npc -> npc.setInventory(new ArrayList<>(inventory))));
+    public void updateNpcInventory(NamespacedId id, com.storynpcs.domain.npc.NpcInventory inventory) {
+        requireSuccessfulMutation(mutateNpc(id, npc -> npc.setInventory(
+                Objects.requireNonNull(inventory, "inventory"))));
+    }
+
+    /** Legacy adapter: flat item ids map onto the visible drop slots at 100% chance. */
+    public void updateNpcInventory(NamespacedId id, List<String> itemIds) {
+        com.storynpcs.domain.npc.NpcInventory inventory = new com.storynpcs.domain.npc.NpcInventory();
+        int slot = 0;
+        for (String itemId : itemIds) {
+            if (slot >= com.storynpcs.domain.npc.NpcInventory.VISIBLE_DROP_SLOTS) break;
+            inventory.setDrop(slot++, com.storynpcs.domain.npc.NpcItemStack.single(
+                    NamespacedId.of(itemId)), 100);
+        }
+        updateNpcInventory(id, inventory);
+    }
+
+    public void setNpcMarks(NamespacedId id, List<NpcMark> marks) {
+        requireSuccessfulMutation(mutateNpc(id, npc -> npc.setMarks(marks)));
     }
 
     public void setNpcMark(NamespacedId id, NpcMark mark) {
@@ -610,67 +772,158 @@ public class StoryNpcsApplicationService {
         return Optional.ofNullable(activeSessions.get(playerUuid));
     }
 
+    /**
+     * Token-canonical choice entry point (P5-2). The client echoes an opaque
+     * token issued with the rendered view; accepting it is a single-use atomic
+     * consume bound to session/player/dialogue/node/choice/revision/expiry.
+     * Malformed, consumed, expired, foreign, or stale tokens are rejected and
+     * the session is closed — there is no accept-by-index path at this boundary.
+     */
+    public DialogueView chooseDialogueOption(UUID playerUuid, String choiceTokenText) {
+        DialogueSession session = activeSessions.get(playerUuid);
+        if (session == null || !session.isActive()) {
+            return DialogueView.closed(session != null ? session.getDialogueId() : null);
+        }
+        DialogueNode currentNode = session.getCurrentNode();
+        if (currentNode == null) {
+            endSession(playerUuid, session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+            return DialogueView.closed(session.getDialogueId());
+        }
+
+        DialogueChoiceProtocol.ChoiceToken token = parseChoiceToken(choiceTokenText);
+        long revision = currentRevision("dialogue", session.getDialogueId());
+        DialogueChoiceProtocol.AcceptOutcome outcome = choiceProtocol.accept(
+                token, session.getSessionId(), playerUuid, revision,
+                session.isActive(), choiceTickSource.getAsLong());
+        if (!(outcome instanceof DialogueChoiceProtocol.AcceptOutcome.Accepted accepted)) {
+            rejectChoice(playerUuid, session, currentNode.getId(),
+                    ((DialogueChoiceProtocol.AcceptOutcome.Rejected) outcome).reason().name());
+            return DialogueView.closed(session.getDialogueId());
+        }
+        // The token binds the node it was issued from; a moved-on session can
+        // never legitimately replay it.
+        if (!accepted.nodeId().equals(currentNode.getId())) {
+            rejectChoice(playerUuid, session, currentNode.getId(),
+                    DialogueChoiceProtocol.RejectReason.STALE_REVISION.name());
+            return DialogueView.closed(session.getDialogueId());
+        }
+
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        List<DialogueEdge> availableEdges = getAvailableEdges(currentNode, progression, session);
+        List<String> keys = edgeChoiceKeys(currentNode, availableEdges);
+        int index = keys.indexOf(accepted.choiceKey());
+        if (index < 0) {
+            // The choice the token authorized no longer exists (progression or
+            // onceOnly filtering moved on) — fail closed rather than guess.
+            rejectChoice(playerUuid, session, currentNode.getId(), "CHOICE_UNAVAILABLE");
+            return DialogueView.closed(session.getDialogueId());
+        }
+        return advanceAlongEdge(session, currentNode, availableEdges.get(index), progression, index);
+    }
+
+    /**
+     * Index-addressed choice for server-side callers (commands, tests). The
+     * index only selects among the tokens the last rendered view issued —
+     * authorization still goes through the token protocol, so a stale index or
+     * a second submission of the same choice is rejected exactly like the
+     * network path.
+     */
     public DialogueView chooseDialogueOption(UUID playerUuid, int optionIndex) {
         DialogueSession session = activeSessions.get(playerUuid);
         if (session == null || !session.isActive()) {
             return DialogueView.closed(session != null ? session.getDialogueId() : null);
         }
-
-        DialogueNode currentNode = session.getCurrentNode();
-        if (currentNode == null) {
-            session.close();
-            activeSessions.remove(playerUuid);
+        List<DialogueChoiceProtocol.ChoiceToken> issued = session.getIssuedTokens();
+        if (optionIndex < 0 || optionIndex >= issued.size()) {
+            rejectChoice(playerUuid, session,
+                    session.getCurrentNode() != null ? session.getCurrentNode().getId() : "",
+                    DialogueChoiceProtocol.RejectReason.UNKNOWN_TOKEN.name());
             return DialogueView.closed(session.getDialogueId());
         }
+        return chooseDialogueOption(playerUuid, issued.get(optionIndex).value().toString());
+    }
 
-        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        // Must use the session-aware overload so onceOnly filtering matches buildDialogueView —
-        // otherwise the displayed option index resolves to a different edge than the one shown.
-        List<DialogueEdge> availableEdges = getAvailableEdges(currentNode, progression, session);
-
-        if (optionIndex < 0 || optionIndex >= availableEdges.size()) {
-            closeDialogue(playerUuid);
-            return DialogueView.closed(session.getDialogueId());
-        }
-
-        DialogueEdge chosen = availableEdges.get(optionIndex);
+    /** Shared edge-effect path for every accepted choice. */
+    private DialogueView advanceAlongEdge(DialogueSession session, DialogueNode currentNode,
+                                          DialogueEdge chosen, PlayerProgression progression,
+                                          int optionIndex) {
+        UUID playerUuid = session.getPlayerUuid();
         String fromNodeId = currentNode.getId();
         String toNodeId = chosen.getTargetNodeId();
 
-        // Record selection
         if (chosen.isOnceOnly()) {
             session.recordOptionSelection(fromNodeId + "->" + toNodeId);
         }
-
-        // Execute actions authoritatively
         if (chosen.getActions() != null) {
             for (DialogueAction action : chosen.getActions()) {
                 executeAction(playerUuid, action);
             }
         }
-
         if (!session.isActive()) {
             return DialogueView.closed(session.getDialogueId());
         }
-
-        eventPublisher.publish(new DialogueOptionSelectEvent(playerUuid, session.getDialogueId(), fromNodeId, toNodeId, optionIndex));
-
-        // Advance graph
+        eventPublisher.publish(new DialogueOptionSelectEvent(playerUuid, session.getDialogueId(),
+                fromNodeId, toNodeId, optionIndex));
         session.advanceTo(toNodeId);
         progression.recordDialogueNodeVisit(toNodeId);
 
         DialogueView view = buildDialogueView(session, progression);
         if (view.isTerminal()) {
-            activeSessions.remove(playerUuid);
-            session.close();
+            endSession(playerUuid, session, DialogueClosedEvent.Reason.GRAPH_END);
         }
         return view;
     }
 
+    private static DialogueChoiceProtocol.ChoiceToken parseChoiceToken(String text) {
+        if (text == null || text.isBlank()) return null;
+        try {
+            return new DialogueChoiceProtocol.ChoiceToken(UUID.fromString(text.trim()));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private void rejectChoice(UUID playerUuid, DialogueSession session, String nodeId, String reason) {
+        eventPublisher.publish(new DialogueChoiceRejectedEvent(
+                playerUuid, session.getDialogueId(), nodeId, reason));
+        endSession(playerUuid, session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+    }
+
+    /** Session teardown: close, remove, revoke outstanding choice tokens, notify. */
+    private void endSession(UUID playerUuid, DialogueSession session, DialogueClosedEvent.Reason reason) {
+        session.close();
+        activeSessions.remove(playerUuid);
+        choiceProtocol.revokeSession(session.getSessionId());
+        eventPublisher.publish(new DialogueClosedEvent(
+                playerUuid, session.getDialogueId(), session.getCurrentNodeId(), reason));
+    }
+
+    /** Test seam: bind the choice-token clock (e.g., a controlled tick counter). */
+    public void setChoiceTickSource(java.util.function.LongSupplier source) {
+        choiceTickSource = Objects.requireNonNull(source, "source");
+    }
+
+    /**
+     * Stable per-edge choice keys aligned to {@code edges}. Two edges may share
+     * a target node, so the key carries an ordinal among same-target edges —
+     * the issued token can always be re-resolved to exactly one edge while the
+     * edge list is unchanged.
+     */
+    private static List<String> edgeChoiceKeys(DialogueNode node, List<DialogueEdge> edges) {
+        Map<String, Integer> ordinals = new HashMap<>();
+        List<String> keys = new ArrayList<>(edges.size());
+        for (DialogueEdge edge : edges) {
+            String pair = edge.getTargetNodeId();
+            int ordinal = ordinals.merge(pair, 1, Integer::sum) - 1;
+            keys.add(node.getId() + "->" + pair + "#" + ordinal);
+        }
+        return keys;
+    }
+
     public void closeDialogue(UUID playerUuid) {
-        DialogueSession session = activeSessions.remove(playerUuid);
+        DialogueSession session = activeSessions.get(playerUuid);
         if (session != null) {
-            session.close();
+            endSession(playerUuid, session, DialogueClosedEvent.Reason.PLAYER_EXIT);
         }
     }
 
@@ -682,7 +935,14 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveDialogue(NamespacedId expectedId, DialogueGraph graph) {
+    public ValidationResult saveDialogue(NamespacedId expectedId, DialogueGraph graph) {
+        synchronized (canonicalMutationLock) {
+            return saveDialogueUnderCanonicalLock(expectedId, graph);
+        }
+    }
+
+    private synchronized ValidationResult saveDialogueUnderCanonicalLock(
+            NamespacedId expectedId, DialogueGraph graph) {
         Objects.requireNonNull(expectedId, "expectedId");
         Objects.requireNonNull(graph, "graph");
         ValidationResult result = ValidationResult.valid();
@@ -690,6 +950,13 @@ public class StoryNpcsApplicationService {
         if (graph.getId() == null || !graph.getId().equals(expectedId)) {
             result.addError("GRAPH_ID_MISMATCH",
                     "Graph id '" + graph.getId() + "' does not match requested dialogue '" + expectedId + "'");
+            return result;
+        }
+
+        // Structural graph validation: cycles, unreachable nodes, dangling edges
+        // must fail closed before cross-reference or persistence work runs.
+        result.merge(new com.storynpcs.domain.dialogue.DialogueGraphValidator().validate(graph));
+        if (result.hasErrors()) {
             return result;
         }
 
@@ -775,7 +1042,13 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveQuest(Quest quest) {
+    public ValidationResult saveQuest(Quest quest) {
+        synchronized (canonicalMutationLock) {
+            return saveQuestUnderCanonicalLock(quest);
+        }
+    }
+
+    private synchronized ValidationResult saveQuestUnderCanonicalLock(Quest quest) {
         Objects.requireNonNull(quest, "quest");
         ValidationResult result = ValidationResult.valid();
 
@@ -788,6 +1061,10 @@ public class StoryNpcsApplicationService {
         snapshot.copyFrom(registry);
         snapshot.registerQuest(quest);
         result.merge(CrossReferenceValidator.validate(snapshot));
+        // Load-path parity: the loader fails quest-graph dependency cycles /
+        // dangling prerequisites — the write path must not admit them either.
+        result.merge(new com.storynpcs.domain.quest.QuestDependencyValidator()
+                .validate(new java.util.ArrayList<>(snapshot.getAllQuests())));
         if (result.hasErrors()) {
             return result;
         }
@@ -898,7 +1175,13 @@ public class StoryNpcsApplicationService {
      *
      * @return validation result; on errors nothing is written or registered.
      */
-    public synchronized ValidationResult saveFaction(Faction faction) {
+    public ValidationResult saveFaction(Faction faction) {
+        synchronized (canonicalMutationLock) {
+            return saveFactionUnderCanonicalLock(faction);
+        }
+    }
+
+    private synchronized ValidationResult saveFactionUnderCanonicalLock(Faction faction) {
         Objects.requireNonNull(faction, "faction");
         ValidationResult result = ValidationResult.valid();
 
@@ -936,6 +1219,60 @@ public class StoryNpcsApplicationService {
 
         registry.registerFaction(faction);
         definitionRevisions.merge(revisionKey("faction", faction.getId()), 1L, Long::sum);
+        return result;
+    }
+
+    /**
+     * Canonical template save — mirrors {@link #saveFaction}: id + schema
+     * invariants checked (load-path parity: the loader rejects missing ids,
+     * unsupported schemaVersions, and templates without an embedded NPC
+     * definition), atomically persisted, then registered with a revision bump.
+     *
+     * @return validation result; on errors nothing is written or registered.
+     */
+    public ValidationResult saveTemplate(com.storynpcs.creator.template.NpcTemplate template) {
+        synchronized (canonicalMutationLock) {
+            return saveTemplateUnderCanonicalLock(template);
+        }
+    }
+
+    private synchronized ValidationResult saveTemplateUnderCanonicalLock(
+            com.storynpcs.creator.template.NpcTemplate template) {
+        Objects.requireNonNull(template, "template");
+        ValidationResult result = ValidationResult.valid();
+
+        if (template.getId() == null) {
+            result.addError("TEMPLATE_ID_MISSING", "Template must have an ID");
+            return result;
+        }
+        if (template.getSchemaVersion() != com.storynpcs.creator.template.NpcTemplate.SCHEMA_VERSION) {
+            result.addError("SCHEMA_VERSION_UNSUPPORTED",
+                    "Template schemaVersion " + template.getSchemaVersion()
+                            + " is not supported (expected "
+                            + com.storynpcs.creator.template.NpcTemplate.SCHEMA_VERSION + ")");
+            return result;
+        }
+        if (template.getDefinition() == null) {
+            result.addError("TEMPLATE_MISSING_DEFINITION",
+                    "Template must embed an NPC 'definition'");
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                var savedFile = new YamlDefinitionWriter(loader.getDefinitionWriteCoordinator()).writeDefinition(
+                        loader.getLastLoadedRootPath(), "templates",
+                        YamlDefinitionWriter.fileNameFor(template.getId()), template,
+                        loader.getDefinitionFiles("templates", template.getId()));
+                loader.recordDefinitionFile("templates", template.getId(), savedFile);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write template file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerTemplate(template);
+        definitionRevisions.merge(revisionKey("template", template.getId()), 1L, Long::sum);
         return result;
     }
 
@@ -1019,6 +1356,223 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Deletes a faction and repairs primary NPC and relationship-matrix references
+     * within one canonical operation. Deletion is rejected while other definition
+     * references still require manual repair. If a write or delete fails, previously
+     * committed definitions are restored before the operation is rejected.
+     */
+    public CanonicalMutationResult deleteFactionWithRepairs(
+            MutationRequest request, NamespacedId fallbackFactionId) {
+        Objects.requireNonNull(request, "request");
+        String fingerprint = MutationPayloadFingerprint.of("faction.delete.withReferences",
+                request.targetId() + "\u0000" + String.valueOf(fallbackFactionId));
+        return executeCanonicalMutation(request, "faction", "delete", fingerprint,
+                () -> deleteFactionUnderCanonicalLock(request.targetId(), fallbackFactionId));
+    }
+
+    private ValidationResult deleteFactionUnderCanonicalLock(
+            NamespacedId factionId, NamespacedId fallbackFactionId) {
+        if (registry.getFaction(factionId).isEmpty()) {
+            ValidationResult missing = ValidationResult.valid();
+            missing.addError("FACTION_NOT_FOUND", "Faction not found: " + factionId);
+            return missing;
+        }
+        com.storynpcs.domain.faction.FactionDeletionPlanner.DeletionPlan plan;
+        FactionReferenceSnapshots snapshots;
+        try {
+            plan = planFactionDeletion(factionId, fallbackFactionId);
+            snapshots = snapshotFactionReferences(factionId, plan.references());
+        } catch (IOException | RuntimeException invalidPlan) {
+            ValidationResult failure = ValidationResult.valid();
+            failure.addError("FACTION_DELETE_BLOCKED", invalidPlan.getMessage());
+            return failure;
+        }
+        Set<UUID> changedPlayerProgressions = new LinkedHashSet<>();
+        try {
+            applyFactionReferenceRepairs(factionId, plan.fallbackFactionId(), plan.references());
+            applyFactionProgressionRepairs(
+                    factionId, snapshots.playerProgressions(), changedPlayerProgressions);
+            if (!deleteFactionSource(factionId)) {
+                throw new IllegalStateException("Faction YAML source could not be deleted");
+            }
+            return ValidationResult.valid();
+        } catch (IOException | RuntimeException failure) {
+            boolean restored = restoreFactionReferenceSnapshots(
+                    factionId, snapshots, changedPlayerProgressions);
+            ValidationResult rejected = ValidationResult.valid();
+            rejected.addError(restored ? "FACTION_DELETE_ROLLED_BACK" : "ROLLBACK_INCOMPLETE",
+                    "Faction deletion failed: " + failure.getMessage()
+                            + (restored ? "; reference repairs were restored"
+                                    : "; some reference repairs could not be restored"));
+            return rejected;
+        }
+    }
+
+    private com.storynpcs.domain.faction.FactionDeletionPlanner.DeletionPlan planFactionDeletion(
+            NamespacedId factionId, NamespacedId fallbackFactionId) {
+        var planner = new com.storynpcs.domain.faction.FactionDeletionPlanner();
+        var plan = planner.plan(factionId, List.copyOf(registry.getAllNpcs()),
+                List.copyOf(registry.getAllTemplates()), List.copyOf(registry.getAllFactions()),
+                List.copyOf(registry.getAllDialogues()),
+                List.copyOf(registry.getAllQuests()), List.copyOf(registry.getAllTransportLocations()),
+                fallbackFactionId);
+        if (!plan.viable()) {
+            throw new IllegalStateException(String.join("\n", plan.diagnostics()));
+        }
+        return plan;
+    }
+
+    private record FactionReferenceSnapshots(
+            Map<NamespacedId, NpcDefinition> npcs,
+            Map<NamespacedId, Faction> factions,
+            Map<UUID, ProgressionRepository.FactionProgressionSnapshot> playerProgressions) {}
+
+    private FactionReferenceSnapshots snapshotFactionReferences(NamespacedId factionId,
+            List<com.storynpcs.domain.faction.FactionDeletionPlanner.Reference> references) throws IOException {
+        Map<NamespacedId, NpcDefinition> npcSnapshots = new LinkedHashMap<>();
+        Map<NamespacedId, Faction> factionSnapshots = new LinkedHashMap<>();
+        for (var reference : references) {
+            NamespacedId holderId = NamespacedId.of(reference.holderId());
+            if (reference.kind().equals("npc-faction")) {
+                registry.getNpc(holderId).ifPresent(npc -> npcSnapshots.put(holderId,
+                        NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(npc)).orElseThrow()));
+            } else if (reference.kind().equals("matrix-entry")) {
+                registry.getFaction(holderId).ifPresent(faction -> factionSnapshots.put(holderId,
+                        com.storynpcs.domain.faction.FactionSerde.fromJson(
+                                com.storynpcs.domain.faction.FactionSerde.toJson(faction)).orElseThrow()));
+            }
+        }
+        return new FactionReferenceSnapshots(npcSnapshots, factionSnapshots,
+                progressionRepository.factionProgressionSnapshots(factionId));
+    }
+
+    private void applyFactionReferenceRepairs(
+            NamespacedId factionId, NamespacedId fallbackFactionId,
+            List<com.storynpcs.domain.faction.FactionDeletionPlanner.Reference> references) {
+        for (var reference : references) {
+            NamespacedId holderId = NamespacedId.of(reference.holderId());
+            ValidationResult result;
+            if (reference.kind().equals("npc-faction")) {
+                NpcDefinition npc = registry.getNpc(holderId)
+                        .map(current -> NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(current)).orElseThrow())
+                        .orElseThrow(() -> new IllegalStateException("NPC disappeared during faction deletion: " + holderId));
+                npc.setFactionId(fallbackFactionId);
+                result = saveNpc(npc);
+            } else if (reference.kind().equals("matrix-entry")) {
+                Faction faction = registry.getFaction(holderId)
+                        .map(current -> com.storynpcs.domain.faction.FactionSerde
+                                .fromJson(com.storynpcs.domain.faction.FactionSerde.toJson(current)).orElseThrow())
+                        .orElseThrow(() -> new IllegalStateException("Faction disappeared during reference repair: " + holderId));
+                faction.removeRelationshipTo(factionId);
+                result = saveFaction(faction);
+            } else {
+                continue;
+            }
+            if (result.hasErrors()) {
+                throw new IllegalStateException("reference repair failed for " + holderId + ":\n"
+                        + result.formatReport(3));
+            }
+        }
+    }
+
+    private void applyFactionProgressionRepairs(NamespacedId factionId,
+            Map<UUID, ProgressionRepository.FactionProgressionSnapshot> playerProgressions,
+            Set<UUID> changedPlayerProgressions) throws IOException {
+        for (var entry : playerProgressions.entrySet()) {
+            UUID playerUuid = entry.getKey();
+            ProgressionRepository.FactionProgressionSnapshot snapshot = entry.getValue();
+            progressionRepository.withProgression(playerUuid, progression -> {
+                Map<NamespacedId, Integer> factionPoints = progression.getFactionPoints();
+                if (factionPoints == null || progression.getFactionRevision() != snapshot.revision()
+                        || factionPoints.containsKey(factionId) != snapshot.hasFactionPoints()
+                        || (snapshot.hasFactionPoints()
+                                && !Objects.equals(factionPoints.get(factionId), snapshot.factionPoints()))) {
+                    throw new IllegalStateException(
+                            "faction reputation changed while deleting " + factionId + " for player " + playerUuid);
+                }
+                long nextRevision = Math.addExact(snapshot.revision(), 1L);
+                factionPoints.remove(factionId);
+                progression.setFactionRevision(nextRevision);
+                changedPlayerProgressions.add(playerUuid);
+                progressionRepository.save(playerUuid, progression);
+            });
+        }
+    }
+
+    private boolean restoreFactionReferenceSnapshots(NamespacedId factionId,
+            FactionReferenceSnapshots snapshots, Set<UUID> changedPlayerProgressions) {
+        boolean restored = true;
+        for (NpcDefinition npc : snapshots.npcs().values()) {
+            try {
+                if (saveNpc(npc).hasErrors()) restored = false;
+            } catch (RuntimeException failure) {
+                restored = false;
+            }
+        }
+        for (Faction faction : snapshots.factions().values()) {
+            try {
+                if (saveFaction(faction).hasErrors()) restored = false;
+            } catch (RuntimeException failure) {
+                restored = false;
+            }
+        }
+        for (UUID playerUuid : changedPlayerProgressions) {
+            var snapshot = snapshots.playerProgressions().get(playerUuid);
+            if (snapshot == null) {
+                restored = false;
+                continue;
+            }
+            try {
+                progressionRepository.withProgression(playerUuid, progression -> {
+                    Map<NamespacedId, Integer> factionPoints = progression.getFactionPoints();
+                    if (factionPoints == null) {
+                        throw new IllegalStateException(
+                                "faction reputation map is unavailable for player " + playerUuid);
+                    }
+                    long currentRevision = progression.getFactionRevision();
+                    if (currentRevision < Long.MAX_VALUE) {
+                        progression.setFactionRevision(currentRevision + 1L);
+                    }
+                    if (snapshot.hasFactionPoints()) {
+                        factionPoints.put(factionId, snapshot.factionPoints());
+                    } else {
+                        factionPoints.remove(factionId);
+                    }
+                    progressionRepository.save(playerUuid, progression);
+                });
+            } catch (IOException | RuntimeException failure) {
+                restored = false;
+            }
+        }
+        return restored;
+    }
+
+    /**
+     * Canonical template deletion: removes the durable YAML source first
+     * (fail-closed — a file that cannot be deleted keeps its registry binding),
+     * then the registry binding under the canonical lock. Dependent spawners are
+     * surfaced to the caller via the returned outcome rather than silently orphaned.
+     */
+    public com.storynpcs.creator.template.TemplateLibrary.DeleteOutcome deleteTemplate(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        synchronized (canonicalMutationLock) {
+            synchronized (this) {
+                if (registry.getTemplate(id).isEmpty()) {
+                    return new com.storynpcs.creator.template.TemplateLibrary.DeleteOutcome(false, List.of());
+                }
+                if (!deleteDefinitionFileBeforeRegistryMutation("templates", id)) {
+                    return new com.storynpcs.creator.template.TemplateLibrary.DeleteOutcome(false, List.of());
+                }
+                var outcome = registry.removeTemplate(id);
+                if (outcome.removed()) {
+                    definitionRevisions.merge(revisionKey("template", id), 1L, Long::sum);
+                }
+                return outcome;
+            }
+        }
+    }
+
+    /**
      * Removes a quest definition from the live registry and removes its YAML file from
      * disk. Mirrors {@link #deleteNpc}. Callers should check
      * {@link #findDialoguesStartingQuest(NamespacedId)} first — deleted quests leave
@@ -1078,13 +1632,16 @@ public class StoryNpcsApplicationService {
     }
 
     /**
-     * Removes a faction definition from the live registry and removes its YAML file
-     * from disk. Mirrors {@link #deleteNpc}. Callers should check
-     * {@link #findNpcsReferencingFaction(NamespacedId)} first — NPCs bound to a
-     * deleted faction lose their faction binding.
+     * Compatibility delegate for the canonical, reference-aware faction deletion operation.
      */
-    public synchronized boolean deleteFaction(NamespacedId id) {
+    public boolean deleteFaction(NamespacedId id) {
         Objects.requireNonNull(id, "id");
+        MutationRequest request = new MutationRequest("faction.delete", "system", "faction.delete",
+                id, currentRevision("faction", id), UUID.randomUUID(), -1);
+        return deleteFaction(request).applied();
+    }
+
+    private synchronized boolean deleteFactionSource(NamespacedId id) {
         if (registry.getFaction(id).isEmpty()) {
             return false;
         }
@@ -1098,22 +1655,7 @@ public class StoryNpcsApplicationService {
 
     /** Replay-safe, revision-checked faction deletion for command/network adapters. */
     public CanonicalMutationResult deleteFaction(MutationRequest request) {
-        return executeCanonicalMutation(request, "faction", "delete",
-                MutationPayloadFingerprint.of("faction.delete", request.targetId().toString()), () -> {
-            if (registry.getFaction(request.targetId()).isEmpty()) {
-                ValidationResult result = ValidationResult.valid();
-                result.addError("FACTION_NOT_FOUND", "Faction not found: " + request.targetId());
-                return result;
-            }
-            if (!deleteFaction(request.targetId())) {
-                ValidationResult failure = ValidationResult.valid();
-                failure.addError(registry.getFaction(request.targetId()).isPresent()
-                                ? "DEFINITION_DELETE_FAILED" : "FACTION_NOT_FOUND",
-                        "Faction '" + request.targetId() + "' could not be deleted");
-                return failure;
-            }
-            return ValidationResult.valid();
-        });
+        return deleteFactionWithRepairs(request, null);
     }
 
     /**
@@ -1374,9 +1916,10 @@ public class StoryNpcsApplicationService {
         if (node == null || node.isTerminal()) {
             session.close();
             activeSessions.remove(session.getPlayerUuid());
+            choiceProtocol.revokeSession(session.getSessionId());
             return new DialogueView(session.getDialogueId(), node != null ? node.getId() : "",
                     node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true,
-                    speaker, List.of());
+                    speaker, List.of(), List.of());
         }
 
         // VULN-46: pass session so onceOnly options are filtered after first selection
@@ -1384,8 +1927,23 @@ public class StoryNpcsApplicationService {
         List<String> optionTexts = availableEdges.stream().map(DialogueEdge::getText).toList();
         List<String> optionHints = availableEdges.stream().map(this::optionHint).toList();
 
+        // Issue one single-use opaque token per rendered option (P5-2): the
+        // client echoes a token, never an index, and the first accept wins.
+        List<String> edgeKeys = edgeChoiceKeys(node, availableEdges);
+        long nowTick = choiceTickSource.getAsLong();
+        long revision = currentRevision("dialogue", session.getDialogueId());
+        List<DialogueChoiceProtocol.ChoiceToken> tokens = new ArrayList<>(availableEdges.size());
+        List<String> tokenTexts = new ArrayList<>(availableEdges.size());
+        for (int i = 0; i < availableEdges.size(); i++) {
+            var token = choiceProtocol.issue(session.getSessionId(), session.getPlayerUuid(),
+                    session.getDialogueId(), node.getId(), edgeKeys.get(i), revision, nowTick);
+            tokens.add(token);
+            tokenTexts.add(token.value().toString());
+        }
+        session.setIssuedTokens(tokens);
+
         return new DialogueView(session.getDialogueId(), node.getId(), node.getText(), node.getSound(),
-                optionTexts, false, speaker, optionHints);
+                optionTexts, false, speaker, optionHints, tokenTexts);
     }
 
     private List<DialogueEdge> getAvailableEdges(DialogueNode node, PlayerProgression progression, DialogueSession session) {
@@ -1515,7 +2073,13 @@ public class StoryNpcsApplicationService {
                 case START_QUEST -> {
                     NamespacedId qid = NamespacedId.of(action.getTarget());
                     if (registry.getQuest(qid).isPresent()) {
-                        startQuest(playerUuid, qid);
+                        CanonicalMutationResult started = mutateQuestProgression(QuestProgressionMutationRequest.start(
+                                "dialogue", playerUuid, playerUuid, qid,
+                                currentQuestProgressionRevision(playerUuid), UUID.randomUUID()));
+                        if (started.hasErrors()) {
+                            System.err.println("Warning: Dialogue action START_QUEST failed for " + qid
+                                    + ": " + started.formatReport());
+                        }
                     } else {
                         System.err.println("Warning: Dialogue action START_QUEST references unknown quest: " + action.getTarget());
                     }
@@ -1524,13 +2088,21 @@ public class StoryNpcsApplicationService {
                     NamespacedId qid = NamespacedId.of(action.getTarget());
                     if (registry.getQuest(qid).isPresent()) {
                         String obj = (action.getValue() != null && !action.getValue().isBlank()) ? action.getValue().trim() : "obj";
-                        progressQuest(playerUuid, qid, obj, 1);
+                        CanonicalMutationResult progressed = mutateQuestProgression(QuestProgressionMutationRequest.progress(
+                                "dialogue", playerUuid, playerUuid, qid, obj, 1,
+                                currentQuestProgressionRevision(playerUuid), UUID.randomUUID()));
+                        if (progressed.hasErrors()) {
+                            System.err.println("Warning: Dialogue action ADVANCE_QUEST failed for " + qid
+                                    + ": " + progressed.formatReport());
+                        }
                     }
                 }
                 case COMPLETE_QUEST -> {
                     NamespacedId qid = NamespacedId.of(action.getTarget());
                     if (registry.getQuest(qid).isPresent()) {
-                        completeQuest(playerUuid, qid);
+                        completeQuest(new QuestCompletionMutationRequest(
+                                "dialogue", playerUuid, playerUuid, qid,
+                                currentQuestProgressionRevision(playerUuid), UUID.randomUUID(), -1));
                     } else {
                         System.err.println("Warning: Dialogue action COMPLETE_QUEST references unknown quest: " + action.getTarget());
                     }
@@ -1538,15 +2110,15 @@ public class StoryNpcsApplicationService {
                 case ADJUST_FACTION -> {
                     NamespacedId fid = NamespacedId.of(action.getTarget());
                     if (registry.getFaction(fid).isPresent()) {
-                        int rawDelta = Integer.parseInt(action.getValue() != null ? action.getValue().trim() : "0");
-                        // Clamp to the typed request's accepted range up front — the old untyped
-                        // adjustFactionPoints() silently clamped the resulting sum instead of
-                        // rejecting an out-of-range authored delta; preserve that tolerance here
-                        // rather than let an author-supplied huge value throw mid-dialogue.
-                        int delta = Math.max(-100_000, Math.min(100_000, rawDelta));
-                        mutateFactionProgression(FactionProgressionMutationRequest.adjust("dialogue", playerUuid,
-                                playerUuid, fid, delta, currentFactionProgressionRevision(playerUuid),
-                                UUID.randomUUID(), -1));
+                        int delta = Integer.parseInt(action.getValue() != null ? action.getValue().trim() : "0");
+                        CanonicalMutationResult adjusted = mutateFactionProgression(new FactionProgressionMutationRequest(
+                                "dialogue", playerUuid, playerUuid, fid,
+                                FactionProgressionMutationRequest.Action.ADJUST, delta,
+                                currentFactionProgressionRevision(playerUuid), UUID.randomUUID(), -1));
+                        if (adjusted.hasErrors()) {
+                            System.err.println("Warning: Dialogue action ADJUST_FACTION failed for " + fid
+                                    + ": " + adjusted.formatReport());
+                        }
                     } else {
                         System.err.println("Warning: Dialogue action ADJUST_FACTION references unknown faction: " + action.getTarget());
                     }
@@ -1622,145 +2194,114 @@ public class StoryNpcsApplicationService {
     // 3. Faction Operations
     // ==========================================
 
-    public void setFactionPoints(UUID playerUuid, NamespacedId factionId, int points) {
-        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        Faction faction = registry.getFaction(factionId)
-                .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
-        int clamped = Math.max(-100_000, Math.min(100_000, points));
-        final int oldPoints;
-        // Mutate and commit the SAME instance under its monitor — a cache
-        // eviction must never turn this write into a silent no-op.
-        synchronized (progression) {
-            oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-            progression.setFactionScore(factionId, clamped);
-            saveProgression(playerUuid, progression);
-        }
-
-        eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, clamped));
-    }
-
-    public void adjustFactionPoints(UUID playerUuid, NamespacedId factionId, int delta) {
-        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        Faction faction = registry.getFaction(factionId)
-                .orElseThrow(() -> new NoSuchElementException("Faction not found: " + factionId));
-        final int oldPoints;
-        final int newPoints;
-        // Read-modify-write inside the monitor — a concurrent reputation change
-        // must not be lost between the delta base read and the committed write.
-        synchronized (progression) {
-            oldPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
-            long sum = (long) oldPoints + (long) delta;
-            newPoints = (int) Math.max(-100_000, Math.min(100_000, sum));
-            progression.setFactionScore(factionId, newPoints);
-            saveProgression(playerUuid, progression);
-        }
-
-        eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldPoints, newPoints));
-    }
-
-    /**
-     * Applies one typed, player-scoped, revision-checked, replay-safe faction reputation
-     * mutation. This is the canonical entry point for command/packet/API adapters; the
-     * untyped {@link #setFactionPoints} / {@link #adjustFactionPoints} above remain for
-     * internal callers (e.g. quest-completion reward commits) that are already inside
-     * their own atomic, locked, revisioned transaction.
-     */
+    /** Applies one typed, player-scoped faction-standing mutation through the canonical boundary. */
     public CanonicalMutationResult mutateFactionProgression(FactionProgressionMutationRequest request) {
         Objects.requireNonNull(request, "request");
         AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
         String fingerprint = factionMutationFingerprint(request);
-        Object playerLock = factionProgressionMutationLocks[request.playerUuid().hashCode()
-                & (factionProgressionMutationLocks.length - 1)];
+        Object playerLock = progressionMutationLocks[request.playerUuid().hashCode()
+                & (progressionMutationLocks.length - 1)];
         if (!authorization.allowed()) {
             CanonicalMutationResult denied = factionMutationFailure(0, authorization.code(), authorization.message());
-            eventPublisher.publish(factionMutationEvent(request, denied));
+            QuestEventQueue dispatchQueue;
+            synchronized (playerLock) {
+                dispatchQueue = enqueueQuestEvents(request.playerUuid(), List.of(factionMutationEvent(request, denied)));
+            }
+            if (dispatchQueue != null) drainQuestEvents(dispatchQueue);
             return denied;
         }
 
-        Object requestLock = factionMutationLocks[request.requestId().hashCode() & (factionMutationLocks.length - 1)];
+        Object requestLock = questMutationLocks[request.requestId().hashCode() & (questMutationLocks.length - 1)];
         CanonicalMutationResult result;
-        FactionReputationChangeEvent reputationEvent = null;
-        synchronized (requestLock) {
-            synchronized (playerLock) {
-                PlayerProgression progression;
-                try {
-                    progression = progressionRepository.getOrCreate(request.playerUuid());
-                } catch (RuntimeException unavailable) {
-                    System.err.println("[StoryNPCs] faction mutation blocked for " + request.playerUuid()
-                            + ": " + unavailable.getMessage());
-                    progression = null;
-                }
-                if (progression == null) {
-                    // Fail closed: an unrecoverable durable record must reject every
-                    // mutation instead of silently initializing empty progression.
-                    result = factionMutationFailure(0, "PROGRESSION_UNAVAILABLE",
-                            "Player progression is blocked pending durable-state recovery");
-                } else
-                synchronized (progression) {
-                    CompletedFactionMutation completed = completedFactionMutations.get(request.requestId());
-                    if (completed != null) {
-                        if (!completed.payloadFingerprint().equals(fingerprint)) {
-                            result = factionMutationFailure(progression.getFactionRevision(),
-                                    "REQUEST_PAYLOAD_MISMATCH", "Request ID is already bound to a different faction mutation payload");
-                        } else {
-                            CanonicalMutationResult prior = completed.result();
-                            result = new CanonicalMutationResult(prior.applied(), true, prior.revision(),
-                                    prior.diagnostics(), prior.events(), prior.recoveryOutcome());
-                        }
-                    } else {
-                        Faction faction = registry.getFaction(request.factionId()).orElse(null);
-                        long currentRevision = progression.getFactionRevision();
-                        if (faction == null) {
-                            result = factionMutationFailure(currentRevision, "FACTION_NOT_FOUND",
-                                    "Faction not found: " + request.factionId());
-                            rememberFactionMutation(request, fingerprint, result);
-                        } else if (currentRevision != request.expectedRevision()) {
-                            result = factionMutationFailure(currentRevision, "STALE_REVISION",
-                                    "Expected player progression revision " + request.expectedRevision()
-                                            + " but current revision is " + currentRevision);
-                            rememberFactionMutation(request, fingerprint, result);
-                        } else {
-                            PlayerProgression snapshot = progression.copy();
-                            try {
-                                int oldPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
-                                if (request.action() == FactionProgressionMutationRequest.Action.SET) {
-                                    progression.setFactionScore(request.factionId(), request.value());
-                                } else {
-                                    progression.adjustFactionScore(request.factionId(), request.value(), faction.getDefaultPoints());
-                                }
-                                int newPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
-                                progression.setFactionRevision(Math.addExact(currentRevision, 1L));
-                                progressionRepository.save(request.playerUuid(), progression);
-                                result = new CanonicalMutationResult(true, false, progression.getFactionRevision(),
-                                        ValidationResult.valid(), List.of("FactionReputationChangeEvent"), "COMMITTED");
-                                reputationEvent = new FactionReputationChangeEvent(
-                                        request.playerUuid(), request.factionId(), oldPoints, newPoints);
-                            } catch (Exception failure) {
-                                progression.restoreFrom(snapshot);
-                                result = factionMutationFailure(currentRevision, "PROGRESSION_COMMIT_FAILED",
-                                        "Could not durably save faction progression: " + failure.getMessage());
-                            }
-                            rememberFactionMutation(request, fingerprint, result);
-                        }
+        List<StoryNpcsEvent> notifications = new ArrayList<>();
+        QuestEventQueue dispatchQueue;
+        synchronized (canonicalMutationLock) {
+            synchronized (requestLock) {
+                synchronized (playerLock) {
+                    PlayerProgression progression;
+                    try {
+                        progression = progressionRepository.getOrCreate(request.playerUuid());
+                    } catch (RuntimeException unavailable) {
+                        System.err.println("[StoryNPCs] faction mutation blocked for " + request.playerUuid()
+                                + ": " + unavailable.getMessage());
+                        progression = null;
                     }
+                    if (progression == null) {
+                        result = factionMutationFailure(0, "PROGRESSION_UNAVAILABLE",
+                                "Player progression is blocked pending durable-state recovery");
+                    } else synchronized (progression) {
+                        result = applyFactionProgressionMutation(request, fingerprint, progression, notifications);
+                    }
+                    if (!result.duplicate()) notifications.add(0, factionMutationEvent(request, result));
+                    dispatchQueue = enqueueQuestEvents(request.playerUuid(), notifications);
                 }
             }
         }
 
-        // A cache-hit replay must not re-publish the canonical audit event or the
-        // reputation-change event a second time for the same request ID.
-        if (!result.duplicate()) eventPublisher.publish(factionMutationEvent(request, result));
-        if (reputationEvent != null) eventPublisher.publish(reputationEvent);
+        if (dispatchQueue != null) drainQuestEvents(dispatchQueue);
         return result;
     }
 
-    private void rememberFactionMutation(FactionProgressionMutationRequest request, String fingerprint,
-                                          CanonicalMutationResult result) {
-        completedFactionMutations.put(request.requestId(), new CompletedFactionMutation(fingerprint, result.snapshot()));
-        while (completedFactionMutations.size() > 4096) {
-            UUID oldest = completedFactionMutations.keySet().iterator().next();
-            completedFactionMutations.remove(oldest);
+    private CanonicalMutationResult applyFactionProgressionMutation(
+            FactionProgressionMutationRequest request, String fingerprint,
+            PlayerProgression progression, List<StoryNpcsEvent> notifications) {
+        CompletedFactionMutation completed = completedFactionMutations.get(request.requestId());
+        if (completed != null) {
+            if (!completed.payloadFingerprint().equals(fingerprint)) {
+                return factionMutationFailure(progression.getFactionRevision(),
+                        "REQUEST_PAYLOAD_MISMATCH", "Request ID is already bound to a different faction mutation payload");
+            }
+            CanonicalMutationResult prior = completed.result();
+            return new CanonicalMutationResult(prior.applied(), true, prior.revision(),
+                    prior.diagnostics(), prior.events(), prior.recoveryOutcome());
         }
+
+        long currentRevision = progression.getFactionRevision();
+        if (currentRevision != request.expectedRevision()) {
+            CanonicalMutationResult stale = factionMutationFailure(currentRevision, "STALE_REVISION",
+                    "Expected player faction revision " + request.expectedRevision()
+                            + " but current revision is " + currentRevision);
+            rememberFactionMutation(request, fingerprint, stale);
+            return stale;
+        }
+
+        Faction faction = registry.getFaction(request.factionId()).orElse(null);
+        if (faction == null) {
+            CanonicalMutationResult missing = factionMutationFailure(currentRevision, "FACTION_NOT_FOUND",
+                    "Faction not found: " + request.factionId());
+            rememberFactionMutation(request, fingerprint, missing);
+            return missing;
+        }
+
+        PlayerProgression snapshot = progression.copy();
+        final int oldPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
+        final int newPoints;
+        try {
+            if (request.action() == FactionProgressionMutationRequest.Action.SET) {
+                progression.setFactionScore(request.factionId(), request.amount());
+            } else {
+                progression.adjustFactionScore(request.factionId(), request.amount(), faction.getDefaultPoints());
+            }
+            newPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
+            progression.setFactionRevision(Math.addExact(currentRevision, 1L));
+            progressionRepository.save(request.playerUuid(), progression);
+        } catch (Exception failure) {
+            progression.restoreFrom(snapshot);
+            return factionMutationFailure(currentRevision, "PROGRESSION_COMMIT_FAILED",
+                    "Could not durably save faction progression: " + failure.getMessage());
+        }
+
+        notifications.add(new FactionReputationChangeEvent(request.playerUuid(), request.factionId(), oldPoints, newPoints, request.actorType()));
+        CanonicalMutationResult applied = new CanonicalMutationResult(true, false, progression.getFactionRevision(),
+                ValidationResult.valid(), List.of("FactionReputationChangeEvent"), "COMMITTED");
+        rememberFactionMutation(request, fingerprint, applied);
+        return applied;
+    }
+
+    private void rememberFactionMutation(FactionProgressionMutationRequest request, String fingerprint,
+                                         CanonicalMutationResult result) {
+        completedFactionMutations.put(request.requestId(),
+                new CompletedFactionMutation(fingerprint, result.snapshot()));
     }
 
     private static CanonicalMutationResult factionMutationFailure(long revision, String code, String message) {
@@ -1775,7 +2316,7 @@ public class StoryNpcsApplicationService {
         String payload = String.join("\u0000", request.actorType(),
                 request.actorId() == null ? "" : request.actorId().toString(),
                 request.playerUuid().toString(), request.factionId().toString(), request.action().name(),
-                Integer.toString(request.value()), Long.toString(request.expectedRevision()));
+                Integer.toString(request.amount()), Long.toString(request.expectedRevision()));
         return MutationPayloadFingerprint.of(request.operation(), payload);
     }
 
@@ -1788,14 +2329,40 @@ public class StoryNpcsApplicationService {
 
     public long currentFactionProgressionRevision(UUID playerUuid) {
         UUID subject = Objects.requireNonNull(playerUuid, "playerUuid");
-        Object playerLock = factionProgressionMutationLocks[subject.hashCode() & (factionProgressionMutationLocks.length - 1)];
-        synchronized (playerLock) {
-            PlayerProgression progression = progressionRepository.getOrCreate(subject);
-            synchronized (progression) {
-                return progression.getFactionRevision();
+        Object playerLock = progressionMutationLocks[subject.hashCode() & (progressionMutationLocks.length - 1)];
+        synchronized (canonicalMutationLock) {
+            synchronized (playerLock) {
+                PlayerProgression progression = progressionRepository.getOrCreate(subject);
+                synchronized (progression) {
+                    return progression.getFactionRevision();
+                }
             }
         }
     }
+
+    public void setFactionPoints(UUID playerUuid, NamespacedId factionId, int points) {
+        CanonicalMutationResult result = mutateFactionProgression(FactionProgressionMutationRequest.set(
+                "system", null, playerUuid, factionId, points,
+                currentFactionProgressionRevision(playerUuid), UUID.randomUUID()));
+        if (result.hasErrors()) throw progressionMutationException(result, "Faction not found: " + factionId);
+    }
+
+    public void adjustFactionPoints(UUID playerUuid, NamespacedId factionId, int delta) {
+        CanonicalMutationResult result = mutateFactionProgression(FactionProgressionMutationRequest.adjust(
+                "system", null, playerUuid, factionId, delta,
+                currentFactionProgressionRevision(playerUuid), UUID.randomUUID()));
+        if (result.hasErrors()) throw progressionMutationException(result, "Faction not found: " + factionId);
+    }
+
+    private static RuntimeException progressionMutationException(CanonicalMutationResult result, String notFoundMessage) {
+        boolean notFound = result.diagnostics().getErrors().stream()
+                .anyMatch(error -> "FACTION_NOT_FOUND".equals(error.code())
+                        || "QUEST_NOT_FOUND".equals(error.code()));
+        return notFound
+                ? new NoSuchElementException(notFoundMessage)
+                : new IllegalStateException(result.formatReport());
+    }
+
 
     // ==========================================
     // Transport Location Operations (issue #72 — transport locations foundation)
@@ -1863,13 +2430,10 @@ public class StoryNpcsApplicationService {
     public java.util.List<com.storynpcs.domain.transport.TransportLocation> listAvailableTransportLocations(UUID playerUuid) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        java.util.Set<NamespacedId> unlocked;
-        synchronized (progression) {
-            unlocked = new java.util.HashSet<>(progression.getUnlockedTransportLocations());
-        }
+        java.util.Set<NamespacedId> unlocked = unlockedTransportLocations(progression);
         java.util.List<com.storynpcs.domain.transport.TransportLocation> available = new ArrayList<>();
         for (var location : registry.getAllTransportLocations()) {
-            if (!location.isRequiresUnlock() || unlocked.contains(location.getId())) {
+            if (location.getUnlockConditions().isEmpty() || unlocked.contains(location.getId())) {
                 available.add(location);
             }
         }
@@ -1881,11 +2445,9 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(locationId, "locationId");
         var location = registry.getTransportLocation(locationId).orElse(null);
         if (location == null) return false;
-        if (!location.isRequiresUnlock()) return true;
+        if (location.getUnlockConditions().isEmpty()) return true;
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        synchronized (progression) {
-            return progression.getUnlockedTransportLocations().contains(locationId);
-        }
+        return unlockedTransportLocations(progression).contains(locationId);
     }
 
     /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. */
@@ -2081,6 +2643,9 @@ public class StoryNpcsApplicationService {
                     if (result.newlyApplied()) {
                         if (request.action() == QuestProgressionMutationRequest.Action.START) {
                             notifications.add(new QuestStartEvent(request.playerUuid(), request.questId()));
+                        } else if (request.action() == QuestProgressionMutationRequest.Action.RESET) {
+                            notifications.add(new com.storynpcs.api.event.QuestResetEvent(
+                                    request.playerUuid(), request.questId()));
                         } else {
                             notifications.add(new QuestObjectiveProgressEvent(request.playerUuid(), request.questId(),
                                     request.objectiveId(), execution.currentCount(), execution.requiredCount()));
@@ -2094,7 +2659,8 @@ public class StoryNpcsApplicationService {
                         } else {
                             List<FactionReputationChangeEvent> factionEvents = new ArrayList<>();
                             QuestCompletionResult completion = completeQuestUnderLock(
-                                    request.playerUuid(), quest, progression, factionEvents);
+                                    request.playerUuid(), quest, progression, factionEvents,
+                                    request.requestId(), fingerprint);
                             if (completion.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
                                 notifications.addAll(factionEvents);
                                 notifications.add(new QuestCompleteEvent(request.playerUuid(), request.questId()));
@@ -2173,19 +2739,46 @@ public class StoryNpcsApplicationService {
         }
 
         QuestProgressState current = progression.getQuests().get(request.questId());
-        if (request.action() == QuestProgressionMutationRequest.Action.START) {
-            if (current != null && current.getStatus() == QuestProgressState.Status.COMPLETED
-                    && !com.storynpcs.domain.quest.QuestRepeatPolicy.canRestart(quest.getRepeatType(),
-                            current.getLastCompletedAtEpochMillis(), System.currentTimeMillis(), java.time.ZoneId.systemDefault())) {
+        if (request.action() == QuestProgressionMutationRequest.Action.RESET) {
+            // Explicit reset is reachable only for RESET-type quests with a
+            // completed progression state — clears state so the quest reopens.
+            if (quest.getRepeatType() != Quest.RepeatType.RESET) {
                 ValidationResult diagnostics = ValidationResult.valid();
-                diagnostics.addWarning("QUEST_ALREADY_COMPLETED",
-                        quest.getRepeatType() == Quest.RepeatType.ONCE
-                                ? "This quest is non-repeatable and is already complete"
-                                : "This quest's repeat cooldown (" + quest.getRepeatType() + ") has not elapsed yet");
+                diagnostics.addWarning("QUEST_NOT_RESETTABLE",
+                        "Quest " + request.questId() + " does not support explicit resets");
+                CanonicalMutationResult rejected = new CanonicalMutationResult(false, false, currentRevision,
+                        diagnostics, List.of(), "NO_CHANGE");
+                rememberQuestMutation(request, fingerprint, rejected);
+                return QuestMutationExecution.resultOnly(rejected);
+            }
+            if (current == null || current.getStatus() != QuestProgressState.Status.COMPLETED) {
+                ValidationResult diagnostics = ValidationResult.valid();
+                diagnostics.addWarning("QUEST_NOT_COMPLETED",
+                        "Quest " + request.questId() + " has no completed progression to reset");
                 CanonicalMutationResult unchanged = new CanonicalMutationResult(false, false, currentRevision,
                         diagnostics, List.of(), "NO_CHANGE");
                 rememberQuestMutation(request, fingerprint, unchanged);
                 return QuestMutationExecution.resultOnly(unchanged);
+            }
+        } else if (request.action() == QuestProgressionMutationRequest.Action.START) {
+            if (current != null && current.getStatus() == QuestProgressState.Status.COMPLETED) {
+                // Repeat-boundary enforcement: NORMAL/RESET stay closed until an
+                // explicit reset clears the state, DAILY/WEEKLY reopen on the
+                // authored boundary, REPEATABLE/INSTANT reopen freely.
+                Instant lastCompleted = Instant.ofEpochMilli(current.getLastCompletedAtEpochMillis());
+                if (!QUEST_REPEAT_SCHEDULE.canRepeat(quest.getRepeatType(), lastCompleted, Instant.now())) {
+                    ValidationResult diagnostics = ValidationResult.valid();
+                    diagnostics.addWarning("QUEST_ALREADY_COMPLETED", switch (quest.getRepeatType()) {
+                        case DAILY -> "This daily quest is already complete — it reopens at the next day boundary";
+                        case WEEKLY -> "This weekly quest is already complete — it reopens at the next week boundary";
+                        case RESET -> "This quest is already complete — it requires an explicit reset to reopen";
+                        default -> "This quest is non-repeatable and is already complete";
+                    });
+                    CanonicalMutationResult unchanged = new CanonicalMutationResult(false, false, currentRevision,
+                            diagnostics, List.of(), "NO_CHANGE");
+                    rememberQuestMutation(request, fingerprint, unchanged);
+                    return QuestMutationExecution.resultOnly(unchanged);
+                }
             }
             if (quest.getPrerequisites() != null) {
                 for (NamespacedId prerequisite : quest.getPrerequisites()) {
@@ -2220,29 +2813,48 @@ public class StoryNpcsApplicationService {
         PlayerProgression snapshot = progression.copy();
         int currentCount = 0;
         int requiredCount = 0;
+        long completionStateRevision = 0L;
         boolean shouldComplete = false;
         try {
-            QuestProgressState state = progression.getQuestState(request.questId());
-            if (request.action() == QuestProgressionMutationRequest.Action.START) {
-                state.setStatus(QuestProgressState.Status.IN_PROGRESS);
+            if (request.action() == QuestProgressionMutationRequest.Action.RESET) {
+                // Clear the completed progression state entirely — the quest
+                // reverts to unstarted and can be taken again.
+                progression.getQuests().remove(request.questId());
             } else {
-                state.incrementCount(request.objectiveId(), request.amount());
-                QuestObjective objective = quest.getObjectives().stream()
-                        .filter(candidate -> candidate != null
-                                && Objects.equals(candidate.getId(), request.objectiveId()))
-                        .findFirst().orElseThrow();
-                currentCount = state.getCount(request.objectiveId());
-                requiredCount = objective.getRequiredCount();
-                shouldComplete = quest.getObjectives().stream()
-                        .allMatch(candidate -> candidate != null
-                                && state.getCount(candidate.getId()) >= candidate.getRequiredCount());
+                QuestProgressState state = progression.getQuestState(request.questId());
+                if (request.action() == QuestProgressionMutationRequest.Action.START) {
+                    if (state.getStatus() == QuestProgressState.Status.COMPLETED) {
+                        // A re-run starts clean: stale objective counts would
+                        // otherwise satisfy every objective on the first progress tick.
+                        state.getObjectiveCounts().clear();
+                    }
+                    state.setStatus(QuestProgressState.Status.IN_PROGRESS);
+                    // INSTANT quests complete without a turn-in: satisfaction is
+                    // evaluated immediately — trivially true for objective-free quests.
+                    shouldComplete = quest.getRepeatType().autoCompletes()
+                            && quest.getObjectives() != null
+                            && quest.getObjectives().stream().allMatch(objective -> objective != null
+                                    && state.getCount(objective.getId()) >= objective.getRequiredCount());
+                } else {
+                    state.incrementCount(request.objectiveId(), request.amount());
+                    QuestObjective objective = quest.getObjectives().stream()
+                            .filter(candidate -> candidate != null
+                                    && Objects.equals(candidate.getId(), request.objectiveId()))
+                            .findFirst().orElseThrow();
+                    currentCount = state.getCount(request.objectiveId());
+                    requiredCount = objective.getRequiredCount();
+                    shouldComplete = quest.getObjectives().stream()
+                            .allMatch(candidate -> candidate != null
+                                    && state.getCount(candidate.getId()) >= candidate.getRequiredCount());
+                }
+                state.advanceStateRevision();
+                completionStateRevision = state.getStateRevision();
             }
-            state.advanceStateRevision();
             progression.setQuestRevision(Math.addExact(currentRevision, 1L));
             progression.getPendingQuestCompletions().remove(request.questId());
             if (shouldComplete) {
                 progression.getPendingQuestCompletions().put(request.questId(), new PendingQuestCompletion(
-                        request.requestId(), request.questId(), fingerprint, state.getStateRevision()));
+                        request.requestId(), request.questId(), fingerprint, completionStateRevision));
             }
             progressionRepository.save(request.playerUuid(), progression);
         } catch (Exception failure) {
@@ -2252,14 +2864,14 @@ public class StoryNpcsApplicationService {
             return QuestMutationExecution.resultOnly(rejected);
         }
 
-        String event = request.action() == QuestProgressionMutationRequest.Action.START
-                ? "QuestStartEvent" : "QuestObjectiveProgressEvent";
+        String event = switch (request.action()) {
+            case START -> "QuestStartEvent";
+            case RESET -> "QuestResetEvent";
+            case PROGRESS -> "QuestObjectiveProgressEvent";
+        };
         CanonicalMutationResult applied = new CanonicalMutationResult(true, false, progression.getQuestRevision(),
                 ValidationResult.valid(), List.of(event), "COMMITTED");
         rememberQuestMutation(request, fingerprint, applied, shouldComplete);
-        if (request.action() == QuestProgressionMutationRequest.Action.START) {
-            return QuestMutationExecution.resultOnly(applied);
-        }
         return new QuestMutationExecution(applied, currentCount, requiredCount, shouldComplete);
     }
 
@@ -2292,9 +2904,13 @@ public class StoryNpcsApplicationService {
             Quest quest, QuestProgressState state, PendingQuestCompletion pending) {
         if (quest == null || state == null || pending == null
                 || state.getStatus() != QuestProgressState.Status.IN_PROGRESS
-                || state.getStateRevision() != pending.questStateRevision()
-                || quest.getObjectives() == null || quest.getObjectives().isEmpty()) {
+                || state.getStateRevision() != pending.questStateRevision()) {
             return false;
+        }
+        if (quest.getObjectives() == null || quest.getObjectives().isEmpty()) {
+            // Objective-free INSTANT quests are satisfied vacuously — their
+            // pending completion (recorded at START) must remain recoverable.
+            return quest.getRepeatType() != null && quest.getRepeatType().autoCompletes();
         }
         return quest.getObjectives().stream().allMatch(objective -> objective != null
                 && objective.getId() != null
@@ -2310,10 +2926,6 @@ public class StoryNpcsApplicationService {
                                        CanonicalMutationResult result, boolean completionPending) {
         completedQuestMutations.put(request.requestId(),
                 new CompletedQuestMutation(fingerprint, result.snapshot(), completionPending));
-        while (completedQuestMutations.size() > 4096) {
-            UUID oldest = completedQuestMutations.keySet().iterator().next();
-            completedQuestMutations.remove(oldest);
-        }
     }
 
     private static CanonicalMutationResult questMutationFailure(long revision, String code, String message) {
@@ -2372,44 +2984,142 @@ public class StoryNpcsApplicationService {
     }
 
     public QuestCompletionResult completeQuest(UUID playerUuid, NamespacedId questId) {
-        Quest quest = registry.getQuest(questId)
-                .orElseThrow(() -> new NoSuchElementException("Quest not found: " + questId));
+        long expectedRevision;
+        try {
+            expectedRevision = currentQuestProgressionRevision(playerUuid);
+        } catch (RuntimeException unavailable) {
+            return QuestCompletionResult.failed("PROGRESSION_UNAVAILABLE", 0);
+        }
+        QuestCompletionResult result = completeQuest(new QuestCompletionMutationRequest(
+                "system", null, playerUuid, questId,
+                expectedRevision, UUID.randomUUID(), -1));
+        if (result.outcome() == QuestCompletionResult.Outcome.REJECTED
+                && "QUEST_NOT_FOUND".equals(result.code())) {
+            throw new NoSuchElementException("Quest not found: " + questId);
+        }
+        return result;
+    }
 
-        Object playerLock = progressionMutationLocks[playerUuid.hashCode() & (progressionMutationLocks.length - 1)];
+    /** Applies one typed, player-scoped quest completion through the canonical boundary. */
+    public QuestCompletionResult completeQuest(QuestCompletionMutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        Object playerLock = progressionMutationLocks[request.playerUuid().hashCode()
+                & (progressionMutationLocks.length - 1)];
+        if (!authorization.allowed()) {
+            QuestCompletionResult denied = QuestCompletionResult.rejected(authorization.code());
+            QuestEventQueue dispatchQueue;
+            synchronized (playerLock) {
+                dispatchQueue = enqueueQuestEvents(request.playerUuid(),
+                        List.of(questCompletionEvent(request, denied, 0L)));
+            }
+            if (dispatchQueue != null) drainQuestEvents(dispatchQueue);
+            return denied;
+        }
+
+        String fingerprint = questCompletionFingerprint(request);
+        Object requestLock = questMutationLocks[request.requestId().hashCode() & (questMutationLocks.length - 1)];
         List<FactionReputationChangeEvent> factionEvents = new ArrayList<>();
         List<StoryNpcsEvent> notifications = new ArrayList<>();
         QuestCompletionResult result;
+        boolean replayed = false;
+        long[] committedRevision = {0L};
         QuestEventQueue dispatchQueue;
-        synchronized (playerLock) {
-            PlayerProgression progression;
-            try {
-                progression = progressionRepository.getOrCreate(playerUuid);
-            } catch (RuntimeException unavailable) {
-                System.err.println("[StoryNPCs] quest completion blocked for " + playerUuid
-                        + ": " + unavailable.getMessage());
-                progression = null;
-            }
-            if (progression == null) {
-                result = QuestCompletionResult.failed("PROGRESSION_UNAVAILABLE", 0);
-            } else {
-                synchronized (progression) {
-                    result = completeQuestUnderLock(playerUuid, quest, progression, factionEvents);
+        synchronized (requestLock) {
+            synchronized (playerLock) {
+                PlayerProgression progression;
+                try {
+                    progression = progressionRepository.getOrCreate(request.playerUuid());
+                } catch (RuntimeException unavailable) {
+                    System.err.println("[StoryNPCs] quest completion blocked for " + request.playerUuid()
+                            + ": " + unavailable.getMessage());
+                    progression = null;
                 }
-                if (result.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
-                    notifications.addAll(factionEvents);
-                    notifications.add(new QuestCompleteEvent(playerUuid, questId));
+                if (progression == null) {
+                    result = QuestCompletionResult.failed("PROGRESSION_UNAVAILABLE", 0);
+                } else {
+                    synchronized (progression) {
+                        CompletedQuestCompletion completed = completedQuestCompletions.get(request.requestId());
+                        if (completed != null) {
+                            if (!completed.payloadFingerprint().equals(fingerprint)) {
+                                result = QuestCompletionResult.rejected("REQUEST_PAYLOAD_MISMATCH");
+                            } else {
+                                result = completed.result();
+                                replayed = true;
+                            }
+                        } else {
+                            QuestProgressState existing = progression.getQuests().get(request.questId());
+                            if (existing != null
+                                    && existing.getStatus() == QuestProgressState.Status.COMPLETED) {
+                                // Completion is idempotent: a terminal state is a no-op
+                                // regardless of how stale the caller's expected revision is.
+                                result = QuestCompletionResult.alreadyCompleted();
+                            } else {
+                                long currentRevision = progression.getQuestRevision();
+                                if (currentRevision != request.expectedRevision()) {
+                                    result = QuestCompletionResult.rejected("STALE_REVISION");
+                                } else {
+                                    Quest quest = registry.getQuest(request.questId()).orElse(null);
+                                    if (quest == null) {
+                                        result = QuestCompletionResult.rejected("QUEST_NOT_FOUND");
+                                    } else {
+                                        result = completeQuestUnderLock(request.playerUuid(), quest, progression,
+                                                factionEvents, request.requestId(), fingerprint);
+                                    }
+                                }
+                            }
+                            // FAILED outcomes are transient: a same-request retry must
+                            // re-attempt, recovering through the durable pending record.
+                            if (result.outcome() != QuestCompletionResult.Outcome.FAILED) {
+                                rememberQuestCompletion(request, fingerprint, result);
+                            }
+                        }
+                        committedRevision[0] = progression.getQuestRevision();
+                    }
+                    if (!replayed && result.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
+                        notifications.addAll(factionEvents);
+                        notifications.add(new QuestCompleteEvent(request.playerUuid(), request.questId()));
+                    }
                 }
+                if (!replayed) notifications.add(0, questCompletionEvent(request, result, committedRevision[0]));
+                // Enqueue under the player lock; listeners are dispatched after releasing it.
+                dispatchQueue = enqueueQuestEvents(request.playerUuid(), notifications);
             }
-            // Enqueue under the player lock; listeners are dispatched after releasing it.
-            dispatchQueue = enqueueQuestEvents(playerUuid, notifications);
         }
         if (dispatchQueue != null) drainQuestEvents(dispatchQueue);
         return result;
     }
 
+    private void rememberQuestCompletion(QuestCompletionMutationRequest request, String fingerprint,
+                                         QuestCompletionResult result) {
+        completedQuestCompletions.put(request.requestId(), new CompletedQuestCompletion(fingerprint, result));
+    }
+
+    private static String questCompletionFingerprint(QuestCompletionMutationRequest request) {
+        String payload = String.join("\u0000", request.actorType(),
+                request.actorId() == null ? "" : request.actorId().toString(),
+                request.playerUuid().toString(), request.questId().toString(),
+                Long.toString(request.expectedRevision()));
+        return MutationPayloadFingerprint.of(request.operation(), payload);
+    }
+
+    private CanonicalMutationEvent questCompletionEvent(
+            QuestCompletionMutationRequest request, QuestCompletionResult result, long revision) {
+        String outcome = switch (result.outcome()) {
+            case COMPLETED -> "COMMITTED";
+            case ALREADY_COMPLETED -> "COMPLETION_ALREADY_COMMITTED";
+            case REJECTED -> "REJECTED_NO_SIDE_EFFECTS";
+            case FAILED -> "REWARD_EXECUTION_FAILED";
+        };
+        return new CanonicalMutationEvent(request.operation(), request.actorType(), request.questId(),
+                request.requestId(), result.outcome() == QuestCompletionResult.Outcome.COMPLETED, revision, outcome,
+                request.actorId(), request.playerUuid());
+    }
+
     private QuestCompletionResult completeQuestUnderLock(
             UUID playerUuid, Quest quest, PlayerProgression progression,
-            List<FactionReputationChangeEvent> factionEvents) {
+            List<FactionReputationChangeEvent> factionEvents,
+            UUID requestId, String requestFingerprint) {
         NamespacedId questId = quest.getId();
         PlayerProgression snapshot = progression.copy();
         QuestProgressState state = progression.getQuestState(questId);
@@ -2426,8 +3136,7 @@ public class StoryNpcsApplicationService {
         // must leave evidence that this quest's completion was in flight.
         if (!progression.getPendingQuestCompletions().containsKey(questId)) {
             progression.getPendingQuestCompletions().put(questId, new PendingQuestCompletion(
-                    UUID.randomUUID(), questId,
-                    MutationPayloadFingerprint.of("quest.complete", playerUuid + " " + questId),
+                    requestId, questId, requestFingerprint,
                     state.getStateRevision()));
             try {
                 progressionRepository.save(playerUuid, progression);
@@ -2469,7 +3178,7 @@ public class StoryNpcsApplicationService {
                             }
                             // If delivery throws now the durable mark stays: a retry may
                             // lose this reward but can never grant it twice.
-                            deliverQuestReward(playerUuid, reward);
+                            deliverQuestReward(playerUuid, questId, reward);
                             rewardsApplied++;
                         }
                         case COMMAND -> throw new IllegalStateException("command rewards are non-atomic");
@@ -2502,6 +3211,7 @@ public class StoryNpcsApplicationService {
         NamespacedId questId = quest.getId();
         PlayerProgression commitSnapshot = progression.copy();
         try {
+            boolean factionStandingChanged = false;
             if (quest.getRewards() != null) {
                 for (QuestReward reward : quest.getRewards()) {
                     if (reward.getType() != QuestReward.Type.FACTION_POINTS) continue;
@@ -2511,12 +3221,15 @@ public class StoryNpcsApplicationService {
                     progression.adjustFactionScore(factionId, reward.getAmount(), faction.getDefaultPoints());
                     int newPoints = progression.getFactionScore(factionId, faction.getDefaultPoints());
                     factionEvents.add(new FactionReputationChangeEvent(
-                            playerUuid, factionId, oldPoints, newPoints));
+                            playerUuid, factionId, oldPoints, newPoints, "quest"));
                     rewardsApplied++;
+                    factionStandingChanged = true;
                 }
-                // Keep the typed faction-mutation revision consistent with this internal,
-                // already-canonical (locked, revisioned quest-completion) reward commit so a
-                // client's cached faction revision never silently goes stale after rewards land.
+            }
+            // Keep the typed faction-mutation revision consistent with this internal,
+            // already-canonical (locked, revisioned quest-completion) reward commit so a
+            // client's cached faction revision never silently goes stale after rewards land.
+            if (factionStandingChanged) {
                 progression.setFactionRevision(Math.addExact(progression.getFactionRevision(), 1L));
             }
             state.setStatus(QuestProgressState.Status.COMPLETED);
@@ -2537,7 +3250,7 @@ public class StoryNpcsApplicationService {
      * Runs one non-atomic reward side effect. {@code rewardSideEffectOverride}
      * lets tests observe delivery; production grants through the live server.
      */
-    private void deliverQuestReward(UUID playerUuid, QuestReward reward) {
+    private void deliverQuestReward(UUID playerUuid, NamespacedId questId, QuestReward reward) {
         var override = rewardSideEffectOverride;
         if (override != null) {
             override.accept(playerUuid, reward);
@@ -2553,11 +3266,274 @@ public class StoryNpcsApplicationService {
                 var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElseThrow();
                 net.minecraft.world.item.ItemStack stack =
                         new net.minecraft.world.item.ItemStack(item, Math.max(1, reward.getAmount()));
-                if (!player.getInventory().add(stack)) player.drop(stack, false);
+                if (player.getInventory().add(stack)) {
+                    return;
+                }
+                // Inventory.add leaves the uninserted remainder in `stack` when it
+                // returns false — only that remainder may be mailed. Mailing the
+                // authored amount would re-grant whatever was already placed.
+                int remainder = stack.getCount();
+                if (remainder <= 0) {
+                    return;
+                }
+                // RewardOverflowPolicy.MAIL is the default: a full inventory must
+                // never silently drop a reward. The mail is persisted before we
+                // return so the durable reward mark + mail are both recoverable.
+                if (questMailStore == null) {
+                    // FAIL policy fallback — the completion leg stays recoverable
+                    // via the durable delivered-reward mark rather than dropping.
+                    throw new IllegalStateException(
+                            "quest reward overflow and no mail store is available");
+                }
+                try {
+                    enqueueItemRemainderMail(playerUuid, questId,
+                            remainderMailItems(NamespacedId.of(itemRl.toString()), remainder, ""),
+                            minecraftServer.overworld().getGameTime());
+                } catch (IOException mailFailure) {
+                    throw new IllegalStateException(
+                            "quest reward overflow mail could not be persisted", mailFailure);
+                }
             }
             default -> throw new IllegalStateException("unsupported reward side effect: " + reward.getType());
         }
     }
+
+    /**
+     * Postman delivery: claims up to {@code maxDeliveries} pending quest mails
+     * for the player and grants their item/experience payloads exactly once.
+     * Each mail is durably claimed BEFORE its payload is granted so a payload
+     * can never be granted twice concurrently, then durably marked delivered
+     * AFTER the grant so a crash inside the window leaves a claimed-but-
+     * undelivered record that login recovery replays — at-least-once, never
+     * silently lost. Any portion the inventory refuses is re-queued as a new
+     * mail (falling back to a world drop if the mail store fails), so a full
+     * inventory cannot silently destroy it either.
+     *
+     * @return a summary for the interacting player; empty when nothing pending.
+     */
+    public java.util.Optional<MailDeliverySummary> deliverQuestMail(UUID playerUuid, int maxDeliveries) {
+        var mailStore = questMailStore;
+        if (mailStore == null || minecraftServer == null) return java.util.Optional.empty();
+        var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+        if (player == null) return java.util.Optional.empty();
+        int bound = Math.max(1, Math.min(maxDeliveries,
+                com.storynpcs.domain.role.social.PostmanRole.MAX_MAILBOX_CAPACITY));
+        try {
+            var pending = mailStore.pendingFor(playerUuid);
+            if (pending.isEmpty()) return java.util.Optional.empty();
+            long tick = minecraftServer.overworld().getGameTime();
+            int delivered = 0;
+            int experience = 0;
+            var itemSummary = new java.util.ArrayList<String>();
+            for (var mail : pending) {
+                if (delivered >= bound) break;
+                var claimed = mailStore.claim(mail.mailId(), tick).orElse(null);
+                if (claimed == null) continue; // raced by another delivery — first wins
+                delivered++;
+                deliverMailPayload(player, claimed, tick, itemSummary);
+                experience += claimed.experience();
+                try {
+                    mailStore.confirmDelivery(claimed.mailId(), tick);
+                } catch (IOException confirmFailure) {
+                    // The record stays claimed-but-undelivered — login recovery
+                    // replays it, degrading to at-least-once instead of loss.
+                    com.storynpcs.StoryNpcs.LOGGER.warn(
+                            "Quest mail {} delivery confirmation failed; login recovery will replay it",
+                            claimed.mailId(), confirmFailure);
+                }
+            }
+            if (delivered == 0) return java.util.Optional.empty();
+            return java.util.Optional.of(new MailDeliverySummary(delivered, experience, List.copyOf(itemSummary)));
+        } catch (IOException e) {
+            throw new IllegalStateException("quest mail delivery failed", e);
+        }
+    }
+
+    /**
+     * Grants one claimed mail's payload: items into the inventory (any refused,
+     * unresolvable, or ungranted remainder is re-queued as a fresh mail, or
+     * dropped at the player's feet if the store itself fails), then the mail's
+     * experience leg.
+     *
+     * <p>An item grant that throws mid-loop must not abort this mail — the
+     * caller would leave it claimed-undelivered and login recovery would replay
+     * the WHOLE payload, re-granting items that already landed. Instead the
+     * defensible remainder plus every untouched item is returned to durable
+     * mail, the XP leg still runs, and the source mail confirms normally:
+     * at-least-once is preserved while whole-mail replay duplication is
+     * narrowed to a genuine crash window.
+     */
+    private void deliverMailPayload(net.minecraft.server.level.ServerPlayer player,
+                                    com.storynpcs.domain.quest.QuestMail mail,
+                                    long tick, java.util.List<String> itemSummary) {
+        var remainderItems = new ArrayList<com.storynpcs.domain.npc.NpcItemStack>();
+        var items = mail.items();
+        for (int i = 0; i < items.size(); i++) {
+            var mailItem = items.get(i);
+            var rl = net.minecraft.resources.ResourceLocation.tryParse(mailItem.itemId().toString());
+            var item = rl != null
+                    ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl).orElse(null)
+                    : null;
+            if (item == null) {
+                // An unresolvable item id (e.g. a removed content pack) must not
+                // be silently voided — retain it in durable mail so it can be
+                // resolved again later rather than confirmed-and-lost.
+                remainderItems.addAll(remainderMailItems(
+                        mailItem.itemId(), mailItem.count(), mailItem.components()));
+                itemSummary.add(mailItem.itemId() + " x" + mailItem.count()
+                        + " (unknown item — returned to mail)");
+                continue;
+            }
+            var stack = new net.minecraft.world.item.ItemStack(item, mailItem.count());
+            boolean placed;
+            try {
+                placed = player.getInventory().add(stack);
+            } catch (RuntimeException grantFailure) {
+                // The inventory may have partially absorbed `stack` before
+                // throwing; its post-mutation count is the defensible
+                // un-granted remainder. Re-queue it plus every untouched item
+                // instead of aborting — aborting would leave the source mail
+                // claimed-undelivered and recovery would re-grant the whole
+                // payload including items already delivered.
+                remainderItems.addAll(remainderMailItems(
+                        mailItem.itemId(), Math.max(0, stack.getCount()), mailItem.components()));
+                for (int j = i + 1; j < items.size(); j++) {
+                    var pendingItem = items.get(j);
+                    remainderItems.addAll(remainderMailItems(
+                            pendingItem.itemId(), pendingItem.count(), pendingItem.components()));
+                }
+                itemSummary.add("(item grant interrupted — ungranted items returned to mail)");
+                com.storynpcs.StoryNpcs.LOGGER.warn(
+                        "Quest mail {} item grant failed mid-delivery; ungranted items were "
+                                + "re-queued instead of replaying the whole mail",
+                        mail.mailId(), grantFailure);
+                break;
+            }
+            if (placed) {
+                itemSummary.add(mailItem.itemId() + " x" + mailItem.count());
+                continue;
+            }
+            // Inventory.add leaves the uninserted remainder in `stack`. The
+            // mail is already durably claimed, so only the remainder is
+            // re-queued as new mail — never re-send the placed portion,
+            // never silently destroy it.
+            int remainder = stack.getCount();
+            remainderItems.addAll(
+                    remainderMailItems(mailItem.itemId(), remainder, mailItem.components()));
+            itemSummary.add(mailItem.itemId() + " x" + (mailItem.count() - remainder)
+                    + " (remainder " + remainder + " returned to mail)");
+        }
+        if (!remainderItems.isEmpty()) {
+            try {
+                enqueueItemRemainderMail(player.getUUID(), mail.questId(), remainderItems, tick);
+            } catch (IOException requeueFailure) {
+                // The source mail is already claimed — if the remainder
+                // cannot be re-queued durably, drop it at the player's
+                // feet so nothing is destroyed silently.
+                for (var remainderItem : remainderItems) {
+                    var remainderRl = net.minecraft.resources.ResourceLocation
+                            .tryParse(remainderItem.itemId().toString());
+                    var remainderMcItem = remainderRl != null
+                            ? net.minecraft.core.registries.BuiltInRegistries.ITEM
+                                    .getOptional(remainderRl).orElse(null)
+                            : null;
+                    if (remainderMcItem != null) {
+                        player.drop(new net.minecraft.world.item.ItemStack(
+                                remainderMcItem, remainderItem.count()), false);
+                    }
+                }
+                itemSummary.add("(mail overflow could not be persisted — remainder dropped at your feet)");
+            }
+        }
+        if (mail.experience() > 0) {
+            player.giveExperiencePoints(mail.experience());
+        }
+    }
+
+    /**
+     * Login recovery for the claim→deliver crash window (P2-2/P5-5): a mail
+     * durably claimed but never confirmed delivered lost its payload leg to a
+     * crash. Replays the payload for that player's stranded mail and confirms
+     * delivery — matching the bank/trade journal-replay contract.
+     *
+     * @return number of stranded mails recovered (failures stay undelivered
+     *         and are retried on the next login).
+     */
+    public int recoverQuestMailDeliveries(UUID playerUuid) {
+        var mailStore = questMailStore;
+        if (mailStore == null || minecraftServer == null || playerUuid == null) {
+            return 0;
+        }
+        var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+        if (player == null) {
+            return 0;
+        }
+        final java.util.List<com.storynpcs.domain.quest.QuestMail> stranded;
+        try {
+            stranded = mailStore.claimedUndeliveredFor(playerUuid);
+        } catch (IOException readFailure) {
+            com.storynpcs.StoryNpcs.LOGGER.error(
+                    "Quest mail recovery scan failed for {}", playerUuid, readFailure);
+            return 0;
+        }
+        if (stranded.isEmpty()) {
+            return 0;
+        }
+        long tick = minecraftServer.overworld().getGameTime();
+        int recovered = 0;
+        for (var mail : stranded) {
+            try {
+                deliverMailPayload(player, mail, tick, new ArrayList<>());
+                mailStore.confirmDelivery(mail.mailId(), tick);
+                recovered++;
+            } catch (Exception failure) {
+                com.storynpcs.StoryNpcs.LOGGER.warn(
+                        "Quest mail {} recovery failed; will retry on next login",
+                        mail.mailId(), failure);
+            }
+        }
+        return recovered;
+    }
+
+    /**
+     * Builds the mail payload for an undelivered item remainder, chunked at
+     * {@link com.storynpcs.domain.npc.NpcItemStack#MAX_COUNT} so an arbitrarily
+     * large remainder is preserved rather than silently truncated.
+     */
+    static List<com.storynpcs.domain.npc.NpcItemStack> remainderMailItems(
+            NamespacedId itemId, int remainderCount, String components) {
+        if (remainderCount <= 0) {
+            return List.of();
+        }
+        var items = new ArrayList<com.storynpcs.domain.npc.NpcItemStack>();
+        int remaining = remainderCount;
+        while (remaining > 0) {
+            int chunk = Math.min(com.storynpcs.domain.npc.NpcItemStack.MAX_COUNT, remaining);
+            items.add(com.storynpcs.domain.npc.NpcItemStack.of(itemId, chunk, components));
+            remaining -= chunk;
+        }
+        return List.copyOf(items);
+    }
+
+    /**
+     * Persists an undelivered item remainder as a new overflow mail. The mail
+     * carries no experience — the source mail's XP leg is granted through the
+     * delivery path itself — so re-queueing can never double-grant XP.
+     */
+    void enqueueItemRemainderMail(UUID playerUuid, NamespacedId questId,
+            List<com.storynpcs.domain.npc.NpcItemStack> remainderItems, long gameTime) throws IOException {
+        var mailStore = questMailStore;
+        if (mailStore == null || remainderItems == null || remainderItems.isEmpty()) {
+            return;
+        }
+        mailStore.enqueue(new com.storynpcs.domain.quest.QuestMail(
+                UUID.randomUUID(), playerUuid, questId, remainderItems,
+                0, "INVENTORY_FULL", gameTime, 0, 0));
+    }
+
+    /** Result of a postman mail delivery for messaging the interacting player. */
+    public record MailDeliverySummary(int mailsClaimed, int experienceGranted,
+                                      List<String> itemLines) {}
 
     /**
      * Validates the entire reward fan-out before any reward or quest state is
@@ -2619,22 +3595,73 @@ public class StoryNpcsApplicationService {
         return executeTrade(playerUuid, npcId, -1, trade, UUID.randomUUID());
     }
 
-    /** Replay-aware trade entry point used by network adapters carrying a request ID. */
+    /** Replay-aware trade compatibility delegate used by callers carrying a request ID. */
     public boolean executeTrade(UUID playerUuid, NamespacedId npcId, int listingIndex,
                                 com.storynpcs.domain.role.trader.TradeListing trade,
                                 UUID requestId) {
         if (playerUuid == null || npcId == null || trade == null || requestId == null) return false;
-        if (listingIndex < 0) {
-            // No durable listing state exists for unindexed trades — a journal
-            // record here could never be reconciled, so run the mutation directly.
-            return executeTradeMutation(playerUuid, npcId, listingIndex, trade)
-                    == TradeMutationOutcome.COMMITTED;
+        return executeTrade(new TradeExecutionRequest(
+                "player", playerUuid, playerUuid, npcId, listingIndex, requestId, -1), trade).applied();
+    }
+
+    /**
+     * Typed canonical trade execution. The actor/subject/capability envelope is
+     * authorized before the journaled mutation runs, and every attempt — denied
+     * or applied — publishes a canonical mutation event for the trader target.
+     */
+    public CanonicalMutationResult executeTrade(TradeExecutionRequest request,
+            com.storynpcs.domain.role.trader.TradeListing trade) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(trade, "trade");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        if (!authorization.allowed()) {
+            ValidationResult denied = ValidationResult.valid();
+            denied.addError(authorization.code(), authorization.message());
+            var rejected = new CanonicalMutationResult(false, false, 0L, denied,
+                    List.of(request.operation() + ":authorization-denied"), "REJECTED_AUTHORIZATION");
+            publishTradeEvent(request, rejected);
+            return rejected;
         }
+        boolean applied = executeTradeInternal(request.playerUuid(), request.npcId(),
+                request.listingIndex(), trade, request.requestId());
+        CanonicalMutationResult result;
+        if (applied) {
+            result = new CanonicalMutationResult(true, false, 0L, ValidationResult.valid(),
+                    List.of("TradeExecutedEvent"), "COMMITTED");
+        } else {
+            ValidationResult failure = ValidationResult.valid();
+            failure.addError("TRADE_NOT_APPLIED",
+                    "Trade validation failed, sold out, or left pending for recovery");
+            result = new CanonicalMutationResult(false, false, 0L, failure,
+                    List.of(request.operation() + ":rejected"), "REJECTED_NO_SIDE_EFFECTS");
+        }
+        publishTradeEvent(request, result);
+        return result;
+    }
+
+    private void publishTradeEvent(TradeExecutionRequest request, CanonicalMutationResult result) {
+        eventPublisher.publish(new CanonicalMutationEvent(request.operation(), request.actorType(),
+                request.npcId(), request.requestId(), result.applied(), result.revision(),
+                result.recoveryOutcome(), request.actorId(), request.playerUuid()));
+    }
+
+    private boolean executeTradeInternal(UUID playerUuid, NamespacedId npcId, int listingIndex,
+                                com.storynpcs.domain.role.trader.TradeListing trade,
+                                UUID requestId) {
+        if (playerUuid == null || npcId == null || trade == null || requestId == null) return false;
         // Serialize the prepare/commit/recover decision per request id — recovery
         // must not abort a prepared record between its durable intent and the
         // listing-use commit decision.
-        var outcome = tradeOperationJournal.withOperationLock(requestId,
-                () -> executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId));
+        var outcome = tradeOperationJournal.withOperationLock(requestId, () -> {
+            if (tradeStateRepository == null || listingIndex < 0) {
+                return executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId);
+            }
+            String listingId = trade.ensureStableId();
+            int lockIndex = Math.floorMod(Objects.hash(npcId, listingId), tradeMutationLocks.length);
+            synchronized (tradeMutationLocks[lockIndex]) {
+                return executeTradeJournaled(playerUuid, npcId, listingIndex, trade, requestId);
+            }
+        });
         return outcome != null && outcome;
     }
 
@@ -2642,21 +3669,50 @@ public class StoryNpcsApplicationService {
                                           com.storynpcs.domain.role.trader.TradeListing trade,
                                           UUID requestId) {
         String listingId = trade.ensureStableId();
+        String legacyListingId = trade.legacyListingIdForMigration().orElse(null);
         String requiredFactionId = trade.getRequiredFaction() == null
                 ? "" : trade.getRequiredFaction().toString();
-        final String subject = playerUuid + "|" + npcId + "|" + listingIndex
-                + "|" + listingId + "|" + trade.getOfferItemId() + "|" + Math.max(1, trade.getOfferCount())
-                + "|" + trade.getPriceItemId() + "|" + Math.max(1, trade.getPriceCount())
-                + "|" + Math.max(0, trade.getMaxUses()) + "|" + requiredFactionId
-                + "|" + Math.max(0, trade.getRequiredFactionPoints());
+        String secondaryPriceItemId = trade.hasTwoInputs()
+                ? trade.getSecondaryPriceItemId().trim() : "";
+        int secondaryPriceCount = trade.hasTwoInputs() ? trade.getSecondaryPriceCount() : 0;
+        String subject = tradeOperationSubject(playerUuid, npcId, listingIndex, listingId,
+                trade, requiredFactionId, secondaryPriceItemId, secondaryPriceCount);
+        String legacySubject = trade.hasTwoInputs()
+                ? tradeOperationSubject(playerUuid, npcId, listingIndex,
+                        legacyListingId == null ? listingId : legacyListingId,
+                        trade, requiredFactionId, "", 0)
+                : null;
         try {
             var existing = tradeOperationJournal.read(requestId);
             if (existing != null) {
-                var replay = tradeOperationJournal.begin(requestId, "trade.execute", subject);
+                boolean legacyReplay = legacySubject != null
+                        && "trade.execute".equals(existing.operationType())
+                        && legacySubject.equals(existing.subject());
+                String replaySubject = legacyReplay ? legacySubject : subject;
+                var replay = tradeOperationJournal.begin(requestId, "trade.execute", replaySubject);
+                if (replay.status() == com.storynpcs.persistence.DurableOperationJournal.BeginStatus.PENDING
+                        && listingIndex >= 0) {
+                    // A still-prepared record means the first attempt crashed
+                    // between prepare and commit — reconcile it against the
+                    // durable listing use count instead of leaving the request
+                    // id pending and failing every retry forever.
+                    reconcilePendingTrade(playerUuid, requestId);
+                    replay = tradeOperationJournal.begin(requestId, "trade.execute", replaySubject);
+                }
                 return replay.status() == com.storynpcs.persistence.DurableOperationJournal.BeginStatus.COMMITTED;
             }
         } catch (IOException | RuntimeException e) {
             return false;
+        }
+
+        int usesBefore = Math.max(0, trade.getUses());
+        if (tradeStateRepository != null && listingIndex >= 0) {
+            try {
+                usesBefore = tradeStateRepository.getUsesOrMigrateLegacy(
+                        npcId.toString(), listingId, legacyListingId);
+            } catch (IOException | RuntimeException unavailable) {
+                return false;
+            }
         }
 
         com.storynpcs.persistence.TradeOperationIntent intent;
@@ -2665,7 +3721,8 @@ public class StoryNpcsApplicationService {
                     playerUuid, npcId.toString(), listingIndex, listingId,
                     trade.getOfferItemId(), Math.max(1, trade.getOfferCount()),
                     trade.getPriceItemId(), Math.max(1, trade.getPriceCount()),
-                    Math.max(0, trade.getMaxUses()), Math.max(0, trade.getUses()),
+                    secondaryPriceItemId, secondaryPriceCount,
+                    Math.max(0, trade.getMaxUses()), usesBefore,
                     requiredFactionId, Math.max(0, trade.getRequiredFactionPoints()));
         } catch (RuntimeException invalid) {
             return false;
@@ -2681,7 +3738,7 @@ public class StoryNpcsApplicationService {
             return false;
         }
 
-        var mutationOutcome = executeTradeMutation(playerUuid, npcId, listingIndex, trade);
+        var mutationOutcome = executeTradeMutation(playerUuid, npcId, listingIndex, trade, usesBefore);
         if (mutationOutcome != TradeMutationOutcome.COMMITTED) {
             if (mutationOutcome == TradeMutationOutcome.REJECTED) {
                 try {
@@ -2702,6 +3759,20 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
+    private static String tradeOperationSubject(UUID playerUuid, NamespacedId npcId, int listingIndex,
+            String listingId, com.storynpcs.domain.role.trader.TradeListing trade,
+            String requiredFactionId, String secondaryPriceItemId, int secondaryPriceCount) {
+        String subject = playerUuid + "|" + npcId + "|" + listingIndex
+                + "|" + listingId + "|" + trade.getOfferItemId() + "|" + Math.max(1, trade.getOfferCount())
+                + "|" + trade.getPriceItemId() + "|" + Math.max(1, trade.getPriceCount())
+                + "|" + Math.max(0, trade.getMaxUses()) + "|" + requiredFactionId
+                + "|" + Math.max(0, trade.getRequiredFactionPoints());
+        if (!secondaryPriceItemId.isEmpty()) {
+            subject += "|secondary|" + secondaryPriceItemId + "|" + secondaryPriceCount;
+        }
+        return subject;
+    }
+
     /**
      * Result of one trade mutation attempt: {@code COMMITTED} means every leg
      * landed, {@code REJECTED} means nothing durable survives and the journal may
@@ -2712,14 +3783,13 @@ public class StoryNpcsApplicationService {
     private enum TradeMutationOutcome { COMMITTED, REJECTED, RECOVERY_REQUIRED }
 
     private TradeMutationOutcome executeTradeMutation(UUID playerUuid, NamespacedId npcId, int listingIndex,
-                                         com.storynpcs.domain.role.trader.TradeListing trade) {
+                                         com.storynpcs.domain.role.trader.TradeListing trade, int usesBefore) {
         if (tradeStateRepository != null && listingIndex >= 0) {
             String listingId = trade.ensureStableId();
             synchronized (trade) {
-                int expectedUses = -1;
+                int expectedUses = Math.max(0, usesBefore);
                 boolean reserved = false;
                 try {
-                    expectedUses = tradeStateRepository.getUses(npcId.toString(), listingId);
                     trade.setUses(expectedUses);
                     if (!tradeStateRepository.reserveUse(npcId.toString(), listingId,
                             expectedUses, Math.max(0, trade.getMaxUses()))) {
@@ -2778,16 +3848,12 @@ public class StoryNpcsApplicationService {
             currentFactionScore = progression.getFactionScore(trade.getRequiredFaction(), defaultPts);
         }
 
-        if (!trade.isAvailable(currentFactionScore)) {
-            return false;
-        }
+        // A malformed listing (e.g. a secondary count with no item id) must
+        // never reach the exchange — validate throws and the caller's
+        // RuntimeException boundary classifies it as REJECTED.
+        trade.validate();
 
-        // Issue #75: the second-input slot exists on TradeListing but this
-        // execution path does not yet resolve/charge/compensate a second price
-        // item. Rather than silently only charging the first input (an
-        // exploitable free-item gap), fail closed until this path is upgraded
-        // to handle both inputs atomically, same as the first.
-        if (trade.hasSecondInput()) {
+        if (!trade.isAvailable(currentFactionScore)) {
             return false;
         }
 
@@ -2817,6 +3883,29 @@ public class StoryNpcsApplicationService {
                 }
             }
 
+            // Second input slot: same contract — resolved item + held amount
+            // verified before anything mutates, deducted with the primary
+            // input, and compensated identically on delivery failure.
+            net.minecraft.world.item.Item secondaryItem = null;
+            int secondaryRequired = 0;
+            if (trade.hasTwoInputs()) {
+                var secondaryRl = net.minecraft.resources.ResourceLocation.tryParse(
+                        trade.getSecondaryPriceItemId().trim());
+                if (secondaryRl == null) return false;
+                var secondaryOpt = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(secondaryRl);
+                if (secondaryOpt.isEmpty()) return false;
+                final var resolvedSecondary = secondaryOpt.get();
+                secondaryItem = resolvedSecondary;
+                secondaryRequired = trade.getSecondaryPriceCount();
+                int heldSecondary = player.getInventory().items.stream()
+                        .filter(s -> !s.isEmpty() && s.getItem() == resolvedSecondary)
+                        .mapToInt(net.minecraft.world.item.ItemStack::getCount)
+                        .sum();
+                if (heldSecondary < secondaryRequired) {
+                    return false; // insufficient second input — abort without recording
+                }
+            }
+
             net.minecraft.world.item.Item offerItem = null;
             if (trade.getOfferItemId() != null && !trade.getOfferItemId().isBlank()) {
                 var offerRl = net.minecraft.resources.ResourceLocation.tryParse(trade.getOfferItemId().trim());
@@ -2834,8 +3923,9 @@ public class StoryNpcsApplicationService {
                 return false;
             }
 
-            java.util.List<net.minecraft.world.item.ItemStack> paidStacks = new java.util.ArrayList<>();
-            java.util.List<Integer> paidCounts = new java.util.ArrayList<>();
+            var inventory = player.getInventory();
+            java.util.List<net.minecraft.world.item.ItemStack> inventorySnapshot = inventory.items.stream()
+                    .map(net.minecraft.world.item.ItemStack::copy).toList();
             try {
                 if (priceItem != null) {
                     int toRemove = required;
@@ -2843,23 +3933,43 @@ public class StoryNpcsApplicationService {
                         if (!slot.isEmpty() && slot.getItem() == priceItem && toRemove > 0) {
                             int take = Math.min(slot.getCount(), toRemove);
                             slot.shrink(take);
-                            paidStacks.add(slot);
-                            paidCounts.add(take);
                             toRemove -= take;
                         }
+                    }
+                    // The held-check passed above, so a leftover means inventory
+                    // shrank mid-exchange — fail closed: the catch restores every
+                    // stack and rolls the reservation back rather than trade at
+                    // a discount.
+                    if (toRemove > 0) {
+                        throw new IllegalStateException(
+                                "primary price under-deducted by " + toRemove);
+                    }
+                }
+                if (secondaryItem != null) {
+                    int toRemove = secondaryRequired;
+                    for (net.minecraft.world.item.ItemStack slot : player.getInventory().items) {
+                        if (!slot.isEmpty() && slot.getItem() == secondaryItem && toRemove > 0) {
+                            int take = Math.min(slot.getCount(), toRemove);
+                            slot.shrink(take);
+                            toRemove -= take;
+                        }
+                    }
+                    if (toRemove > 0) {
+                        throw new IllegalStateException(
+                                "secondary price under-deducted by " + toRemove);
                     }
                 }
                 if (offerItem != null) {
                     net.minecraft.world.item.ItemStack offerStack =
                             new net.minecraft.world.item.ItemStack(offerItem, Math.max(1, trade.getOfferCount()));
-                    if (!player.getInventory().add(offerStack)) {
-                        player.drop(offerStack, false);
+                    if (!inventory.add(offerStack)) {
+                        throw new IllegalStateException("output inventory is full");
                     }
                 }
                 reservation.commit();
             } catch (RuntimeException failure) {
-                for (int i = 0; i < paidStacks.size(); i++) {
-                    paidStacks.get(i).grow(paidCounts.get(i));
+                for (int i = 0; i < inventorySnapshot.size(); i++) {
+                    inventory.items.set(i, inventorySnapshot.get(i));
                 }
                 reservation.rollback();
                 System.err.println("Failed to execute trade for player " + playerUuid + ": " + failure.getMessage());
@@ -2877,14 +3987,114 @@ public class StoryNpcsApplicationService {
         return recorded;
     }
 
-    public boolean setFollowerState(UUID playerUuid, NamespacedId npcId, com.storynpcs.domain.role.follower.FollowerRole role, com.storynpcs.domain.role.follower.FollowerRole.State newState) {
-        if (!role.isOwnedBy(playerUuid)) {
-            return false;
+    /** Applies one typed, owner-scoped follower mutation through the canonical boundary. */
+    public CanonicalMutationResult mutateFollowerState(
+            FollowerStateMutationRequest request, com.storynpcs.domain.role.follower.FollowerRole role) {
+        Objects.requireNonNull(request, "request");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        String fingerprint = followerMutationFingerprint(request);
+        if (!authorization.allowed()) {
+            CanonicalMutationResult denied = followerMutationFailure(authorization.code(), authorization.message());
+            dispatchQuestEvents(request.playerUuid(), List.of(followerMutationEvent(request, denied)));
+            return denied;
         }
-        var oldState = role.getState();
-        role.setState(newState);
-        eventPublisher.publish(new com.storynpcs.api.event.FollowerStateChangeEvent(playerUuid, npcId, oldState, newState));
-        return true;
+
+        Object requestLock = questMutationLocks[request.requestId().hashCode() & (questMutationLocks.length - 1)];
+        CanonicalMutationResult result;
+        List<StoryNpcsEvent> notifications = new ArrayList<>();
+        synchronized (requestLock) {
+            result = applyFollowerMutation(request, fingerprint, role, notifications);
+            if (!result.duplicate()) notifications.add(0, followerMutationEvent(request, result));
+        }
+        dispatchQuestEvents(request.playerUuid(), notifications);
+        return result;
+    }
+
+    private CanonicalMutationResult applyFollowerMutation(
+            FollowerStateMutationRequest request, String fingerprint,
+            com.storynpcs.domain.role.follower.FollowerRole role, List<StoryNpcsEvent> notifications) {
+        CompletedFollowerMutation completed = completedFollowerMutations.get(request.requestId());
+        if (completed != null) {
+            if (!completed.payloadFingerprint().equals(fingerprint)) {
+                return followerMutationFailure("REQUEST_PAYLOAD_MISMATCH",
+                        "Request ID is already bound to a different follower mutation payload");
+            }
+            CanonicalMutationResult prior = completed.result();
+            return new CanonicalMutationResult(prior.applied(), true, prior.revision(),
+                    prior.diagnostics(), prior.events(), prior.recoveryOutcome());
+        }
+
+        if (role == null) {
+            CanonicalMutationResult unavailable = followerMutationFailure("FOLLOWER_ROLE_UNAVAILABLE",
+                    "No follower role is attached to NPC: " + request.npcId());
+            rememberFollowerMutation(request, fingerprint, unavailable);
+            return unavailable;
+        }
+        synchronized (role) {
+            if (!role.isOwnedBy(request.playerUuid())) {
+                CanonicalMutationResult notOwned = followerMutationFailure("FOLLOWER_NOT_OWNED",
+                        "Player " + request.playerUuid() + " does not own follower " + request.npcId());
+                rememberFollowerMutation(request, fingerprint, notOwned);
+                return notOwned;
+            }
+            if (request.action() == FollowerStateMutationRequest.Action.SET_STATE) {
+                var oldState = role.getState();
+                role.setState(request.state());
+                notifications.add(new com.storynpcs.api.event.FollowerStateChangeEvent(
+                        request.playerUuid(), request.npcId(), oldState, request.state()));
+            } else {
+                var oldFormation = role.getFormation();
+                role.setFormation(request.formation());
+                role.setFormationSlot(request.slotIndex());
+                role.setFormationSpacing(request.spacing());
+                notifications.add(new com.storynpcs.api.event.FollowerFormationChangeEvent(
+                        request.playerUuid(), request.npcId(), oldFormation, request.formation(),
+                        request.slotIndex(), role.getFormationSpacing()));
+            }
+        }
+
+        String eventName = request.action() == FollowerStateMutationRequest.Action.SET_STATE
+                ? "FollowerStateChangeEvent" : "FollowerFormationChangeEvent";
+        CanonicalMutationResult applied = new CanonicalMutationResult(true, false, 0L,
+                ValidationResult.valid(), List.of(eventName), "COMMITTED");
+        rememberFollowerMutation(request, fingerprint, applied);
+        return applied;
+    }
+
+    private void rememberFollowerMutation(FollowerStateMutationRequest request, String fingerprint,
+                                          CanonicalMutationResult result) {
+        completedFollowerMutations.put(request.requestId(),
+                new CompletedFollowerMutation(fingerprint, result.snapshot()));
+    }
+
+    private static CanonicalMutationResult followerMutationFailure(String code, String message) {
+        ValidationResult diagnostics = ValidationResult.valid();
+        diagnostics.addError(code, message == null || message.isBlank() ? code : message);
+        return new CanonicalMutationResult(false, false, 0L, diagnostics, List.of(),
+                Set.of("PERMISSION_DENIED", "PLAYER_SUBJECT_MISMATCH", "SCRIPT_CAPABILITY_REQUIRED").contains(code)
+                        ? "REJECTED_AUTHORIZATION" : "REJECTED_NO_SIDE_EFFECTS");
+    }
+
+    private static String followerMutationFingerprint(FollowerStateMutationRequest request) {
+        String payload = String.join("\u0000", request.actorType(),
+                request.actorId() == null ? "" : request.actorId().toString(),
+                request.playerUuid().toString(), request.npcId().toString(), request.action().name(),
+                request.state() == null ? "" : request.state().name(),
+                request.formation() == null ? "" : request.formation().name(),
+                Integer.toString(request.slotIndex()), Double.toString(request.spacing()));
+        return MutationPayloadFingerprint.of(request.operation(), payload);
+    }
+
+    private CanonicalMutationEvent followerMutationEvent(
+            FollowerStateMutationRequest request, CanonicalMutationResult result) {
+        return new CanonicalMutationEvent(request.operation(), request.actorType(), request.npcId(),
+                request.requestId(), result.applied(), result.revision(), result.recoveryOutcome(),
+                request.actorId(), request.playerUuid());
+    }
+
+    public boolean setFollowerState(UUID playerUuid, NamespacedId npcId, com.storynpcs.domain.role.follower.FollowerRole role, com.storynpcs.domain.role.follower.FollowerRole.State newState) {
+        return mutateFollowerState(FollowerStateMutationRequest.setState(
+                "system", null, playerUuid, npcId, newState, UUID.randomUUID()), role).applied();
     }
 
     public boolean setFollowerFormation(
@@ -2895,18 +4105,11 @@ public class StoryNpcsApplicationService {
             int slotIndex,
             double spacing
     ) {
-        if (role == null || !role.isOwnedBy(playerUuid)) {
-            return false;
-        }
-        var oldFormation = role.getFormation();
-        role.setFormation(newFormation);
-        role.setFormationSlot(slotIndex);
-        if (spacing > 0.0) {
-            role.setFormationSpacing(spacing);
-        }
-        eventPublisher.publish(new com.storynpcs.api.event.FollowerFormationChangeEvent(
-                playerUuid, npcId, oldFormation, newFormation, slotIndex, role.getFormationSpacing()));
-        return true;
+        double effectiveSpacing = spacing > 0.0 ? spacing
+                : role != null ? role.getFormationSpacing() : 2.5;
+        return mutateFollowerState(FollowerStateMutationRequest.setFormation(
+                "system", null, playerUuid, npcId, newFormation, slotIndex,
+                effectiveSpacing, UUID.randomUUID()), role).applied();
     }
 
     public boolean depositToBank(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count) {
@@ -2917,10 +4120,121 @@ public class StoryNpcsApplicationService {
     /**
      * Deposit an item into the player's bank vault preserving its NBT/DataComponent tag.
      * VULN-54: This overload must be used by GUI and command code that has access to the full ItemStack tag.
+     * Compatibility delegate: routes through the typed canonical request boundary.
      */
     public boolean depositToBank(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count, String tag) {
+        if (playerUuid == null || itemId == null) return false;
+        try {
+            return depositToBank(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.DEPOSIT, tab, slot, itemId, count,
+                    UUID.randomUUID(), -1), bankRepo, tag).accepted();
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
+    }
+
+    /**
+     * Typed canonical bank deposit: authorizes the actor/subject/capability
+     * envelope before any vault mutation, then routes to the durable deposit
+     * path matching the requested action. Every attempt on a banker-scoped
+     * request publishes a canonical mutation event.
+     */
+    public BankDepositOperationResult depositToBank(BankOperationRequest request,
+            com.storynpcs.persistence.BankRepository bankRepo, String tag) {
+        Objects.requireNonNull(request, "request");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        if (!authorization.allowed()) {
+            publishBankEvent(request, false, "REJECTED_AUTHORIZATION");
+            return BankDepositOperationResult.rejected(authorization.code());
+        }
+        if (bankRepo == null) {
+            publishBankEvent(request, false, "REJECTED_NO_SIDE_EFFECTS");
+            return BankDepositOperationResult.rejected("BANK_UNAVAILABLE");
+        }
+        String accessDeny = bankVaultAccessDenyCode(request, bankRepo);
+        if (accessDeny != null) {
+            publishBankEvent(request, false, accessDeny);
+            return BankDepositOperationResult.rejected(accessDeny);
+        }
+        BankDepositOperationResult result = switch (request.action()) {
+            case DEPOSIT -> depositToBankInternal(request, bankRepo, request.tab(),
+                    request.slot(), request.itemId(), request.amount(), tag)
+                    ? BankDepositOperationResult.applied(request.slot())
+                    : BankDepositOperationResult.rejected("DEPOSIT_NOT_APPLIED");
+            case DEPOSIT_AUTO -> {
+                int slot = depositToBankAutoInternal(request, bankRepo, request.tab(),
+                        request.itemId(), request.amount(), tag);
+                yield slot >= 0 ? BankDepositOperationResult.applied(slot)
+                        : BankDepositOperationResult.rejected("TAB_LOCKED_OR_FULL");
+            }
+            case DEPOSIT_HELD -> depositHeldToBankInternal(scopeFor(request),
+                    bankRepo, request.tab(), request.requestId());
+            default -> BankDepositOperationResult.rejected("ACTION_ROUTE_MISMATCH");
+        };
+        publishBankEvent(request, result.accepted(), result.accepted() ? "COMMITTED" : result.code());
+        return result;
+    }
+
+    /**
+     * Pre-mutation shared-vault access gate. Self-vault requests pass trivially;
+     * cross-vault requests require operator authority or a durable SHARED vault
+     * that lists the acting player. Membership is re-verified inside each vault
+     * transaction so a revocation between this gate and the commit cannot slip.
+     */
+    private String bankVaultAccessDenyCode(BankOperationRequest request,
+            com.storynpcs.persistence.BankRepository bankRepo) {
+        UUID owner = request.resolvedVaultOwner();
+        if (owner.equals(request.playerUuid())) return null;
+        if ("system".equals(request.actorType())) return null;
+        if ("command".equals(request.actorType()) && request.permissionLevel() >= 2) return null;
+        com.storynpcs.domain.role.banker.BankVault vault;
+        try {
+            vault = bankRepo.getOrCreate(owner);
+        } catch (RuntimeException unavailable) {
+            return "VAULT_UNAVAILABLE";
+        }
+        return vault.canAccess(request.playerUuid()) ? null : "VAULT_ACCESS_DENIED";
+    }
+
+    /** True when this request may operate on any vault regardless of membership. */
+    private boolean hasVaultAccessOverride(BankOperationRequest request) {
+        return request.resolvedVaultOwner().equals(request.playerUuid())
+                || "system".equals(request.actorType())
+                || ("command".equals(request.actorType()) && request.permissionLevel() >= 2);
+    }
+
+    /** Atomic membership re-check for use inside a vault transaction lambda. */
+    private boolean vaultAccessAllowed(BankOperationRequest request,
+                                       com.storynpcs.domain.role.banker.BankVault vault) {
+        return hasVaultAccessOverride(request) || vault.canAccess(request.playerUuid());
+    }
+
+    /**
+     * Identity + authorization scope resolved once per canonical bank request.
+     * {@code actorUuid} owns the inventory side-effects (held stacks, emerald
+     * payments, delivered items); {@code vaultOwnerUuid} keys the durable vault.
+     */
+    private record BankOperationScope(UUID actorUuid, UUID vaultOwnerUuid, boolean accessOverride) {
+        /** Membership check executed inside the vault lock. */
+        boolean mayAccess(com.storynpcs.domain.role.banker.BankVault vault) {
+            return accessOverride || vault.canAccess(actorUuid);
+        }
+    }
+
+    private BankOperationScope scopeFor(BankOperationRequest request) {
+        return new BankOperationScope(request.playerUuid(), request.resolvedVaultOwner(),
+                hasVaultAccessOverride(request));
+    }
+
+    private boolean depositToBankInternal(BankOperationRequest request, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, String itemId, int count, String tag) {
         if (bankRepo == null) return false;
-        var result = bankRepo.transact(playerUuid, vault -> {
+        UUID vaultOwner = request.resolvedVaultOwner();
+        var result = bankRepo.transact(vaultOwner, vault -> {
+            // Membership re-check inside the vault lock — atomic against
+            // sharing-policy revocations in a competing transaction.
+            if (!vaultAccessAllowed(request, vault)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false);
+            }
             boolean changed = vault.deposit(tab, slot, itemId, count, tag);
             return changed
                     ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
@@ -2928,7 +4242,7 @@ public class StoryNpcsApplicationService {
         });
         if (result.committed()) {
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
+                    vaultOwner, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
         }
         return result.committed() && Boolean.TRUE.equals(result.value());
     }
@@ -2936,10 +4250,26 @@ public class StoryNpcsApplicationService {
     /**
      * Deposit into the first compatible slot of the given tab (merge or first free slot).
      * Returns the slot index used, or -1 on failure (locked tab, full tab, invalid input).
+     * Compatibility delegate: routes through the typed canonical request boundary.
      */
     public int depositToBankAuto(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, String itemId, int count, String tag) {
+        if (playerUuid == null || itemId == null) return -1;
+        try {
+            return depositToBank(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.DEPOSIT_AUTO, tab, -1, itemId, count,
+                    UUID.randomUUID(), -1), bankRepo, tag).slot();
+        } catch (IllegalArgumentException invalid) {
+            return -1;
+        }
+    }
+
+    private int depositToBankAutoInternal(BankOperationRequest request, com.storynpcs.persistence.BankRepository bankRepo, int tab, String itemId, int count, String tag) {
         if (bankRepo == null) return -1;
-        var result = bankRepo.transact(playerUuid, vault -> {
+        UUID vaultOwner = request.resolvedVaultOwner();
+        var result = bankRepo.transact(vaultOwner, vault -> {
+            if (!vaultAccessAllowed(request, vault)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(-1);
+            }
             int slot = vault.depositAuto(tab, itemId, count, tag);
             return slot >= 0
                     ? com.storynpcs.persistence.BankRepository.BankMutation.changed(slot)
@@ -2947,7 +4277,7 @@ public class StoryNpcsApplicationService {
         });
         if (result.committed()) {
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
+                    vaultOwner, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT, tab, itemId, count));
         }
         return result.committed() ? result.value() : -1;
     }
@@ -2957,35 +4287,61 @@ public class StoryNpcsApplicationService {
      * commit carries a vault-side operation marker before the inventory stack
      * is removed, so a crash can prove which side reached durable storage.
      */
+    /**
+     * Compatibility delegate: routes through the typed canonical request boundary
+     * ({@link #depositToBank(BankOperationRequest, com.storynpcs.persistence.BankRepository, String)}
+     * with action {@code DEPOSIT_HELD}).
+     */
     public BankDepositOperationResult depositHeldToBank(
             UUID playerUuid,
             com.storynpcs.persistence.BankRepository bankRepo,
             int tab,
             UUID requestId) {
-        if (playerUuid == null || bankRepo == null || requestId == null) {
+        if (playerUuid == null || requestId == null) {
+            return BankDepositOperationResult.rejected("INVALID_REQUEST");
+        }
+        try {
+            return depositToBank(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.DEPOSIT_HELD, tab, -1, null, 0,
+                    requestId, -1), bankRepo, null);
+        } catch (IllegalArgumentException invalid) {
+            return BankDepositOperationResult.rejected("INVALID_REQUEST");
+        }
+    }
+
+    private BankDepositOperationResult depositHeldToBankInternal(
+            BankOperationScope scope,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            int tab,
+            UUID requestId) {
+        if (scope == null || bankRepo == null || requestId == null) {
             return BankDepositOperationResult.rejected("INVALID_REQUEST");
         }
         // Serialize the prepare/commit/recover decision per request id — recovery
         // must not abort a request between its durable prepare and vault commit.
         var result = bankRepo.operationJournal().withOperationLock(requestId,
-                () -> depositHeldToBankJournaled(playerUuid, bankRepo, tab, requestId));
+                () -> depositHeldToBankJournaled(scope, bankRepo, tab, requestId));
         return result != null ? result : BankDepositOperationResult.recoveryRequired("JOURNAL_UNAVAILABLE");
     }
 
     private BankDepositOperationResult depositHeldToBankJournaled(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             int tab,
             UUID requestId) {
+        final UUID playerUuid = scope.actorUuid();
+        final UUID vaultOwnerUuid = scope.vaultOwnerUuid();
         final String operationType = "bank.deposit_held";
-        final String subject = playerUuid.toString();
+        // Subject binds actor and vault — a request id cannot be replayed
+        // across a different vault or on behalf of a different member.
+        final String subject = bankOperationSubject(scope);
         var journal = bankRepo.operationJournal();
 
         try {
             var existing = journal.read(requestId);
             if (existing != null) {
                 var classification = journal.begin(requestId, operationType, subject);
-                return classifyHeldDepositReplay(playerUuid, bankRepo, requestId, classification);
+                return classifyHeldDepositReplay(scope, bankRepo, requestId, classification);
             }
         } catch (IOException | RuntimeException e) {
             return BankDepositOperationResult.recoveryRequired("JOURNAL_UNAVAILABLE");
@@ -3005,7 +4361,7 @@ public class StoryNpcsApplicationService {
 
         final com.storynpcs.domain.role.banker.BankVault vault;
         try {
-            vault = bankRepo.getOrCreate(playerUuid);
+            vault = bankRepo.getOrCreate(vaultOwnerUuid);
         } catch (RuntimeException unavailable) {
             return BankDepositOperationResult.rejected("VAULT_UNAVAILABLE");
         }
@@ -3040,13 +4396,16 @@ public class StoryNpcsApplicationService {
         try {
             started = journal.begin(requestId, operationType, subject, intentJson);
             if (started.status() != com.storynpcs.persistence.DurableOperationJournal.BeginStatus.STARTED) {
-                return classifyHeldDepositReplay(playerUuid, bankRepo, requestId, started);
+                return classifyHeldDepositReplay(scope, bankRepo, requestId, started);
             }
         } catch (IOException | RuntimeException e) {
             return BankDepositOperationResult.recoveryRequired("JOURNAL_START_FAILED");
         }
 
-        var result = bankRepo.transact(playerUuid, candidateVault -> {
+        var result = bankRepo.transact(vaultOwnerUuid, candidateVault -> {
+            if (!scope.mayAccess(candidateVault)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false);
+            }
             boolean marked = candidateVault.markOperation(requestId, operationType, intentJson);
             boolean changed = marked && candidateVault.deposit(tab, plannedSlot, itemId, count, tag);
             return changed
@@ -3065,36 +4424,36 @@ public class StoryNpcsApplicationService {
         try {
             var committed = journal.commit(requestId, "APPLIED", Integer.toString(plannedSlot));
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT,
+                    vaultOwnerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.DEPOSIT,
                     tab, itemId, count));
-            return finalizeCommittedHeldDeposit(playerUuid, bankRepo, requestId, committed, false);
+            return finalizeCommittedHeldDeposit(scope, bankRepo, requestId, committed, false);
         } catch (IOException | RuntimeException e) {
             return BankDepositOperationResult.recoveryRequired("BANK_COMMIT_REQUIRES_RECOVERY");
         }
     }
 
     private BankDepositOperationResult classifyHeldDepositReplay(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId,
             com.storynpcs.persistence.DurableOperationJournal.BeginResult result) {
         return switch (result.status()) {
-            case COMMITTED -> finalizeCommittedHeldDeposit(playerUuid, bankRepo, requestId,
+            case COMMITTED -> finalizeCommittedHeldDeposit(scope, bankRepo, requestId,
                     result.record(), true);
             case ABORTED -> BankDepositOperationResult.rejected(
                     result.record().outcomeCode() == null ? "ABORTED" : result.record().outcomeCode());
             case PENDING, STARTED -> reconcilePendingHeldDeposit(
-                    playerUuid, bankRepo, requestId, result.record());
+                    scope, bankRepo, requestId, result.record());
         };
     }
 
     private BankDepositOperationResult reconcilePendingHeldDeposit(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId,
             com.storynpcs.persistence.DurableOperationJournal.OperationRecord record) {
         try {
-            var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
+            var marker = bankRepo.getOrCreate(scope.vaultOwnerUuid()).getOperationMarker(requestId);
             if (marker == null) {
                 var intentJson = record.preparedIntent() != null
                         ? record.preparedIntent() : record.detail();
@@ -3110,21 +4469,22 @@ public class StoryNpcsApplicationService {
             }
             var committed = bankRepo.operationJournal().commit(requestId, "APPLIED",
                     Integer.toString(readIntentSlot(marker.getIntent())));
-            return finalizeCommittedHeldDeposit(playerUuid, bankRepo, requestId, committed, true);
+            return finalizeCommittedHeldDeposit(scope, bankRepo, requestId, committed, true);
         } catch (IOException | RuntimeException e) {
             return BankDepositOperationResult.recoveryRequired("PENDING_RECOVERY_FAILED");
         }
     }
 
     private BankDepositOperationResult finalizeCommittedHeldDeposit(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId,
             com.storynpcs.persistence.DurableOperationJournal.OperationRecord record,
             boolean replay) {
         try {
             int slot = Integer.parseInt(record.detail());
-            var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
+            final UUID vaultOwnerUuid = scope.vaultOwnerUuid();
+            var marker = bankRepo.getOrCreate(vaultOwnerUuid).getOperationMarker(requestId);
             if (marker == null) {
                 if (!replay) {
                     return BankDepositOperationResult.recoveryRequired("BANK_MARKER_MISSING");
@@ -3140,14 +4500,14 @@ public class StoryNpcsApplicationService {
                     return BankDepositOperationResult.recoveryRequired("BANK_MARKER_MISSING");
                 }
                 var operation = intent.get();
-                boolean stackPresent = bankRepo.getOrCreate(playerUuid).getTabItems(operation.tab())
+                boolean stackPresent = bankRepo.getOrCreate(vaultOwnerUuid).getTabItems(operation.tab())
                         .stream().anyMatch(operation::matches);
                 return stackPresent
                         ? BankDepositOperationResult.replayed(slot)
                         : BankDepositOperationResult.recoveryRequired("BANK_MARKER_MISSING");
             }
             if (marker.isInventoryApplied()) {
-                var cleanupApplied = bankRepo.transact(playerUuid, vault ->
+                var cleanupApplied = bankRepo.transact(vaultOwnerUuid, vault ->
                         vault.removeOperationMarker(requestId)
                                 ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
                                 : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
@@ -3163,7 +4523,7 @@ public class StoryNpcsApplicationService {
             if (minecraftServer == null) {
                 return BankDepositOperationResult.recoveryRequired("SERVER_UNAVAILABLE");
             }
-            var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+            var player = minecraftServer.getPlayerList().getPlayer(scope.actorUuid());
             if (player == null) {
                 return BankDepositOperationResult.recoveryRequired("PLAYER_OFFLINE");
             }
@@ -3172,14 +4532,14 @@ public class StoryNpcsApplicationService {
                 return BankDepositOperationResult.recoveryRequired("INVENTORY_RECONCILIATION_REQUIRED");
             }
             held.shrink(intent.count());
-            var markedApplied = bankRepo.transact(playerUuid, vault ->
+            var markedApplied = bankRepo.transact(vaultOwnerUuid, vault ->
                     vault.markOperationInventoryApplied(requestId)
                             ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
                             : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
             if (!markedApplied.committed()) {
                 return BankDepositOperationResult.recoveryRequired("INVENTORY_MARKER_WRITE_FAILED");
             }
-            var cleanup = bankRepo.transact(playerUuid, vault ->
+            var cleanup = bankRepo.transact(vaultOwnerUuid, vault ->
                     vault.removeOperationMarker(requestId)
                             ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
                             : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
@@ -3234,7 +4594,8 @@ public class StoryNpcsApplicationService {
      * explicitly pending for manual recovery rather than risking duplication.
      */
     private boolean reconcilePendingBankWithdrawal(
-            UUID playerUuid,
+            UUID actorUuid,
+            UUID vaultOwnerUuid,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID operationId) {
         com.storynpcs.persistence.DurableOperationJournal.OperationRecord record;
@@ -3254,7 +4615,7 @@ public class StoryNpcsApplicationService {
         if (intent.isEmpty()) return false;
 
         var withdrawal = intent.get();
-        if (!playerUuid.equals(withdrawal.playerUuid())
+        if (!actorUuid.equals(withdrawal.playerUuid())
                 || !"withdraw".equals(withdrawal.action())
                 || withdrawal.count() != withdrawal.beforeCount()
                 || withdrawal.count() != withdrawal.expectedCount()
@@ -3264,7 +4625,7 @@ public class StoryNpcsApplicationService {
 
         boolean exactOriginalStackStillPresent;
         try {
-            var vault = bankRepo.getOrCreate(playerUuid).copy();
+            var vault = bankRepo.getOrCreate(vaultOwnerUuid).copy();
             exactOriginalStackStillPresent = vault.getRevision() == withdrawal.vaultRevision()
                     && vault.getTabItems(withdrawal.tab()).stream()
                     .anyMatch(item -> item.getSlot() == withdrawal.slot()
@@ -3300,9 +4661,16 @@ public class StoryNpcsApplicationService {
             UUID playerUuid,
             com.storynpcs.persistence.BankRepository bankRepo) {
         if (playerUuid == null || bankRepo == null) return 0;
+        try {
+            // Retention sweep — login recovery is the journal's regular scan
+            // point, so terminal record files cannot accumulate unbounded.
+            bankRepo.operationJournal().pruneTerminalRecords();
+        } catch (IOException | RuntimeException ignored) {
+            // Housekeeping must never block recovery.
+        }
         java.util.List<com.storynpcs.persistence.DurableOperationJournal.OperationRecord> pendingRecords;
-        java.util.Set<UUID> depositRequestIds = new java.util.LinkedHashSet<>();
-        java.util.Set<UUID> unlockRequestIds = new java.util.LinkedHashSet<>();
+        java.util.Map<UUID, UUID> depositScopes = new java.util.LinkedHashMap<>();
+        java.util.Map<UUID, UUID> unlockScopes = new java.util.LinkedHashMap<>();
         try {
             String playerSubject = playerUuid.toString();
             String compoundSubjectPrefix = playerSubject + "|";
@@ -3310,50 +4678,60 @@ public class StoryNpcsApplicationService {
                     .filter(record -> playerSubject.equals(record.subject())
                             || record.subject().startsWith(compoundSubjectPrefix))
                     .toList();
-            pendingRecords.stream()
-                    .filter(record -> "bank.deposit_held".equals(record.operationType()))
-                    .map(com.storynpcs.persistence.DurableOperationJournal.OperationRecord::operationId)
-                    .forEach(depositRequestIds::add);
-            pendingRecords.stream()
-                    .filter(record -> "bank.unlock_tab".equals(record.operationType()))
-                    .map(com.storynpcs.persistence.DurableOperationJournal.OperationRecord::operationId)
-                    .forEach(unlockRequestIds::add);
+            for (var record : pendingRecords) {
+                // Compound subjects are "actor|vaultOwner|..." for shared-vault
+                // operations — recover against the durable vault identity, not
+                // the scanning player's own vault.
+                UUID vaultOwner = vaultOwnerFromSubject(record.subject(), playerUuid);
+                if ("bank.deposit_held".equals(record.operationType())) {
+                    depositScopes.put(record.operationId(), vaultOwner);
+                }
+                if ("bank.unlock_tab".equals(record.operationType())) {
+                    unlockScopes.put(record.operationId(), vaultOwner);
+                }
+            }
             bankRepo.getOrCreate(playerUuid).getOperationMarkers().values().stream()
                     .filter(marker -> "bank.deposit_held".equals(marker.getOperationType()))
                     .map(com.storynpcs.domain.role.banker.BankVault.OperationMarker::getOperationId)
-                    .forEach(depositRequestIds::add);
+                    .forEach(id -> depositScopes.putIfAbsent(id, playerUuid));
             bankRepo.getOrCreate(playerUuid).getOperationMarkers().values().stream()
                     .filter(marker -> "bank.unlock_tab".equals(marker.getOperationType()))
                     .map(com.storynpcs.domain.role.banker.BankVault.OperationMarker::getOperationId)
-                    .forEach(unlockRequestIds::add);
+                    .forEach(id -> unlockScopes.putIfAbsent(id, playerUuid));
         } catch (IOException | RuntimeException e) {
             return 1;
         }
         int unresolved = 0;
         for (var record : pendingRecords) {
             if ("bank.withdraw".equals(record.operationType())) {
+                UUID vaultOwner = vaultOwnerFromSubject(record.subject(), playerUuid);
                 boolean resolved;
                 try {
                     resolved = bankRepo.operationJournal().withOperationLock(record.operationId(),
                             () -> reconcilePendingBankWithdrawal(
-                                    playerUuid, bankRepo, record.operationId()));
+                                    playerUuid, vaultOwner, bankRepo, record.operationId()));
                 } catch (RuntimeException failure) {
                     resolved = false;
                 }
                 if (!resolved) unresolved++;
             }
         }
-        for (UUID requestId : depositRequestIds) {
-            BankDepositOperationResult result = depositHeldToBank(playerUuid, bankRepo, 0, requestId);
+        for (var entry : depositScopes.entrySet()) {
+            BankDepositOperationResult result = depositToBank(new BankOperationRequest(
+                    "system", null, playerUuid, null,
+                    BankOperationRequest.Action.DEPOSIT_HELD, 0, -1, null, 0,
+                    entry.getKey(), -1, entry.getValue()), bankRepo, null);
             if (result.outcome() == BankDepositOperationResult.Outcome.RECOVERY_REQUIRED) {
                 unresolved++;
             }
         }
-        for (UUID requestId : unlockRequestIds) {
+        for (var entry : unlockScopes.entrySet()) {
+            UUID vaultOwner = entry.getValue();
             boolean resolved;
             try {
-                resolved = Boolean.TRUE.equals(bankRepo.operationJournal().withOperationLock(requestId,
-                        () -> reconcileBankUnlockRequest(playerUuid, bankRepo, requestId)));
+                resolved = Boolean.TRUE.equals(bankRepo.operationJournal().withOperationLock(entry.getKey(),
+                        () -> reconcileBankUnlockRequest(
+                                new BankOperationScope(playerUuid, vaultOwner, true), bankRepo, entry.getKey())));
             } catch (RuntimeException failure) {
                 resolved = false;
             }
@@ -3363,12 +4741,43 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Journal subject binding a bank request to actor and vault. Self-vault
+     * operations keep the historical plain {@code playerUuid} format so legacy
+     * journal records remain replayable; only member operations on a shared
+     * vault carry the compound {@code actor|vaultOwner} binding.
+     */
+    private static String bankOperationSubject(BankOperationScope scope) {
+        return scope.vaultOwnerUuid().equals(scope.actorUuid())
+                ? scope.actorUuid().toString()
+                : scope.actorUuid() + "|" + scope.vaultOwnerUuid();
+    }
+
+    /**
+     * Extracts the durable vault owner from a compound journal subject
+     * ({@code actor|vaultOwner|...}). Legacy subjects — plain
+     * {@code playerUuid} or {@code playerUuid|tab|slot|...} — resolve to the
+     * scanning player, matching the historical self-vault semantics.
+     */
+    private static UUID vaultOwnerFromSubject(String subject, UUID fallback) {
+        if (subject == null) return fallback;
+        int first = subject.indexOf('|');
+        if (first < 0) return fallback;
+        int second = subject.indexOf('|', first + 1);
+        String ownerPart = second < 0 ? subject.substring(first + 1) : subject.substring(first + 1, second);
+        try {
+            return UUID.fromString(ownerPart);
+        } catch (IllegalArgumentException notUuid) {
+            return fallback; // legacy tab/slot segment — owner is the actor
+        }
+    }
+
+    /**
      * Recovery entry for one tab-unlock request: a still-prepared record is
      * reconciled against the vault marker; anything else (including a committed
      * record whose marker cleanup was interrupted) runs the payment finalize.
      */
     private boolean reconcileBankUnlockRequest(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId) {
         try {
@@ -3376,9 +4785,9 @@ public class StoryNpcsApplicationService {
             if (record != null
                     && record.state() == com.storynpcs.persistence.DurableOperationJournal.State.PREPARED
                     && "bank.unlock_tab".equals(record.operationType())) {
-                return reconcilePendingBankUnlock(playerUuid, bankRepo, requestId);
+                return reconcilePendingBankUnlock(scope, bankRepo, requestId);
             }
-            return finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+            return finalizeCommittedBankUnlock(scope, bankRepo, requestId, true);
         } catch (IOException | RuntimeException failure) {
             return false;
         }
@@ -3395,6 +4804,11 @@ public class StoryNpcsApplicationService {
      */
     public int recoverTradeOperations(UUID playerUuid) {
         if (playerUuid == null) return 0;
+        try {
+            tradeOperationJournal.pruneTerminalRecords();
+        } catch (IOException | RuntimeException ignored) {
+            // Housekeeping must never block recovery.
+        }
         java.util.List<com.storynpcs.persistence.DurableOperationJournal.OperationRecord> pending;
         try {
             String subjectPrefix = playerUuid + "|";
@@ -3462,6 +4876,72 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Login-time reconciliation of durable quest-completion intents left by a crash
+     * or failed write. A pending intent means an auto-completion or explicit
+     * completion was in flight when the process stopped. If it is still eligible
+     * (same quest state revision, objectives still met), resuming re-runs the
+     * mark-before-deliver protocol: every leg marked durably before delivery, so
+     * recovery delivers only legs with no mark and commits the terminal state once.
+     * An intent that is no longer eligible (quest removed, state moved on, player
+     * withdrew progress) stays pending and is reported for manual recovery rather
+     * than guessed. An intent on a quest that is already COMPLETED is dead weight
+     * and is dropped durably.
+     *
+     * @return the number of intents still requiring manual recovery or re-turn-in
+     */
+    public int recoverQuestCompletions(UUID playerUuid) {
+        if (playerUuid == null) return 0;
+        PlayerProgression progression;
+        try {
+            progression = progressionRepository.getOrCreate(playerUuid);
+        } catch (RuntimeException unavailable) {
+            return 1; // durable state unreadable — cannot prove recovery ran
+        }
+        int unresolved = 0;
+        List<StoryNpcsEvent> notifications = new ArrayList<>();
+        Object playerLock = progressionMutationLocks[playerUuid.hashCode()
+                & (progressionMutationLocks.length - 1)];
+        QuestEventQueue queue;
+        synchronized (playerLock) {
+            synchronized (progression) {
+                for (Map.Entry<NamespacedId, PendingQuestCompletion> entry
+                        : List.copyOf(progression.getPendingQuestCompletions().entrySet())) {
+                    NamespacedId questId = entry.getKey();
+                    PendingQuestCompletion pending = entry.getValue();
+                    QuestProgressState state = progression.getQuests().get(questId);
+                    if (state != null && state.getStatus() == QuestProgressState.Status.COMPLETED) {
+                        progression.getPendingQuestCompletions().remove(questId);
+                        try {
+                            progressionRepository.save(playerUuid, progression);
+                        } catch (Exception e) {
+                            unresolved++;
+                        }
+                        continue;
+                    }
+                    Quest quest = registry.getQuest(questId).orElse(null);
+                    if (!isPendingQuestCompletionEligible(quest, state, pending)) {
+                        unresolved++; // in-flight completion can no longer be proven eligible
+                        continue;
+                    }
+                    List<FactionReputationChangeEvent> factionEvents = new ArrayList<>();
+                    QuestCompletionResult resumed = completeQuestUnderLock(
+                            playerUuid, quest, progression, factionEvents,
+                            pending.requestId(), pending.payloadFingerprint());
+                    if (resumed.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
+                        notifications.addAll(factionEvents);
+                        notifications.add(new QuestCompleteEvent(playerUuid, questId));
+                    } else if (resumed.outcome() != QuestCompletionResult.Outcome.ALREADY_COMPLETED) {
+                        unresolved++;
+                    }
+                }
+            }
+            queue = enqueueQuestEvents(playerUuid, notifications);
+        }
+        if (queue != null) drainQuestEvents(queue);
+        return unresolved;
+    }
+
+    /**
      * Unlock the next bank tab for a player at a banker NPC. Costs {@code tabUpgradeCost}
      * emeralds deducted from the player's inventory (free when cost is 0). Fails when the
      * vault already has all of the banker's tabs unlocked or the player cannot pay.
@@ -3478,23 +4958,148 @@ public class StoryNpcsApplicationService {
         return unlockBankTab(playerUuid, bankRepo, banker, UUID.randomUUID());
     }
 
-    /** Replay-safe overload used by request-id-carrying adapters. */
+    /**
+     * Replay-aware compatibility delegate used by request-id-carrying adapters;
+     * routes through the typed canonical request boundary.
+     */
     public boolean unlockBankTab(UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo,
                                  com.storynpcs.domain.role.banker.BankerRole banker, UUID requestId) {
-        if (playerUuid == null || bankRepo == null || banker == null || requestId == null) return false;
+        if (playerUuid == null || banker == null || requestId == null) return false;
+        try {
+            return unlockBankTab(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.UNLOCK_TAB, 0, -1, null, 0,
+                    requestId, -1), bankRepo, banker).applied();
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
+    }
+
+    /**
+     * Typed canonical bank-tab unlock: authorizes the actor/subject/capability
+     * envelope before the journaled vault+payment mutation runs. Every attempt
+     * on a banker-scoped request publishes a canonical mutation event.
+     */
+    public CanonicalMutationResult unlockBankTab(BankOperationRequest request,
+            com.storynpcs.persistence.BankRepository bankRepo,
+            com.storynpcs.domain.role.banker.BankerRole banker) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(banker, "banker");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        if (!authorization.allowed()) {
+            publishBankEvent(request, false, "REJECTED_AUTHORIZATION");
+            ValidationResult denied = ValidationResult.valid();
+            denied.addError(authorization.code(), authorization.message());
+            return new CanonicalMutationResult(false, false, 0L, denied,
+                    List.of(request.operation() + ":authorization-denied"), "REJECTED_AUTHORIZATION");
+        }
+        if (request.action() != BankOperationRequest.Action.UNLOCK_TAB) {
+            publishBankEvent(request, false, "REJECTED_NO_SIDE_EFFECTS");
+            ValidationResult mismatch = ValidationResult.valid();
+            mismatch.addError("ACTION_ROUTE_MISMATCH", "Bank action is not an unlock: " + request.action());
+            return new CanonicalMutationResult(false, false, 0L, mismatch,
+                    List.of(request.operation() + ":route-mismatch"), "REJECTED_NO_SIDE_EFFECTS");
+        }
+        String accessDeny = bankRepo != null ? bankVaultAccessDenyCode(request, bankRepo) : null;
+        boolean applied = accessDeny == null && request.requestId() != null && bankRepo != null
+                && unlockBankTabInternal(scopeFor(request), bankRepo, banker, request.requestId());
+        CanonicalMutationResult result;
+        if (applied) {
+            result = new CanonicalMutationResult(true, false, 0L, ValidationResult.valid(),
+                    List.of("BankTransactionEvent"), "COMMITTED");
+        } else {
+            ValidationResult failure = ValidationResult.valid();
+            failure.addError(bankRepo == null ? "BANK_UNAVAILABLE" : "UNLOCK_NOT_APPLIED",
+                    "Tab unlock rejected, unaffordable, maxed, or left pending for recovery");
+            result = new CanonicalMutationResult(false, false, 0L, failure,
+                    List.of(request.operation() + ":rejected"), "REJECTED_NO_SIDE_EFFECTS");
+        }
+        publishBankEvent(request, result.applied(), result.recoveryOutcome());
+        return result;
+    }
+
+    private boolean unlockBankTabInternal(BankOperationScope scope, com.storynpcs.persistence.BankRepository bankRepo,
+                                 com.storynpcs.domain.role.banker.BankerRole banker, UUID requestId) {
+        if (scope == null || bankRepo == null || banker == null || requestId == null) return false;
         var journal = bankRepo.operationJournal();
         return Boolean.TRUE.equals(journal.withOperationLock(requestId,
-                () -> unlockBankTabJournaled(playerUuid, bankRepo, banker, requestId, journal)));
+                () -> unlockBankTabJournaled(scope, bankRepo, banker, requestId, journal)));
+    }
+
+    /**
+     * Canonical vault-sharing mutation: configures a vault's access policy and
+     * member list inside one durable transaction guarded by the expected vault
+     * revision. This is the only production path that can change
+     * {@link com.storynpcs.domain.role.banker.BankVault.AccessPolicy} or the
+     * shared member set — GUI and packet adapters never reach it.
+     */
+    public CanonicalMutationResult configureBankAccess(
+            BankAccessMutationRequest request,
+            com.storynpcs.persistence.BankRepository bankRepo) {
+        Objects.requireNonNull(request, "request");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        if (!authorization.allowed()) {
+            ValidationResult denied = ValidationResult.valid();
+            denied.addError(authorization.code(), authorization.message());
+            eventPublisher.publish(new CanonicalMutationEvent(request.operation(), request.actorType(),
+                    null, request.requestId(), false, 0L, "REJECTED_AUTHORIZATION",
+                    request.actorId(), request.vaultOwnerUuid()));
+            return new CanonicalMutationResult(false, false, 0L, denied,
+                    List.of(request.operation() + ":authorization-denied"), "REJECTED_AUTHORIZATION");
+        }
+        if (bankRepo == null) {
+            ValidationResult unavailable = ValidationResult.valid();
+            unavailable.addError("BANK_UNAVAILABLE", "Bank repository is unavailable");
+            return new CanonicalMutationResult(false, false, 0L, unavailable,
+                    List.of(request.operation() + ":rejected"), "REJECTED_NO_SIDE_EFFECTS");
+        }
+        var result = bankRepo.transact(request.vaultOwnerUuid(), vault -> {
+            if (vault.getRevision() != request.expectedVaultRevision()) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged("STALE_VAULT");
+            }
+            vault.setAccessPolicy(request.accessPolicy());
+            vault.setSharedMemberUuids(request.memberUuids());
+            return com.storynpcs.persistence.BankRepository.BankMutation.changed("APPLIED");
+        });
+        if (result.committed()) {
+            long revision = bankRepo.getOrCreate(request.vaultOwnerUuid()).getRevision();
+            eventPublisher.publish(new CanonicalMutationEvent(request.operation(), request.actorType(),
+                    null, request.requestId(), true, revision, "COMMITTED",
+                    request.actorId(), request.vaultOwnerUuid()));
+            return new CanonicalMutationResult(true, false, revision, ValidationResult.valid(),
+                    List.of("BankAccessChangeEvent"), "COMMITTED");
+        }
+        boolean stale = "STALE_VAULT".equals(result.value());
+        ValidationResult failure = ValidationResult.valid();
+        failure.addError(stale ? "STALE_VAULT" : "DURABLE_COMMIT_FAILED",
+                stale ? "Vault revision moved past the expected revision — re-read and retry"
+                        : "Vault sharing update could not be committed: " + result.failureReason());
+        eventPublisher.publish(new CanonicalMutationEvent(request.operation(), request.actorType(),
+                null, request.requestId(), false, 0L, stale ? "STALE_VAULT" : "DURABLE_COMMIT_FAILED",
+                request.actorId(), request.vaultOwnerUuid()));
+        return new CanonicalMutationResult(false, false, 0L, failure,
+                List.of(request.operation() + ":rejected"), stale ? "STALE_VAULT" : "DURABLE_COMMIT_FAILED");
+    }
+
+    /** Canonical audit event for banker-scoped typed requests; compat envelopes carry no banker id. */
+    private void publishBankEvent(BankOperationRequest request, boolean applied, String outcome) {
+        if (request.bankerId() == null) return;
+        eventPublisher.publish(new CanonicalMutationEvent(request.operation(), request.actorType(),
+                request.bankerId(), request.requestId(), applied, 0L, outcome,
+                request.actorId(), request.playerUuid()));
     }
 
     private boolean unlockBankTabJournaled(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             com.storynpcs.domain.role.banker.BankerRole banker,
             UUID requestId,
             com.storynpcs.persistence.DurableOperationJournal journal) {
+        final UUID playerUuid = scope.actorUuid();
+        final UUID vaultOwnerUuid = scope.vaultOwnerUuid();
         final String operationType = "bank.unlock_tab";
-        final String subject = playerUuid.toString();
+        // Subject binds actor and vault — a request id cannot be replayed
+        // across a different vault or on behalf of a different member.
+        final String subject = bankOperationSubject(scope);
         try {
             var existing = journal.read(requestId);
             if (existing != null) {
@@ -3503,9 +5108,9 @@ public class StoryNpcsApplicationService {
                 }
                 var classification = journal.begin(requestId, operationType, subject);
                 return switch (classification.status()) {
-                    case COMMITTED -> finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+                    case COMMITTED -> finalizeCommittedBankUnlock(scope, bankRepo, requestId, true);
                     case ABORTED -> false;
-                    case PENDING, STARTED -> reconcilePendingBankUnlock(playerUuid, bankRepo, requestId);
+                    case PENDING, STARTED -> reconcilePendingBankUnlock(scope, bankRepo, requestId);
                 };
             }
         } catch (IOException | RuntimeException e) {
@@ -3517,7 +5122,8 @@ public class StoryNpcsApplicationService {
         final int emeraldsBefore;
         final long vaultRevision;
         try {
-            var vault = bankRepo.getOrCreate(playerUuid);
+            var vault = bankRepo.getOrCreate(vaultOwnerUuid);
+            if (!scope.mayAccess(vault)) return false;
             unlocked = vault.getUnlockedTabs();
             vaultRevision = vault.getRevision();
         } catch (RuntimeException unavailable) {
@@ -3527,6 +5133,7 @@ public class StoryNpcsApplicationService {
         cost = Math.max(0, banker.getTabUpgradeCost());
         if (cost > 0) {
             if (minecraftServer == null) return false;
+            // The acting member pays for the tab — never the vault owner.
             var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
             if (player == null) return false;
             emeraldsBefore = countHeldEmeralds(player);
@@ -3552,9 +5159,9 @@ public class StoryNpcsApplicationService {
             var started = journal.begin(requestId, operationType, subject, intentJson);
             if (started.status() != com.storynpcs.persistence.DurableOperationJournal.BeginStatus.STARTED) {
                 return switch (started.status()) {
-                    case COMMITTED -> finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+                    case COMMITTED -> finalizeCommittedBankUnlock(scope, bankRepo, requestId, true);
                     case ABORTED -> false;
-                    default -> reconcilePendingBankUnlock(playerUuid, bankRepo, requestId);
+                    default -> reconcilePendingBankUnlock(scope, bankRepo, requestId);
                 };
             }
         } catch (IOException | RuntimeException e) {
@@ -3562,7 +5169,10 @@ public class StoryNpcsApplicationService {
         }
 
         // Vault leg: unlock + durable operation marker in ONE atomic commit.
-        var vaultResult = bankRepo.transact(playerUuid, candidate -> {
+        var vaultResult = bankRepo.transact(vaultOwnerUuid, candidate -> {
+            if (!scope.mayAccess(candidate)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false);
+            }
             if (candidate.getUnlockedTabs() != unlocked) {
                 return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false);
             }
@@ -3587,7 +5197,7 @@ public class StoryNpcsApplicationService {
         } catch (IOException | RuntimeException e) {
             // The vault unlock is durable; the payment leg is recovered via the marker.
         }
-        return finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, false);
+        return finalizeCommittedBankUnlock(scope, bankRepo, requestId, false);
     }
 
     /**
@@ -3596,19 +5206,19 @@ public class StoryNpcsApplicationService {
      * vault leg is durable and only the payment leg may still be owed.
      */
     private boolean reconcilePendingBankUnlock(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId) {
         try {
-            var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
+            var marker = bankRepo.getOrCreate(scope.vaultOwnerUuid()).getOperationMarker(requestId);
             if (marker == null) {
                 bankRepo.operationJournal().abort(requestId, "BANK_NOT_COMMITTED",
                         "vault unlock marker was not durable");
                 return true;
             }
             bankRepo.operationJournal().commit(requestId, "APPLIED",
-                    Integer.toString(bankRepo.getOrCreate(playerUuid).getUnlockedTabs()));
-            return finalizeCommittedBankUnlock(playerUuid, bankRepo, requestId, true);
+                    Integer.toString(bankRepo.getOrCreate(scope.vaultOwnerUuid()).getUnlockedTabs()));
+            return finalizeCommittedBankUnlock(scope, bankRepo, requestId, true);
         } catch (IOException | RuntimeException e) {
             return false;
         }
@@ -3622,12 +5232,14 @@ public class StoryNpcsApplicationService {
      * recovery rather than double-charging or granting a free unlock.
      */
     private boolean finalizeCommittedBankUnlock(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId,
             boolean replay) {
+        final UUID playerUuid = scope.actorUuid();
+        final UUID vaultOwnerUuid = scope.vaultOwnerUuid();
         try {
-            var marker = bankRepo.getOrCreate(playerUuid).getOperationMarker(requestId);
+            var marker = bankRepo.getOrCreate(vaultOwnerUuid).getOperationMarker(requestId);
             if (marker == null) {
                 if (!replay) return false;
                 // A backup restore can erase a committed unlock together with its
@@ -3637,7 +5249,7 @@ public class StoryNpcsApplicationService {
                 var record = bankRepo.operationJournal().read(requestId);
                 if (record != null && record.detail() != null) {
                     int committedTabs = Integer.parseInt(record.detail().trim());
-                    if (bankRepo.getOrCreate(playerUuid).getUnlockedTabs() < committedTabs) {
+                    if (bankRepo.getOrCreate(vaultOwnerUuid).getUnlockedTabs() < committedTabs) {
                         return false;
                     }
                 }
@@ -3653,26 +5265,27 @@ public class StoryNpcsApplicationService {
             }
             var operation = intent.get();
             if (marker.isInventoryApplied()) {
-                return cleanupBankUnlockMarker(playerUuid, bankRepo, requestId, replay);
+                return cleanupBankUnlockMarker(vaultOwnerUuid, bankRepo, requestId, replay);
             }
             if (!operation.inventoryDeferred() || operation.count() <= 0) {
                 // Free unlock — nothing owed; mark then clean. The event is
                 // published once by the finalizer that observed the unapplied
                 // marker; replays that find no marker return early.
-                var marked = bankRepo.transact(playerUuid, vault ->
+                var marked = bankRepo.transact(vaultOwnerUuid, vault ->
                         vault.markOperationInventoryApplied(requestId)
                                 ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
                                 : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
                 if (!marked.committed()) return false;
-                if (!cleanupBankUnlockMarker(playerUuid, bankRepo, requestId, replay)) {
+                if (!cleanupBankUnlockMarker(vaultOwnerUuid, bankRepo, requestId, replay)) {
                     return false;
                 }
                 eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                        playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
+                        vaultOwnerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
                         operation.tab() + 1, "minecraft:emerald", operation.count()));
                 return true;
             }
             if (minecraftServer == null) return false;
+            // The acting member pays for the tab — never the vault owner.
             var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
             if (player == null) return false;
             int held = countHeldEmeralds(player);
@@ -3680,7 +5293,7 @@ public class StoryNpcsApplicationService {
                 return false; // inventory drifted — cannot prove payment was not taken already
             }
             deductEmeralds(player, operation.count());
-            var markedApplied = bankRepo.transact(playerUuid, vault ->
+            var markedApplied = bankRepo.transact(vaultOwnerUuid, vault ->
                     vault.markOperationInventoryApplied(requestId)
                             ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
                             : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
@@ -3689,11 +5302,11 @@ public class StoryNpcsApplicationService {
                 refundEmeralds(player, operation.count());
                 return false;
             }
-            if (!cleanupBankUnlockMarker(playerUuid, bankRepo, requestId, replay)) {
+            if (!cleanupBankUnlockMarker(vaultOwnerUuid, bankRepo, requestId, replay)) {
                 return false;
             }
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
+                    vaultOwnerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.UNLOCK_TAB,
                     operation.tab() + 1, "minecraft:emerald", operation.count()));
             return true;
         } catch (IOException | RuntimeException e) {
@@ -3702,11 +5315,11 @@ public class StoryNpcsApplicationService {
     }
 
     private boolean cleanupBankUnlockMarker(
-            UUID playerUuid,
+            UUID vaultOwnerUuid,
             com.storynpcs.persistence.BankRepository bankRepo,
             UUID requestId,
             boolean replay) {
-        var cleanup = bankRepo.transact(playerUuid, vault ->
+        var cleanup = bankRepo.transact(vaultOwnerUuid, vault ->
                 vault.removeOperationMarker(requestId)
                         ? com.storynpcs.persistence.BankRepository.BankMutation.changed(true)
                         : com.storynpcs.persistence.BankRepository.BankMutation.unchanged(false));
@@ -3739,10 +5352,325 @@ public class StoryNpcsApplicationService {
         if (!player.getInventory().add(stack)) player.drop(stack, false);
     }
 
+    /**
+     * What the charging actor should do after a companion-wage evaluation.
+     * The wage ledger itself is entity-owned durable state; this service is the
+     * canonical economy path (emerald payment) it charges through.
+     */
+    public enum CompanionWageOutcome {
+        /** A wage was charged for the current period. */
+        CHARGED,
+        /** The current period was already charged — idempotent. */
+        ALREADY_CHARGED,
+        /** No wage configured or interval not yet elapsed. */
+        NOT_DUE,
+        /** Owner is offline and the profile's unload policy pauses service. */
+        OWNER_OFFLINE_PAUSED,
+        /** Owner is offline and the profile demands despawn — caller should discard. */
+        OWNER_OFFLINE_DESPAWN,
+        /** Owner could not pay; PAUSE_SERVICE policy — caller pauses companion behavior. */
+        INSUFFICIENT_PAUSED,
+        /** Owner could not pay; DISMISS policy — caller releases ownership. */
+        INSUFFICIENT_DISMISSED,
+        /** Owner could not pay; KEEP_ANYWAY policy — period consumed, service continues. */
+        INSUFFICIENT_KEPT
+    }
+
+    /**
+     * Canonical companion-wage charge for one entity tick. Exactly-once per
+     * wage period through the entity-owned {@link WageLedger}; emeralds are the
+     * wage currency. The entity calls this on its own tick — the check is cheap
+     * and side effects only run when a new period is due.
+     */
+    public CompanionWageOutcome chargeCompanionWage(
+            UUID ownerUuid, UUID companionId,
+            com.storynpcs.domain.companion.CompanionProfile profile,
+            com.storynpcs.domain.companion.WageLedger ledger,
+            long hireTick, long nowTick) {
+        if (profile == null || ledger == null || ownerUuid == null || hireTick < 0) {
+            return CompanionWageOutcome.NOT_DUE;
+        }
+        int interval = Math.max(20, profile.getWageIntervalTicks());
+        long period = com.storynpcs.domain.companion.WageLedger.periodFor(hireTick, nowTick, interval);
+        if (period <= ledger.getLastChargedPeriod()) {
+            return CompanionWageOutcome.ALREADY_CHARGED;
+        }
+        var player = minecraftServer != null ? minecraftServer.getPlayerList().getPlayer(ownerUuid) : null;
+        if (player == null) {
+            return switch (profile.getUnloadPolicy()) {
+                case PAUSE -> CompanionWageOutcome.OWNER_OFFLINE_PAUSED;
+                case DESPAWN -> CompanionWageOutcome.OWNER_OFFLINE_DESPAWN;
+                case FOLLOW_OWNER_OFFLINE -> CompanionWageOutcome.OWNER_OFFLINE_PAUSED;
+            };
+        }
+        var outcome = ledger.charge(period, profile.getWageAmount(),
+                (compId, amount) -> {
+                    if (countHeldEmeralds(player) < amount) return false;
+                    deductEmeralds(player, amount);
+                    return true;
+                }, companionId);
+        switch (outcome) {
+            case CHARGED -> { return CompanionWageOutcome.CHARGED; }
+            case ALREADY_CHARGED -> { return CompanionWageOutcome.ALREADY_CHARGED; }
+            default -> {
+                return switch (profile.getInsufficientFundsPolicy()) {
+                    case PAUSE_SERVICE -> CompanionWageOutcome.INSUFFICIENT_PAUSED;
+                    case DISMISS -> CompanionWageOutcome.INSUFFICIENT_DISMISSED;
+                    case KEEP_ANYWAY -> {
+                        // Policy keeps the companion but the period is still
+                        // consumed — a free period can never be retried into a charge.
+                        ledger.setLastChargedPeriod(period);
+                        yield CompanionWageOutcome.INSUFFICIENT_KEPT;
+                    }
+                };
+            }
+        }
+    }
+
+    /** Result of an evaluated transport request for command feedback. */
+    public record TransportResult(
+            boolean approved,
+            String destinationName,
+            int feeCharged,
+            String detail) {
+        static TransportResult rejected(
+                com.storynpcs.domain.transport.TransportEvaluator.RejectReason reason, String detail) {
+            return new TransportResult(false, null, 0, reason + ": " + detail);
+        }
+    }
+
+    /**
+     * Authoritative transport operation (P6-3): evaluates the destination via
+     * {@link com.storynpcs.domain.transport.TransportEvaluator} BEFORE any fee
+     * is charged, then charges emeralds and teleports the player on the server
+     * thread. Cross-dimension transfers use {@code changeDimension} and recover
+     * by returning the player to their origin when the target dimension cannot
+     * accept them — matching the evaluator's bounded-recovery contract.
+     */
+    public TransportResult requestTransport(UUID playerUuid, NamespacedId locationId) {
+        if (minecraftServer == null) {
+            return new TransportResult(false, null, 0, "SERVER_UNAVAILABLE");
+        }
+        var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+        if (player == null) {
+            return new TransportResult(false, null, 0, "PLAYER_OFFLINE");
+        }
+        var location = registry.getTransportLocation(locationId).orElse(null);
+        var progression = loadProgression(playerUuid);
+        boolean conditionsMet = location != null
+                && evalConditions(location.getUnlockConditions(), progression, null);
+        var unlocked = unlockedTransportLocations(progression);
+        var facts = transportFacts(location, player);
+        var evaluation = new com.storynpcs.domain.transport.TransportEvaluator()
+                .evaluate(location, unlocked, conditionsMet,
+                        countHeldEmeralds(player), facts);
+        if (evaluation instanceof com.storynpcs.domain.transport.TransportEvaluator.Evaluation.Rejected r) {
+            return TransportResult.rejected(r.reason(), r.detail());
+        }
+        var approved = (com.storynpcs.domain.transport.TransportEvaluator.Evaluation.Approved) evaluation;
+        var dest = approved.location();
+        var levelRl = net.minecraft.resources.ResourceLocation.tryParse(
+                dest.getDimensionId() != null ? dest.getDimensionId().toString() : "minecraft:overworld");
+        var targetLevel = minecraftServer.getLevel(
+                net.minecraft.resources.ResourceKey.create(
+                        net.minecraft.core.registries.Registries.DIMENSION, levelRl));
+        if (targetLevel == null) {
+            return new TransportResult(false, dest.getName(), 0, "DIMENSION_UNAVAILABLE");
+        }
+        // Evaluation passed — charge the fee, then move the player. Teleport
+        // failure refunds the fee: the charge and the transfer are one leg.
+        // Entity.teleportTo returns boolean — a refused transfer signals false,
+        // not an exception — so BOTH outcomes must refund the charged fee.
+        if (approved.fee() > 0) {
+            deductEmeralds(player, approved.fee());
+        }
+        boolean transferred;
+        try {
+            transferred = player.teleportTo(targetLevel, dest.getX(), dest.getY(), dest.getZ(),
+                    java.util.Set.of(), dest.getYaw(), player.getXRot());
+        } catch (RuntimeException teleportFailure) {
+            transferred = false;
+        }
+        if (!transferred) {
+            if (approved.fee() > 0) {
+                refundEmeralds(player, approved.fee());
+            }
+            return new TransportResult(false, dest.getName(), 0, "TRANSFER_FAILED");
+        }
+        return new TransportResult(true, dest.getName(), approved.fee(), "transported");
+    }
+
+    private com.storynpcs.domain.transport.TransportEvaluator.DestinationFacts transportFacts(
+            com.storynpcs.domain.transport.TransportLocation location,
+            net.minecraft.server.level.ServerPlayer player) {
+        if (location == null || minecraftServer == null || player == null) {
+            return new com.storynpcs.domain.transport.TransportEvaluator.DestinationFacts(
+                    false, false, false);
+        }
+        var levelRl = net.minecraft.resources.ResourceLocation.tryParse(
+                location.getDimensionId() != null ? location.getDimensionId().toString()
+                        : "minecraft:overworld");
+        var level = levelRl == null ? null : minecraftServer.getLevel(
+                net.minecraft.resources.ResourceKey.create(
+                        net.minecraft.core.registries.Registries.DIMENSION, levelRl));
+        if (level == null) {
+            return new com.storynpcs.domain.transport.TransportEvaluator.DestinationFacts(
+                    false, false, false);
+        }
+        var pos = net.minecraft.core.BlockPos.containing(
+                location.getX(), location.getY(), location.getZ());
+        var head = pos.above();
+        var support = pos.below();
+        var border = level.getWorldBorder();
+        boolean withinBorder = border.isWithinBounds(pos)
+                && border.isWithinBounds(head) && border.isWithinBounds(support);
+        boolean loaded = withinBorder && level.hasChunkAt(pos)
+                && level.hasChunkAt(head) && level.hasChunkAt(support);
+        if (!loaded) {
+            return new com.storynpcs.domain.transport.TransportEvaluator.DestinationFacts(
+                    false, false, true);
+        }
+        var feetState = level.getBlockState(pos);
+        var headState = level.getBlockState(head);
+        var supportState = level.getBlockState(support);
+        var landingBox = player.getBoundingBox().move(
+                location.getX() - player.getX(),
+                location.getY() - player.getY(),
+                location.getZ() - player.getZ());
+        boolean safe = feetState.getCollisionShape(level, pos).isEmpty()
+                && headState.getCollisionShape(level, head).isEmpty()
+                && feetState.getFluidState().isEmpty()
+                && headState.getFluidState().isEmpty()
+                && supportState.isFaceSturdy(level, support, net.minecraft.core.Direction.UP)
+                && supportState.getFluidState().isEmpty()
+                && !isTransportHazard(feetState)
+                && !isTransportHazard(headState)
+                && !isTransportHazard(supportState)
+                && level.noCollision(player, landingBox);
+        return new com.storynpcs.domain.transport.TransportEvaluator.DestinationFacts(
+                true, safe, true);
+    }
+
+    private static boolean isTransportHazard(net.minecraft.world.level.block.state.BlockState state) {
+        return state.is(net.minecraft.world.level.block.Blocks.CACTUS)
+                || state.is(net.minecraft.world.level.block.Blocks.CAMPFIRE)
+                || state.is(net.minecraft.world.level.block.Blocks.FIRE)
+                || state.is(net.minecraft.world.level.block.Blocks.LAVA)
+                || state.is(net.minecraft.world.level.block.Blocks.MAGMA_BLOCK)
+                || state.is(net.minecraft.world.level.block.Blocks.SOUL_CAMPFIRE)
+                || state.is(net.minecraft.world.level.block.Blocks.SOUL_FIRE)
+                || state.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH)
+                || state.is(net.minecraft.world.level.block.Blocks.WITHER_ROSE);
+    }
+
+    public java.util.List<com.storynpcs.domain.transport.TransportLocation> listTransports(UUID playerUuid) {
+        PlayerProgression progression = playerUuid == null ? null : loadProgression(playerUuid);
+        java.util.Set<NamespacedId> unlocked = progression == null
+                ? java.util.Set.of() : unlockedTransportLocations(progression);
+        return new com.storynpcs.domain.transport.TransportEvaluator()
+                .visibleFor(registry.getAllTransportLocations().stream().toList(), unlocked);
+    }
+
+    private java.util.Set<NamespacedId> unlockedTransportLocations(PlayerProgression progression) {
+        // A location is available when it declares no unlock conditions, when
+        // its authored conditions evaluate true for this player, or when an
+        // explicit per-player grant was persisted via unlockTransportLocation.
+        java.util.Set<NamespacedId> unlocked;
+        synchronized (progression) {
+            unlocked = new java.util.HashSet<>(progression.getUnlockedTransportLocations());
+        }
+        for (var location : registry.getAllTransportLocations()) {
+            if (location.getUnlockConditions().isEmpty()
+                    || evalConditions(location.getUnlockConditions(), progression, null)) {
+                unlocked.add(location.getId());
+            }
+        }
+        return java.util.Set.copyOf(unlocked);
+    }
+
+    private PlayerProgression loadProgression(UUID playerUuid) {
+        try {
+            var progression = progressionRepository.getOrCreate(playerUuid);
+            return progression != null ? progression : blankProgression(playerUuid);
+        } catch (Exception e) {
+            return blankProgression(playerUuid);
+        }
+    }
+
+    private static PlayerProgression blankProgression(UUID playerUuid) {
+        var progression = new PlayerProgression();
+        progression.setPlayerUuid(playerUuid);
+        return progression;
+    }
+
+    /**
+     * Withdraw a counted amount from a vault slot.
+     * Compatibility delegate: routes through the typed canonical request boundary.
+     */
     public java.util.Optional<com.storynpcs.domain.role.banker.BankVault.VaultItem> withdrawFromBank(
             UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, int count) {
+        if (playerUuid == null) return java.util.Optional.empty();
+        try {
+            var result = withdrawFromBank(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.WITHDRAW, tab, slot, null, count,
+                    UUID.randomUUID(), -1), bankRepo);
+            return result.accepted() && result.item() != null
+                    ? java.util.Optional.of(result.item()) : java.util.Optional.empty();
+        } catch (IllegalArgumentException invalid) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /**
+     * Typed canonical bank withdrawal: authorizes the actor/subject/capability
+     * envelope before any vault mutation, then routes {@code WITHDRAW} to the
+     * counted-withdrawal transaction and {@code WITHDRAW_STACK} to the journaled
+     * remove-and-deliver path. Every attempt on a banker-scoped request
+     * publishes a canonical mutation event.
+     */
+    public BankWithdrawalOperationResult withdrawFromBank(BankOperationRequest request,
+            com.storynpcs.persistence.BankRepository bankRepo) {
+        Objects.requireNonNull(request, "request");
+        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+        if (!authorization.allowed()) {
+            publishBankEvent(request, false, "REJECTED_AUTHORIZATION");
+            return BankWithdrawalOperationResult.rejected(authorization.code());
+        }
+        if (bankRepo == null) {
+            publishBankEvent(request, false, "REJECTED_NO_SIDE_EFFECTS");
+            return BankWithdrawalOperationResult.rejected("BANK_UNAVAILABLE");
+        }
+        String accessDeny = bankVaultAccessDenyCode(request, bankRepo);
+        if (accessDeny != null) {
+            publishBankEvent(request, false, accessDeny);
+            return BankWithdrawalOperationResult.rejected(accessDeny);
+        }
+        BankWithdrawalOperationResult result = switch (request.action()) {
+            case WITHDRAW -> {
+                var item = withdrawFromBankInternal(request, bankRepo,
+                        request.tab(), request.slot(), request.amount());
+                yield item.isPresent() ? BankWithdrawalOperationResult.applied(item.get())
+                        : BankWithdrawalOperationResult.rejected("WITHDRAW_NOT_APPLIED");
+            }
+            case WITHDRAW_STACK -> withdrawAndDeliverInternal(scopeFor(request), bankRepo,
+                    request.tab(), request.slot(), request.requestId());
+            case REMOVE_STACK -> withdrawEntireStackFromBank(scopeFor(request), bankRepo,
+                    request.tab(), request.slot(), null, null);
+            default -> BankWithdrawalOperationResult.rejected("ACTION_ROUTE_MISMATCH");
+        };
+        publishBankEvent(request, result.accepted(), result.accepted() ? "COMMITTED" : result.code());
+        return result;
+    }
+
+    private java.util.Optional<com.storynpcs.domain.role.banker.BankVault.VaultItem> withdrawFromBankInternal(
+            BankOperationRequest request, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot, int count) {
         if (bankRepo == null) return java.util.Optional.empty();
-        var result = bankRepo.transact(playerUuid, vault -> {
+        UUID vaultOwner = request.resolvedVaultOwner();
+        var result = bankRepo.transact(vaultOwner, vault -> {
+            if (!vaultAccessAllowed(request, vault)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(
+                        java.util.Optional.<com.storynpcs.domain.role.banker.BankVault.VaultItem>empty());
+            }
             var itemOpt = vault.withdraw(tab, slot, count);
             return itemOpt.isPresent()
                     ? com.storynpcs.persistence.BankRepository.BankMutation.changed(itemOpt)
@@ -3751,7 +5679,7 @@ public class StoryNpcsApplicationService {
         if (!result.committed()) return java.util.Optional.empty();
         var itemOpt = result.value();
         itemOpt.ifPresent(item -> eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW,
+                vaultOwner, com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW,
                 tab, item.getItemId(), item.getCount())));
         return itemOpt;
     }
@@ -3762,26 +5690,46 @@ public class StoryNpcsApplicationService {
      * amount from the live vault. The service snapshots the current item and
      * removes that exact stack inside the repository transaction.
      */
+    /**
+     * Vault-only whole-stack removal primitive.
+     * Compatibility delegate: routes through the typed canonical request boundary
+     * ({@link #withdrawFromBank(BankOperationRequest, com.storynpcs.persistence.BankRepository)}
+     * with action {@code REMOVE_STACK}).
+     */
     public BankWithdrawalOperationResult withdrawEntireStackFromBank(
             UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot) {
-        return withdrawEntireStackFromBank(playerUuid, bankRepo, tab, slot, null, null);
+        if (playerUuid == null) {
+            return BankWithdrawalOperationResult.rejected("INVALID_REQUEST");
+        }
+        try {
+            return withdrawFromBank(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.REMOVE_STACK, tab, slot, null, 0,
+                    null, -1), bankRepo);
+        } catch (IllegalArgumentException invalid) {
+            return BankWithdrawalOperationResult.rejected(
+                    tab < 0 ? "INVALID_TAB" : "INVALID_SLOT");
+        }
     }
 
     private BankWithdrawalOperationResult withdrawEntireStackFromBank(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             int tab,
             int slot,
             Long expectedVaultRevision,
             com.storynpcs.domain.role.banker.BankVault.VaultItem expectedItem) {
-        if (playerUuid == null || bankRepo == null) {
+        if (scope == null || bankRepo == null) {
             return BankWithdrawalOperationResult.rejected("INVALID_REQUEST");
         }
         if (tab < 0 || slot < 0 || slot >= 54) {
             return BankWithdrawalOperationResult.rejected(
                     tab < 0 ? "INVALID_TAB" : "INVALID_SLOT");
         }
-        var result = bankRepo.transact(playerUuid, vault -> {
+        var result = bankRepo.transact(scope.vaultOwnerUuid(), vault -> {
+            if (!scope.mayAccess(vault)) {
+                return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(
+                        BankWithdrawalOperationResult.rejected("VAULT_ACCESS_DENIED"));
+            }
             if (expectedVaultRevision != null && vault.getRevision() != expectedVaultRevision) {
                 return com.storynpcs.persistence.BankRepository.BankMutation.unchanged(
                         BankWithdrawalOperationResult.rejected("STALE_VAULT"));
@@ -3826,39 +5774,58 @@ public class StoryNpcsApplicationService {
     }
 
     /**
-     * Service-owned delivery boundary for a whole-stack withdrawal. The bank
-     * mutation, item materialization, compensation, and success event are kept
-     * out of the packet adapter. The durable request journal retains ambiguous
-     * post-removal states for explicit recovery.
+     * Compatibility delegate: routes through the typed canonical request boundary
+     * ({@link #withdrawFromBank(BankOperationRequest, com.storynpcs.persistence.BankRepository)}
+     * with action {@code WITHDRAW_STACK}). Callers without a request id are
+     * journaled under a fresh one — the untracked path no longer exists.
      */
     public BankWithdrawalOperationResult withdrawAndDeliverFromBank(
             UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot) {
         return withdrawAndDeliverFromBank(playerUuid, bankRepo, tab, slot, null);
     }
 
-    /** Replay-safe withdrawal entry point used by the network adapter. */
+    /** Replay-aware compatibility delegate used by adapters carrying a request ID. */
     public BankWithdrawalOperationResult withdrawAndDeliverFromBank(
             UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo,
             int tab, int slot, UUID requestId) {
-        if (requestId == null) {
-            return withdrawAndDeliverUnjournaled(playerUuid, bankRepo, tab, slot);
-        }
-        if (playerUuid == null || bankRepo == null || tab < 0 || slot < 0 || slot >= 54) {
+        if (playerUuid == null) {
             return BankWithdrawalOperationResult.rejected("INVALID_REQUEST");
         }
+        try {
+            return withdrawFromBank(new BankOperationRequest("player", playerUuid, playerUuid, null,
+                    BankOperationRequest.Action.WITHDRAW_STACK, tab, slot, null, 0,
+                    requestId, -1), bankRepo);
+        } catch (IllegalArgumentException invalid) {
+            return BankWithdrawalOperationResult.rejected("INVALID_REQUEST");
+        }
+    }
+
+    private BankWithdrawalOperationResult withdrawAndDeliverInternal(
+            BankOperationScope scope, com.storynpcs.persistence.BankRepository bankRepo,
+            int tab, int slot, UUID requestId) {
+        if (scope == null || bankRepo == null || tab < 0 || slot < 0 || slot >= 54) {
+            return BankWithdrawalOperationResult.rejected("INVALID_REQUEST");
+        }
+        // Every whole-stack withdrawal is journaled: a missing request id
+        // mints a fresh one rather than falling back to the untracked legacy
+        // path, so a crash mid-delivery is always recoverable.
+        final UUID operationId = requestId != null ? requestId : UUID.randomUUID();
         var journal = bankRepo.operationJournal();
-        return journal.withOperationLock(requestId,
-                () -> withdrawAndDeliverJournaled(playerUuid, bankRepo, tab, slot, requestId, journal));
+        return journal.withOperationLock(operationId,
+                () -> withdrawAndDeliverJournaled(scope, bankRepo, tab, slot, operationId, journal));
     }
 
     private BankWithdrawalOperationResult withdrawAndDeliverJournaled(
-            UUID playerUuid,
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             int tab,
             int slot,
             UUID requestId,
             com.storynpcs.persistence.DurableOperationJournal journal) {
-        String requestPrefix = playerUuid + "|" + tab + "|" + slot + "|";
+        final UUID playerUuid = scope.actorUuid();
+        // Subject binds actor, vault, tab and slot — a request id cannot be
+        // replayed across a different vault or on behalf of a different member.
+        String requestPrefix = bankOperationSubject(scope) + "|" + tab + "|" + slot + "|";
         try {
             var existing = journal.read(requestId);
             if (existing != null) {
@@ -3876,9 +5843,12 @@ public class StoryNpcsApplicationService {
         }
         final com.storynpcs.domain.role.banker.BankVault vaultSnapshot;
         try {
-            vaultSnapshot = bankRepo.getOrCreate(playerUuid).copy();
+            vaultSnapshot = bankRepo.getOrCreate(scope.vaultOwnerUuid()).copy();
         } catch (RuntimeException unavailable) {
             return BankWithdrawalOperationResult.rejected("VAULT_UNAVAILABLE");
+        }
+        if (!scope.mayAccess(vaultSnapshot)) {
+            return BankWithdrawalOperationResult.rejected("VAULT_ACCESS_DENIED");
         }
         var current = vaultSnapshot.getTabItems(tab).stream()
                 .filter(item -> item.getSlot() == slot)
@@ -3902,7 +5872,7 @@ public class StoryNpcsApplicationService {
         } catch (RuntimeException invalid) {
             return BankWithdrawalOperationResult.rejected("INVALID_INTENT");
         }
-        String subject = playerUuid + "|" + tab + "|" + slot + "|"
+        String subject = bankOperationSubject(scope) + "|" + tab + "|" + slot + "|"
                 + current.get().getItemId() + "|" + current.get().getCount();
         try {
             var started = journal.begin(requestId, "bank.withdraw", subject, intentJson);
@@ -3915,8 +5885,8 @@ public class StoryNpcsApplicationService {
             return BankWithdrawalOperationResult.rejected("JOURNAL_FAILED");
         }
 
-        BankWithdrawalOperationResult withdrawal = withdrawAndDeliverUnjournaled(
-                playerUuid, bankRepo, tab, slot, vaultSnapshot.getRevision(), current.get());
+        BankWithdrawalOperationResult withdrawal = withdrawAndDeliverCore(
+                scope, bankRepo, tab, slot, vaultSnapshot.getRevision(), current.get());
         if (withdrawal.accepted()) {
             try {
                 journal.commit(requestId, "APPLIED", Integer.toString(withdrawal.item().getCount()));
@@ -3936,35 +5906,45 @@ public class StoryNpcsApplicationService {
         return withdrawal;
     }
 
-    private BankWithdrawalOperationResult withdrawAndDeliverUnjournaled(
-            UUID playerUuid, com.storynpcs.persistence.BankRepository bankRepo, int tab, int slot) {
-        return withdrawAndDeliverUnjournaled(playerUuid, bankRepo, tab, slot, null, null);
-    }
-
-    private BankWithdrawalOperationResult withdrawAndDeliverUnjournaled(
-            UUID playerUuid,
+    /**
+     * Withdrawal body executed inside the operation journal by
+     * {@link #withdrawAndDeliverJournaled}: removes the stack, materializes it
+     * for the acting member, and compensates on delivery failure. Never call
+     * outside the journal — every reach is request-id bound so a mid-delivery
+     * crash is recoverable.
+     */
+    private BankWithdrawalOperationResult withdrawAndDeliverCore(
+            BankOperationScope scope,
             com.storynpcs.persistence.BankRepository bankRepo,
             int tab,
             int slot,
             Long expectedVaultRevision,
             com.storynpcs.domain.role.banker.BankVault.VaultItem expectedItem) {
         BankWithdrawalOperationResult withdrawal = withdrawEntireStackFromBank(
-                playerUuid, bankRepo, tab, slot, expectedVaultRevision, expectedItem);
+                scope, bankRepo, tab, slot, expectedVaultRevision, expectedItem);
         if (!withdrawal.accepted() || withdrawal.item() == null) return withdrawal;
         if (minecraftServer == null) {
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW,
+                    scope.vaultOwnerUuid(), com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW,
                     tab, withdrawal.item().getItemId(), withdrawal.item().getCount()));
             return withdrawal;
         }
-        var player = minecraftServer.getPlayerList().getPlayer(playerUuid);
+        // Delivery targets the acting member — never the vault owner.
+        var player = minecraftServer.getPlayerList().getPlayer(scope.actorUuid());
         if (player != null && materializeVaultItem(player, withdrawal.item())) {
             eventPublisher.publish(new com.storynpcs.api.event.BankTransactionEvent(
-                    playerUuid, com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW,
+                    scope.vaultOwnerUuid(), com.storynpcs.api.event.BankTransactionEvent.Type.WITHDRAW,
                     tab, withdrawal.item().getItemId(), withdrawal.item().getCount()));
             return withdrawal;
         }
-        boolean restored = depositToBank(playerUuid, bankRepo, tab, slot,
+        // Compensation returns the stack to the vault it was removed from —
+        // bypasses the request boundary (restore is already authorized), but
+        // keys on the same vault owner so a shared vault is restored correctly.
+        boolean restored = depositToBankInternal(new BankOperationRequest(
+                "system", null, scope.vaultOwnerUuid(), null,
+                BankOperationRequest.Action.DEPOSIT, tab, slot,
+                withdrawal.item().getItemId(), withdrawal.item().getCount(),
+                null, -1, scope.vaultOwnerUuid()), bankRepo, tab, slot,
                 withdrawal.item().getItemId(), withdrawal.item().getCount(), withdrawal.item().getTag());
         return BankWithdrawalOperationResult.rejected(
                 restored ? "DELIVERY_FAILED_RESTORED" : "DELIVERY_RECOVERY_REQUIRED");
@@ -4001,24 +5981,17 @@ public class StoryNpcsApplicationService {
         return true;
     }
 
+    /**
+     * Rule/API adapter for faction reputation adjustments. Routes through the
+     * canonical {@link #mutateFactionProgression} boundary — same authorization,
+     * revision bump, idempotency record, and {@code FactionReputationChangeEvent}
+     * publication as every other faction mutation. Throws on rejection
+     * ({@link NoSuchElementException} for an unknown faction).
+     */
     public void adjustFactionReputation(UUID playerUuid, NamespacedId factionId, int delta) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(factionId, "factionId");
-        PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
-        int defaultPoints = registry.getFaction(factionId).map(Faction::getDefaultPoints).orElse(0);
-        final int oldScore;
-        final int newScore;
-        synchronized (prog) {
-            oldScore = prog.getFactionScore(factionId, defaultPoints);
-            prog.adjustFactionScore(factionId, delta, defaultPoints);
-            newScore = prog.getFactionScore(factionId, defaultPoints);
-            try {
-                progressionRepository.save(playerUuid, prog);
-            } catch (IOException e) {
-                System.err.println("Failed to persist progression for " + playerUuid + ": " + e.getMessage());
-            }
-        }
-        eventPublisher.publish(new FactionReputationChangeEvent(playerUuid, factionId, oldScore, newScore));
+        adjustFactionPoints(playerUuid, factionId, delta);
     }
 }
 

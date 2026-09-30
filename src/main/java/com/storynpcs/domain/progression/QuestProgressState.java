@@ -28,7 +28,11 @@ public class QuestProgressState {
     @JsonProperty
     private long stateRevision;
 
-    /** Server-clock epoch millis of the most recent COMPLETED transition; 0 if never completed. Drives repeat-mode boundary checks. */
+    /**
+     * Server-clock epoch millis of the most recent COMPLETED transition; 0 if
+     * never completed (or completed before this field existed, which resolves as
+     * long-past for DAILY/WEEKLY boundaries). Drives repeat-mode boundary checks.
+     */
     @JsonProperty
     private long lastCompletedAtEpochMillis;
 
@@ -59,6 +63,7 @@ public class QuestProgressState {
 
     public long getLastCompletedAtEpochMillis() { return lastCompletedAtEpochMillis; }
     public void setLastCompletedAtEpochMillis(long lastCompletedAtEpochMillis) {
+        if (lastCompletedAtEpochMillis < 0) throw new IllegalArgumentException("lastCompletedAtEpochMillis must be non-negative");
         this.lastCompletedAtEpochMillis = lastCompletedAtEpochMillis;
     }
 

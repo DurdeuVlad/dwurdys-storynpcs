@@ -19,7 +19,8 @@ public record ClientboundDialogueOpenPayload(
         boolean isTerminal,
         String npcName,
         List<String> optionHints,
-        UUID sessionId
+        UUID sessionId,
+        List<String> optionTokens
 ) implements CustomPacketPayload {
     public ClientboundDialogueOpenPayload {
         dialogueId = dialogueId != null ? dialogueId : "";
@@ -30,18 +31,28 @@ public record ClientboundDialogueOpenPayload(
         npcName = npcName != null ? npcName : "";
         optionHints = optionHints != null ? optionHints.stream().map(s -> s != null ? s : "").toList() : List.of();
         sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
+        // Opaque single-use server-issued choice tokens (P5-2), parallel to options.
+        optionTokens = optionTokens != null
+                ? optionTokens.stream().map(s -> s != null ? s : "").toList() : List.of();
     }
 
     public ClientboundDialogueOpenPayload(String dialogueId, String nodeId, String text, String sound,
                                           List<String> options, boolean isTerminal, String npcName,
                                           List<String> optionHints) {
         this(dialogueId, nodeId, text, sound, options, isTerminal, npcName, optionHints,
-                new UUID(0L, 0L));
+                new UUID(0L, 0L), List.of());
+    }
+
+    public ClientboundDialogueOpenPayload(String dialogueId, String nodeId, String text, String sound,
+                                          List<String> options, boolean isTerminal, String npcName,
+                                          List<String> optionHints, UUID sessionId) {
+        this(dialogueId, nodeId, text, sound, options, isTerminal, npcName, optionHints,
+                sessionId, List.of());
     }
     public static final Type<ClientboundDialogueOpenPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(StoryNpcs.MOD_ID, "dialogue_open"));
 
-    // composite() maxes out at 6 fields — explicit codec for the 8-field payload
+    // composite() maxes out at 6 fields — explicit codec for the 10-field payload
     private static final StreamCodec<ByteBuf, List<String>> STRING_LIST = MutationProtocolCodecs.STRING_LIST_CODEC;
 
     public static final StreamCodec<ByteBuf, ClientboundDialogueOpenPayload> STREAM_CODEC =
@@ -56,6 +67,7 @@ public record ClientboundDialogueOpenPayload(
                         MutationProtocolCodecs.TEXT_CODEC.encode(buf, p.npcName());
                         STRING_LIST.encode(buf, p.optionHints());
                         MutationProtocolCodecs.UUID_CODEC.encode(buf, p.sessionId());
+                        STRING_LIST.encode(buf, p.optionTokens());
                     },
                     buf -> new ClientboundDialogueOpenPayload(
                             MutationProtocolCodecs.ID_CODEC.decode(buf),
@@ -66,7 +78,8 @@ public record ClientboundDialogueOpenPayload(
                             ByteBufCodecs.BOOL.decode(buf),
                             MutationProtocolCodecs.TEXT_CODEC.decode(buf),
                             STRING_LIST.decode(buf),
-                            MutationProtocolCodecs.UUID_CODEC.decode(buf)
+                            MutationProtocolCodecs.UUID_CODEC.decode(buf),
+                            STRING_LIST.decode(buf)
                     )
             ));
 

@@ -26,12 +26,21 @@ public class Faction {
     @JsonProperty
     private int friendlyThreshold = 1500;
 
+    /** Display color for UI surfaces, 0xRRGGBB. */
+    @JsonProperty
+    private int color = 0xFFFFFF;
+
+    /** Passive factions never initiate hostile targeting regardless of standing. */
+    @JsonProperty
+    private boolean passive = false;
+
     /**
      * Explicit inter-faction relationship overrides (issue #70 — faction relationship
      * matrix). A faction not present in this map has no declared relationship to this
      * one; callers must treat that as {@link FactionStanding#NEUTRAL} via
      * {@link #getDeclaredRelationship(NamespacedId)} rather than assuming absence
-     * means hostility or friendliness.
+     * means hostility or friendliness. Pairwise symmetric lookup is normalized by
+     * FactionRelationshipProvider.
      */
     @JsonProperty
     private Map<NamespacedId, FactionStanding> relationships = new HashMap<>();
@@ -86,22 +95,39 @@ public class Faction {
         this.friendlyThreshold = friendlyThreshold;
     }
 
+    public int getColor() { return color; }
+
+    public void setColor(int color) {
+        if (color < 0 || color > 0xFFFFFF) {
+            throw new IllegalArgumentException("color must be a 0xRRGGBB value");
+        }
+        this.color = color;
+    }
+
+    public boolean isPassive() { return passive; }
+    public void setPassive(boolean passive) { this.passive = passive; }
+
+    /** Unmodifiable view — mutation goes through setRelationshipTo/removeRelationshipTo. */
     public Map<NamespacedId, FactionStanding> getRelationships() {
-        return relationships;
+        return java.util.Collections.unmodifiableMap(relationships);
     }
 
     public void setRelationships(Map<NamespacedId, FactionStanding> relationships) {
-        this.relationships = new HashMap<>();
-        if (relationships == null) return;
-        for (Map.Entry<NamespacedId, FactionStanding> entry : relationships.entrySet()) {
-            if (entry.getKey() == null || entry.getValue() == null) {
-                throw new IllegalArgumentException("faction relationship entries require a non-null faction ID and standing");
+        // Validate into a staging map first: a rejected entry must not destroy
+        // the previously committed matrix state.
+        Map<NamespacedId, FactionStanding> validated = new HashMap<>();
+        if (relationships != null) {
+            for (Map.Entry<NamespacedId, FactionStanding> entry : relationships.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    throw new IllegalArgumentException("faction relationship entries require a non-null faction ID and standing");
+                }
+                if (id != null && entry.getKey().equals(id)) {
+                    throw new IllegalArgumentException("a faction cannot declare a relationship to itself: " + id);
+                }
+                validated.put(entry.getKey(), entry.getValue());
             }
-            if (id != null && entry.getKey().equals(id)) {
-                throw new IllegalArgumentException("a faction cannot declare a relationship to itself: " + id);
-            }
-            this.relationships.put(entry.getKey(), entry.getValue());
         }
+        this.relationships = validated;
     }
 
     /** Declares (or overwrites) this faction's relationship to another. Rejects a self-relationship. */

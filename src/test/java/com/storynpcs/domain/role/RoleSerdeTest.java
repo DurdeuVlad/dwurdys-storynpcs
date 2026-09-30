@@ -37,10 +37,10 @@ class RoleSerdeTest {
         assertEquals(12000, restoredTrader.get().getRestockIntervalTicks());
         assertEquals(2, restoredTrader.get().getListings().size());
         assertEquals(4, restoredTrader.get().getListings().get(0).getUses());
-        assertFalse(restoredTrader.get().getListings().get(0).hasSecondInput());
-        assertTrue(restoredTrader.get().getListings().get(1).hasSecondInput());
-        assertEquals("minecraft:gold_ingot", restoredTrader.get().getListings().get(1).getSecondPriceItemId());
-        assertEquals(3, restoredTrader.get().getListings().get(1).getSecondPriceCount());
+        assertFalse(restoredTrader.get().getListings().get(0).hasTwoInputs());
+        assertTrue(restoredTrader.get().getListings().get(1).hasTwoInputs());
+        assertEquals("minecraft:gold_ingot", restoredTrader.get().getListings().get(1).getSecondaryPriceItemId());
+        assertEquals(3, restoredTrader.get().getListings().get(1).getSecondaryPriceCount());
 
         var banker = new BankerRole("Iron Vault");
         banker.setMaxTabs(3);

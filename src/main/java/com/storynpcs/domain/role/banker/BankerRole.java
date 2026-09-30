@@ -17,6 +17,15 @@ public class BankerRole {
     @JsonProperty
     private int tabUpgradeCost = 1000;
 
+    /**
+     * Authored shared-vault owner (UUID string). When set, every player who
+     * opens this banker operates on that owner's vault — gated by the vault's
+     * {@link com.storynpcs.domain.role.banker.BankVault.AccessPolicy#SHARED}
+     * member list (or operator authority). Empty = the opening player's own vault.
+     */
+    @JsonProperty
+    private String vaultOwnerUuid = "";
+
     public BankerRole() {}
 
     public BankerRole(String bankName) {
@@ -44,4 +53,19 @@ public class BankerRole {
 
     public int getTabUpgradeCost() { return tabUpgradeCost; }
     public void setTabUpgradeCost(int tabUpgradeCost) { this.tabUpgradeCost = tabUpgradeCost; }
+
+    public String getVaultOwnerUuid() { return vaultOwnerUuid; }
+    public void setVaultOwnerUuid(String vaultOwnerUuid) {
+        this.vaultOwnerUuid = vaultOwnerUuid == null ? "" : vaultOwnerUuid.trim();
+    }
+
+    /** The authored vault owner, or empty when this banker serves personal vaults. */
+    public java.util.Optional<java.util.UUID> authoredVaultOwner() {
+        if (vaultOwnerUuid == null || vaultOwnerUuid.isBlank()) return java.util.Optional.empty();
+        try {
+            return java.util.Optional.of(java.util.UUID.fromString(vaultOwnerUuid));
+        } catch (IllegalArgumentException malformed) {
+            return java.util.Optional.empty();
+        }
+    }
 }

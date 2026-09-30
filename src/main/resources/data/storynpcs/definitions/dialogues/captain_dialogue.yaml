@@ -1,3 +1,4 @@
+schemaVersion: 1
 id: "storynpcs:captain_dialogue"
 title: "Captain Valerie's Orders"
 entryNodeId: "greeting"

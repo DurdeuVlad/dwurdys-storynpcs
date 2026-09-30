@@ -16,6 +16,8 @@ public class DialogueScreenModel {
     private final Consumer<Integer> optionChooser;
     private final String npcName;
     private final List<String> optionHints;
+    /** Opaque server-issued choice tokens (P5-2), parallel to options. */
+    private final List<String> optionTokens;
 
     private int hoveredOptionIndex = -1;
     private boolean closed = false;
@@ -29,7 +31,7 @@ public class DialogueScreenModel {
             boolean terminal,
             Consumer<Integer> optionChooser
     ) {
-        this(dialogueId, nodeId, text, sound, options, terminal, optionChooser, "", null);
+        this(dialogueId, nodeId, text, sound, options, terminal, optionChooser, "", null, null);
     }
 
     public DialogueScreenModel(
@@ -43,6 +45,22 @@ public class DialogueScreenModel {
             String npcName,
             List<String> optionHints
     ) {
+        this(dialogueId, nodeId, text, sound, options, terminal, optionChooser, npcName,
+                optionHints, null);
+    }
+
+    public DialogueScreenModel(
+            String dialogueId,
+            String nodeId,
+            String text,
+            String sound,
+            List<String> options,
+            boolean terminal,
+            Consumer<Integer> optionChooser,
+            String npcName,
+            List<String> optionHints,
+            List<String> optionTokens
+    ) {
         this.dialogueId = dialogueId != null ? dialogueId : "";
         this.nodeId = nodeId != null ? nodeId : "";
         this.text = text != null ? text : "";
@@ -52,6 +70,7 @@ public class DialogueScreenModel {
         this.optionChooser = optionChooser;
         this.npcName = npcName != null ? npcName : "";
         this.optionHints = optionHints != null ? new ArrayList<>(optionHints) : Collections.emptyList();
+        this.optionTokens = optionTokens != null ? new ArrayList<>(optionTokens) : Collections.emptyList();
     }
 
     public String getDialogueId() {
@@ -80,6 +99,14 @@ public class DialogueScreenModel {
             return "";
         }
         return optionHints.get(index);
+    }
+
+    /** Server-issued choice token for option {@code index} ("" when none). */
+    public String getOptionToken(int index) {
+        if (index < 0 || index >= optionTokens.size()) {
+            return "";
+        }
+        return optionTokens.get(index);
     }
 
     public List<String> getOptions() {

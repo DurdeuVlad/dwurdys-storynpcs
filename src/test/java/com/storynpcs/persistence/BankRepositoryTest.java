@@ -207,6 +207,47 @@ class BankRepositoryTest {
     }
 
     @Test
+    @DisplayName("Compat whole-stack withdrawal without a request id is still journaled")
+    void compatWithdrawalWithoutRequestIdJournalsOperation(@TempDir Path tempDir) throws Exception {
+        UUID playerUuid = UUID.randomUUID();
+        BlockingBankRepository repo = new BlockingBankRepository(
+                tempDir.resolve("banks_compat_journaled"));
+        assertTrue(service.depositToBank(playerUuid, repo, 0, 0, "minecraft:diamond", 12));
+
+        CountDownLatch transactionEntered = new CountDownLatch(1);
+        CountDownLatch allowTransaction = new CountDownLatch(1);
+        repo.blockNextTransaction(transactionEntered, allowTransaction);
+        AtomicReference<BankWithdrawalOperationResult> withdrawalResult = new AtomicReference<>();
+        AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+        Thread worker = new Thread(() -> {
+            try {
+                // The 4-argument compatibility overload carries no request id —
+                // the service must mint one and journal the operation anyway.
+                withdrawalResult.set(service.withdrawAndDeliverFromBank(playerUuid, repo, 0, 0));
+            } catch (Throwable failure) {
+                workerFailure.compareAndSet(null, failure);
+            }
+        }, "bank-compat-withdrawal-test");
+        worker.start();
+        try {
+            assertTrue(transactionEntered.await(10, TimeUnit.SECONDS));
+            // While the vault transaction is in flight the journal must hold a
+            // STARTED bank.withdraw record — proof the compat path could not
+            // reach the vault without journaling.
+            var pending = repo.operationJournal().pending();
+            assertEquals(1, pending.size());
+            assertEquals("bank.withdraw", pending.get(0).operationType());
+        } finally {
+            allowTransaction.countDown();
+        }
+        worker.join(10_000);
+        assertNull(workerFailure.get());
+        assertTrue(withdrawalResult.get().accepted());
+        assertTrue(repo.operationJournal().pending().isEmpty());
+        assertTrue(repo.getOrCreate(playerUuid).getTabItems(0).isEmpty());
+    }
+
+    @Test
     @DisplayName("Journaled withdrawal rejects a vault revision change after intent capture")
     void wholeStackWithdrawalRejectsStaleCapturedVaultRevision(@TempDir Path tempDir) throws IOException {
         UUID playerUuid = UUID.randomUUID();
@@ -787,7 +828,9 @@ class BankRepositoryTest {
     void testDurableFailurePointsPreservePreviousBankRecord(@TempDir Path tempDir) {
         UUID playerUuid = UUID.randomUUID();
 
+        // Record-commit stages only — INDEX_UPDATE belongs to indexed stores above this layer.
         for (DurableJsonStore.FailurePoint failurePoint : DurableJsonStore.FailurePoint.values()) {
+            if (failurePoint == DurableJsonStore.FailurePoint.INDEX_UPDATE) continue;
             Path bankDir = tempDir.resolve(failurePoint.name().toLowerCase());
             BankRepository seedRepo = new BankRepository(bankDir);
             assertTrue(service.depositToBank(playerUuid, seedRepo, 0, 0, "minecraft:diamond", 10));
