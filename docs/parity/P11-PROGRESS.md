@@ -1,9 +1,9 @@
 # P11 — Import contract, evidence closure, release gate (P11-1..P11-3)
 
-Status: `IN-REVIEW` for all three issues (local implementation; GitHub issue comments posted).
-Evidence: `MigrationImportTest` (12 tests), `SimCertificationBenchmarkTest` + 3 benchmark
-artifacts, compatibility-report (2,836/2,836 rows mapped), fixture report (25/25 OBSERVED),
-release-gate report. Full suite **648 tests / 0 failures** (latest run).
+Status: `IN-REVIEW` for P11-1 and P11-2; P11-3 is `BLOCKED` pending its runtime and issue-closure gates.
+Evidence: `MigrationImportTest` (18 tests), `SimCertificationBenchmarkTest` + 3 headless benchmark
+artifacts, compatibility-report (2,836/2,836 rows mapped), and the current fixture report. The latest
+full run passed 753 JUnit cases across 81 suites and 125 Python parity tests; the release gate remains `BLOCKED`.
 
 ## P11-1 — CustomNPCs import contract (#91)
 
@@ -54,9 +54,14 @@ creator world data:
 
 ## P11-3 — Adversarial certification and release gate (#93)
 
+Status: `BLOCKED` — target-runtime probes are unavailable, remaining issues are not all done or user-accepted blocked, and headless JVM/GameTest evidence does not satisfy the release gate.
+
 - `sim/cert/HeadlessBenchmark`: deterministic seeded workloads for all three
   contract scenarios (500-NPC population, 25v25 siege, 2,500-NPC stress)
   driving `SimulationScheduler` + `PathScheduler` + `SquadCoordinator`.
+- Local GameTest verification: `./gradlew help --task runGameTestServer` succeeded;
+  two in-world tests passed, and an intentionally inverted assertion made the
+  Gradle task exit non-zero with a readable failure. This is StoryNPCs-only evidence.
 - `SimCertificationBenchmarkTest` validates every numeric threshold via
   `PerformanceContract.validate` across 3 seeds per scenario and asserts
   identical-seed workload fingerprints — artifacts under
@@ -65,16 +70,15 @@ creator world data:
   timing-repeatability note (sub-ms wall-clock ±10% is environment noise;
   workload determinism is asserted separately).
 - `tools/parity/release_gate.py` + `reports/release-gate-report.json`:
-  issue-id uniqueness, milestone shorthand expansion, dependency graph
-  (backward edges acyclic; forward ownership references recorded separately),
-  terminal issue statuses, 15-operation evidence, 22-domain mapping,
-  benchmark artifacts — all checked; report records PASS/FAIL per item.
+  issue-id uniqueness, dependency graph, current fingerprint-bound fixture execution,
+  15-operation evidence, 22-domain mapping, and benchmark artifacts are checked.
+  The report is `BLOCKED` while P11-3 is blocked, issues remain in review, or
+  target-runtime evidence is unavailable; headless results cannot promote it to PASS.
 - `docs/RELEASE-NOTES.md`: blocked/unavailable target probes stay visible.
 - Final adversarial review: `reviews/2026-09-25-final-adversarial.md`.
 
 ## Honest residual
 
-`HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED` is the truthful certification state:
-the local evidence checklist is complete, but no live-server, client-render,
-or target-runtime probe exists. The release gate **fails** if any of those
-are claimed; it cannot produce a full-parity certification by design.
+`HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED` describes only the benchmark evidence, not P11-3 completion.
+P11-3 remains `BLOCKED` until the dependency closure, accepted-blocker decisions, and required
+runtime evidence are satisfied. JUnit, headless GameTests, and class inventory cannot certify target parity.

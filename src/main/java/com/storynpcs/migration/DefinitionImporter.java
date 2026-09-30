@@ -64,18 +64,16 @@ public final class DefinitionImporter {
     private static final List<String> FAMILIES = List.of("npc", "dialogue", "quest", "faction", "template");
 
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
-    /** Parsed definitions captured during {@link #plan}, keyed by step sequence. */
-    private final Map<Integer, Object> parsedDefinitions = new LinkedHashMap<>();
 
-    /** Full conflict-aware plan; the returned plan is self-contained for {@link #apply}. */
+    /** Full conflict-aware plan; source documents are snapshotted into the returned plan. */
     public ImportPlan plan(ImportSource source, ConflictPolicy policy,
                            Map<String, Map<String, String>> documents, ImportSink sink) {
-        parsedDefinitions.clear();
         if (ImportSource.support(source.kind()) != ImportSource.Support.SUPPORTED) {
             return new ImportPlan(source, policy, List.of(), false,
                     ImportSource.unsupportedReason(source.kind()));
         }
         List<Step> steps = new ArrayList<>();
+        Map<Integer, String> sourceDocuments = new LinkedHashMap<>();
         // Scratch registry: probe loads accumulate package IDs so intra-package
         // duplicates are rejected exactly like a definitions-directory load.
         YamlDefinitionLoader probeLoader = new YamlDefinitionLoader(new DefinitionRegistry());
@@ -86,7 +84,8 @@ public final class DefinitionImporter {
         for (String family : sortedKeys(documents)) {
             for (String file : sortedKeys(documents.get(family))) {
                 Step step = FAMILIES.contains(family)
-                        ? planDocument(seq, family, file, documents.get(family).get(file), probeLoader)
+                        ? planDocument(seq, family, file, documents.get(family).get(file),
+                                probeLoader, sourceDocuments)
                         : new Step(seq, family, file, null, Step.Resolution.QUARANTINE, null,
                                 List.of(), "unknown definition family — nothing applied from this document");
                 steps.add(resolveConflict(step, policy, sink, claimed));
@@ -95,11 +94,12 @@ public final class DefinitionImporter {
         }
         boolean abort = steps.stream().anyMatch(s -> s.resolution() == Step.Resolution.ABORT);
         return new ImportPlan(source, policy, List.copyOf(steps), true,
-                abort ? "conflict under FAIL policy — import aborted before any write" : "");
+                abort ? "conflict under FAIL policy — import aborted before any write" : "",
+                sourceDocuments);
     }
 
     private Step planDocument(int seq, String family, String file, String content,
-                              YamlDefinitionLoader probeLoader) {
+                              YamlDefinitionLoader probeLoader, Map<Integer, String> sourceDocuments) {
         JsonNode root;
         try {
             root = yamlMapper.readTree(content == null ? "" : content);
@@ -129,7 +129,7 @@ public final class DefinitionImporter {
             return new Step(seq, family, file, id, Step.Resolution.QUARANTINE, null, mappings,
                     "schema validation failed: " + oneLine(probe.formatReport()));
         }
-        parsedDefinitions.put(seq, definition);
+        sourceDocuments.put(seq, content == null ? "" : content);
         return new Step(seq, family, file, id, Step.Resolution.APPLY_NEW, id, mappings, "");
     }
 
@@ -154,8 +154,6 @@ public final class DefinitionImporter {
             case RENAME -> {
                 NamespacedId renamed = nextFreeName(s.family(), s.definitionId(), sink, claimed);
                 claimed.add(s.family() + "|" + renamed);
-                Object def = parsedDefinitions.get(s.sequence());
-                if (def != null) retargetId(def, s.family(), renamed);
                 yield new Step(s.sequence(), s.family(), s.sourceName(), s.definitionId(),
                         Step.Resolution.APPLY_RENAME, renamed, s.fieldMappings(),
                         "renamed to avoid collision");
@@ -215,6 +213,15 @@ public final class DefinitionImporter {
                             ? "source unsupported: " + ImportSource.unsupportedReason(plan.source().kind())
                             : plan.abortReason());
         }
+        Step staleTarget = plan.steps().stream()
+                .filter(step -> step.resolution() == Step.Resolution.APPLY_NEW
+                        || step.resolution() == Step.Resolution.APPLY_RENAME)
+                .filter(step -> sink.contains(step.family(), step.resolvedId()))
+                .findFirst()
+                .orElse(null);
+        if (staleTarget != null) {
+            return stalePlanReport(plan, staleTarget);
+        }
         List<Integer> applied = new ArrayList<>();
         List<Runnable> undo = new ArrayList<>();
         for (int i = 0; i < plan.steps().size(); i++) {
@@ -233,7 +240,7 @@ public final class DefinitionImporter {
                     try {
                         Object prior = s.resolution() == Step.Resolution.APPLY_REPLACE
                                 ? snapshotOf(s, sink) : null;
-                        saveStep(s, sink);
+                        saveStep(plan, s, sink);
                         applied.add(i);
                         final Object snapshot = prior;
                         undo.add(() -> rollbackStep(s, sink, snapshot));
@@ -293,17 +300,44 @@ public final class DefinitionImporter {
                 : sink.snapshot(s.family(), s.resolvedId());
     }
 
-    private void saveStep(Step s, ImportSink sink) {
-        Object definition = parsedDefinitions.get(s.sequence());
-        if (definition == null) {
-            throw new IllegalStateException("plan step " + s.sequence() + " has no parsed definition"
-                    + " — build plans with DefinitionImporter.plan() on the same importer");
+    private void saveStep(ImportPlan plan, Step step, ImportSink sink) {
+        String content = plan.sourceDocument(step.sequence());
+        if (content == null) {
+            throw new IllegalStateException("plan step " + step.sequence() + " has no source document");
         }
-        if ("template".equals(s.family())) {
+        ValidationResult validation = new ValidationResult();
+        Object definition = probeLoad(new YamlDefinitionLoader(new DefinitionRegistry()),
+                step.family(), content, step.sourceName(), validation);
+        if (definition == null || validation.hasErrors()) {
+            throw new IllegalStateException("plan step " + step.sequence()
+                    + " no longer parses: " + oneLine(validation.formatReport()));
+        }
+        if (step.resolution() == Step.Resolution.APPLY_RENAME) {
+            retargetId(definition, step.family(), step.resolvedId());
+        }
+        if ("template".equals(step.family())) {
             sink.saveTemplate((NpcTemplate) definition);
         } else {
-            sink.save(s.family(), s.resolvedId(), definition);
+            sink.save(step.family(), step.resolvedId(), definition);
         }
+    }
+
+    private ImportReport stalePlanReport(ImportPlan plan, Step conflictingStep) {
+        List<ImportReport.StepResult> results = new ArrayList<>();
+        for (Step step : plan.steps()) {
+            ImportReport.StepResult.Outcome outcome = switch (step.resolution()) {
+                case SKIP_CONFLICT -> ImportReport.StepResult.Outcome.SKIPPED;
+                case QUARANTINE -> ImportReport.StepResult.Outcome.QUARANTINED;
+                case APPLY_NEW, APPLY_RENAME, APPLY_REPLACE, ABORT -> ImportReport.StepResult.Outcome.FAILED;
+            };
+            String detail = step == conflictingStep
+                    ? "destination changed after planning; create a new plan"
+                    : "no writes performed because a destination changed after planning";
+            results.add(new ImportReport.StepResult(step.family(), step.sourceName(), step.definitionId(),
+                    step.resolvedId(), outcome, step.fieldMappings(), detail));
+        }
+        return new ImportReport(plan.source(), plan.policy(), false, List.copyOf(results),
+                "NOT_NEEDED", "destination changed after planning; no writes were performed");
     }
 
     private void rollbackStep(Step s, ImportSink sink, Object prior) {

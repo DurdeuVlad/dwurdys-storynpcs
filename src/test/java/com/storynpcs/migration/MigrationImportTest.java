@@ -314,6 +314,71 @@ class MigrationImportTest {
     }
 
     @Test
+    void plansRetainTheirOwnSourceDocumentsWhenImporterIsReused() {
+        ImportPlan alphaPlan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("npc", "alpha.yaml", NPC_A), sink);
+        ImportPlan betaPlan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("npc", "beta.yaml", NPC_B), sink);
+
+        assertThat(importer.apply(alphaPlan, sink).succeeded()).isTrue();
+        var alpha = (com.storynpcs.domain.npc.NpcDefinition) sink.defs.get("npc|storynpcs:alpha");
+        assertThat(alpha.getId()).isEqualTo(NamespacedId.of("storynpcs:alpha"));
+        assertThat(alpha.getDisplay().getName()).isEqualTo("Alpha");
+        assertThat(sink.defs).doesNotContainKey("npc|storynpcs:beta");
+
+        assertThat(importer.apply(betaPlan, sink).succeeded()).isTrue();
+        var beta = (com.storynpcs.domain.npc.NpcDefinition) sink.defs.get("npc|storynpcs:beta");
+        assertThat(beta.getId()).isEqualTo(NamespacedId.of("storynpcs:beta"));
+        assertThat(beta.getDisplay().getName()).isEqualTo("Beta");
+    }
+
+    @Test
+    void importPlanDiagnosticsDoNotPrintSnapshottedSourceContent() {
+        ImportPlan plan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("npc", "alpha.yaml", NPC_A), sink);
+
+        assertThat(plan.toString()).doesNotContain("display: { name: \"Alpha\" }");
+        assertThat(plan.sourceDocuments().toString()).isEqualTo("SourceDocuments[documentCount=1]");
+    }
+
+    @Test
+    void destinationCollisionAfterPlanningAbortsBeforeAnyWrites() {
+        Map<String, Map<String, String>> documents = new TreeMap<>();
+        documents.put("npc", Map.of("alpha.yaml", NPC_A, "beta.yaml", NPC_B));
+        ImportPlan plan = importer.plan(yamlSource, ConflictPolicy.FAIL, documents, sink);
+        Object existing = new Object();
+        sink.save("npc", NamespacedId.of("storynpcs:alpha"), existing);
+        int writesBeforeApply = sink.saveCalls;
+
+        ImportReport report = importer.apply(plan, sink);
+
+        assertThat(report.succeeded()).isFalse();
+        assertThat(report.failureReason()).contains("destination changed after planning");
+        assertThat(report.count(StepResult.Outcome.FAILED)).isEqualTo(2);
+        assertThat(sink.defs).containsOnlyKeys("npc|storynpcs:alpha");
+        assertThat(sink.defs.get("npc|storynpcs:alpha")).isSameAs(existing);
+        assertThat(sink.saveCalls).isEqualTo(writesBeforeApply);
+    }
+
+    @Test
+    void renameTargetCollisionAfterPlanningAbortsWithoutOverwrite() {
+        sink.save("npc", NamespacedId.of("storynpcs:alpha"), new Object());
+        ImportPlan plan = importer.plan(yamlSource, ConflictPolicy.RENAME,
+                pkg("npc", "alpha.yaml", NPC_A), sink);
+        NamespacedId renameId = plan.steps().get(0).resolvedId();
+        Object existing = new Object();
+        sink.save("npc", renameId, existing);
+        int writesBeforeApply = sink.saveCalls;
+
+        ImportReport report = importer.apply(plan, sink);
+
+        assertThat(report.succeeded()).isFalse();
+        assertThat(report.failureReason()).contains("destination changed after planning");
+        assertThat(sink.defs.get("npc|" + renameId)).isSameAs(existing);
+        assertThat(sink.saveCalls).isEqualTo(writesBeforeApply);
+    }
+
+    @Test
     void templatePackageApplies() {
         var templateYaml = """
                 id: "storynpcs:t_guard"

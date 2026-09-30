@@ -31,7 +31,7 @@ public final class ScriptScheduler {
     }
 
     private final Map<UUID, ScriptHandle> scripts = new LinkedHashMap<>();
-    private final com.storynpcs.admin.RuntimeTunables tunables; // nullable — live budget source
+    private final com.storynpcs.admin.RuntimeTunablesView tunables; // nullable — live budget source
     private long tickNanosUsed;
 
     public ScriptScheduler() {
@@ -39,7 +39,7 @@ public final class ScriptScheduler {
     }
 
     /** Live-budget scheduler: budget constants resolve per dispatch. */
-    public ScriptScheduler(com.storynpcs.admin.RuntimeTunables tunables) {
+    public ScriptScheduler(com.storynpcs.admin.RuntimeTunablesView tunables) {
         this.tunables = tunables;
     }
 

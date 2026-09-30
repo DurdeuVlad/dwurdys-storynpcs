@@ -27,7 +27,7 @@ These are source/inventory facts, not proof of target behavior. A file/class mat
 
 - P0-4 tooling had concrete fail-open paths: one JUnit selector could be reused across fixtures; the full manifest/artifact/provenance validator was bypassed; role ownership was not pinned; JUnit totals could disagree with imported cases; and nested result/testcase XML could be ignored. The independent CI-gate follow-up approved the scoped corrections. The subsequent P0-1 v4 source-provenance audit also returned `SUPPORTED`; see [the P0-1 review](parity/reviews/2026-09-23-p0-1-source-provenance.md).
 - P1-1 remains `IN-REVIEW`: adapter-side mutations and legacy boolean/untyped boundaries still exist outside the typed `StoryNpcsApplicationService` operations.
-- P1-2 remains `IN-REVIEW`: runtime registries now own many transient maps, but the architecture audit still identified mutable `StoryNpcs.instance`/runtime dependencies requiring a repository-wide lifecycle scan.
+- P1-2 remains `IN-REVIEW`: the mutable `StoryNpcs.instance` was removed and runtime state is level/server scoped. Independent lifecycle review and target-runtime evidence are still outstanding.
 - P2-1 is partly delivered, but `StoryNpcsCommands` still contains Java-built quickstart definitions; this conflicts with YAML-first, read-only runtime definitions until moved to versioned bundled YAML and covered by a no-write test.
 - P2-2 and P2-3 remain reliability gaps: the full 18-store crash matrix and all multi-step economy/progression recovery paths are not demonstrated. Quest completion/reward fan-out, held inventory changes, trade outputs, paid unlocks, and bank transitions need explicit commit/replay evidence.
 - P5-5 records the known quest state/reward ordering problem and absent mail/team state; it is not resolved by the P2-3 preflight work.
@@ -35,7 +35,7 @@ These are source/inventory facts, not proof of target behavior. A file/class mat
 ### Evidence blockers (not feature holes)
 
 - Target runtime access: all 24 CustomNPCs runtime outcomes remain `UNVERIFIED_TARGET_RUNTIME`; this blocks parity certification but not StoryNPCs implementation.
-- StoryNPCs fixture coverage: five fixture IDs have no selector: `P0-4.jobs`, `P0-4.transport`, `P0-4.spawner`, `P0-4.creator-tools`, and `P0-4.scripting`. Combat and inventory cover only authored JSON round-trip fields; marks cover the current single-mark value; companions cover only follower owner/state/formation. These partial observations do not cover their full target contracts.
+- StoryNPCs fixture execution: all 25 fixtures now have mapped selectors and a fresh JUnit run observes them; target behavior and broad feature coverage remain limited. Combat and inventory cover only authored JSON round-trip fields; marks cover the current single-mark value; companions cover only follower owner/state/formation. These partial observations do not cover their full target contracts.
 - Performance: P4-3 has no production benchmark artifact for the proposed workloads and numeric thresholds in [the certification plan](CUSTOMNPCS_PARITY_CERTIFICATION.md). Research prototypes are not production evidence.
 - Import: P11-1 has no creator-authored CustomNPCs world/export sample. The supplied JAR is the engine, not a user's world data.
 - Cross-version target mapping: P1-3's implementation work is locally complete, but the target inventory's 115 server-bound and 40 client-bound payloads are not fully mapped to equivalent StoryNPCs fixtures.

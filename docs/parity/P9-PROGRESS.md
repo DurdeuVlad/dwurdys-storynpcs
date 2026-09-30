@@ -27,7 +27,9 @@ Status: `IN-PROGRESS` for all four issues (local implementation).
 
 ## P9-4 — Remote/admin/config
 
-- `RemoteAccessProof`: bound session + capability + expiry — `permits` requires all three.
+- `RemoteAccessProof` models session, capability, and expiry claims, but no server-owned session
+  issuer/validator is wired. API mutations therefore fail closed; a caller-supplied proof object is
+  not authorization evidence.
 - `PlayerDataScope` SELF (operator==target only) vs ADMIN.
 - `ConfigTransaction`: stage → validate → commit-or-rollback; stale revision and validation
   failures leave the live map untouched; committed revision increments.

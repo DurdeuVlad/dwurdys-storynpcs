@@ -76,7 +76,7 @@ public class StoryNpcs {
         this.runtimeSessions = new RuntimeSessionRegistry();
         this.followerGroup = new FollowerGroup();
         this.runtimeTunables = new com.storynpcs.admin.RuntimeTunables();
-        this.scriptScheduler = new com.storynpcs.script.ScriptScheduler(runtimeTunables);
+        this.scriptScheduler = new com.storynpcs.script.ScriptScheduler(runtimeTunables.readOnlyView());
         this.simulationScheduler = new com.storynpcs.sim.SimulationScheduler(
                 com.storynpcs.sim.SimulationTierPolicy.defaults(),
                 com.storynpcs.sim.TierBudgets.defaults());
@@ -100,7 +100,7 @@ public class StoryNpcs {
         this.runtimeSessions = new RuntimeSessionRegistry();
         this.followerGroup = new FollowerGroup();
         this.runtimeTunables = new com.storynpcs.admin.RuntimeTunables();
-        this.scriptScheduler = new com.storynpcs.script.ScriptScheduler(runtimeTunables);
+        this.scriptScheduler = new com.storynpcs.script.ScriptScheduler(runtimeTunables.readOnlyView());
         this.simulationScheduler = new com.storynpcs.sim.SimulationScheduler(
                 com.storynpcs.sim.SimulationTierPolicy.defaults(),
                 com.storynpcs.sim.TierBudgets.defaults());
@@ -232,9 +232,9 @@ public class StoryNpcs {
         return scriptScheduler;
     }
 
-    /** The shared live tunable store — the service mutates it; consumers read it. */
-    public com.storynpcs.admin.RuntimeTunables getRuntimeTunables() {
-        return runtimeTunables;
+    /** Read-only view of the shared live tunable store. */
+    public com.storynpcs.admin.RuntimeTunablesView getRuntimeTunables() {
+        return runtimeTunables.readOnlyView();
     }
 
     public com.storynpcs.sim.SimulationScheduler getSimulationScheduler() {
@@ -258,6 +258,9 @@ public class StoryNpcs {
     }
 
     public void setApplicationService(StoryNpcsApplicationService applicationService) {
+        if (applicationService != null) {
+            applicationService.setRuntimeTunables(runtimeTunables);
+        }
         this.applicationService = applicationService;
     }
 

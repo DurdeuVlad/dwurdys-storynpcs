@@ -18,7 +18,7 @@ import java.util.Map;
  * the next use — dialogue token issuance, script dispatch budgets. Keys absent
  * from {@link #KEYS} are rejected by {@link #validate}.</p>
  */
-public final class RuntimeTunables {
+public final class RuntimeTunables implements RuntimeTunablesView {
 
     /** Descriptor for one tunable: parse bound + default. */
     private record Tunable(long min, long max, long defaultValue) {}
@@ -46,12 +46,32 @@ public final class RuntimeTunables {
     }
 
     private final Map<String, String> live = new LinkedHashMap<>();
+    private final RuntimeTunablesView readOnlyView = new RuntimeTunablesView() {
+        @Override
+        public Map<String, String> snapshot() {
+            return RuntimeTunables.this.snapshot();
+        }
+
+        @Override
+        public long revision() {
+            return RuntimeTunables.this.revision();
+        }
+
+        @Override
+        public long longValue(String key) {
+            return RuntimeTunables.this.longValue(key);
+        }
+    };
     private long revision;
 
     public RuntimeTunables() {
         for (var entry : KEYS.entrySet()) {
             live.put(entry.getKey(), Long.toString(entry.getValue().defaultValue()));
         }
+    }
+
+    public RuntimeTunablesView readOnlyView() {
+        return readOnlyView;
     }
 
     /** Immutable view of every live tunable. */

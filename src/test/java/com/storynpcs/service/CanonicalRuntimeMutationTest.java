@@ -915,7 +915,7 @@ class CanonicalRuntimeMutationTest {
     }
 
     @Test
-    void remoteTunableMutationRequiresAValidBoundProof() {
+    void remoteTunableMutationFailsClosedUntilServerOwnedSessionAuthIsIntegrated() {
         var tunables = new com.storynpcs.admin.RuntimeTunables();
         service.setRuntimeTunables(tunables);
         MutationRequest request = new MutationRequest(
@@ -924,35 +924,17 @@ class CanonicalRuntimeMutationTest {
         var changes = java.util.Map.of(
                 com.storynpcs.admin.RuntimeTunables.DIALOGUE_TOKEN_MAX_PENDING, "512");
 
-        // No proof, an expired proof, and a proof without the capability all
-        // fail closed before the transaction stage.
-        assertThat(service.mutateRuntimeTunables(request, changes, null, 50L)
-                .diagnostics().formatReport()).contains("REMOTE_PROOF_INVALID");
-        var expired = new com.storynpcs.admin.RemoteAccessProof(
-                UUID.randomUUID(), UUID.randomUUID(), java.util.Set.of("config.mutate"), 0, 10);
-        assertThat(service.mutateRuntimeTunables(request, changes, expired, 11L)
-                .diagnostics().formatReport()).contains("REMOTE_PROOF_INVALID");
-        var underScoped = new com.storynpcs.admin.RemoteAccessProof(
-                UUID.randomUUID(), UUID.randomUUID(), java.util.Set.of("npc.edit"), 0, 100);
-        assertThat(service.mutateRuntimeTunables(request, changes, underScoped, 50L)
-                .diagnostics().formatReport()).contains("REMOTE_PROOF_INVALID");
-        assertThat(tunables.revision()).isZero();
+        var unproved = service.mutateRuntimeTunables(request, changes);
+        assertThat(unproved.applied()).isFalse();
+        assertThat(unproved.diagnostics().formatReport()).contains("REMOTE_AUTH_UNAVAILABLE");
 
-        // A live proof carrying the capability commits normally.
-        var valid = new com.storynpcs.admin.RemoteAccessProof(
+        var fabricatedProof = new com.storynpcs.admin.RemoteAccessProof(
                 UUID.randomUUID(), UUID.randomUUID(), java.util.Set.of("config.mutate"), 0, 100);
-        var applied = service.mutateRuntimeTunables(request, changes, valid, 50L);
-        assertThat(applied.applied()).isTrue();
+        var proved = service.mutateRuntimeTunables(request, changes, fabricatedProof, 50L);
+        assertThat(proved.applied()).isFalse();
+        assertThat(proved.diagnostics().formatReport()).contains("REMOTE_AUTH_UNAVAILABLE");
+        assertThat(tunables.revision()).isZero();
         assertThat(tunables.longValue(
-                com.storynpcs.admin.RuntimeTunables.DIALOGUE_TOKEN_MAX_PENDING)).isEqualTo(512L);
-
-        // The same proof presented before its issue tick is invalid.
-        var notYetIssued = new com.storynpcs.admin.RemoteAccessProof(
-                UUID.randomUUID(), UUID.randomUUID(), java.util.Set.of("config.mutate"), 60, 100);
-        var denied = service.mutateRuntimeTunables(new MutationRequest(
-                "config.mutate", "api", "config.mutate", NPC_ID, 1L,
-                UUID.randomUUID(), -1), java.util.Map.of(), notYetIssued, 50L);
-        assertThat(denied.applied()).isFalse();
-        assertThat(denied.diagnostics().formatReport()).contains("REMOTE_PROOF_INVALID");
+                com.storynpcs.admin.RuntimeTunables.DIALOGUE_TOKEN_MAX_PENDING)).isEqualTo(256L);
     }
 }

@@ -229,7 +229,6 @@ public class WorldLifecycleHandler {
         appService.setLoader(mod.getLoader());
         appService.setTradeStateRepository(mod.getTradeStateRepository());
         appService.setQuestMailStore(mod.getQuestMailStore());
-        appService.setRuntimeTunables(mod.getRuntimeTunables());
         mod.setApplicationService(appService);
 
         // Load definitions

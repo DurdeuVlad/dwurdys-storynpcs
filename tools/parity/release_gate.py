@@ -11,8 +11,15 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+try:
+    from tools.parity.fixture_harness import source_fingerprint
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from tools.parity.fixture_harness import source_fingerprint
 
 ISSUE_HEADING = re.compile(r"^### (P\d+-\d+) — ")
 MILESTONE_HEADING = re.compile(r"^## (M\d+) — ")
@@ -21,8 +28,9 @@ MILESTONE_TOKEN = re.compile(r"\bM(\d+)(?:-(\d+))?\b")
 STATUS_LINE = re.compile(r"^Status: `?([A-Z\-]+)`?", re.MULTILINE)
 DEPENDENCIES_LINE = re.compile(r"\*\*Dependencies and open decisions:\*\*\s*(.+)")
 
-DONE_STATES = {"DONE", "DONE-LOCAL", "IN-REVIEW"}
-BLOCKED_STATES = {"BLOCKED", "BLOCKED-ACCEPTED"}
+DONE_STATES = {"DONE", "DONE-LOCAL"}
+BLOCKED_STATES = {"BLOCKED-ACCEPTED"}
+UNFINISHED_STATES = {"BLOCKED", "IN-PROGRESS", "IN-REVIEW"}
 
 REQUIRED_BENCHMARKS = ("population", "siege", "stress")
 
@@ -174,21 +182,112 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
 
 
 def issue_status(register: dict[str, Any], docs_dir: Path) -> dict[str, str]:
-    """Local status inventory: register Status line wins; else matching progress/closeout doc."""
+    """Prefer register status, then issue-specific progress, then phase status."""
     statuses: dict[str, str] = {}
     progress_docs = {p.name.upper(): p.name for p in docs_dir.glob("*.md")}
     for issue_id, body in register["issues"].items():
-        m = STATUS_LINE.search(body)
-        if m:
-            statuses[issue_id] = m.group(1)
+        match = STATUS_LINE.search(body)
+        if match:
+            statuses[issue_id] = match.group(1)
             continue
-        phase = issue_id.split("-")[0]  # P10-1 -> P10
-        doc = (progress_docs.get(issue_id + "-PROGRESS.MD")
-               or progress_docs.get(issue_id + "-CLOSEOUT.MD")
-               or progress_docs.get(phase + "-PROGRESS.MD")
-               or progress_docs.get(phase + "-CLOSEOUT.MD"))
-        statuses[issue_id] = "IN-REVIEW" if doc else "NO-LOCAL-STATUS"
+        phase = issue_id.split("-")[0]
+        exact_doc = (progress_docs.get(issue_id + "-PROGRESS.MD")
+                     or progress_docs.get(issue_id + "-CLOSEOUT.MD"))
+        doc = exact_doc or progress_docs.get(phase + "-PROGRESS.MD") or progress_docs.get(phase + "-CLOSEOUT.MD")
+        if not doc:
+            statuses[issue_id] = "NO-LOCAL-STATUS"
+            continue
+        text = load_text(docs_dir / doc)
+        section = re.search(
+            rf"^## {re.escape(issue_id)}(?:\s|$)[^\n]*\n(.*?)(?=^## |\Z)",
+            text, re.MULTILINE | re.DOTALL)
+        match = STATUS_LINE.search(section.group(1)) if section else None
+        match = match or STATUS_LINE.search(text)
+        statuses[issue_id] = match.group(1) if match else "IN-REVIEW"
     return statuses
+
+
+def fixture_evidence_checks(root: Path, expected_fixture_count: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    report_path = root / "docs" / "parity" / "reports" / "storynpcs-fixture-report.json"
+    if not report_path.exists():
+        missing = "fresh storynpcs-fixture-report.json is missing"
+        return (
+            {"pass": False, "blocked": True, "findings": [missing]},
+            {"pass": False, "blocked": True, "findings": [missing]},
+        )
+
+    report = load_json(report_path)
+    fixture_report = report.get("fixture_report")
+    if not isinstance(fixture_report, dict):
+        return (
+            {"pass": False, "blocked": False, "findings": ["fixture report has no validated report payload"]},
+            {"pass": False, "blocked": True, "findings": ["target runtime evidence is unavailable"]},
+        )
+    evidence = fixture_report.get("evidence", {})
+    counts = report.get("storynpcs_fixture_counts", {})
+    if not isinstance(evidence, dict) or not isinstance(counts, dict):
+        return (
+            {"pass": False, "blocked": False, "findings": ["fixture report has malformed evidence fields"]},
+            {"pass": False, "blocked": True, "findings": ["target runtime evidence is unavailable"]},
+        )
+    current_fingerprint = source_fingerprint(root)
+    fingerprint_matches = report.get("source_fingerprint") == current_fingerprint
+    findings = []
+    if not fingerprint_matches:
+        findings.append("fixture evidence does not match the current source fingerprint")
+    if report.get("gradle_exit_code") != 0:
+        findings.append("the recorded full Gradle test run did not pass")
+    if report.get("status") == "FAIL":
+        findings.append("the fixture runner recorded a failed run")
+    if report.get("ci_validation_status") != "PASS":
+        findings.append("mapped JUnit fixture validation did not pass")
+    if report.get("missing_test_selectors") != []:
+        findings.append("one or more mapped JUnit selectors were missing")
+    if fixture_report.get("validation_status") != "PASS":
+        findings.append("fixture catalog validation did not pass")
+    if counts.get("fixture_count") != expected_fixture_count:
+        findings.append("fixture evidence count does not match the current catalog")
+    if counts.get("observed") != expected_fixture_count:
+        findings.append("not every fixture has a current StoryNPCs observation")
+    if counts.get("blocked") != 0 or counts.get("blocked_mapped") != 0:
+        findings.append("fixture execution contains blocked mapped cases")
+    if counts.get("failed") != 0 or counts.get("unmapped") != 0:
+        findings.append("fixture execution contains failed or unmapped cases")
+    probe_fixtures = report.get("storynpcs_probe_report", {}).get("fixtures", [])
+    if len(probe_fixtures) != expected_fixture_count:
+        findings.append("fixture probe report does not cover the current catalog")
+    elif any(
+        item.get("storynpcs_probe", {}).get("status") != "OBSERVED"
+        or item.get("storynpcs_probe", {}).get("result", {}).get("outcome") != "PASSED"
+        for item in probe_fixtures
+    ):
+        findings.append("one or more current fixture probes lack passing JUnit outcomes")
+
+    current = not findings
+    parity_status = evidence.get("parity_status")
+    certification_eligible = evidence.get("certification_eligible") is True
+    target_verified = parity_status == "VERIFIED" and certification_eligible
+    runtime_blocked = not target_verified
+    return (
+        {
+            "pass": current,
+            "blocked": not current and not fingerprint_matches,
+            "findings": findings,
+            "detail": {
+                "source_fingerprint_matches": fingerprint_matches,
+                "junit_test_case_count": report.get("junit_test_case_count"),
+                "storynpcs_fixture_counts": counts,
+            },
+        },
+        {
+            "pass": certification_eligible and parity_status == "VERIFIED",
+            "blocked": runtime_blocked,
+            "findings": [] if target_verified else [
+                "target-runtime observations are unavailable; target parity remains BLOCKED"
+            ],
+            "detail": {"parity_status": parity_status},
+        },
+    )
 
 
 def run_gate(root: Path) -> dict[str, Any]:
@@ -219,21 +318,40 @@ def run_gate(root: Path) -> dict[str, Any]:
     statuses = issue_status(register, parity)
     non_terminal = {k: v for k, v in statuses.items()
                     if v not in DONE_STATES | BLOCKED_STATES}
+    unknown_statuses = {
+        issue: status for issue, status in non_terminal.items()
+        if status not in UNFINISHED_STATES
+    }
     checks["issue_statuses_terminal"] = {
         "pass": not non_terminal,
+        "blocked": bool(non_terminal) and not unknown_statuses,
         "findings": [f"{k}: {v}" for k, v in sorted(non_terminal.items())],
         "detail": {s: sum(1 for v in statuses.values() if v == s)
                    for s in sorted(set(statuses.values()))},
-        "interpretation": "Terminal = has a local status only. IN-REVIEW certifies "
-                          "local implementation under review, NOT issue closure or "
-                          "target parity — do not read a pass here as 'all issues done'.",
+        "interpretation": "IN-REVIEW and unaccepted BLOCKED issues are not terminal; "
+                          "only completed or user-accepted blocked issues satisfy release closure.",
+    }
+    p11_3_status = statuses.get("P11-3", "NO-LOCAL-STATUS")
+    checks["p11_3_status"] = {
+        "pass": p11_3_status == "BLOCKED",
+        "blocked": p11_3_status == "BLOCKED",
+        "findings": [] if p11_3_status == "BLOCKED" else [
+            f"P11-3 must remain BLOCKED until runtime and evidence gates pass; found {p11_3_status}"
+        ],
+        "detail": p11_3_status,
     }
 
     manifest = load_json(parity / "target-surface-manifest.json")
     catalog = load_json(parity / "fixture-catalog.json")
     test_map = catalog.get("storynpcs_test_map", {})
-    fixture_ids = {f["fixture_id"] for f in catalog.get("fixtures", [])}
+    fixture_rows = catalog.get("fixtures", [])
+    fixture_ids = {f["fixture_id"] for f in fixture_rows}
+    fixture_execution, target_runtime = fixture_evidence_checks(root, len(fixture_rows))
+    checks["storynpcs_fixture_execution"] = fixture_execution
+    checks["target_runtime_evidence"] = target_runtime
     op_findings = []
+    if len(fixture_ids) != len(fixture_rows):
+        op_findings.append("fixture catalog contains duplicate fixture IDs")
     for row in manifest["surfaces"].get("operation_matrix", []):
         if not row.get("closing_issue_ids"):
             op_findings.append(f"operation {row.get('id')} names no closing issues")
@@ -301,10 +419,15 @@ def run_gate(root: Path) -> dict[str, Any]:
         "pass": not bench_findings, "findings": bench_findings, "detail": bench_detail,
     }
 
-    gate_status = "PASS" if all(c["pass"] for c in checks.values()) else "FAIL"
+    hard_failures = [name for name, check in checks.items()
+                     if not check["pass"] and not check.get("blocked", False)]
+    blocked_checks = [name for name, check in checks.items() if check.get("blocked", False)]
+    gate_status = "FAIL" if hard_failures else "BLOCKED" if blocked_checks else "PASS"
     return {"gate_status": gate_status,
-            "honesty": "PASS means the local evidence checklist is complete; "
-                       "target-runtime parity remains BLOCKED — never certified by this gate.",
+            "honesty": "BLOCKED means required evidence is unavailable; target-runtime parity "
+                       "cannot be certified by JVM tests or headless GameTests.",
+            "blocking_checks": blocked_checks,
+            "failed_checks": hard_failures,
             "checks": checks}
 
 
@@ -315,7 +438,8 @@ def main() -> int:
     out.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(f"gate={report['gate_status']} -> {out}")
     for name, check in report["checks"].items():
-        print(f"  {'PASS' if check['pass'] else 'FAIL'} {name} {check['findings'][:3]}")
+        status = "BLOCKED" if check.get("blocked") else "PASS" if check["pass"] else "FAIL"
+        print(f"  {status} {name} {check['findings'][:3]}")
     return 0 if report["gate_status"] == "PASS" else 1
 
 

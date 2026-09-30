@@ -1,6 +1,6 @@
 # P10 — Authoring hub, AI patch plans, creator docs (P10-1..P10-3)
 
-Status: P10-1 remains `IN-REVIEW`; P10-2 and P10-3 remain `IN-REVIEW` (local implementation only; no issue is closed by this progress note).
+Status: `IN-REVIEW` for P10-1, P10-2, and P10-3 (local implementation only; no issue is closed by this progress note).
 Evidence: `P10DomainTest` and `CreatorDocsExamplesTest` exist. The full-suite result in the prior snapshot is stale; current verification is recorded separately.
 
 ## P10-1 — Unified authoring hub (#88)

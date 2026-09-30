@@ -9,13 +9,17 @@ import java.util.Set;
  */
 public final class AuthorizationPolicy {
     private static final Set<String> ADAPTER_ACTORS = Set.of(
-            "adapter", "command", "packet", "gui", "api", "console", "system");
+            "adapter", "command", "packet", "gui", "console", "system");
 
     private AuthorizationPolicy() {}
 
     public static AuthorizationDecision evaluate(MutationRequest request) {
         String actor = request.actorType();
         String capability = request.capability();
+        if (actor.equals("api")) {
+            return AuthorizationDecision.deny("REMOTE_AUTH_UNAVAILABLE",
+                    "API mutations are disabled until server-owned capability sessions are integrated.");
+        }
         boolean playerActor = actor.startsWith("player:") && actor.length() > "player:".length();
         if (!playerActor && !ADAPTER_ACTORS.contains(actor) && !actor.equals("script")) {
             return AuthorizationDecision.deny("UNKNOWN_ACTOR", "Unknown mutation actor type: " + actor);
@@ -86,23 +90,11 @@ public final class AuthorizationPolicy {
                 request.capability());
     }
 
-    /**
-     * Authorization for remote (API-carried) mutations: the base definition
-     * rules plus a {@link com.storynpcs.admin.RemoteAccessProof} that must be
-     * temporally valid AND carry the request's capability. A missing, expired,
-     * or under-scoped proof fails closed before any mutation.
-     */
+    /** Remote mutations fail closed until a server-owned capability-session registry is integrated. */
     public static AuthorizationDecision evaluateRemote(MutationRequest request,
             com.storynpcs.admin.RemoteAccessProof proof, long nowTick) {
-        AuthorizationDecision base = evaluate(request);
-        if (!base.allowed()) {
-            return base;
-        }
-        if (proof == null || !proof.permits(request.capability(), nowTick)) {
-            return AuthorizationDecision.deny("REMOTE_PROOF_INVALID",
-                    "Remote mutations require an unexpired proof carrying the capability");
-        }
-        return AuthorizationDecision.allow();
+        return AuthorizationDecision.deny("REMOTE_AUTH_UNAVAILABLE",
+                "Remote mutations are disabled until a server-owned capability session is validated.");
     }
 
     private static AuthorizationDecision evaluatePlayerScoped(

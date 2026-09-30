@@ -1,4 +1,9 @@
 {
+ "blocking_checks": [
+  "issue_statuses_terminal",
+  "p11_3_status",
+  "target_runtime_evidence"
+ ],
  "checks": {
   "benchmark_artifacts": {
    "detail": {
@@ -25,14 +30,14 @@
    "detail": {
     "backward_edges": 207,
     "forward_references": [
-     "P0-4 -> P6-4 (forward ownership/fixture reference)",
+     "P0-4 -> P8-1 (forward ownership/fixture reference)",
+     "P0-4 -> P1-1 (forward ownership/fixture reference)",
+     "P0-4 -> P8-2 (forward ownership/fixture reference)",
      "P0-4 -> P9-2 (forward ownership/fixture reference)",
      "P0-4 -> P9-1 (forward ownership/fixture reference)",
-     "P0-4 -> P8-1 (forward ownership/fixture reference)",
-     "P0-4 -> P8-2 (forward ownership/fixture reference)",
-     "P0-4 -> P1-1 (forward ownership/fixture reference)",
-     "P0-4 -> P8-3 (forward ownership/fixture reference)",
      "P0-4 -> P6-3 (forward ownership/fixture reference)",
+     "P0-4 -> P6-4 (forward ownership/fixture reference)",
+     "P0-4 -> P8-3 (forward ownership/fixture reference)",
      "P3-3 -> P6-1 (forward ownership/fixture reference)",
      "P4-1 -> P4-3 (forward ownership/fixture reference)",
      "P8-3 -> P9-2 (forward ownership/fixture reference)",
@@ -56,13 +61,93 @@
    "pass": true
   },
   "issue_statuses_terminal": {
+   "blocked": true,
    "detail": {
-    "DONE-LOCAL": 1,
-    "IN-REVIEW": 46
+    "BLOCKED": 1,
+    "DONE-LOCAL": 5,
+    "IN-PROGRESS": 18,
+    "IN-REVIEW": 23
+   },
+   "findings": [
+    "P1-1: IN-REVIEW",
+    "P1-2: IN-REVIEW",
+    "P1-4: IN-REVIEW",
+    "P10-1: IN-REVIEW",
+    "P10-2: IN-REVIEW",
+    "P10-3: IN-REVIEW",
+    "P11-1: IN-REVIEW",
+    "P11-2: IN-REVIEW",
+    "P11-3: BLOCKED",
+    "P2-1: IN-REVIEW",
+    "P2-2: IN-REVIEW",
+    "P2-3: IN-REVIEW",
+    "P3-1: IN-REVIEW",
+    "P3-2: IN-REVIEW",
+    "P3-3: IN-PROGRESS",
+    "P3-4: IN-PROGRESS",
+    "P4-1: IN-PROGRESS",
+    "P4-2: IN-PROGRESS",
+    "P4-3: IN-PROGRESS",
+    "P5-1: IN-PROGRESS",
+    "P5-2: IN-REVIEW",
+    "P5-3: IN-PROGRESS",
+    "P5-4: IN-PROGRESS",
+    "P5-5: IN-REVIEW",
+    "P6-1: IN-PROGRESS",
+    "P6-2: IN-REVIEW",
+    "P6-3: IN-REVIEW",
+    "P6-4: IN-REVIEW",
+    "P6-5: IN-REVIEW",
+    "P7-1: IN-PROGRESS",
+    "P7-2: IN-PROGRESS",
+    "P8-1: IN-REVIEW",
+    "P8-2: IN-PROGRESS",
+    "P8-3: IN-PROGRESS",
+    "P8-4: IN-PROGRESS",
+    "P8-5: IN-PROGRESS",
+    "P8-6: IN-PROGRESS",
+    "P9-1: IN-REVIEW",
+    "P9-2: IN-REVIEW",
+    "P9-3: IN-PROGRESS",
+    "P9-4: IN-REVIEW",
+    "P9-5: IN-PROGRESS"
+   ],
+   "interpretation": "IN-REVIEW and unaccepted BLOCKED issues are not terminal; only completed or user-accepted blocked issues satisfy release closure.",
+   "pass": false
+  },
+  "p11_3_status": {
+   "blocked": true,
+   "detail": "BLOCKED",
+   "findings": [],
+   "pass": true
+  },
+  "storynpcs_fixture_execution": {
+   "blocked": false,
+   "detail": {
+    "junit_test_case_count": 753,
+    "source_fingerprint_matches": true,
+    "storynpcs_fixture_counts": {
+     "blocked": 0,
+     "blocked_mapped": 0,
+     "failed": 0,
+     "fixture_count": 25,
+     "mapped_cases": 129,
+     "observed": 25,
+     "unmapped": 0
+    }
    },
    "findings": [],
-   "interpretation": "Terminal = has a local status only. IN-REVIEW certifies local implementation under review, NOT issue closure or target parity \u2014 do not read a pass here as 'all issues done'.",
    "pass": true
+  },
+  "target_runtime_evidence": {
+   "blocked": true,
+   "detail": {
+    "parity_status": "BLOCKED"
+   },
+   "findings": [
+    "target-runtime observations are unavailable; target parity remains BLOCKED"
+   ],
+   "pass": false
   },
   "twentytwo_domains_mapped": {
    "detail": {
@@ -74,6 +159,7 @@
    "pass": true
   }
  },
- "gate_status": "PASS",
- "honesty": "PASS means the local evidence checklist is complete; target-runtime parity remains BLOCKED \u2014 never certified by this gate."
+ "failed_checks": [],
+ "gate_status": "BLOCKED",
+ "honesty": "BLOCKED means required evidence is unavailable; target-runtime parity cannot be certified by JVM tests or headless GameTests."
 }

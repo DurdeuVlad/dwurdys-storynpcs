@@ -146,7 +146,7 @@ class P9DomainTest {
     // --- P9-4 remote/admin/config ---------------------------------------------
 
     @Test
-    void remoteProofRequiresSessionAndCapability() {
+    void remoteProofCarriesSessionAndCapabilityClaimsButIsNotAuthorization() {
         RemoteAccessProof proof = new RemoteAccessProof(
                 UUID.randomUUID(), UUID.randomUUID(), Set.of("admin.remote.edit"), 0, 100);
         assertThat(proof.permits("admin.remote.edit", 50)).isTrue();

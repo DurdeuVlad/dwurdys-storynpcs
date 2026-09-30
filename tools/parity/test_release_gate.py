@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,11 +17,50 @@ PARITY = ROOT / "docs" / "parity"
 
 class ReleaseGateTest(unittest.TestCase):
 
-    def test_checked_in_state_passes_all_checks(self):
+    def test_unverified_target_runtime_keeps_release_gate_blocked(self):
         report = release_gate.run_gate(ROOT)
-        for name, check in report["checks"].items():
-            self.assertTrue(check["pass"], f"{name}: {check['findings'][:5]}")
-        self.assertEqual(report["gate_status"], "PASS")
+        self.assertEqual(report["gate_status"], "BLOCKED")
+        self.assertTrue(report["checks"]["storynpcs_fixture_execution"]["pass"],
+                        report["checks"]["storynpcs_fixture_execution"]["findings"])
+        self.assertTrue(report["checks"]["p11_3_status"]["pass"])
+        self.assertTrue(report["checks"]["p11_3_status"]["blocked"])
+        self.assertFalse(report["checks"]["target_runtime_evidence"]["pass"])
+        self.assertTrue(report["checks"]["target_runtime_evidence"]["blocked"])
+
+    def test_in_review_is_not_a_terminal_release_state(self):
+        self.assertNotIn("IN-REVIEW", release_gate.DONE_STATES)
+        self.assertIn("IN-REVIEW", release_gate.UNFINISHED_STATES)
+
+    def test_stale_fixture_evidence_cannot_pass_the_release_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report_path = root / "docs" / "parity" / "reports" / "storynpcs-fixture-report.json"
+            report_path.parent.mkdir(parents=True)
+            report_path.write_text(json.dumps({
+                "source_fingerprint": "stale",
+                "gradle_exit_code": 0,
+                "ci_validation_status": "PASS",
+                "missing_test_selectors": [],
+                "junit_test_case_count": 1,
+                "storynpcs_fixture_counts": {
+                    "fixture_count": 1, "observed": 1, "blocked": 0,
+                    "blocked_mapped": 0, "failed": 0, "unmapped": 0,
+                },
+                "storynpcs_probe_report": {"fixtures": [{
+                    "storynpcs_probe": {"status": "OBSERVED", "result": {"outcome": "PASSED"}}
+                }]},
+                "fixture_report": {
+                    "validation_status": "PASS",
+                    "evidence": {"parity_status": "BLOCKED", "certification_eligible": False},
+                },
+            }), encoding="utf-8")
+
+            local, runtime = release_gate.fixture_evidence_checks(root, 1)
+
+            self.assertFalse(local["pass"])
+            self.assertTrue(local["blocked"])
+            self.assertFalse(runtime["pass"])
+            self.assertTrue(runtime["blocked"])
 
     def test_register_parses_unique_issues_and_milestones(self):
         register = release_gate.parse_register(
@@ -76,8 +116,11 @@ class ReleaseGateTest(unittest.TestCase):
         statuses = release_gate.issue_status(register, PARITY)
         self.assertEqual(set(statuses), set(register["issues"]))
         for issue, status in statuses.items():
-            self.assertIn(status, release_gate.DONE_STATES | release_gate.BLOCKED_STATES,
+            self.assertIn(status, release_gate.DONE_STATES
+                          | release_gate.BLOCKED_STATES
+                          | release_gate.UNFINISHED_STATES,
                           f"{issue}: {status}")
+        self.assertEqual(statuses["P11-3"], "BLOCKED")
 
 
 if __name__ == "__main__":

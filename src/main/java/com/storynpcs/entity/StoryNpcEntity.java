@@ -402,6 +402,7 @@ public class StoryNpcEntity extends PathfinderMob {
     }
 
     public Optional<NpcDefinition> getDefinition() {
+        if (state == null) return Optional.empty();
         var mod = StoryNpcsAccess.mod(this);
         return mod != null ? state.resolveDefinition(mod.getRegistry()) : Optional.empty();
     }
@@ -1062,9 +1063,11 @@ public class StoryNpcEntity extends PathfinderMob {
         net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                 ? serverLevel.getServer()
                 : null;
-        if (!this.level().isClientSide && mod != null && mod.getActorLifecycleService(server) != null) {
+        String actorIdValue = getActorId();
+        if (!this.level().isClientSide && mod != null && mod.getActorLifecycleService(server) != null
+                && actorIdValue != null && !actorIdValue.isBlank()) {
             try {
-                NamespacedId actorId = NamespacedId.of(getActorId());
+                NamespacedId actorId = NamespacedId.of(actorIdValue);
                 if (reason == RemovalReason.UNLOADED_TO_CHUNK) {
                     mod.getActorLifecycleService(server).unloadProjection(actorId, this.getUUID());
                 } else {

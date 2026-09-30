@@ -59,6 +59,14 @@ class P6P9WiringTest {
         service.setLoader(loader);
     }
 
+    @Test
+    void sharedRuntimeTunableAccessExposesOnlyTheReadOnlyView() throws ReflectiveOperationException {
+        assertThat(StoryNpcs.class.getMethod("getRuntimeTunables").getReturnType())
+                .isEqualTo(com.storynpcs.admin.RuntimeTunablesView.class);
+        assertThat(StoryNpcsApplicationService.class.getMethod("runtimeTunables").getReturnType())
+                .isEqualTo(com.storynpcs.admin.RuntimeTunablesView.class);
+    }
+
     // ── companion wages (P6-5) ──────────────────────────────────────────────
 
     @Test

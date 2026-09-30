@@ -19,10 +19,10 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 try:
-    from tools.parity.fixture_harness import load_catalog, run_catalog
+    from tools.parity.fixture_harness import load_catalog, run_catalog, source_fingerprint
 except ModuleNotFoundError:  # Direct execution: python tools/parity/run_storynpcs_fixtures.py
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from tools.parity.fixture_harness import load_catalog, run_catalog
+    from tools.parity.fixture_harness import load_catalog, run_catalog, source_fingerprint
 
 
 MAX_JUNIT_REPORTS = 1024
@@ -632,6 +632,7 @@ def main() -> int:
         "ci_allowed_blockers": sorted(catalog.get("storynpcs_test_blockers", {})) if ci_pass else [],
         "parity_status": fixture_report["evidence"].get("parity_status", "UNKNOWN"),
         "gradle_test_command": command,
+        "source_fingerprint": source_fingerprint(repository_root),
         "gradle_exit_code": gradle_result.returncode,
         "junit_test_case_count": len(junit_cases),
         "junit_test_suite_count": test_suite_count,

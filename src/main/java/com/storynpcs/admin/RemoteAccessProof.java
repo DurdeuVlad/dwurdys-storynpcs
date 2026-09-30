@@ -4,9 +4,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Proof required for remote admin operations (P9-4): a bound session plus an
- * explicit capability — requests lacking either are rejected before reaching
- * any mutation.
+ * Untrusted remote-access claims (P9-4). These fields are not authorization
+ * evidence until a server-owned session registry validates them.
  */
 public record RemoteAccessProof(
         UUID sessionId,

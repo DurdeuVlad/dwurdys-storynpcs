@@ -14,6 +14,7 @@ from tools.parity.run_storynpcs_fixtures import (
     main,
     read_junit_cases,
 )
+from tools.parity.fixture_harness import source_fingerprint
 from tools.parity import run_storynpcs_fixtures
 
 
@@ -41,6 +42,23 @@ class StoryNpcsFixtureRunnerTest(unittest.TestCase):
                 },
             },
         }
+
+    def test_source_fingerprint_tracks_inputs_but_ignores_generated_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src" / "main").mkdir(parents=True)
+            source = root / "src" / "main" / "Example.java"
+            source.write_text("class Example {}", encoding="utf-8")
+            reports = root / "docs" / "parity" / "reports"
+            reports.mkdir(parents=True)
+            generated = reports / "fixture-report.json"
+            generated.write_text("first", encoding="utf-8")
+
+            before = source_fingerprint(root)
+            generated.write_text("second", encoding="utf-8")
+            self.assertEqual(before, source_fingerprint(root))
+            source.write_text("class Example { int changed; }", encoding="utf-8")
+            self.assertNotEqual(before, source_fingerprint(root))
 
     def test_gradle_command_clears_previous_test_reports_before_running(self):
         self.assertIn("cleanTest test --rerun-tasks", gradle_test_command())

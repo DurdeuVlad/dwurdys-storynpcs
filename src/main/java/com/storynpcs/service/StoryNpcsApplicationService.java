@@ -104,9 +104,9 @@ public class StoryNpcsApplicationService {
         this.tradeStateRepository = tradeStateRepository;
     }
 
-    /** The live runtime tunable store backing dialogue/script budget consumers. */
-    public com.storynpcs.admin.RuntimeTunables runtimeTunables() {
-        return runtimeTunables;
+    /** Read-only runtime tunable view backing dialogue/script budget consumers. */
+    public com.storynpcs.admin.RuntimeTunablesView runtimeTunables() {
+        return runtimeTunables.readOnlyView();
     }
 
     /** Wiring-time injection of the shared store — must run before sessions start. */
@@ -126,11 +126,7 @@ public class StoryNpcsApplicationService {
         return mutateRuntimeTunables(request, changes, AuthorizationPolicy.evaluate(request));
     }
 
-    /**
-     * Remote (API-carried) variant: the adapter presents a
-     * {@link com.storynpcs.admin.RemoteAccessProof} bound to this config
-     * capability; expired or under-scoped proofs fail closed at the gate.
-     */
+    /** Remote API writes fail closed until server-owned capability sessions are integrated. */
     public CanonicalMutationResult mutateRuntimeTunables(
             MutationRequest request, java.util.Map<String, String> changes,
             com.storynpcs.admin.RemoteAccessProof proof, long nowTick) {

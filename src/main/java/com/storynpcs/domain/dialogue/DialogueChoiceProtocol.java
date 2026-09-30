@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.storynpcs.admin.RuntimeTunables;
+import com.storynpcs.admin.RuntimeTunablesView;
 import com.storynpcs.domain.common.NamespacedId;
 
 /**
@@ -64,7 +65,7 @@ public final class DialogueChoiceProtocol {
     private final SecureRandom random = new SecureRandom();
     private final long expiryTicks;
     private final long maxPending;
-    private final java.util.function.Supplier<RuntimeTunables> tunables; // nullable — live tunable source
+    private final java.util.function.Supplier<? extends RuntimeTunablesView> tunables; // nullable — live tunable source
 
     public DialogueChoiceProtocol() {
         this(DEFAULT_EXPIRY_TICKS);
@@ -75,25 +76,25 @@ public final class DialogueChoiceProtocol {
     }
 
     public DialogueChoiceProtocol(long expiryTicks, long maxPending) {
-        this(expiryTicks, maxPending, (java.util.function.Supplier<RuntimeTunables>) null);
+        this(expiryTicks, maxPending, (java.util.function.Supplier<? extends RuntimeTunablesView>) null);
     }
 
     /** Tunable-backed protocol: expiry/capacity resolve live per issue. */
-    public DialogueChoiceProtocol(RuntimeTunables tunables) {
+    public DialogueChoiceProtocol(RuntimeTunablesView tunables) {
         this(DEFAULT_EXPIRY_TICKS, DEFAULT_MAX_PENDING,
                 tunables == null
-                        ? (java.util.function.Supplier<RuntimeTunables>) null
-                        : (java.util.function.Supplier<RuntimeTunables>) () -> tunables);
+                        ? (java.util.function.Supplier<? extends RuntimeTunablesView>) null
+                        : () -> tunables);
     }
 
     /** Live-supplier variant: the supplier is queried per call (wiring-safe). */
-    public DialogueChoiceProtocol(java.util.function.Supplier<RuntimeTunables> tunablesSupplier) {
+    public DialogueChoiceProtocol(java.util.function.Supplier<? extends RuntimeTunablesView> tunablesSupplier) {
         this(DEFAULT_EXPIRY_TICKS, DEFAULT_MAX_PENDING,
                 java.util.Objects.requireNonNull(tunablesSupplier, "tunablesSupplier"));
     }
 
     private DialogueChoiceProtocol(long expiryTicks, long maxPending,
-                                   java.util.function.Supplier<RuntimeTunables> tunables) {
+                                   java.util.function.Supplier<? extends RuntimeTunablesView> tunables) {
         if (expiryTicks <= 0) {
             throw new IllegalArgumentException("expiryTicks must be positive");
         }
@@ -105,18 +106,18 @@ public final class DialogueChoiceProtocol {
         this.tunables = tunables;
     }
 
-    private RuntimeTunables tunables() {
+    private RuntimeTunablesView tunables() {
         return tunables != null ? tunables.get() : null;
     }
 
     private long expiryTicks() {
-        RuntimeTunables t = tunables();
+        RuntimeTunablesView t = tunables();
         return t != null
                 ? t.longValue(RuntimeTunables.DIALOGUE_TOKEN_EXPIRY_TICKS) : expiryTicks;
     }
 
     private long maxPending() {
-        RuntimeTunables t = tunables();
+        RuntimeTunablesView t = tunables();
         return t != null
                 ? t.longValue(RuntimeTunables.DIALOGUE_TOKEN_MAX_PENDING) : maxPending;
     }
