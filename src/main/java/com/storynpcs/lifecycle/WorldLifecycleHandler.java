@@ -39,8 +39,10 @@ public class WorldLifecycleHandler {
     /** Starter definitions shipped inside the mod jar at data/storynpcs/definitions/. */
     private static final List<String> STARTER_DEFINITIONS = List.of(
             "dialogues/captain_dialogue.yaml",
+            "dialogues/quickstart_dialogue.yaml",
             "factions/town_guard.yaml",
             "npcs/guard_captain.yaml",
+            "npcs/quickstart_demo.yaml",
             "quests/bounty_goblins.yaml"
     );
 
@@ -168,6 +170,22 @@ public class WorldLifecycleHandler {
         mod.setBankRepository(bankRepo);
         mod.setTradeStateRepository(new com.storynpcs.persistence.TradeStateRepository(tradeDir));
 
+        // P5-5: durable quest-mail store — the recovery channel for rewards
+        // that cannot be delivered (full inventory, overflow). Claimed mail is
+        // durable per-write; there is nothing to flush on world save.
+        Path mailDir = storyNpcsDir.resolve("mail");
+        com.storynpcs.domain.quest.QuestMailStore mailStore = null;
+        try {
+            mailStore = new com.storynpcs.domain.quest.QuestMailStore(
+                    mailDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            mailStore.open();
+            mod.setQuestMailStore(mailStore);
+        } catch (Exception mailFailure) {
+            LOGGER.error("Quest mail store could not be opened at {}: {}",
+                    mailDir, mailFailure.getMessage());
+            mod.setQuestMailStore(null);
+        }
+
         // The logical actor scope is a durable world identity (scope.id), not the
         // world directory path — relocating a world must not orphan its actors.
         ActorLifecycleService actorService;
@@ -210,6 +228,8 @@ public class WorldLifecycleHandler {
         // VULN-57: give the service a loader reference so deleteNpc can delete YAML files on disk
         appService.setLoader(mod.getLoader());
         appService.setTradeStateRepository(mod.getTradeStateRepository());
+        appService.setQuestMailStore(mod.getQuestMailStore());
+        appService.setRuntimeTunables(mod.getRuntimeTunables());
         mod.setApplicationService(appService);
 
         // Load definitions
@@ -390,6 +410,12 @@ public class WorldLifecycleHandler {
         }
         mod.getFollowerGroup(stoppingServer).clearAll();
         mod.getRuntimeSessions(stoppingServer).clearAll();
+        // Drop the world-scoped mail store binding — writes are durable per-op,
+        // and a new world must never deliver another world's mail.
+        mod.setQuestMailStore(null);
+        if (mod.getApplicationService() != null) {
+            mod.getApplicationService().setQuestMailStore(null);
+        }
         mod.clearServerRuntime(stoppingServer);
         if (stoppingActorService != null && mod.getActorLifecycleService() == stoppingActorService) {
             mod.setActorLifecycleService(null);
@@ -458,6 +484,26 @@ public class WorldLifecycleHandler {
                 }
             } catch (RuntimeException failure) {
                 LOGGER.error("StoryNPCs trade recovery failed for {}: {}", uuid, failure.getMessage());
+            }
+            try {
+                int unresolvedCompletions = mod.getApplicationService().recoverQuestCompletions(uuid);
+                if (unresolvedCompletions > 0) {
+                    LOGGER.warn("{} StoryNPCs quest completion(s) still require recovery for player {}",
+                            unresolvedCompletions, uuid);
+                }
+            } catch (RuntimeException failure) {
+                LOGGER.error("StoryNPCs quest completion recovery failed for {}: {}",
+                        uuid, failure.getMessage());
+            }
+            try {
+                int recoveredMail = mod.getApplicationService().recoverQuestMailDeliveries(uuid);
+                if (recoveredMail > 0) {
+                    LOGGER.info("Recovered {} StoryNPCs quest mail deliver(ies) interrupted by a crash for player {}",
+                            recoveredMail, uuid);
+                }
+            } catch (RuntimeException failure) {
+                LOGGER.error("StoryNPCs quest mail recovery failed for {}: {}",
+                        uuid, failure.getMessage());
             }
         }
         LOGGER.debug("Loaded progression and bank for player {}", uuid);

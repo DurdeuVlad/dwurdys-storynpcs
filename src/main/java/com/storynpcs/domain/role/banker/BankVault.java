@@ -96,6 +96,14 @@ public class BankVault {
     @JsonProperty
     private int unlockedTabs = 1;
 
+    /** Access policy — private per owner unless explicitly shared. */
+    @JsonProperty
+    private AccessPolicy accessPolicy = AccessPolicy.PRIVATE;
+
+    /** Additional members permitted when accessPolicy is SHARED. */
+    @JsonProperty
+    private java.util.Set<java.util.UUID> sharedMemberUuids = new java.util.LinkedHashSet<>();
+
     @JsonProperty
     private Map<Integer, List<VaultItem>> tabs = new HashMap<>();
 
@@ -116,8 +124,37 @@ public class BankVault {
     public UUID getPlayerUuid() { return playerUuid; }
     public void setPlayerUuid(UUID playerUuid) { this.playerUuid = playerUuid; }
 
+    public static final int MAX_TABS = 6;
+
+    public enum AccessPolicy { PRIVATE, SHARED }
+
     public int getUnlockedTabs() { return unlockedTabs; }
-    public void setUnlockedTabs(int unlockedTabs) { this.unlockedTabs = unlockedTabs; }
+    public void setUnlockedTabs(int unlockedTabs) {
+        if (unlockedTabs < 1 || unlockedTabs > MAX_TABS) {
+            throw new IllegalArgumentException("unlockedTabs must be in [1," + MAX_TABS + "]");
+        }
+        this.unlockedTabs = unlockedTabs;
+    }
+
+    public AccessPolicy getAccessPolicy() { return accessPolicy; }
+    public void setAccessPolicy(AccessPolicy accessPolicy) {
+        this.accessPolicy = accessPolicy == null ? AccessPolicy.PRIVATE : accessPolicy;
+    }
+
+    public java.util.Set<java.util.UUID> getSharedMemberUuids() {
+        return java.util.Collections.unmodifiableSet(sharedMemberUuids);
+    }
+    public void setSharedMemberUuids(java.util.Set<java.util.UUID> sharedMemberUuids) {
+        this.sharedMemberUuids = sharedMemberUuids == null
+                ? new java.util.LinkedHashSet<>() : new java.util.LinkedHashSet<>(sharedMemberUuids);
+    }
+
+    /** Owner is always permitted; SHARED additionally permits listed members. */
+    public boolean canAccess(java.util.UUID playerUuid) {
+        return playerUuid != null
+                && (playerUuid.equals(this.playerUuid)
+                    || (accessPolicy == AccessPolicy.SHARED && sharedMemberUuids.contains(playerUuid)));
+    }
 
     public synchronized long getRevision() { return revision; }
 
@@ -148,6 +185,8 @@ public class BankVault {
         BankVault copy = new BankVault();
         copy.playerUuid = playerUuid;
         copy.unlockedTabs = unlockedTabs;
+        copy.accessPolicy = accessPolicy;
+        copy.sharedMemberUuids = new java.util.LinkedHashSet<>(sharedMemberUuids);
         copy.revision = revision;
         copy.tabs = deepCopyTabs(tabs);
         copy.operationMarkers = deepCopyOperationMarkers(operationMarkers);
@@ -159,6 +198,8 @@ public class BankVault {
         Objects.requireNonNull(snapshot, "snapshot");
         this.playerUuid = snapshot.playerUuid;
         this.unlockedTabs = snapshot.unlockedTabs;
+        this.accessPolicy = snapshot.accessPolicy;
+        this.sharedMemberUuids = new java.util.LinkedHashSet<>(snapshot.sharedMemberUuids);
         this.revision = snapshot.revision;
         this.tabs = deepCopyTabs(snapshot.tabs);
         this.operationMarkers = deepCopyOperationMarkers(snapshot.operationMarkers);

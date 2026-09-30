@@ -1,0 +1,92 @@
+{
+  "artifact_kind": "benchmark-evidence",
+  "scenario": "siege",
+  "runtime_kind": "storynpcs-headless-jvm",
+  "honesty_note": "Headless scheduler/path/squad benchmark on a plain JVM. Numbers are scheduler tick times, NOT live-server MSPT. Live runtime certification requires a NeoForge server probe that remains unavailable (no live MC testing permitted)."
+  ,"runs": [
+    {
+      "seed": 24301,
+      "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
+      "ticks": 1500,
+      "metrics": {
+        "tick_p50_ms": 0.077196,
+        "tick_p95_ms": 0.152296,
+        "tick_p99_ms": 0.250616,
+        "heap_after_gc_bytes": 36888456,
+        "dormant_incremental_bytes": 1,
+        "path_queue_max_depth": 0,
+        "path_queue_dropped": 0,
+        "correctness_failures": 0,
+        "lost_events": 0,
+        "duplicated_events": 0
+      },
+      "threshold_results": [
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.152296, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.250616, "pass": true},
+        {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
+        {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
+        {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
+        {"metric": "lostEvents", "limit": "=0", "actual": 0.0, "pass": true},
+        {"metric": "duplicatedEvents", "limit": "=0", "actual": 0.0, "pass": true}
+      ],
+      "scenario_pass": true
+    },
+    {
+      "seed": 51966,
+      "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
+      "ticks": 1500,
+      "metrics": {
+        "tick_p50_ms": 0.078308,
+        "tick_p95_ms": 0.17268,
+        "tick_p99_ms": 0.241824,
+        "heap_after_gc_bytes": 36887264,
+        "dormant_incremental_bytes": 1,
+        "path_queue_max_depth": 0,
+        "path_queue_dropped": 0,
+        "correctness_failures": 0,
+        "lost_events": 0,
+        "duplicated_events": 0
+      },
+      "threshold_results": [
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.17268, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.241824, "pass": true},
+        {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
+        {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
+        {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
+        {"metric": "lostEvents", "limit": "=0", "actual": 0.0, "pass": true},
+        {"metric": "duplicatedEvents", "limit": "=0", "actual": 0.0, "pass": true}
+      ],
+      "scenario_pass": true
+    },
+    {
+      "seed": 48879,
+      "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
+      "ticks": 1500,
+      "metrics": {
+        "tick_p50_ms": 0.085472,
+        "tick_p95_ms": 0.170564,
+        "tick_p99_ms": 0.29204,
+        "heap_after_gc_bytes": 36888296,
+        "dormant_incremental_bytes": 1,
+        "path_queue_max_depth": 0,
+        "path_queue_dropped": 0,
+        "correctness_failures": 0,
+        "lost_events": 0,
+        "duplicated_events": 0
+      },
+      "threshold_results": [
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.170564, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.29204, "pass": true},
+        {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
+        {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
+        {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
+        {"metric": "lostEvents", "limit": "=0", "actual": 0.0, "pass": true},
+        {"metric": "duplicatedEvents", "limit": "=0", "actual": 0.0, "pass": true}
+      ],
+      "scenario_pass": true
+    }
+  ],
+  "timing_repeatable_within_10pct": false,
+  "timing_repeatability_note": "Contract repeatability over wall-clock p95 across seeds; environment noise makes sub-ms ±10% unstable on shared machines. Workload determinism (identical seeds → identical work counters) is asserted separately in SimCertificationBenchmarkTest.",
+  "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED"
+}

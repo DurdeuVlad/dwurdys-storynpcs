@@ -32,8 +32,15 @@ This slice implements the runtime foundation for separating durable logical NPC 
 - `StoryNpcStateTest`: logical actor identity independent of definition identity.
 - `FollowerGroupTest` and `FollowerFormationGoalTest`: instance-owned formation state.
 
+## Lifecycle governance update (review-remediation slice)
+
+- The mutable `StoryNpcs.instance` singleton is **removed entirely**. The mod instance is published onto every loaded `Level` — server dimensions and the client world — as a transient NeoForge data attachment (`StoryNpcsAttachments.MOD_HANDLE`) at `LevelEvent.Load`, so the handle lives and dies with the level lifecycle.
+- All 129 former `getInstance()`/`requireInstance()` call sites now resolve through `StoryNpcsAccess` (`mod(LevelAccessor|Entity|MinecraftServer)` + `require(...)` variants): commands resolve via the command source's server, packet handlers via the `ServerPlayer`, entities/goals via their own level, tool items via the acting player, and `WitnessProtectionManager` via the attacker entity. The unused UUID-only `StoryNpcsNetwork.clearPlayer` overload — which had no lifecycle object to resolve through — was deleted.
+- Repository-wide managed-lifecycle scan: **zero** non-final static fields remain under `src/main/java` — the allowlist is gone. `ManagedLifecycleScanTest` now fails on *any* new mutable static field and asserts the null-safe resolution contract plus test-fixture isolation.
+- Server-scoped service resolution (`serverActorServices`, `serverActorRepositories`, `serverRuntimeSessions`, `serverFollowerGroups`) remains keyed by `MinecraftServer` with `clearServerRuntime` teardown; no static fallback exists.
+
 ## Known boundary
 
-The existing `StoryNpcs.getInstance()` method remains as a Minecraft adapter/bootstrap compatibility boundary. Mutable player, actor, tool, and follower state no longer lives in that static reference or in static collections. The 2026-09-22 architecture review correctly reopens this issue because adapter-wide singleton access still exists; removal or an explicit managed-context replacement is required before this issue can be certified.
+`StoryNpcsAccess` resolution depends on `LevelEvent.Load` firing for every level the mod serves — NeoForge fires it for the overworld, each dimension, and the client world, and the listener is registered in the mod constructor so no load can precede publication. Certification still requires an independent adversarial review of this resolution layer plus the target-runtime evidence gate; attachment-population timing inside the live client bootstrap is part of that gate.
 
 The logical actor registry currently persists identity and definition association. Role-specific durable payload migration and progression/economy recovery remain tracked by P2-2 and the role milestone; this issue provides the stable owner and lifecycle hooks those stores will use.

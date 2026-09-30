@@ -27,6 +27,13 @@ public class TradeListing {
     @JsonProperty
     private int priceCount = 1;
 
+    /** Optional second input slot — up to two inputs/one output (P7-1). */
+    @JsonProperty
+    private String secondaryPriceItemId;
+
+    @JsonProperty
+    private int secondaryPriceCount = 0;
+
     @JsonProperty
     private int maxUses = 0; // 0 = unlimited
 
@@ -38,6 +45,18 @@ public class TradeListing {
 
     @JsonProperty
     private int requiredFactionPoints = 0;
+
+    /** Display page index — listings are grouped into pages of fixed size. */
+    @JsonProperty
+    private int page = 0;
+
+    /** Restock interval in ticks; 0 = never restocks (uses are permanent). */
+    @JsonProperty
+    private long restockIntervalTicks = 0;
+
+    /** Last restock tick — durable so restock survives restarts. */
+    @JsonProperty
+    private long lastRestockTick = 0;
 
     @JsonIgnore
     private transient long nextReservationId;
@@ -77,6 +96,91 @@ public class TradeListing {
 
     public int getRequiredFactionPoints() { return requiredFactionPoints; }
     public void setRequiredFactionPoints(int requiredFactionPoints) { this.requiredFactionPoints = requiredFactionPoints; }
+
+    public String getSecondaryPriceItemId() { return secondaryPriceItemId; }
+    public void setSecondaryPriceItemId(String secondaryPriceItemId) { this.secondaryPriceItemId = secondaryPriceItemId; }
+
+    public int getSecondaryPriceCount() { return secondaryPriceCount; }
+    public void setSecondaryPriceCount(int secondaryPriceCount) {
+        if (secondaryPriceCount < 0 || secondaryPriceCount > 64) {
+            throw new IllegalArgumentException("secondaryPriceCount must be in [0,64]");
+        }
+        this.secondaryPriceCount = secondaryPriceCount;
+    }
+
+    public boolean hasTwoInputs() {
+        return secondaryPriceItemId != null && !secondaryPriceItemId.isBlank() && secondaryPriceCount > 0;
+    }
+
+    public int getPage() { return page; }
+    public void setPage(int page) {
+        if (page < 0 || page > 99) {
+            throw new IllegalArgumentException("page must be in [0,99]");
+        }
+        this.page = page;
+    }
+
+    public long getRestockIntervalTicks() { return restockIntervalTicks; }
+    public void setRestockIntervalTicks(long restockIntervalTicks) {
+        if (restockIntervalTicks < 0) {
+            throw new IllegalArgumentException("restockIntervalTicks must be >= 0");
+        }
+        this.restockIntervalTicks = restockIntervalTicks;
+    }
+
+    public long getLastRestockTick() { return lastRestockTick; }
+    public void setLastRestockTick(long lastRestockTick) { this.lastRestockTick = lastRestockTick; }
+
+    /** True when a restock boundary has passed; resets uses deterministically. */
+    public synchronized boolean restock(long nowTick) {
+        if (restockIntervalTicks <= 0 || nowTick - lastRestockTick < restockIntervalTicks) {
+            return false;
+        }
+        lastRestockTick += restockIntervalTicks * ((nowTick - lastRestockTick) / restockIntervalTicks);
+        uses = 0;
+        return true;
+    }
+
+    /**
+     * Pre-commit validation — both input slots and the output must be coherent
+     * before a transaction may begin.
+     */
+    public void validate() {
+        if (offerItemId == null || offerItemId.isBlank() || offerCount < 1 || offerCount > 64) {
+            throw new IllegalStateException("output slot requires item id and count in [1,64]");
+        }
+        if (priceItemId == null || priceItemId.isBlank() || priceCount < 1 || priceCount > 64) {
+            throw new IllegalStateException("primary input requires item id and count in [1,64]");
+        }
+        if (secondaryPriceItemId != null && !secondaryPriceItemId.isBlank()
+                && (secondaryPriceCount < 1 || secondaryPriceCount > 64)) {
+            throw new IllegalStateException("secondary input with an item id requires count in [1,64]");
+        }
+        if (secondaryPriceItemId == null || secondaryPriceItemId.isBlank()) {
+            if (secondaryPriceCount != 0) {
+                throw new IllegalStateException("secondary input count requires an item id");
+            }
+        }
+        // Identical input slots are incoherent: the exchange would deduct the
+        // same item type twice while the held-check only proves each amount
+        // independently, silently under-charging the player. Fold the price
+        // into a single larger primary count instead.
+        if (secondaryPriceItemId != null && !secondaryPriceItemId.isBlank()
+                && secondaryPriceItemId.trim().equals(priceItemId.trim())) {
+            throw new IllegalStateException("primary and secondary inputs must be different items");
+        }
+    }
+
+    /** Server-side purchase eligibility: uses remaining + faction + permission. */
+    public synchronized boolean canPurchase(int playerFactionPoints, boolean hasPermission) {
+        if (!hasPermission) {
+            return false;
+        }
+        if (maxUses > 0 && uses >= maxUses) {
+            return false;
+        }
+        return requiredFaction == null || playerFactionPoints >= requiredFactionPoints;
+    }
 
     public boolean isAvailable(int playerFactionScore) {
         if (maxUses > 0 && uses >= maxUses) {

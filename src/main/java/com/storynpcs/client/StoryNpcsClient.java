@@ -21,6 +21,8 @@ public final class StoryNpcsClient {
 
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(StoryNpcRegistry.STORY_NPC.get(), StoryNpcRenderer::new);
+        event.registerEntityRenderer(StoryNpcRegistry.NPC_PROJECTILE.get(),
+                com.storynpcs.client.render.NpcProjectileRenderer::new);
     }
 
     public static void openDialogue(ClientboundDialogueOpenPayload payload) {
@@ -35,7 +37,8 @@ public final class StoryNpcsClient {
                     payload.isTerminal(),
                     payload.npcName(),
                     payload.optionHints(),
-                    payload.sessionId()
+                    payload.sessionId(),
+                    payload.optionTokens()
             );
             mc.setScreen(screen);
         });

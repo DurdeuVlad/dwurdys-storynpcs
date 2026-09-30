@@ -236,8 +236,8 @@ class TraderRoleTest {
     }
 
     @Test
-    @DisplayName("Unindexed trades run without a journal record — there is no durable listing state to reconcile")
-    void unindexedTradeWritesNoJournalRecord() throws IOException {
+    @DisplayName("Unindexed trades still write a replay-protection journal record")
+    void unindexedTradeWritesJournalRecord() throws IOException {
         UUID playerUuid = UUID.randomUUID();
         NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
         TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
@@ -251,8 +251,8 @@ class TraderRoleTest {
         try (var files = Files.exists(journalDir)
                 ? Files.list(journalDir)
                 : java.util.stream.Stream.<Path>empty()) {
-            assertEquals(0, files.count(),
-                    "An unindexed trade must not leave an unreconcilable journal record");
+            assertEquals(1, files.filter(path -> path.getFileName().toString().endsWith(".json")).count(),
+                    "An unindexed trade must still be bound to a durable request record");
         }
     }
 
@@ -312,5 +312,66 @@ class TraderRoleTest {
 
         assertEquals(1, service.recoverTradeOperations(playerUuid));
         assertEquals(DurableOperationJournal.State.PREPARED, journal.read(requestId).state());
+    }
+
+    @Test
+    @DisplayName("Replaying a prepared trade request reconciles it instead of staying pending")
+    void preparedTradeReplayIsReconciled(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        service.setTradeStateRepository(new TradeStateRepository(tempDir.resolve("trade-states")));
+
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+        String listingId = listing.ensureStableId();
+
+        UUID requestId = UUID.randomUUID();
+        var intent = new TradeOperationIntent(
+                playerUuid, npcId.toString(), 0, listingId,
+                "minecraft:bread", 4, "minecraft:wheat", 12, 5, 0, "", 0);
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        journal.begin(requestId, "trade.execute",
+                playerUuid + "|" + npcId + "|0|" + listingId
+                        + "|minecraft:bread|4|minecraft:wheat|12|5||0",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        // The retry drives reconciliation itself: usesBefore still matches
+        // durable state, so the record aborts as provably never committed.
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, listing, requestId));
+        assertEquals(DurableOperationJournal.State.ABORTED, journal.read(requestId).state());
+        assertEquals("TRADE_NOT_COMMITTED", journal.read(requestId).outcomeCode());
+        assertEquals(0, listing.getUses(), "The aborted retry must not record a use");
+        assertTrue(tradeEvents.isEmpty(), "The aborted retry must not fire an event");
+    }
+
+    @Test
+    @DisplayName("Replaying a prepared trade whose durable uses advanced stays pending")
+    void preparedTradeReplayWithAdvancedUsesStaysPending(@TempDir Path tempDir) throws IOException {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+        TradeStateRepository tradeStates = new TradeStateRepository(tempDir.resolve("trade-states"));
+        service.setTradeStateRepository(tradeStates);
+
+        TradeListing listing = new TradeListing("minecraft:bread", 4, "minecraft:wheat", 12);
+        listing.setMaxUses(5);
+        String listingId = listing.ensureStableId();
+
+        UUID requestId = UUID.randomUUID();
+        var intent = new TradeOperationIntent(
+                playerUuid, npcId.toString(), 0, listingId,
+                "minecraft:bread", 4, "minecraft:wheat", 12, 5, 0, "", 0);
+        var journal = new DurableOperationJournal(repo.storageDirectory().resolve("trade-operations"));
+        journal.begin(requestId, "trade.execute",
+                playerUuid + "|" + npcId + "|0|" + listingId
+                        + "|minecraft:bread|4|minecraft:wheat|12|5||0",
+                com.storynpcs.domain.role.RoleSerde.toJson(intent));
+
+        // The durable reservation landed before the crash — the retry must
+        // fail closed and leave the record pending for manual recovery.
+        assertTrue(tradeStates.reserveUse(npcId.toString(), listingId, 0, 5));
+
+        assertFalse(service.executeTrade(playerUuid, npcId, 0, listing, requestId));
+        assertEquals(DurableOperationJournal.State.PREPARED, journal.read(requestId).state(),
+                "A diverged reservation is never guessed");
     }
 }

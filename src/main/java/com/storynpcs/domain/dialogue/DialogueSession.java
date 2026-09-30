@@ -24,6 +24,12 @@ public class DialogueSession {
     private final double originZ;
     /** Display name of the speaking NPC (resolved at session start), or null when unavailable. */
     private String npcDisplayName;
+    /**
+     * Opaque choice tokens issued with the last rendered view, aligned to that
+     * view's option order. Server-side callers that still address choices by
+     * index resolve the token here — the protocol itself has no index path.
+     */
+    private List<DialogueChoiceProtocol.ChoiceToken> issuedTokens = List.of();
 
     public DialogueSession(UUID playerUuid, DialogueGraph graph) {
         this(playerUuid, graph, null, null, 0.0, 0.0, 0.0);
@@ -80,5 +86,13 @@ public class DialogueSession {
 
     public void close() {
         this.active = false;
+    }
+
+    public List<DialogueChoiceProtocol.ChoiceToken> getIssuedTokens() {
+        return issuedTokens;
+    }
+
+    public void setIssuedTokens(List<DialogueChoiceProtocol.ChoiceToken> tokens) {
+        this.issuedTokens = tokens != null ? List.copyOf(tokens) : List.of();
     }
 }

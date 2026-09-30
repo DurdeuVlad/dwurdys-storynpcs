@@ -20,9 +20,25 @@ Status: `IN-REVIEW`
 - Truth gate: passed. `git diff --check`: passed; only repository line-ending warnings.
 - Research basis: NeoForge's SavedData model assigns durable data to an explicit world scope, requires dirty-state ownership, and uses a codec-backed `SavedDataType`; this slice applies the same explicit ownership/version boundary to file-backed player/economy/actor records. See [NeoForge Saved Data](https://docs.neoforged.net/docs/1.21.5/datastorage/saveddata/).
 
+- `PersistenceStoreMap` now maps all 18 target persistence-store categories to StoryNPCs stores with declared ownership (WORLD/PLAYER/ENTITY/DEFINITION/CLIENT), maturity (IMPLEMENTED/COVERED/DEFERRED), concrete implementing classes for live stores, and the owning parity issue for deferred ones.
+- `IndexedRecordStore` is the indexed world-scope record store: deterministic `record-<id>-<hash>.json` files (id embedded in the record payload) plus a durable `_index.json`, committed through `DurableJsonStore` with the new `INDEX_UPDATE` failure point between record and index commits.
+- A crash between record commit and index commit leaves a stale index that `open()` rebuilds from a directory scan; a corrupt index is quarantined and rebuilt; one invalid record file is skipped without erasing unrelated records; `read` never depends on the index.
+
+## Evidence
+
+- `DurableJsonStoreTest`: version envelope, legacy read/migrate-on-write, three-backup retention, corrupt-target quarantine/recovery, future-version refusal, concatenated-value refusal, null-envelope refusal, and injected write/force/rotation/rename failures.
+- `IndexedRecordStoreTest`: write/read/list round trip, injected crash between record and index commits recovering via rebuild, stale/corrupt index quarantine + rebuild with diagnostics, corrupt record skipped without erasing siblings, delete-through-index-update, and open/validation guards.
+- `PersistenceStoreMapTest`: all 18 manifest symbols exactly once, ownership/status/store/owner declared per row, implemented rows name concrete store classes, deferred rows name their owning issue.
+- Existing `ProgressionRepositoryTest`, `BankRepositoryTest`, `DurableOperationJournalTest`, and `ActorLifecycleServiceTest`: repository reload, corruption evidence, automatic bank persistence, journal lifecycle, and actor-state restore remain green (failure-point iterations now scoped to record-commit stages with `INDEX_UPDATE` documented as store-level).
+- Focused persistence tests: `BUILD SUCCESSFUL`.
+- Full suite: `BUILD SUCCESSFUL`, 480 tests, 0 failures/errors.
+- Truth gate: passed. `git diff --check`: passed; only repository line-ending warnings.
+- Research basis: NeoForge's SavedData model assigns durable data to an explicit world scope, requires dirty-state ownership, and uses a codec-backed `SavedDataType`; this slice applies the same explicit ownership/version boundary to file-backed player/economy/actor records. See [NeoForge Saved Data](https://docs.neoforged.net/docs/1.21.5/datastorage/saveddata/).
+
 ## Explicit limits
 
-- The complete target inventory of 18 persistence categories is not yet mapped to concrete StoryNPCs stores.
-- No index-update stage exists yet because the current stores are independent record files; an indexed world store will need an additional commit stage and fixture.
+- Eight of the 18 target categories are still `DEFERRED` to their owning issues (P6-3, P8-1..P8-6, P9-2, P9-4); the map declares their ownership and store intent now so those issues land on a fixed contract.
+- `database` is `COVERED`: dedicated per-record JSON repositories intentionally replace the target's H2 relational store rather than reproducing it.
+- Indexed-record filenames derive from id hash plus the embedded payload id — a theoretical hash collision is detected by the read-time id check, not silently merged.
 - World-scoped NeoForge `SavedData` integration, backup retention policy configuration, and operation-level exactly-once transaction journals remain P2-3 work.
 - Independent adversarial review is still required before this high-risk persistence issue can move to `DONE-LOCAL`.

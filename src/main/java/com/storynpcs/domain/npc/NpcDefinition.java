@@ -31,8 +31,12 @@ public class NpcDefinition {
     @JsonProperty
     private NpcMark mark;
 
+    /** All authored marks; {@link #mark} remains the primary legacy mark. */
     @JsonProperty
-    private List<String> inventory = new ArrayList<>();
+    private List<NpcMark> marks = new ArrayList<>();
+
+    @JsonProperty
+    private NpcInventory inventory = new NpcInventory();
 
     @JsonProperty
     private List<com.storynpcs.domain.rule.BehaviorRule> rules = new ArrayList<>();
@@ -42,6 +46,23 @@ public class NpcDefinition {
 
     @JsonProperty
     private com.storynpcs.domain.role.banker.BankerRole banker;
+
+    /** NPC-attached job schedule/config (P6-4); null when the NPC has no job. */
+    @JsonProperty
+    private com.storynpcs.domain.job.JobConfig job;
+
+    /** Hireable-companion contract (P6-5): wages, stages, talents, unload policy. */
+    @JsonProperty
+    private com.storynpcs.domain.companion.CompanionProfile companion;
+
+    @JsonProperty
+    private com.storynpcs.domain.role.social.BardRole bard;
+
+    @JsonProperty
+    private com.storynpcs.domain.role.social.HealerRole healer;
+
+    @JsonProperty
+    private com.storynpcs.domain.role.social.PostmanRole postman;
 
     public NpcDefinition() {}
 
@@ -71,8 +92,22 @@ public class NpcDefinition {
     public NpcMark getMark() { return mark; }
     public void setMark(NpcMark mark) { this.mark = mark; }
 
-    public List<String> getInventory() { return inventory; }
-    public void setInventory(List<String> inventory) { this.inventory = inventory; }
+    public List<NpcMark> getMarks() { return marks; }
+    public void setMarks(List<NpcMark> marks) {
+        this.marks = new ArrayList<>();
+        if (marks == null) return;
+        if (marks.size() > 8) throw new IllegalArgumentException("marks cannot exceed 8 entries");
+        for (NpcMark m : marks) {
+            if (m == null) throw new IllegalArgumentException("marks cannot contain null");
+            this.marks.add(m);
+        }
+    }
+
+    public NpcInventory getInventory() { return inventory; }
+    public void setInventory(NpcInventory inventory) {
+        if (inventory == null) throw new IllegalArgumentException("inventory cannot be null");
+        this.inventory = inventory;
+    }
 
     public List<com.storynpcs.domain.rule.BehaviorRule> getRules() { return rules; }
     public void setRules(List<com.storynpcs.domain.rule.BehaviorRule> rules) { this.rules = rules; }
@@ -82,5 +117,20 @@ public class NpcDefinition {
 
     public com.storynpcs.domain.role.banker.BankerRole getBanker() { return banker; }
     public void setBanker(com.storynpcs.domain.role.banker.BankerRole banker) { this.banker = banker; }
+
+    public com.storynpcs.domain.job.JobConfig getJob() { return job; }
+    public void setJob(com.storynpcs.domain.job.JobConfig job) { this.job = job; }
+
+    public com.storynpcs.domain.companion.CompanionProfile getCompanion() { return companion; }
+    public void setCompanion(com.storynpcs.domain.companion.CompanionProfile companion) { this.companion = companion; }
+
+    public com.storynpcs.domain.role.social.BardRole getBard() { return bard; }
+    public void setBard(com.storynpcs.domain.role.social.BardRole bard) { this.bard = bard; }
+
+    public com.storynpcs.domain.role.social.HealerRole getHealer() { return healer; }
+    public void setHealer(com.storynpcs.domain.role.social.HealerRole healer) { this.healer = healer; }
+
+    public com.storynpcs.domain.role.social.PostmanRole getPostman() { return postman; }
+    public void setPostman(com.storynpcs.domain.role.social.PostmanRole postman) { this.postman = postman; }
 }
 

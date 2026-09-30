@@ -1,6 +1,6 @@
 package com.storynpcs.ai.combat;
 
-import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.api.event.AssaultWitnessedEvent;
 import com.storynpcs.api.event.NpcAggroChangeEvent;
 import com.storynpcs.api.event.NpcToleranceWarnEvent;
@@ -12,6 +12,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.monster.Enemy;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
@@ -37,6 +39,13 @@ public class WitnessProtectionManager {
             return;
         }
 
+        // Creative and spectator players are outside the combat targeting
+        // model — guards cannot act on them anyway, so assault bookkeeping
+        // and warnings for their hits would be unenforceable noise.
+        if (attackerPlayer.isCreative() || attackerPlayer.isSpectator()) {
+            return;
+        }
+
         long gameTime = victim.level().getGameTime();
 
         // 1. Direct hit on an NPC
@@ -46,7 +55,30 @@ public class WitnessProtectionManager {
         }
 
         // 2. Witnessed assault on an innocent entity/player
-        handleWitnessedAssault(victim, attackerPlayer, gameTime);
+        if (isInnocentVictim(victim)) {
+            handleWitnessedAssault(victim, attackerPlayer, gameTime);
+        }
+    }
+
+    /**
+     * Whether a damaged entity counts as an "innocent victim" town guards
+     * will defend. {@link Enemy} is the vanilla hostile-mob marker — zombies,
+     * creepers, slimes, ghasts, shulkers, and the neutral-hostile
+     * {@code Monster} subclasses (endermen, zombified piglins) — and
+     * {@link ArmorStand} is a decorative {@code LivingEntity}, not a
+     * creature. Guards do not punish players for slaying monsters or
+     * adjusting armor stands; everyone else — players, villagers, animals,
+     * golems, pets — is protected.
+     */
+    static boolean isInnocentVictim(LivingEntity victim) {
+        return victim != null && isInnocentVictimClass(victim.getClass());
+    }
+
+    /** Class-level form of {@link #isInnocentVictim(LivingEntity)}. */
+    static boolean isInnocentVictimClass(Class<?> victimClass) {
+        if (victimClass == null) return false;
+        if (ArmorStand.class.isAssignableFrom(victimClass)) return false;
+        return !Enemy.class.isAssignableFrom(victimClass);
     }
 
     public static void handleDirectNpcHit(StoryNpcEntity npc, ServerPlayer attacker, long gameTime) {
@@ -130,8 +162,17 @@ public class WitnessProtectionManager {
 
                 @Override
                 public void onAdjustFaction(NamespacedId factionId, int delta) {
-                    if (StoryNpcs.getInstance() != null && StoryNpcs.getInstance().getApplicationService() != null) {
-                        StoryNpcs.getInstance().getApplicationService().adjustFactionReputation(attacker.getUUID(), factionId, delta);
+                    var mod = StoryNpcsAccess.mod(attacker);
+                    if (mod == null || mod.getApplicationService() == null) {
+                        return;
+                    }
+                    try {
+                        mod.getApplicationService().adjustFactionReputation(attacker.getUUID(), factionId, delta);
+                    } catch (RuntimeException rejected) {
+                        // A rule targeting a missing faction (or a rejected mutation) is
+                        // content/config feedback — it must not crash the damage pipeline.
+                        System.err.println("[StoryNPCs] rule faction adjustment rejected for "
+                                + npcName + ": " + rejected.getMessage());
                     }
                 }
             });
@@ -156,27 +197,37 @@ public class WitnessProtectionManager {
         if (reaction == ThreatManager.CombatReaction.TOLERATED_WARN) {
             int strikes = npc.getThreatManager().getStrikes(attacker.getUUID());
             attacker.sendSystemMessage(Component.literal("§e[" + npcName + "]§6 Watch your weapon, citizen! (" + strikes + "/" + (ai.getStrikeTolerance() + 1) + " warnings)"), true);
-            if (StoryNpcs.getInstance() != null && npcId != null) {
-                StoryNpcs.getInstance().getEventPublisher().publish(new NpcToleranceWarnEvent(npcId, attacker.getUUID(), strikes, ai.getStrikeTolerance()));
+            if (StoryNpcsAccess.mod(attacker) != null && npcId != null) {
+                StoryNpcsAccess.mod(attacker).getEventPublisher().publish(new NpcToleranceWarnEvent(npcId, attacker.getUUID(), strikes, ai.getStrikeTolerance()));
             }
         } else {
             attacker.sendSystemMessage(Component.literal("§e[" + npcName + "]§4 That is enough! Defend yourself!"), true);
-            if (StoryNpcs.getInstance() != null && npcId != null) {
-                StoryNpcs.getInstance().getEventPublisher().publish(new NpcAggroChangeEvent(npcId, attacker.getUUID(), true, "RETALIATION_THRESHOLD_EXCEEDED"));
+            if (StoryNpcsAccess.mod(attacker) != null && npcId != null) {
+                StoryNpcsAccess.mod(attacker).getEventPublisher().publish(new NpcAggroChangeEvent(npcId, attacker.getUUID(), true, "RETALIATION_THRESHOLD_EXCEEDED"));
             }
         }
     }
 
     public static void handleWitnessedAssault(LivingEntity victim, ServerPlayer attacker, long gameTime) {
-        int scanRadius = 24;
+        // Scan bound: allyDefenseRadius is authored-bounded to <= 64, so the
+        // world query never exceeds it; each guard then honors its own radius.
+        int maxScanRadius = 64;
         List<StoryNpcEntity> guards = victim.level().getEntitiesOfClass(
                 StoryNpcEntity.class,
-                victim.getBoundingBox().inflate(scanRadius),
+                victim.getBoundingBox().inflate(maxScanRadius),
                 npc -> {
                     var def = npc.getDefinition();
                     if (def.isEmpty() || def.get().getAi() == null) return false;
-                    TacticalStance stance = def.get().getAi().getTacticalStance();
-                    return stance == TacticalStance.GUARD || stance == TacticalStance.DEFENSIVE;
+                    var ai = def.get().getAi();
+                    if (!ai.isDefendAllies()) return false;
+                    TacticalStance stance = npc.getState().getEffectiveTacticalStance(
+                            com.storynpcs.StoryNpcsAccess.mod(attacker) != null
+                                    ? com.storynpcs.StoryNpcsAccess.mod(attacker).getRegistry() : null);
+                    if (stance == null) stance = ai.getTacticalStance();
+                    if (stance != TacticalStance.GUARD && stance != TacticalStance.DEFENSIVE) return false;
+                    // Honor the authored bounded radius — never the scan bound itself.
+                    double radius = ai.getAllyDefenseRadius();
+                    return radius > 0 && npc.distanceToSqr(victim) <= radius * radius;
                 }
         );
 
@@ -223,8 +274,8 @@ public class WitnessProtectionManager {
                     com.storynpcs.domain.rule.RuleEngine engine = new com.storynpcs.domain.rule.RuleEngine();
                     var summary = engine.evaluate(defOpt.get().getRules(), com.storynpcs.domain.rule.TriggerType.ON_WITNESS_ASSAULT, ctx);
                     if (summary.hasTriggered()) {
-                        if (StoryNpcs.getInstance() != null && guardId != null) {
-                            StoryNpcs.getInstance().getEventPublisher().publish(new AssaultWitnessedEvent(guardId, attacker.getUUID(), victim.getUUID()));
+                        if (StoryNpcsAccess.mod(attacker) != null && guardId != null) {
+                            StoryNpcsAccess.mod(attacker).getEventPublisher().publish(new AssaultWitnessedEvent(guardId, attacker.getUUID(), victim.getUUID()));
                         }
                         continue;
                     }
@@ -234,9 +285,9 @@ public class WitnessProtectionManager {
 
                 attacker.sendSystemMessage(Component.literal("§e[" + guardName + "]§4 Halt! Unlawful assault witnessed in town!"), true);
 
-                if (StoryNpcs.getInstance() != null && guardId != null) {
-                    StoryNpcs.getInstance().getEventPublisher().publish(new AssaultWitnessedEvent(guardId, attacker.getUUID(), victim.getUUID()));
-                    StoryNpcs.getInstance().getEventPublisher().publish(new NpcAggroChangeEvent(guardId, attacker.getUUID(), true, "UNLAWFUL_ASSAULT_WITNESSED"));
+                if (StoryNpcsAccess.mod(attacker) != null && guardId != null) {
+                    StoryNpcsAccess.mod(attacker).getEventPublisher().publish(new AssaultWitnessedEvent(guardId, attacker.getUUID(), victim.getUUID()));
+                    StoryNpcsAccess.mod(attacker).getEventPublisher().publish(new NpcAggroChangeEvent(guardId, attacker.getUUID(), true, "UNLAWFUL_ASSAULT_WITNESSED"));
                 }
             }
         }

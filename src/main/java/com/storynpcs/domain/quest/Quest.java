@@ -8,9 +8,32 @@ import java.util.List;
 
 public class Quest {
     public enum RepeatType {
-        ONCE,
+        /** Completes once; no repetition without a manual/server reset. */
+        NORMAL,
+        /** Freely repeatable. */
         REPEATABLE,
-        DAILY
+        /** Repeatable once per local day boundary (see RepeatSchedule). */
+        DAILY,
+        /** Repeatable once per local week boundary. */
+        WEEKLY,
+        /** Repeatable only after an explicit reset of the quest state. */
+        RESET,
+        /** Completes instantly on objective satisfaction without a turn-in step. */
+        INSTANT;
+
+        /** Whether completion happens automatically when objectives are satisfied. */
+        public boolean autoCompletes() {
+            return this == INSTANT;
+        }
+
+        /** Legacy YAML alias: {@code repeatType: ONCE} maps to NORMAL. */
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public static RepeatType fromString(String value) {
+            if (value != null && value.equalsIgnoreCase("once")) {
+                return NORMAL;
+            }
+            return valueOf(value);
+        }
     }
 
     @JsonProperty(required = true)
@@ -26,7 +49,7 @@ public class Quest {
     private String category = "general";
 
     @JsonProperty
-    private RepeatType repeatType = RepeatType.ONCE;
+    private RepeatType repeatType = RepeatType.NORMAL;
 
     @JsonProperty
     private List<NamespacedId> prerequisites = new ArrayList<>();
@@ -57,7 +80,9 @@ public class Quest {
     public void setCategory(String category) { this.category = category; }
 
     public RepeatType getRepeatType() { return repeatType; }
-    public void setRepeatType(RepeatType repeatType) { this.repeatType = repeatType; }
+    public void setRepeatType(RepeatType repeatType) {
+        this.repeatType = repeatType != null ? repeatType : RepeatType.NORMAL;
+    }
 
     public List<NamespacedId> getPrerequisites() { return prerequisites; }
     public void setPrerequisites(List<NamespacedId> prerequisites) { this.prerequisites = prerequisites; }

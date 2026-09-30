@@ -17,6 +17,10 @@ public final class TradeSummaries {
                 .append(" <- ")
                 .append(Math.max(1, listing.getPriceCount())).append('x').append(' ')
                 .append(listing.getPriceItemId());
+        if (listing.hasTwoInputs()) {
+            sb.append(" + ").append(listing.getSecondaryPriceCount()).append('x').append(' ')
+                    .append(listing.getSecondaryPriceItemId());
+        }
         if (listing.getMaxUses() > 0) {
             sb.append(" (uses: ").append(listing.getUses()).append('/').append(listing.getMaxUses()).append(')');
         }

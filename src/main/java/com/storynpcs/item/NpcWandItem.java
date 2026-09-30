@@ -1,6 +1,7 @@
 package com.storynpcs.item;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcDefinitionSerde;
@@ -61,7 +62,7 @@ public class NpcWandItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = StoryNpcsAccess.mod(player);
         if (mod == null) {
             serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs] Mod instance not initialized."));
             return InteractionResult.FAIL;
@@ -116,7 +117,7 @@ public class NpcWandItem extends Item {
             }
 
             if (player instanceof ServerPlayer serverPlayer) {
-                StoryNpcs mod = StoryNpcs.getInstance();
+                StoryNpcs mod = StoryNpcsAccess.mod(player);
                 if (mod == null) return InteractionResult.FAIL;
                 if (!serverPlayer.hasPermissions(2)) {
                     serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs] You must have operator level 2 to edit NPCs."));

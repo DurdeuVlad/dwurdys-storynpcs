@@ -1,3 +1,4 @@
+schemaVersion: 1
 id: "storynpcs:town_guard"
 name: "Town Guard"
 defaultPoints: 1000

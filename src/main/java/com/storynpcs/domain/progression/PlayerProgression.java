@@ -25,6 +25,10 @@ public class PlayerProgression {
     @JsonProperty
     private long questRevision;
 
+    /** Optimistic-concurrency clock for faction-standing mutations. */
+    @JsonProperty
+    private long factionRevision;
+
     @JsonProperty
     private Map<NamespacedId, PendingQuestCompletion> pendingQuestCompletions = new HashMap<>();
 
@@ -62,6 +66,12 @@ public class PlayerProgression {
         this.questRevision = revision;
     }
 
+    public long getFactionRevision() { return factionRevision; }
+    public void setFactionRevision(long revision) {
+        if (revision < 0) throw new IllegalArgumentException("revision must be non-negative");
+        this.factionRevision = revision;
+    }
+
     public Map<NamespacedId, PendingQuestCompletion> getPendingQuestCompletions() {
         return pendingQuestCompletions;
     }
@@ -96,6 +106,7 @@ public class PlayerProgression {
     public PlayerProgression copy() {
         PlayerProgression copy = new PlayerProgression(playerUuid);
         copy.questRevision = questRevision;
+        copy.factionRevision = factionRevision;
         copy.quests = new HashMap<>();
         quests.forEach((id, state) -> copy.quests.put(id, state.copy()));
         copy.factionPoints = new HashMap<>(factionPoints);
@@ -112,6 +123,7 @@ public class PlayerProgression {
             throw new IllegalArgumentException("Cannot restore progression from a different player");
         }
         questRevision = snapshot.questRevision;
+        factionRevision = snapshot.factionRevision;
         quests = new HashMap<>();
         snapshot.quests.forEach((id, state) -> quests.put(id, state.copy()));
         factionPoints = new HashMap<>(snapshot.factionPoints);

@@ -1,6 +1,7 @@
 package com.storynpcs.command;
 
 import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.common.ValidationResult;
 import com.storynpcs.domain.dialogue.DialogueEdge;
 import com.storynpcs.domain.dialogue.DialogueGraph;
 import com.storynpcs.domain.dialogue.DialogueNode;
@@ -74,17 +75,32 @@ class QuickstartLogicTest {
     }
 
     @Test
-    @DisplayName("Scaffolded dialogue is a working graph: entry resolves, every edge target exists, terminal reachable")
-    void buildQuickstartDialogue_isWorkingGraph() {
-        DialogueGraph g = StoryNpcsCommands.buildQuickstartDialogue();
+    @DisplayName("Bundled quickstart YAMLs are versioned, namespaced, loadable, and resolve the demo NPC")
+    void bundledQuickstartResources_loadAndResolve() throws Exception {
+        String dialogueYaml = readBundledDefinition("dialogues/quickstart_dialogue.yaml");
+        String npcYaml = readBundledDefinition("npcs/quickstart_demo.yaml");
 
-        assertEquals(StoryNpcsCommands.QUICKSTART_DEMO_DIALOGUE, g.getId());
-        assertFalse(g.getTitle().isBlank(), "Dialogue must have a title");
+        assertTrue(dialogueYaml.contains("schemaVersion: 1"),
+                "bundled quickstart dialogue must declare the current schema version");
+        assertTrue(npcYaml.contains("schemaVersion: 1"),
+                "bundled quickstart NPC must declare the current schema version");
 
+        DefinitionRegistry reg = new DefinitionRegistry();
+        var loader = new com.storynpcs.yaml.YamlDefinitionLoader(reg);
+        ValidationResult result = ValidationResult.valid();
+        assertNotNull(loader.loadDialogue(dialogueYaml, "quickstart_dialogue.yaml", result),
+                "bundled dialogue must load cleanly: " + result.formatReport());
+        assertNotNull(loader.loadNpc(npcYaml, "quickstart_demo.yaml", result),
+                "bundled NPC must load cleanly: " + result.formatReport());
+        assertFalse(result.hasErrors(), "bundled quickstart resources must load without errors: "
+                + result.formatReport());
+
+        // The bundled dialogue is a working graph: entry resolves, every edge
+        // target exists, and a terminal is reachable.
+        DialogueGraph g = reg.getDialogue(StoryNpcsCommands.QUICKSTART_DEMO_DIALOGUE).orElseThrow();
         DialogueNode entry = g.getEntryNode()
                 .orElseThrow(() -> new AssertionError("entry node must resolve"));
         assertFalse(entry.isTerminal(), "entry node must offer at least one option");
-
         for (DialogueNode node : g.getNodes().values()) {
             for (DialogueEdge edge : node.getOptions()) {
                 assertTrue(g.getNode(edge.getTargetNodeId()).isPresent(),
@@ -93,5 +109,36 @@ class QuickstartLogicTest {
         }
         assertTrue(g.getNodes().values().stream().anyMatch(DialogueNode::isTerminal),
                 "graph needs a reachable terminal node");
+
+        assertEquals(StoryNpcsCommands.QUICKSTART_DEMO_NPC, StoryNpcsCommands.resolveDemoNpcId(reg));
+    }
+
+    @Test
+    @DisplayName("Quickstart does not construct demo definitions from Java")
+    void commandsDoNotConstructDemoDefinitions() throws Exception {
+        // YAML-first invariant: the commands source must not build or persist demo
+        // definition objects — bundled YAML resources are the only demo source.
+        String commandsSource = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/storynpcs/command/StoryNpcsCommands.java"));
+        assertFalse(commandsSource.contains("buildQuickstartDialogue"),
+                "quickstart must not construct a dialogue graph in Java");
+        int methodStart = commandsSource.indexOf("private static int quickstart(");
+        int methodEnd = commandsSource.indexOf("\n    private static", methodStart + 1);
+        assertTrue(methodStart >= 0 && methodEnd > methodStart,
+                "quickstart command method must be found and terminated");
+        String quickstartSection = commandsSource.substring(methodStart, methodEnd);
+        assertFalse(quickstartSection.contains("new NpcDefinition"),
+                "quickstart must not construct NPC definitions in Java");
+        assertFalse(quickstartSection.contains("createDialogue")
+                || quickstartSection.contains("createNpc"),
+                "quickstart must not persist scaffolded definitions");
+    }
+
+    private static String readBundledDefinition(String relative) throws Exception {
+        try (var in = QuickstartLogicTest.class.getClassLoader()
+                .getResourceAsStream("data/storynpcs/definitions/" + relative)) {
+            assertNotNull(in, "bundled starter definition missing from jar resources: " + relative);
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 }

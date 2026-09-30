@@ -1,0 +1,53 @@
+# Example: multi-role NPC — a gate guard who also trades (validated in CI).
+# One definition carries dialogue + faction + combat AI + a trader market.
+schemaVersion: 1
+id: "storynpcs:merchant_guard"
+factionId: "storynpcs:town_guard"
+dialogueId: "storynpcs:guard_intro"
+display:
+  name: "Quartermaster"
+  title: "Gate Guard & Supplier"
+  showName: true
+  modelType: "humanoid"
+  modelSize: 5
+  skinSource: TEXTURE
+  skinTexture: "storynpcs:textures/entity/default.png"
+stats:
+  maxHealth: 50.0
+  attackDamage: 5.0
+  respawnTimeSeconds: 30
+  xpReward: 10
+  melee:
+    attackDelayTicks: 24
+    attackRange: 2.5
+ai:
+  movementType: "STANDING"
+  tacticalStance: GUARD
+  defendAllies: true
+inventory:
+  equipment:
+    RIGHT_HAND: { itemId: "minecraft:iron_sword", count: 1 }
+  drops:
+    - item: { itemId: "minecraft:emerald", count: 1 }
+      chancePercent: 25
+  lootMode: NORMAL
+trader:
+  marketName: "Gate Provisions"
+  restockIntervalTicks: 24000
+  listings:
+    - listingId: "bread_supply"
+      offerItemId: "minecraft:bread"
+      offerCount: 4
+      priceItemId: "minecraft:emerald"
+      priceCount: 1
+      maxUses: 0
+      page: 0
+    - listingId: "arrow_bundle"
+      offerItemId: "minecraft:arrow"
+      offerCount: 16
+      priceItemId: "minecraft:emerald"
+      priceCount: 2
+      secondaryPriceItemId: "minecraft:flint"
+      secondaryPriceCount: 1
+      maxUses: 8
+      page: 0

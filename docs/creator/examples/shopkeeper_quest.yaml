@@ -1,0 +1,25 @@
+# Example: a daily-repeatable quest with mixed objectives and rewards.
+schemaVersion: 1
+id: "storynpcs:market_supplies"
+title: "Market Supplies"
+description: "The shopkeeper needs restocking: bring goods and clear the pests from the cellar."
+category: "trade"
+repeatType: "DAILY"
+objectives:
+  - id: "bring_bread"
+    type: COLLECT_ITEM
+    target: "minecraft:bread"
+    requiredCount: 8
+  - id: "clear_rats"
+    type: KILL_ENTITY
+    target: "minecraft:silverfish"
+    requiredCount: 3
+rewards:
+  - type: EXPERIENCE
+    amount: 120
+  - type: ITEM
+    target: "minecraft:emerald"
+    amount: 4
+  - type: FACTION_POINTS
+    target: "storynpcs:town_guard"
+    amount: 25

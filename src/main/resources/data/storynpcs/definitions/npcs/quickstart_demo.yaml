@@ -1,0 +1,14 @@
+schemaVersion: 1
+id: "storynpcs:quickstart_demo"
+display:
+  name: "Demo NPC"
+  title: "StoryNPCs Quickstart"
+  showName: true
+stats:
+  maxHealth: 40.0
+  respawnTimeSeconds: 30
+ai:
+  movementType: "STANDING"
+  doorInteract: true
+  returnToStart: true
+dialogueId: "storynpcs:quickstart_dialogue"

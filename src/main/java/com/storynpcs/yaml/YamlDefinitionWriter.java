@@ -253,7 +253,8 @@ public class YamlDefinitionWriter {
         return id.getNamespace() + "@" + id.getPath().replace("/", "%2F");
     }
 
-    static List<String> fileNameCandidatesFor(NamespacedId id) {
+    /** Every filename an id may have been written under (current + legacy schemes). */
+    public static List<String> fileNameCandidatesFor(NamespacedId id) {
         return List.of(fileNameFor(id), legacyFileNameFor(id), qualifiedFileNameFor(id)).stream()
                 .distinct()
                 .toList();

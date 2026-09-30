@@ -85,9 +85,10 @@ class StoryNpcsApplicationServiceTest {
         service.updateNpcAi(npcId, ai);
         assertThat(registry.getNpc(npcId).get().getAi().getMovementType()).isEqualTo(NpcAi.MovementType.WANDERING);
 
-        // 5. Update Inventory
+        // 5. Update Inventory (legacy flat adapter lands on the visible drop slots)
         service.updateNpcInventory(npcId, List.of("minecraft:iron_sword", "minecraft:shield"));
-        assertThat(registry.getNpc(npcId).get().getInventory()).containsExactly("minecraft:iron_sword", "minecraft:shield");
+        assertThat(registry.getNpc(npcId).get().getInventory().legacyItemIds())
+                .containsExactly("minecraft:iron_sword", "minecraft:shield");
 
         // 6. Set and Clear Mark
         service.setNpcMark(npcId, new NpcMark(1, 0xFFFF00, "!"));
@@ -333,7 +334,7 @@ class StoryNpcsApplicationServiceTest {
 
         NamespacedId questId = NamespacedId.of("storynpcs:one_time_bounty");
         Quest quest = new Quest(questId, "Bounty");
-        quest.setRepeatType(Quest.RepeatType.ONCE);
+        quest.setRepeatType(Quest.RepeatType.NORMAL);
         quest.setRewards(List.of(new QuestReward(QuestReward.Type.FACTION_POINTS, factionId.toString(), 100)));
         registry.registerQuest(quest);
 

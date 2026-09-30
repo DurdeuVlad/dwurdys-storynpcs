@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "description": "P11-2 StoryNPCs compatibility map. Expands over target-surface-manifest.json: every inventory row resolves to exactly one terminal mapping state through surface_defaults or a row_override. Terminal states: INVENTORY_ONLY (non-behavioral static inventory), MAPPED_STORYNPCS_OBSERVED (StoryNPCs implementation + JVM evidence exists), INTENTIONAL_DEVIATION (documented redesign with rationale), UNVERIFIED_STORYNPCS (implementation gap — evidence required), UNKNOWN (unclassified — evidence required). No state claims target-runtime parity: every non-inventory row also records parity_state UNVERIFIED_TARGET_RUNTIME because target probes are unavailable.",
+  "surface_defaults": {
+    "target_classes": {
+      "mapping_state": "INVENTORY_ONLY",
+      "storynpcs_ref": "com.storynpcs",
+      "note": "Static class inventory; behavioral coverage flows through the fixture-referenced surfaces."
+    },
+    "assets": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P3-1/P8-3: namespaced asset references validated by DisplayProjection + creator schemas",
+      "note": "StoryNPCs-side schema coverage; asset byte equivalence unverified."
+    },
+    "data": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P2-1: versioned YAML families with envelope + migration boundary",
+      "note": ""
+    },
+    "gui": {
+      "mapping_state": "INTENTIONAL_DEVIATION",
+      "storynpcs_ref": "P10-1: unified AuthoringHub panels",
+      "deviation_id": "gui-unified-hub",
+      "note": "149 target GUI classes consolidated into typed hub panels; screen-level equivalence unverified."
+    },
+    "packets": {
+      "mapping_state": "INTENTIONAL_DEVIATION",
+      "storynpcs_ref": "P1-3: versioned bounded protocol with session binding",
+      "deviation_id": "protocol-modernization",
+      "note": "Undocumented target packet formats intentionally not preserved (P1-3 non-goal)."
+    },
+    "commands": {
+      "mapping_state": "INTENTIONAL_DEVIATION",
+      "storynpcs_ref": "P9-3: /storynpcs typed command tree + suggestion engine",
+      "deviation_id": "command-grammar",
+      "note": "70 target leaves mapped semantically onto the namespaced typed tree; literal /noppes grammar not preserved."
+    },
+    "events": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P9-1: typed api.event surface + canonical mutation events",
+      "note": "Semantic coverage observed in tests; one-to-one class equivalence unverified."
+    },
+    "roles": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P6-2/P7-1/P7-2: trader, banker, postman, healer, bard + follower/companion roles",
+      "note": ""
+    },
+    "jobs": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P6-4: JobType/JobConfig/JobInstance — all eleven target jobs",
+      "note": ""
+    },
+    "companion_jobs": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P6-5: CompanionProfile + job assignment + wage ledger",
+      "note": ""
+    },
+    "persistence_participants": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P2-2: durable stores + PersistenceStoreMap 18-category ownership",
+      "note": ""
+    },
+    "persistence_stores": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P2-2: PersistenceStoreMap maps all 18 target store categories",
+      "note": ""
+    },
+    "operation_matrix": {
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "P1-1..P1-4: 15 operation families typed through StoryNpcsApplicationService",
+      "note": ""
+    }
+  },
+  "row_overrides": [],
+  "deviations": [
+    {
+      "deviation_id": "gui-unified-hub",
+      "rationale": "The target's 149 GUI classes encode legacy per-screen widgets; StoryNPCs delivers the same authoring surface through one server-authoritative hub with typed panels, search/pagination, undo/redo, and revisioned saves.",
+      "migration_impact": "Creator workflows use the hub panels instead of one window per feature; documented in docs/creator/QUICKSTART.md."
+    },
+    {
+      "deviation_id": "protocol-modernization",
+      "rationale": "Target packet formats are undocumented internals; P1-3 replaces them with versioned, size-bounded, session-bound, replay-safe payloads.",
+      "migration_impact": "Third-party integrations must use the public API (P9-1), not wire-level compatibility."
+    },
+    {
+      "deviation_id": "command-grammar",
+      "rationale": "The /noppes grammar predates Brigadier conventions; /storynpcs uses typed literals, namespaced IDs, and deterministic suggestions — see P9-PROGRESS.md for the leaf mapping.",
+      "migration_impact": "Command scripts written for /noppes require translation; every leaf maps to a /storynpcs equivalent or an explicit gap in the parity register."
+    },
+    {
+      "deviation_id": "dialogue-directed-graph",
+      "rationale": "Target dialogues are fixed option arrays; StoryNPCs uses directed graphs (nodes + typed edges) enabling branching, loops, and conditions.",
+      "migration_impact": "Legacy option-array content imports into graph nodes; cycles are legal and diagnosed as warnings."
+    },
+    {
+      "deviation_id": "scripting-typed-hooks",
+      "rationale": "Arbitrary script source on definitions is rejected; the P9-2 host exposes nine typed hooks under instruction/memory/depth/operation budgets.",
+      "migration_impact": "CustomNPCs .js scripts are UNSUPPORTED at import (reported, never silently dropped); behavior must be re-authored as typed hook bindings."
+    }
+  ]
+}

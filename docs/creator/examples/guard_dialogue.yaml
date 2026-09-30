@@ -1,0 +1,51 @@
+# Example: directed-graph dialogue with a faction-gated branch and a quest action.
+# Nodes is a map keyed by node id; edges live under each node's `options`.
+schemaVersion: 1
+id: "storynpcs:guard_intro"
+title: "Guard Introduction"
+entryNodeId: "greeting"
+nodes:
+  greeting:
+    id: "greeting"
+    text: "Halt! State your business in town."
+    speaker: "Town Guard"
+    options:
+      - text: "Just passing through."
+        targetNodeId: "farewell"
+      - text: "I come in peace — the village trusts me."
+        targetNodeId: "trusted"
+        conditions:
+          - type: FACTION_POINTS
+            target: "storynpcs:town_guard"
+            operator: ">="
+            value: "100"
+      - text: "I need work. Got anything?"
+        targetNodeId: "offer_quest"
+  trusted:
+    id: "trusted"
+    text: "So you are. Welcome back, friend."
+    options:
+      - text: "Thanks. I'll be on my way."
+        targetNodeId: "farewell"
+  offer_quest:
+    id: "offer_quest"
+    text: "Goblins keep testing the gate. Thin their numbers and the village will remember it."
+    options:
+      - text: "I'll take care of it."
+        targetNodeId: "accepted"
+        actions:
+          - type: START_QUEST
+            target: "storynpcs:bounty_goblins"
+      - text: "Not right now."
+        targetNodeId: "farewell"
+  accepted:
+    id: "accepted"
+    text: "Good. Report back when it's done."
+    options:
+      - text: "Understood."
+        targetNodeId: "farewell"
+        actions:
+          - type: CLOSE_DIALOGUE
+  farewell:
+    id: "farewell"
+    text: "Move along, then."

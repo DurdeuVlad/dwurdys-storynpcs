@@ -1,6 +1,7 @@
 package com.storynpcs.entity;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.ai.NpcFollowFormationGoal;
 import com.storynpcs.ai.NpcPatrolGoal;
 import com.storynpcs.ai.NpcReturnToStartGoal;
@@ -14,6 +15,7 @@ import com.storynpcs.network.StoryNpcsNetwork;
 import com.storynpcs.runtime.actor.ActorLifecycleService;
 import com.storynpcs.service.DialogueView;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -44,6 +46,10 @@ public class StoryNpcEntity extends PathfinderMob {
     private static final EntityDataAccessor<String> DEFINITION_ID =
             SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.STRING);
 
+    /** Synced authored animation stance ordinal — renderers read the authored resting pose. */
+    private static final EntityDataAccessor<Integer> ANIMATION_STANCE =
+            SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.INT);
+
     private final StoryNpcState state = new StoryNpcState();
     private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
     private BlockPos startPosition;
@@ -52,6 +58,19 @@ public class StoryNpcEntity extends PathfinderMob {
 
     public StoryNpcEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
+        this.threatManager.setAggroEventSink(this::publishAggroChange);
+    }
+
+    /** Every threat-target transition is observable with its reason. */
+    private void publishAggroChange(java.util.UUID target, boolean isAggro, String reason) {
+        if (this.level() == null || this.level().isClientSide) return;
+        StoryNpcs mod = StoryNpcsAccess.mod(this);
+        if (mod == null || mod.getEventPublisher() == null) return;
+        NamespacedId npcId = state.resolveDefinition(mod.getRegistry())
+                .map(NpcDefinition::getId).orElse(null);
+        if (npcId == null) return;
+        mod.getEventPublisher().publish(
+                new com.storynpcs.api.event.NpcAggroChangeEvent(npcId, target, isAggro, reason));
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -78,6 +97,12 @@ public class StoryNpcEntity extends PathfinderMob {
         this.goalSelector.addGoal(5, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(6, new NpcWanderingStrollGoal(this, 0.6D));
         this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
+        // P3-3: sight-based target acquisition for attackOnSight definitions —
+        // feeds chosen targets through the canonical threat pipeline.
+        this.targetSelector.addGoal(1, new com.storynpcs.ai.combat.NpcAttackOnSightGoal(this));
+        // P3-2: authored ranged attack — fires volleys at the threat target
+        // inside the authored range/LOS envelope. Flagless, like acquisition.
+        this.targetSelector.addGoal(2, new com.storynpcs.ai.combat.NpcRangedAttackGoal(this));
     }
 
     private static class NpcWanderingStrollGoal extends WaterAvoidingRandomStrollGoal {
@@ -107,8 +132,183 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     public void aiStep() {
         super.aiStep();
-        if (!this.level().isClientSide && this.tickCount % 20 == 0) {
-            this.threatManager.tick(5);
+        if (this.level().isClientSide) {
+            return;
+        }
+        long now = this.level().getGameTime();
+
+        // P4-1: simulation-tier capability gates. Unevaluated actors (null
+        // state — tier scan runs every 20 ticks) keep full fidelity; evaluated
+        // actors degrade per the resolved tier budgets.
+        var sim = com.storynpcs.StoryNpcsAccess.mod(this) != null
+                ? com.storynpcs.StoryNpcsAccess.mod(this).getSimulationScheduler() : null;
+        boolean sensingDue = sim == null || sim.stateOf(this.getUUID()) == null
+                || sim.shouldRun(this.getUUID(),
+                        com.storynpcs.sim.SimulationScheduler.Capability.SENSING, now);
+        boolean animationDue = sim == null || sim.stateOf(this.getUUID()) == null
+                || sim.shouldRun(this.getUUID(),
+                        com.storynpcs.sim.SimulationScheduler.Capability.ANIMATION, now);
+
+        if (this.tickCount % 20 == 0) {
+            if (sensingDue) {
+                this.threatManager.tick(5);
+            }
+            if (animationDue) {
+                updateBossBar();
+            }
+            tickCompanionWages(now);
+            tickSocialRoles(now);
+            tickAuthoredRegen();
+        }
+
+        // P6-4: per-tick due check — each job honors its own tickPeriod budget.
+        if (jobInstance != null && jobInstance.shouldRun(now)
+                && !companionPaused) {
+            com.storynpcs.runtime.job.NpcJobRuntime.run(this, jobInstance);
+            jobInstance.markRan(now);
+        }
+    }
+
+    /**
+     * Authored regeneration (P3-2 stats contract): once per second — the
+     * combat rate applies while a threat target is engaged, the idle rate
+     * otherwise. Bounded to [0, 1000] HP/s by the schema clamps.
+     */
+    private void tickAuthoredRegen() {
+        if (!isAlive() || getHealth() >= getMaxHealth()) {
+            return;
+        }
+        var stats = getDefinition().map(d -> d.getStats()).orElse(null);
+        if (stats == null) {
+            return;
+        }
+        double rate = threatManager.getCurrentTarget().isPresent()
+                ? stats.getCombatRegenPerSecond()
+                : stats.getHealthRegenPerSecond();
+        if (rate > 0) {
+            heal((float) rate);
+        }
+    }
+
+    /** Companion wage charge + insufficient-funds/unload policy handling. */
+    private void tickCompanionWages(long now) {
+        if (companionProfile == null || followerRole == null
+                || followerRole.getOwnerUuid() == null || !isAlive()) {
+            return;
+        }
+        var mod = com.storynpcs.StoryNpcsAccess.mod(this);
+        if (mod == null || mod.getApplicationService() == null) {
+            return;
+        }
+        if (companionHiredTick < 0) {
+            companionHiredTick = now; // first observed owner tick = hire edge
+        }
+        var outcome = mod.getApplicationService().chargeCompanionWage(
+                followerRole.getOwnerUuid(), this.getUUID(),
+                companionProfile, companionWageLedger, companionHiredTick, now);
+        if (outcome == lastWageOutcome) {
+            return; // only message on transitions — never spam the owner
+        }
+        var previous = lastWageOutcome;
+        lastWageOutcome = outcome;
+        var owner = this.level().getServer() != null
+                ? this.level().getServer().getPlayerList().getPlayer(followerRole.getOwnerUuid())
+                : null;
+        switch (outcome) {
+            case CHARGED -> {
+                companionPaused = false;
+                if (previous == com.storynpcs.service.StoryNpcsApplicationService
+                        .CompanionWageOutcome.INSUFFICIENT_PAUSED && owner != null) {
+                    owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§a" + getName().getString() + " has resumed service — wage paid."), true);
+                }
+            }
+            case INSUFFICIENT_PAUSED -> {
+                companionPaused = true;
+                if (owner != null) {
+                    owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§e" + getName().getString() + " paused service — cannot pay the "
+                                    + companionProfile.getWageAmount() + "-emerald wage."), true);
+                }
+            }
+            case INSUFFICIENT_DISMISSED -> {
+                companionPaused = false;
+                followerRole.setOwnerUuid(null);
+                if (owner != null) {
+                    owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§c" + getName().getString() + " left your service — wages unpaid."), true);
+                }
+            }
+            case INSUFFICIENT_KEPT -> {
+                companionPaused = false;
+                if (owner != null) {
+                    owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§e" + getName().getString() + " could not be paid but stays by your side."), true);
+                }
+            }
+            case OWNER_OFFLINE_DESPAWN -> {
+                companionPaused = false;
+                this.discard();
+            }
+            case OWNER_OFFLINE_PAUSED -> companionPaused = true;
+            default -> { }
+        }
+    }
+
+    /** Bard buff pulses and healer scans — bounded by each role's own cadence. */
+    private void tickSocialRoles(long now) {
+        if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)
+                || companionPaused || !isAlive()) {
+            return;
+        }
+        if (bardRole != null && now >= bardNextPlayTick) {
+            bardNextPlayTick = now + Math.max(20, bardRole.getCooldownTicks());
+            var buffRl = bardRole.getBuffEffect() != null
+                    ? net.minecraft.resources.ResourceLocation.tryParse(bardRole.getBuffEffect().toString())
+                    : null;
+            var buff = buffRl != null
+                    ? net.minecraft.core.registries.BuiltInRegistries.MOB_EFFECT.getHolder(buffRl).orElse(null)
+                    : null;
+            if (buff != null) {
+                double r2 = bardRole.getEffectRadiusBlocks() * bardRole.getEffectRadiusBlocks();
+                var players = serverLevel.getEntitiesOfClass(net.minecraft.server.level.ServerPlayer.class,
+                        this.getBoundingBox().inflate(bardRole.getEffectRadiusBlocks()),
+                        p -> p.isAlive() && p.distanceToSqr(this) <= r2);
+                for (var p : players) {
+                    p.addEffect(new net.minecraft.world.effect.MobEffectInstance(
+                            buff, Math.max(20, bardRole.getPlayDurationTicks()), 0, true, true));
+                }
+            }
+        }
+        if (healerRole != null
+                && now - healerLastScanTick >= Math.max(1, healerRole.getScanPeriodTicks())) {
+            healerLastScanTick = now;
+            double r2 = healerRole.getRangeBlocks() * healerRole.getRangeBlocks();
+            var box = this.getBoundingBox().inflate(healerRole.getRangeBlocks());
+            net.minecraft.world.entity.LivingEntity best = null;
+            double bestMissing = 0;
+            for (var entity : serverLevel.getEntitiesOfClass(
+                    net.minecraft.world.entity.LivingEntity.class, box,
+                    e -> e.isAlive() && e != this && e.distanceToSqr(this) <= r2)) {
+                boolean eligible = switch (healerRole.getTargetPolicy()) {
+                    case PLAYERS_ONLY -> entity instanceof net.minecraft.server.level.ServerPlayer;
+                    case ALLIES -> entity instanceof net.minecraft.server.level.ServerPlayer
+                            || entity instanceof StoryNpcEntity;
+                    case ANY_LIVING -> true;
+                };
+                if (!eligible) continue;
+                double missing = entity.getMaxHealth() - entity.getHealth();
+                if (missing > bestMissing && missing >= 1.0) {
+                    var last = healerCooldowns.get(entity.getUUID());
+                    if (last != null && now - last < healerRole.getCooldownTicks()) continue;
+                    best = entity;
+                    bestMissing = missing;
+                }
+            }
+            if (best != null) {
+                best.heal(healerRole.getHealAmount());
+                healerCooldowns.put(best.getUUID(), now);
+            }
         }
     }
 
@@ -116,6 +316,15 @@ public class StoryNpcEntity extends PathfinderMob {
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
         builder.define(DEFINITION_ID, "");
+        builder.define(ANIMATION_STANCE, com.storynpcs.domain.npc.NpcAi.AnimationStance.NORMAL.ordinal());
+    }
+
+    /** The authored resting animation stance resolved from the definition. */
+    public com.storynpcs.domain.npc.NpcAi.AnimationStance animationStance() {
+        int ordinal = this.entityData.get(ANIMATION_STANCE);
+        var stances = com.storynpcs.domain.npc.NpcAi.AnimationStance.values();
+        return ordinal >= 0 && ordinal < stances.length
+                ? stances[ordinal] : com.storynpcs.domain.npc.NpcAi.AnimationStance.NORMAL;
     }
 
     public String getDefinitionId() {
@@ -150,7 +359,7 @@ public class StoryNpcEntity extends PathfinderMob {
         if (this.level().isClientSide) {
             return;
         }
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = StoryNpcsAccess.mod(this);
         net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                 ? serverLevel.getServer()
                 : null;
@@ -193,12 +402,58 @@ public class StoryNpcEntity extends PathfinderMob {
     }
 
     public Optional<NpcDefinition> getDefinition() {
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(this);
         return mod != null ? state.resolveDefinition(mod.getRegistry()) : Optional.empty();
     }
 
+    private final com.storynpcs.domain.npc.DisplayProjectionCache displayProjectionCache =
+            new com.storynpcs.domain.npc.DisplayProjectionCache();
+
+    /**
+     * The resolved display projection for this entity, or null when the
+     * definition/display is unavailable. Content-fingerprinted so definition
+     * edits re-resolve while identical frames reuse the cached projection.
+     */
+    public com.storynpcs.domain.npc.DisplayProjection displayProjection() {
+        Optional<NpcDefinition> def = getDefinition();
+        if (def.isEmpty() || def.get().getDisplay() == null) return null;
+        return displayProjectionCache.projectionFor(getUUID(), def.get().getDisplay());
+    }
+
+    /**
+     * Hitbox dimensions are applied through {@link StoryNpcHitboxHandler}, which
+     * projects the display contract via {@code EntityEvent.Size}; statue mode
+     * (hitboxState 1) additionally disables pushing.
+     */
+    public com.storynpcs.domain.npc.DisplayProjection.ProjectedHitbox projectedHitbox() {
+        var projection = displayProjection();
+        return projection != null ? projection.hitbox() : null;
+    }
+
+    @Override
+    public boolean isPushable() {
+        Optional<NpcDefinition> def = getDefinition();
+        if (def.isPresent() && def.get().getDisplay() != null
+                && def.get().getDisplay().getHitboxState() == 1) {
+            return false;
+        }
+        return super.isPushable();
+    }
+
+    public static void onLivingKnockback(
+            net.neoforged.neoforge.event.entity.living.LivingKnockBackEvent event) {
+        if (!(event.getEntity() instanceof StoryNpcEntity npc) || npc.level().isClientSide) {
+            return;
+        }
+        npc.getDefinition()
+                .map(NpcDefinition::getStats)
+                .map(stats -> stats.getResistances())
+                .ifPresent(resistances -> event.setStrength(
+                        resistances.scaleKnockback(event.getStrength())));
+    }
+
     public void applyDefinition() {
-        var mod = StoryNpcs.getInstance();
+        var mod = StoryNpcsAccess.mod(this);
         if (mod == null) return;
 
         state.getDisplayName(mod.getRegistry()).ifPresent(name -> {
@@ -216,6 +471,21 @@ public class StoryNpcEntity extends PathfinderMob {
             if (speedAttr != null && stats.getMovementSpeed() > 0) {
                 speedAttr.setBaseValue(stats.getMovementSpeed());
             }
+            var damageAttr = this.getAttribute(Attributes.ATTACK_DAMAGE);
+            if (damageAttr != null) {
+                damageAttr.setBaseValue(stats.getAttackDamage());
+            }
+            var knockbackAttr = this.getAttribute(Attributes.ATTACK_KNOCKBACK);
+            if (knockbackAttr != null && stats.getMelee() != null) {
+                knockbackAttr.setBaseValue(stats.getMelee().getKnockbackStrength());
+            }
+            var followAttr = this.getAttribute(Attributes.FOLLOW_RANGE);
+            if (followAttr != null && stats.getAggroRange() > 0) {
+                followAttr.setBaseValue(stats.getAggroRange());
+            }
+            if (stats.getXpReward() > 0) {
+                this.xpReward = stats.getXpReward();
+            }
         });
 
         state.resolveDefinition(mod.getRegistry()).ifPresent(def -> {
@@ -224,8 +494,199 @@ public class StoryNpcEntity extends PathfinderMob {
                     groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
                 }
                 this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
+                applyAnimationStance(def.getAi().getAnimationStance());
+            }
+            var display = def.getDisplay();
+            if (display != null) {
+                // Display flags are authoritative entity state: glowing outline
+                // and hidden visibility come from the projection contract.
+                this.setGlowingTag(display.isOverlayGlowing());
+                this.setInvisible(display.getVisibility() == 1);
+            }
+
+            // P6 bindings: scheduled job instance + social/companion profiles.
+            var previousJob = this.jobInstance;
+            this.jobInstance = null;
+            if (def.getJob() != null) {
+                try {
+                    // JobInstance construction re-validates the config — an
+                    // invalid job that bypassed load validation fails closed
+                    // here instead of breaking the entity spawn path.
+                    this.jobInstance = new com.storynpcs.domain.job.JobInstance(
+                            this.getUUID(), def.getJob());
+                } catch (RuntimeException jobFailure) {
+                    com.storynpcs.StoryNpcs.LOGGER.warn(
+                            "NPC {} carries an invalid job config — job disabled: {}",
+                            def.getId(), jobFailure.getMessage());
+                }
+            }
+            if (previousJob != null && previousJob.getState()
+                    != com.storynpcs.domain.job.JobInstance.State.STOPPED
+                    && this.jobInstance == null) {
+                previousJob.stop();
+            }
+            this.companionProfile = def.getCompanion();
+            this.bardRole = def.getBard();
+            this.healerRole = def.getHealer();
+            this.postmanRole = def.getPostman();
+            if (this.companionProfile == null) {
+                this.companionPaused = false;
+                this.lastWageOutcome = null;
+            }
+
+            // P9-2: CONVERSATION/PUPPET jobs bind their scriptId to a scheduler
+            // script slot — dispatch budgets/quarantine apply at run time.
+            var scheduler = mod.getScriptScheduler();
+            if (scheduler != null && this.conversationScriptId != null) {
+                scheduler.unregister(this.conversationScriptId);
+            }
+            this.conversationScriptId = null;
+            if (scheduler != null && this.jobInstance != null) {
+                var scriptId = this.jobInstance.getConfig().getScriptId();
+                var type = this.jobInstance.getConfig().getType();
+                if (scriptId != null && (type == com.storynpcs.domain.job.JobType.CONVERSATION
+                        || type == com.storynpcs.domain.job.JobType.PUPPET)) {
+                    var boundScriptId = java.util.UUID.nameUUIDFromBytes(
+                            (getUUID() + "|" + scriptId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    if (scheduler.register(boundScriptId, this.getUUID())) {
+                        this.conversationScriptId = boundScriptId;
+                    } else {
+                        com.storynpcs.StoryNpcs.LOGGER.warn(
+                                "Script scheduler capacity reached; disabling script for actor {}", getUUID());
+                    }
+                }
             }
         });
+    }
+
+    /**
+     * Maps the authored resting stance onto entity state: synced for renderers
+     * and applied as a pose where the vanilla vocabulary has an equivalent.
+     * A combat/loaded entity keeps its current pose — stance only applies
+     * while the NPC is not in a vehicle and not dead.
+     */
+    private void applyAnimationStance(com.storynpcs.domain.npc.NpcAi.AnimationStance stance) {
+        var resolved = stance != null ? stance : com.storynpcs.domain.npc.NpcAi.AnimationStance.NORMAL;
+        this.entityData.set(ANIMATION_STANCE, resolved.ordinal());
+        if (!this.isAlive() || this.isPassenger() || this.getPose() == net.minecraft.world.entity.Pose.DYING) {
+            return;
+        }
+        switch (resolved) {
+            case SNEAKING -> this.setPose(net.minecraft.world.entity.Pose.CROUCHING);
+            case SITTING -> this.setPose(net.minecraft.world.entity.Pose.SITTING);
+            case LYING -> this.setPose(net.minecraft.world.entity.Pose.SLEEPING);
+            case NORMAL, DANCING, AIMING -> this.setPose(net.minecraft.world.entity.Pose.STANDING);
+            default -> this.setPose(net.minecraft.world.entity.Pose.STANDING);
+        }
+    }
+
+    /** The bound conversation/puppet script slot, or null when none is registered. */
+    public java.util.UUID conversationScriptId() {
+        return conversationScriptId;
+    }
+
+    /** Server-side boss bar bound to the display contract; null when disabled. */
+    private net.minecraft.server.level.ServerBossEvent bossBar;
+
+    // ---- P6 runtime: scheduled job instance + companion/social-role state ----
+    private com.storynpcs.domain.job.JobInstance jobInstance;
+    private com.storynpcs.domain.companion.CompanionProfile companionProfile;
+    private com.storynpcs.domain.role.social.BardRole bardRole;
+    private com.storynpcs.domain.role.social.HealerRole healerRole;
+    private com.storynpcs.domain.role.social.PostmanRole postmanRole;
+    /** Durable wage ledger — persisted in the Companion NBT tag. */
+    private final com.storynpcs.domain.companion.WageLedger companionWageLedger =
+            new com.storynpcs.domain.companion.WageLedger();
+    private long companionHiredTick = -1;
+    private boolean companionPaused;
+    private com.storynpcs.service.StoryNpcsApplicationService.CompanionWageOutcome lastWageOutcome;
+    /** P9-2: script bound through the bounded scheduler for CONVERSATION/PUPPET jobs. */
+    private java.util.UUID conversationScriptId;
+    private long bardNextPlayTick;
+    private long healerLastScanTick = -1;
+    /** Per-player ITEM_GIVER cooldowns — insertion-bounded so a crowd cannot grow it. */
+    private final java.util.Map<java.util.UUID, Long> itemGiverCooldowns =
+            new java.util.LinkedHashMap<>(32, 0.75f, false) {
+                @Override protected boolean removeEldestEntry(java.util.Map.Entry<java.util.UUID, Long> e) {
+                    return size() > 128;
+                }
+            };
+    /** Per-target healer cooldowns — same bound. */
+    private final java.util.Map<java.util.UUID, Long> healerCooldowns =
+            new java.util.LinkedHashMap<>(32, 0.75f, false) {
+                @Override protected boolean removeEldestEntry(java.util.Map.Entry<java.util.UUID, Long> e) {
+                    return size() > 128;
+                }
+            };
+    /** Chunks force-loaded by a CHUNK_LOADER job — released on entity removal. */
+    private final java.util.Set<net.minecraft.world.level.ChunkPos> jobForcedChunks =
+            new java.util.HashSet<>();
+    /** Job types already reported as unsupported — one log line per entity per type. */
+    private final java.util.Set<com.storynpcs.domain.job.JobType> unsupportedJobsLogged =
+            java.util.EnumSet.noneOf(com.storynpcs.domain.job.JobType.class);
+
+    /** Returns true the first time a job type is logged as unsupported. */
+    public boolean markUnsupportedJobLogged(com.storynpcs.domain.job.JobType type) {
+        return unsupportedJobsLogged.add(type);
+    }
+
+    /**
+     * Reconciles the display boss-bar contract with the live ServerBossEvent.
+     * Runs periodically on the server thread; the event tracks viewers within
+     * 64 blocks (the vanilla boss-bar visibility range) and follows the
+     * entity's health fraction. Mode 0 removes the bar entirely.
+     */
+    private void updateBossBar() {
+        var projection = displayProjection();
+        if (projection == null || projection.bossBarMode() == 0 || !this.isAlive()) {
+            if (bossBar != null) {
+                bossBar.removeAllPlayers();
+                bossBar = null;
+            }
+            return;
+        }
+        if (bossBar == null) {
+            net.minecraft.world.BossEvent.BossBarColor color;
+            try {
+                color = net.minecraft.world.BossEvent.BossBarColor.valueOf(projection.bossBarColor().name());
+            } catch (IllegalArgumentException e) {
+                color = net.minecraft.world.BossEvent.BossBarColor.PINK;
+            }
+            bossBar = new net.minecraft.server.level.ServerBossEvent(
+                    net.minecraft.network.chat.Component.literal(
+                            projection.name() != null ? projection.name() : "StoryNPC"),
+                    color, net.minecraft.world.BossEvent.BossBarOverlay.PROGRESS);
+        }
+        bossBar.setProgress(this.getMaxHealth() > 0 ? this.getHealth() / this.getMaxHealth() : 0.0f);
+        if (this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            for (var p : serverLevel.players()) {
+                if (p.distanceToSqr(this) <= 64.0 * 64.0) {
+                    bossBar.addPlayer(p);
+                } else {
+                    bossBar.removePlayer(p);
+                }
+            }
+        }
+    }
+
+    /** Defeat resolution emits the authored mode/respawn contract as a lifecycle event. */
+    @Override
+    public void die(net.minecraft.world.damagesource.DamageSource source) {
+        if (!this.level().isClientSide && !this.isRemoved()) {
+            var mod = StoryNpcsAccess.mod(this);
+            if (mod != null && mod.getEventPublisher() != null) {
+                state.getStats(mod.getRegistry()).ifPresent(stats -> {
+                    NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                            .map(NpcDefinition::getId).orElse(null);
+                    var defeat = stats.getDefeat();
+                    mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
+                            definitionId, this.getUUID(),
+                            defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
+                            stats.getRespawnTimeSeconds(), stats.getXpReward()));
+                });
+            }
+        }
+        super.die(source);
     }
 
     public FollowerRole getFollowerRole() {
@@ -252,7 +713,7 @@ public class StoryNpcEntity extends PathfinderMob {
         }
 
         if (player instanceof ServerPlayer serverPlayer) {
-            var mod = StoryNpcs.getInstance();
+            var mod = StoryNpcsAccess.mod(this);
 
             // Shift-right-click to cycle follower states if player is owner
             if (followerRole != null && followerRole.isOwnedBy(serverPlayer.getUUID()) && serverPlayer.isShiftKeyDown()) {
@@ -268,7 +729,11 @@ public class StoryNpcEntity extends PathfinderMob {
                         npcId = NamespacedId.of(getDefinitionId());
                     } catch (Exception ignored) {}
                     if (npcId != null) {
-                        mod.getApplicationService().setFollowerState(serverPlayer.getUUID(), npcId, followerRole, nextState);
+                        mod.getApplicationService().mutateFollowerState(
+                                com.storynpcs.service.FollowerStateMutationRequest.setState(
+                                        "player", serverPlayer.getUUID(), serverPlayer.getUUID(),
+                                        npcId, nextState, java.util.UUID.randomUUID()),
+                                followerRole);
                     } else {
                         followerRole.setState(nextState);
                     }
@@ -288,6 +753,10 @@ public class StoryNpcEntity extends PathfinderMob {
                 var viewOpt = state.interact(serverPlayer.getUUID(), mod.getApplicationService(), mod.getRegistry(),
                         this.getUUID(), this.level().dimension().location().toString(), this.getX(), this.getY(), this.getZ());
                 if (viewOpt.isPresent()) {
+                    // P9-2: dialogue opening on a scripted actor is a DIALOG
+                    // hook dispatch — the bound script observes the event
+                    // through the budgeted scheduler.
+                    dispatchScriptHook(com.storynpcs.script.ScriptHook.DIALOG);
                     StoryNpcsNetwork.sendOpenDialogue(serverPlayer, viewOpt.get());
                     return InteractionResult.SUCCESS;
                 } else if (!serverPlayer.isShiftKeyDown()) {
@@ -297,12 +766,72 @@ public class StoryNpcEntity extends PathfinderMob {
                         var roleNpcId = NamespacedId.of(getDefinitionId());
                         roleDef = mod.getRegistry().getNpc(roleNpcId).orElse(null);
                     } catch (Exception ignored) {}
+                    // P9-2: any interaction with a scripted actor dispatches INTERACT.
+                    dispatchScriptHook(com.storynpcs.script.ScriptHook.INTERACT);
                     if (roleDef != null && roleDef.getTrader() != null) {
                         StoryNpcsNetwork.sendTradeOpen(serverPlayer, roleDef);
                         return InteractionResult.SUCCESS;
                     }
                     if (roleDef != null && roleDef.getBanker() != null) {
                         StoryNpcsNetwork.sendBankOpen(serverPlayer, roleDef);
+                        return InteractionResult.SUCCESS;
+                    }
+                    // P6-4 ITEM_GIVER job: bounded per-player cooldown + configured item.
+                    if (jobInstance != null
+                            && jobInstance.getConfig().getType() == com.storynpcs.domain.job.JobType.ITEM_GIVER
+                            && roleDef != null && roleDef.getJob() != null
+                            && roleDef.getJob().getItemId() != null) {
+                        long now = this.level().getGameTime();
+                        Long last = itemGiverCooldowns.get(serverPlayer.getUUID());
+                        if (last == null || now - last >= roleDef.getJob().getInteractionCooldownTicks()) {
+                            var itemRl = net.minecraft.resources.ResourceLocation.tryParse(
+                                    roleDef.getJob().getItemId().toString());
+                            var item = itemRl != null ? net.minecraft.core.registries.BuiltInRegistries.ITEM
+                                    .getOptional(itemRl).orElse(null) : null;
+                            if (item != null) {
+                                itemGiverCooldowns.put(serverPlayer.getUUID(), now);
+                                var stack = new net.minecraft.world.item.ItemStack(
+                                        item, Math.max(1, roleDef.getJob().getItemCount()));
+                                if (!serverPlayer.getInventory().add(stack)) {
+                                    serverPlayer.drop(stack, false);
+                                }
+                                serverPlayer.sendSystemMessage(Component.literal(
+                                        "§6" + this.getName().getString() + "§r gives you "
+                                                + stack.getCount() + "× " + itemRl.getPath() + "."), true);
+                            }
+                        } else {
+                            serverPlayer.sendSystemMessage(Component.literal(
+                                    "§7[" + this.getName().getString() + "] §f*Has nothing more to give right now.*"), true);
+                        }
+                        return InteractionResult.SUCCESS;
+                    }
+                    // P6-2 postman: delivers pending quest mail within range.
+                    if (roleDef != null && roleDef.getPostman() != null) {
+                        double range = roleDef.getPostman().getDeliveryRangeBlocks();
+                        if (serverPlayer.distanceToSqr(this) > range * range) {
+                            return InteractionResult.SUCCESS;
+                        }
+                        var mail = mod.getApplicationService() != null
+                                ? mod.getApplicationService().deliverQuestMail(
+                                        serverPlayer.getUUID(), roleDef.getPostman().getMailboxCapacity())
+                                : java.util.Optional.<com.storynpcs.service.StoryNpcsApplicationService
+                                        .MailDeliverySummary>empty();
+                        if (mail.isPresent()) {
+                            var summary = mail.get();
+                            serverPlayer.sendSystemMessage(Component.literal(
+                                    "§6" + this.getName().getString() + "§r delivers §e"
+                                            + summary.mailsClaimed() + "§r mail(s):"));
+                            for (String line : summary.itemLines()) {
+                                serverPlayer.sendSystemMessage(Component.literal("  §7- " + line));
+                            }
+                            if (summary.experienceGranted() > 0) {
+                                serverPlayer.sendSystemMessage(Component.literal(
+                                        "  §a+" + summary.experienceGranted() + " experience"));
+                            }
+                        } else {
+                            serverPlayer.sendSystemMessage(Component.literal(
+                                    "§7[" + this.getName().getString() + "] §f*No mail for you today.*"), true);
+                        }
                         return InteractionResult.SUCCESS;
                     }
                     if (serverPlayer.hasPermissions(2)) {
@@ -316,6 +845,52 @@ public class StoryNpcEntity extends PathfinderMob {
         }
 
         return super.mobInteract(player, hand);
+    }
+
+    /**
+     * P9-2: dispatch a script hook for the bound CONVERSATION/PUPPET script
+     * through the budgeted scheduler. The script body emotes the script id —
+     * failures count toward the scheduler's consecutive-failure quarantine.
+     */
+    public void dispatchScriptHook(com.storynpcs.script.ScriptHook hook) {
+        var mod = com.storynpcs.StoryNpcsAccess.mod(this);
+        var scheduler = mod != null ? mod.getScriptScheduler() : null;
+        if (scheduler == null || conversationScriptId == null || this.level().isClientSide) {
+            return;
+        }
+        scheduler.dispatch(conversationScriptId, hook, this::runConversationScriptBody);
+    }
+
+    /** Built-in script body for conversation/puppet jobs: a bounded emote line. */
+    private void runConversationScriptBody() {
+        if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            return;
+        }
+        String line = getName().getString() + " performs "
+                + (jobInstance != null && jobInstance.getConfig().getScriptId() != null
+                ? jobInstance.getConfig().getScriptId().getPath() : "a conversation");
+        for (var p : serverLevel.getEntitiesOfClass(net.minecraft.server.level.ServerPlayer.class,
+                this.getBoundingBox().inflate(16.0))) {
+            p.sendSystemMessage(net.minecraft.network.chat.Component.literal("§7" + line), true);
+        }
+    }
+
+    /** CHUNK_LOADER job bookkeeping — forced chunks must never outlive the actor. */
+    public java.util.Set<net.minecraft.world.level.ChunkPos> jobForcedChunks() {
+        return jobForcedChunks;
+    }
+
+    private void releaseJobForcedChunks() {
+        if (jobForcedChunks.isEmpty()
+                || !(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            jobForcedChunks.clear();
+            return;
+        }
+        for (var pos : jobForcedChunks) {
+            // Shared chunks stay forced while another loader still claims them.
+            com.storynpcs.runtime.job.NpcJobRuntime.releaseForcedChunk(this, serverLevel, pos);
+        }
+        jobForcedChunks.clear();
     }
 
     @Override
@@ -338,7 +913,35 @@ public class StoryNpcEntity extends PathfinderMob {
         if (defOpt.isEmpty()) {
             return false;
         }
-        var mod = StoryNpcs.getInstance();
+        // P3-2: authored immunity toggles — per-source vetoes that apply
+        // regardless of stance. "Sunlight" maps to DRY_OUT — the vanilla
+        // sun-exposure damage source; daylight fire is covered by fire.
+        var authoredImmunities = defOpt.get().getStats() != null
+                ? defOpt.get().getStats().getImmunities() : null;
+        if (authoredImmunities != null) {
+            if (authoredImmunities.isFallImmune()
+                    && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL)) {
+                return true;
+            }
+            if (authoredImmunities.isFireImmune()
+                    && source.is(net.minecraft.tags.DamageTypeTags.IS_FIRE)) {
+                return true;
+            }
+            if (authoredImmunities.isDrowningImmune()
+                    && source.is(net.minecraft.tags.DamageTypeTags.IS_DROWNING)) {
+                return true;
+            }
+            if (authoredImmunities.isSunlightImmune()
+                    && source.is(net.minecraft.world.damagesource.DamageTypes.DRY_OUT)) {
+                return true;
+            }
+            if (authoredImmunities.isPotionImmune()
+                    && (source.is(net.minecraft.world.damagesource.DamageTypes.MAGIC)
+                    || source.is(net.minecraft.world.damagesource.DamageTypes.INDIRECT_MAGIC))) {
+                return true;
+            }
+        }
+        var mod = StoryNpcsAccess.mod(this);
         // VULN-55: read effective stance from per-entity override first
         TacticalStance stance = (mod != null)
                 ? state.getEffectiveTacticalStance(mod.getRegistry())
@@ -364,7 +967,7 @@ public class StoryNpcEntity extends PathfinderMob {
             // Prevent self-targeting loop (VULN-19)
             if (attacker != this && !attacker.getUUID().equals(this.getUUID())) {
                 boolean sameFaction = false;
-                var mod = StoryNpcs.getInstance();
+                var mod = StoryNpcsAccess.mod(this);
                 if (attacker instanceof StoryNpcEntity otherNpc && mod != null) {
                     var myFaction = this.getState().getFactionId(mod.getRegistry());
                     var otherFaction = otherNpc.getState().getFactionId(mod.getRegistry());
@@ -378,12 +981,84 @@ public class StoryNpcEntity extends PathfinderMob {
                 }
             }
         }
-        return super.hurt(source, amount);
+        return super.hurt(source, scaleByAuthoredResistances(source, amount));
+    }
+
+    /**
+     * Authored damage-resistance channels (P3-2): incoming-damage multipliers
+     * in [0, 2] — 1.0 normal, 0 fully resisted, above 1 amplified. Scaling
+     * happens after threat evaluation: a fully resisted hit still provokes.
+     */
+    private float scaleByAuthoredResistances(DamageSource source, float amount) {
+        if (amount <= 0) {
+            return amount;
+        }
+        var stats = getDefinition().map(d -> d.getStats()).orElse(null);
+        var resistances = stats != null ? stats.getResistances() : null;
+        if (resistances == null) {
+            return amount;
+        }
+        double multiplier = 1.0;
+        if (source.is(net.minecraft.tags.DamageTypeTags.IS_PROJECTILE)) {
+            multiplier = resistances.getArrow();
+        } else if (source.is(net.minecraft.tags.DamageTypeTags.IS_EXPLOSION)) {
+            multiplier = resistances.getExplosion();
+        } else if (source.getDirectEntity() instanceof LivingEntity) {
+            multiplier = resistances.getMelee();
+        }
+        return (float) (amount * multiplier);
+    }
+
+    @Override
+    public boolean canBeAffected(MobEffectInstance effectInstance) {
+        // P3-2: authored potion immunity rejects harmful effects entirely —
+        // complementing the magic-damage veto in isInvulnerableTo.
+        var stats = getDefinition().map(d -> d.getStats()).orElse(null);
+        var immunities = stats != null ? stats.getImmunities() : null;
+        if (immunities != null && immunities.isPotionImmune()
+                && effectInstance.getEffect().value().getCategory()
+                        == net.minecraft.world.effect.MobEffectCategory.HARMFUL) {
+            return false;
+        }
+        return super.canBeAffected(effectInstance);
+    }
+
+    @Override
+    public void makeStuckInBlock(net.minecraft.world.level.block.state.BlockState state,
+                                 net.minecraft.world.phys.Vec3 multiplier) {
+        // P3-2: authored cobweb immunity — web blocks never impose the
+        // slowdown multiplier; other makeStuckInBlock blocks behave normally.
+        var stats = getDefinition().map(d -> d.getStats()).orElse(null);
+        var immunities = stats != null ? stats.getImmunities() : null;
+        if (immunities != null && immunities.isCobwebImmune()
+                && state.is(net.minecraft.world.level.block.Blocks.COBWEB)) {
+            return;
+        }
+        super.makeStuckInBlock(state, multiplier);
     }
 
     @Override
     public void remove(RemovalReason reason) {
-        StoryNpcs mod = StoryNpcs.getInstance();
+        // Path goals never outlive the entity: cancel navigation before the
+        // lifecycle transition so no off-tick path mutation can leak past unload.
+        this.getNavigation().stop();
+        this.threatManager.clearAll();
+        StoryNpcs mod = StoryNpcsAccess.mod(this);
+        if (!this.level().isClientSide) {
+            if (mod != null && conversationScriptId != null) {
+                mod.getScriptScheduler().unregister(conversationScriptId);
+                conversationScriptId = null;
+            }
+            // P6-4: jobs stop on actor unload/removal — policy decides pause vs stop.
+            if (jobInstance != null) {
+                jobInstance.onActorUnload();
+            }
+            releaseJobForcedChunks();
+        }
+        if (bossBar != null) {
+            bossBar.removeAllPlayers();
+            bossBar = null;
+        }
         net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                 ? serverLevel.getServer()
                 : null;
@@ -430,6 +1105,13 @@ public class StoryNpcEntity extends PathfinderMob {
             followerTag.putInt("DailyRate", followerRole.getDailyRate());
             compound.put("Follower", followerTag);
         }
+        if (companionHiredTick >= 0 || companionWageLedger.getLastChargedPeriod() >= 0) {
+            CompoundTag companionTag = new CompoundTag();
+            companionTag.putLong("HiredTick", companionHiredTick);
+            companionTag.putLong("LastChargedWagePeriod", companionWageLedger.getLastChargedPeriod());
+            companionTag.putBoolean("Paused", companionPaused);
+            compound.put("Companion", companionTag);
+        }
     }
 
     @Override
@@ -475,11 +1157,18 @@ public class StoryNpcEntity extends PathfinderMob {
                     this.followerRole.setDailyRate(followerTag.getInt("DailyRate"));
                 }
             }
+            if (compound.contains("Companion")) {
+                CompoundTag companionTag = compound.getCompound("Companion");
+                this.companionHiredTick = companionTag.getLong("HiredTick");
+                this.companionWageLedger.setLastChargedPeriod(
+                        companionTag.getLong("LastChargedWagePeriod"));
+                this.companionPaused = companionTag.getBoolean("Paused");
+            }
         } finally {
             loadingSavedData = false;
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = StoryNpcsAccess.mod(this);
         net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                 ? serverLevel.getServer()
                 : null;

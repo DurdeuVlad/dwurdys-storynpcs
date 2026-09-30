@@ -14,6 +14,7 @@ import net.minecraft.world.item.TooltipFlag;
 
 import java.util.List;
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 
 /**
  * NPC Mounter — Mounts or dismounts entities onto each other (e.g. NPC on Horse).
@@ -56,14 +57,14 @@ public class NpcMounterItem extends Item {
             } else {
                 serverPlayer.sendSystemMessage(Component.literal("§7[StoryNPCs Mounter] Entity is neither a passenger nor carrying any."));
             }
-            StoryNpcs mod = StoryNpcs.getInstance();
+            StoryNpcs mod = StoryNpcsAccess.mod(serverPlayer);
             if (mod != null) {
                 mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
             }
             return InteractionResult.SUCCESS;
         }
 
-        StoryNpcs mod = StoryNpcs.getInstance();
+        StoryNpcs mod = StoryNpcsAccess.mod(serverPlayer);
         if (mod == null) {
             return InteractionResult.FAIL;
         }

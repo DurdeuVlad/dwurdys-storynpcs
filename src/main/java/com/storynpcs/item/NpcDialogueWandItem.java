@@ -1,6 +1,7 @@
 package com.storynpcs.item;
 
 import com.storynpcs.StoryNpcs;
+import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.dialogue.DialogueGraph;
 import com.storynpcs.domain.dialogue.DialogueGraphSerde;
@@ -45,7 +46,7 @@ public class NpcDialogueWandItem extends Item {
             }
 
             if (player instanceof ServerPlayer serverPlayer && serverPlayer.hasPermissions(2)) {
-                StoryNpcs mod = StoryNpcs.getInstance();
+                StoryNpcs mod = StoryNpcsAccess.mod(player);
                 if (mod == null) return InteractionResult.FAIL;
 
                 var defOpt = npc.getDefinition();

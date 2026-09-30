@@ -82,6 +82,39 @@ public class YamlDefinitionLoader {
                 result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID", "NPC definition must declare an 'id'");
                 return null;
             }
+            if (npc.getJob() != null) {
+                try {
+                    npc.getJob().validate();
+                } catch (RuntimeException jobFailure) {
+                    result.addError(sourceName, 1, 1, "JOB_CONFIG_INVALID",
+                            "Invalid job configuration: " + jobFailure.getMessage());
+                    return null;
+                }
+            }
+            if (npc.getTrader() != null) {
+                // Every authored listing must be a coherent transaction BEFORE
+                // it can be loaded — a malformed two-input listing that reaches
+                // the registry would silently undercharge players at execute.
+                boolean valid = true;
+                var listings = npc.getTrader().getListings();
+                for (int i = 0; i < listings.size(); i++) {
+                    var listing = listings.get(i);
+                    try {
+                        if (listing == null) {
+                            throw new IllegalStateException("null listing");
+                        }
+                        listing.validate();
+                    } catch (RuntimeException listingFailure) {
+                        String label = listing != null && !listing.getListingId().isBlank()
+                                ? listing.getListingId() : "?";
+                        result.addError(sourceName, 1, 1, "TRADE_LISTING_INVALID",
+                                "Invalid trade listing #" + i + " (" + label
+                                        + "): " + listingFailure.getMessage());
+                        valid = false;
+                    }
+                }
+                if (!valid) return null;
+            }
             if (registry.getNpc(npc.getId()).isPresent()) {
                 result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
                         "Duplicate NPC ID '" + npc.getId() + "' is already defined in another file");
@@ -119,6 +152,16 @@ public class YamlDefinitionLoader {
             if (registry.getDialogue(dialogue.getId()).isPresent()) {
                 result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
                         "Duplicate Dialogue ID '" + dialogue.getId() + "' is already defined in another file");
+                return null;
+            }
+            // Structural validation: cycles/unreachable nodes/dangling edges
+            // are definition errors — the graph must fail closed at load.
+            var graphValidation = new com.storynpcs.domain.dialogue.DialogueGraphValidator()
+                    .validate(dialogue);
+            if (graphValidation.hasErrors()) {
+                for (var err : graphValidation.getErrors()) {
+                    result.addError(sourceName, 1, 1, err.code(), err.message());
+                }
                 return null;
             }
             registry.registerDialogue(dialogue);
@@ -191,6 +234,92 @@ public class YamlDefinitionLoader {
             }
             registry.registerQuest(quest);
             return quest;
+        } catch (JsonParseException e) {
+            result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
+                    "YAML_PARSE_ERROR", e.getOriginalMessage());
+        } catch (UnrecognizedPropertyException e) {
+            addUnknownFieldError(yamlContent, sourceName, e, result);
+        } catch (JsonMappingException e) {
+            result.addError(sourceName, e.getLocation() != null ? e.getLocation().getLineNr() : 1,
+                    e.getLocation() != null ? e.getLocation().getColumnNr() : 1,
+                    "YAML_MAPPING_ERROR", e.getOriginalMessage());
+        } catch (Exception e) {
+            result.addError(sourceName, 1, 1, "LOAD_ERROR", e.getMessage());
+        }
+        return null;
+    }
+
+    public com.storynpcs.domain.transport.TransportLocation loadTransport(
+            String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
+        try {
+            var location = readDefinition(yamlContent, sourceName, result,
+                    com.storynpcs.domain.transport.TransportLocation.class);
+            if (location == null) return null;
+            if (location.getId() == null) {
+                result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID",
+                        "Transport definition must declare an 'id'");
+                return null;
+            }
+            if (registry.getTransport(location.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate Transport ID '" + location.getId() + "' is already defined in another file");
+                return null;
+            }
+            registry.registerTransport(location);
+            return location;
+        } catch (JsonParseException e) {
+            result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
+                    "YAML_PARSE_ERROR", e.getOriginalMessage());
+        } catch (UnrecognizedPropertyException e) {
+            addUnknownFieldError(yamlContent, sourceName, e, result);
+        } catch (JsonMappingException e) {
+            result.addError(sourceName, e.getLocation() != null ? e.getLocation().getLineNr() : 1,
+                    e.getLocation() != null ? e.getLocation().getColumnNr() : 1,
+                    "YAML_MAPPING_ERROR", e.getOriginalMessage());
+        } catch (Exception e) {
+            result.addError(sourceName, 1, 1, "LOAD_ERROR", e.getMessage());
+        }
+        return null;
+    }
+
+    public com.storynpcs.creator.template.NpcTemplate loadTemplate(
+            String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
+        try {
+            var template = readDefinition(yamlContent, sourceName, result,
+                    com.storynpcs.creator.template.NpcTemplate.class);
+            if (template == null) return null;
+            if (template.getId() == null) {
+                result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID",
+                        "Template definition must declare an 'id'");
+                return null;
+            }
+            if (template.getSchemaVersion() != com.storynpcs.creator.template.NpcTemplate.SCHEMA_VERSION) {
+                result.addError(sourceName, 1, 1, "SCHEMA_VERSION_UNSUPPORTED",
+                        "Template schemaVersion " + template.getSchemaVersion()
+                                + " is not supported (expected "
+                                + com.storynpcs.creator.template.NpcTemplate.SCHEMA_VERSION + ")");
+                return null;
+            }
+            if (template.getDefinition() == null) {
+                result.addError(sourceName, 1, 1, "TEMPLATE_MISSING_DEFINITION",
+                        "Template must embed an NPC 'definition'");
+                return null;
+            }
+            if (registry.getTemplate(template.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate Template ID '" + template.getId() + "' is already defined in another file");
+                return null;
+            }
+            registry.registerTemplate(template);
+            return template;
         } catch (JsonParseException e) {
             result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
                     "YAML_PARSE_ERROR", e.getOriginalMessage());
@@ -413,6 +542,8 @@ public class YamlDefinitionLoader {
             case "dialogue", "dialogues" -> "dialogues";
             case "faction", "factions" -> "factions";
             case "quest", "quests" -> "quests";
+            case "transport", "transports" -> "transports";
+            case "template", "templates" -> "templates";
             default -> null;
         };
     }
@@ -434,8 +565,29 @@ public class YamlDefinitionLoader {
 
         // Run cross reference validation after all files are registered
         result.merge(CrossReferenceValidator.validate(registry));
+        result.merge(new com.storynpcs.domain.quest.QuestDependencyValidator()
+                .validate(new java.util.ArrayList<>(registry.getAllQuests())));
         return result;
     }
+
+    /**
+     * Definition families recognized by the roadmap but not yet loadable. A file
+     * under one of these directories must fail closed with an explicit diagnostic
+     * instead of being bound to the wrong domain model.
+     */
+    /**
+     * Definition families recognized by the roadmap but not yet loadable. A file
+     * under one of these directories must fail closed with an explicit diagnostic
+     * instead of being bound to the wrong domain model. Jobs, companions, and
+     * social roles are NPC-attached ({@code job:}, {@code companion:},
+     * {@code bard:}/{@code healer:}/{@code postman:} inside npcs/*.yaml), never
+     * standalone files — those directory names stay reserved on purpose.
+     */
+    private static final java.util.Set<String> RESERVED_UNSUPPORTED_FAMILIES = java.util.Set.of(
+            "role", "roles", "job", "jobs", "tool", "tools",
+            "world", "worlds", "companion", "companions", "trade", "trades",
+            "bank", "banks", "follower", "followers",
+            "scene", "scenes", "linked_npc", "linked_npcs");
 
     private void loadFile(Path file, ValidationResult result) {
         try {
@@ -443,6 +595,13 @@ public class YamlDefinitionLoader {
             Path parent = file.getParent();
             String parentName = parent != null ? parent.getFileName().toString().toLowerCase() : "";
             String fileName = file.getFileName().toString().toLowerCase();
+            if (RESERVED_UNSUPPORTED_FAMILIES.contains(parentName)) {
+                result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
+                        "Definition family '" + parentName + "' is recognized but not yet loadable;"
+                                + " remove the file or move it to a supported family directory"
+                                + " (npcs/, dialogues/, factions/, quests/, transports/, templates/)");
+                return;
+            }
             String type = definitionType(parentName, fileName, content);
 
             switch (type) {
@@ -450,6 +609,8 @@ public class YamlDefinitionLoader {
                 case "dialogues" -> loadDialogue(content, file.toString(), result);
                 case "factions" -> loadFaction(content, file.toString(), result);
                 case "quests" -> loadQuest(content, file.toString(), result);
+                case "transports" -> loadTransport(content, file.toString(), result);
+                case "templates" -> loadTemplate(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -470,6 +631,14 @@ public class YamlDefinitionLoader {
         }
         if (parentName.equals("quests") || parentName.equals("quest") || fileName.startsWith("quest_")) {
             return "quests";
+        }
+        if (parentName.equals("transports") || parentName.equals("transport")
+                || fileName.startsWith("transport_")) {
+            return "transports";
+        }
+        if (parentName.equals("templates") || parentName.equals("template")
+                || fileName.startsWith("template_")) {
+            return "templates";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.

@@ -189,7 +189,7 @@ public class QuestEditorScreen extends Screen {
         titleField.setResponder(v -> model.setTitle(v));
         addRenderableWidget(titleField);
 
-        repeatButton = Button.builder(Component.literal("Repeat: " + (q.getRepeatType() != null ? q.getRepeatType() : Quest.RepeatType.ONCE)), b -> {
+        repeatButton = Button.builder(Component.literal("Repeat: " + (q.getRepeatType() != null ? q.getRepeatType() : Quest.RepeatType.NORMAL)), b -> {
             Quest.RepeatType next = model.cycleRepeatType();
             repeatButton.setMessage(Component.literal("Repeat: " + next));
         }).bounds(206, y, 92, 14).build();

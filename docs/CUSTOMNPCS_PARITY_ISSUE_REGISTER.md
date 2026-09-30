@@ -85,7 +85,7 @@ This is the implementation handoff register. The authoritative traceability mapp
 
 ### P1-1 — Introduce typed canonical operations inside StoryNpcsApplicationService
 
-Status: `IN-REVIEW` — typed player-scoped quest start/progress now has persisted revision checks; completion advances that revision; objective thresholds are bounded by the supported state maximum; and reentrant quest-event listeners cannot overtake the active notification group. Reward fan-out crash safety, typed quest completion/rewards, faction progression, follower/bank runtime state, template/tool operations, and remaining direct adapters remain incomplete. See [P1-1 closeout](parity/P1-1-CLOSEOUT.md).
+Status: `IN-REVIEW` — typed player-scoped quest start/progress/completion, trade execution, bank operations, faction progression, and follower state now route through `StoryNpcsApplicationService` with persisted revision checks; completion advances that revision; objective thresholds are bounded by the supported state maximum; reentrant quest-event listeners cannot overtake the active notification group; quest reward overflow honors `RewardOverflowPolicy` with durable mail recovery instead of silent drops; and replay caches are bounded insertion-ordered. Template/tool operations and remaining direct adapters (creator tool flows, full world/economy mutation coverage) remain incomplete. See [P1-1 closeout](parity/P1-1-CLOSEOUT.md).
 
 - **Intent:** Make commands, packets, GUI, API, and scripts reliable adapters instead of independent mutation implementations.
 - **Expectation:** Typed requests carry actor context, capability, target ID, expected revision, idempotency key, and validated payload; typed results carry diagnostics, revision, events, and recovery outcome; all domain mutation remains inside/behind `StoryNpcsApplicationService`.
@@ -98,7 +98,7 @@ Status: `IN-REVIEW` — typed player-scoped quest start/progress now has persist
 
 ### P1-2 — Separate stable NPC actors from entity projections
 
-Status: `IN-REVIEW` — stable actor/projection behavior has local coverage, but the independent architecture audit still found mutable `StoryNpcs.instance` lifecycle state and other static runtime dependencies. The closeout is reopened until a repository-wide managed-lifecycle scan and isolation fixtures pass.
+Status: `IN-REVIEW` — stable actor/projection behavior has local coverage and the mutable `StoryNpcs.instance` singleton is now fully removed: the mod instance resolves through a level-scoped NeoForge data attachment (`StoryNpcsAccess`/`StoryNpcsAttachments`), all 129 former singleton call sites rewired, and `ManagedLifecycleScanTest` fails on any non-final static field with no allowlist. Remaining gate: independent adversarial review of the resolution layer plus `UNVERIFIED_TARGET_RUNTIME` parity evidence.
 
 - **Intent:** Preserve NPC identity, progression, roles, and content when a Minecraft entity unloads, dies, respawns, or is replaced.
 - **Expectation:** A namespaced logical actor owns durable state; entity UUIDs are projections with explicit spawn/despawn reasons, loaded/unloaded transitions, and projection refresh.
@@ -165,7 +165,7 @@ Status: `IN-REVIEW` — progression, bank, and actor state now share a versioned
 
 ### P2-3 — Add operation-specific transaction and recovery fixtures
 
-Status: `IN-REVIEW` — bank vault mutations now have a durable commit/rollback boundary and fault fixtures, live held-item deposit owns inventory removal with a vault-side marker and login replay, trade request IDs use a durable subject-bound journal alongside owned reservations, listing-use state now uses a durable reserve/rollback store outside YAML, and quest reward preflight rejects known invalid/non-atomic fan-out; concurrent in-process quest turn-ins are serialized. XP/item reward duplication after a failed progression save, inventory-side crash proof, and remaining operation families are not complete. See [P2-3 closeout](parity/P2-3-CLOSEOUT.md).
+Status: `IN-REVIEW` — bank vault mutations now have a durable commit/rollback boundary and fault fixtures, live held-item deposit owns inventory removal with a vault-side marker and login replay, trade request IDs use a durable subject-bound journal alongside owned reservations, listing-use state now uses a durable reserve/rollback store outside YAML, quest reward preflight rejects known invalid/non-atomic fan-out, and inventory overflow now honors `RewardOverflowPolicy` — overflow payloads persist as `QuestMail` (exactly-once claim via `QuestMailStore`) rather than silent drops; concurrent in-process quest turn-ins are serialized. XP/item duplication after a failed progression save between durable reward marker and side effects, full inventory-side crash proof, and remaining operation families (companion wages, equipment, teleport unlocks) are not complete. See [P2-3 closeout](parity/P2-3-CLOSEOUT.md).
 
 - **Intent:** Prove that trade, bank, quest rewards, faction changes, companion wages, equipment, and teleport unlocks cannot duplicate or lose value.
 - **Expectation:** Each multi-step operation has a commit boundary, compensation/recovery path, idempotency behavior, and user-visible failure result.
@@ -180,7 +180,7 @@ Status: `IN-REVIEW` — bank vault mutations now have a durable commit/rollback 
 
 ### P3-1 — Implement stable display, variants, model, hitbox, and render features
 
-Status: `IN-PROGRESS` — the YAML-first display contract now carries validated skin-source, cloak/glow, visibility/name-mode, tint, animation, hitbox, boss-bar, model identity, and model-size fields, with renderer name-mode and round-trip fixtures. Full skin/model/boss-bar/hitbox projection, editor/network coverage, and target runtime parity remain open. See [P3-1 progress](parity/P3-1-PROGRESS.md).
+Status: `IN-REVIEW` — the YAML-first display contract carries validated skin-source, cloak/glow, visibility/name-mode, tint, animation, hitbox, boss-bar, model identity, and model-size fields; a content-fingerprinted `DisplayProjection` now resolves skin/model assets with deterministic fallbacks and diagnostics, supplies authoritative hitbox dimensions through a NeoForge `EntityEvent.Size` handler, drives `NpcRenderLayer` cloak/glow/tint overlays, drives entity glow/invisibility flags, nameplate projection and display scale in `StoryNpcRenderer`, and boss-bar lifecycle (create/update/remove on disable, death, or entity removal). Animation stances are consumed end-to-end — entity `Pose` mapping (sitting/crouching/sleeping) plus `StoryNpcPlayerModel` arm-pose and riding/crouch flags (dancing, aiming, sneaking). Animation timelines/keyframes beyond pose flags, editor/network coverage, and target runtime parity remain open. See [P3-1 progress](parity/P3-1-PROGRESS.md).
 
 - **Intent:** Give creators the recognizable CustomNPCs display and model controls while keeping a clean render-feature boundary.
 - **Expectation:** Definitions support name/title, default/custom/URL/player skin sources, cloak, glow, boss-bar style/color, tint, model variant, scale bounds, hitbox, and animation/render feature state; entity projection renders validated data.
@@ -192,6 +192,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 - **Verification:** Field manifest, client render smoke tests, cache isolation, invalid asset, hitbox, scale, reload and multiplayer projection fixtures.
 
 ### P3-2 — Implement stats, melee, ranged, resistances, and defeat behavior
+
+Status: `IN-REVIEW` — health/max-health/attack/movement, regeneration, melee/ranged projectiles, damage resistance and immunity fields are present in the server path; knockback now uses the authored multiplier rather than treating neutral `1.0` as full knockback resistance. `die()` currently reports the authored defeat mode/timer but always performs normal death; HIDE/FLEE behavior, respawn scheduling, drop-hook profiles (`dropsProfileId`), and runtime-parity fixtures remain open.
 
 - **Intent:** Close the central combat capability gap required for CustomNPCs-style encounters and MMO battles.
 - **Expectation:** Data-driven health/health regen/combat regen; melee strength/delay/range/knockback/potion effect; ranged projectile damage/speed/impact/size/area/trail/delay/range/fire rate/shot count/accuracy/physics/effects/sounds; aggro; four damage-resistance channels; six immunity toggles; defeat mode; respawn; XP; and drop hooks are authoritative.
@@ -274,6 +276,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 
 ### P5-2 — Make dialogue choice exactly-once and stale-safe
 
+Status: `IN-REVIEW` — server-issued opaque `DialogueChoiceProtocol` tokens now flow end-to-end (session → view → `ClientboundDialogueOpenPayload.optionTokens` → `DialogueScreenModel` → `ServerboundDialogueChoosePayload.choiceToken`); the server validates session, token, revision, expiry, and player ownership; index-only requests are rejected through the bounded legacy adapter; terminal paths close via `endSession`. Duplicate-token replay rejection, reconnect/resume policy, and concurrent-choice fixtures remain open.
+
 - **Intent:** Prevent duplicated effects and client desynchronization when players click, reconnect, or race sessions.
 - **Expectation:** Server-issued opaque choice tokens bind actor/dialogue/session/revision/expiry; one accepted token produces one effect transaction and one new view.
 - **Acceptance criteria:** Index-only or old-token requests fail; duplicate accepted tokens do not repeat rewards/faction/quest/command effects; concurrent choices have one deterministic winner; timeout/reconnect closes or resumes by policy; client receives authoritative revision and diagnostics.
@@ -307,6 +311,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 
 ### P5-5 — Implement quest completion, team progress, mail, and rewards
 
+Status: `IN-REVIEW` — completion/turn-in is revisioned inside the canonical service with durable reward markers; inventory overflow now routes through `RewardOverflowPolicy` with `QuestMail`/`QuestMailStore` as the default recoverable channel (persistent pending list, exactly-once `claim`), claimable via `deliverQuestMail`. Team/shared progress, command-reward atomicity reporting, and quest-log recovered-outcome surfacing remain open.
+
 - **Intent:** Make quest progression reliable under full inventory, multiplayer, repeat boundaries, and partial external effects.
 - **Expectation:** Completion/turn-in is a revisioned state machine with item/XP/faction/mail/command rewards, team ownership, explicit failure/retry, and exactly-once semantics.
 - **Acceptance criteria:** Rewards cannot duplicate; completion does not become final before required durable effects; mail is a recoverable overflow channel; failed command rewards report atomic/non-atomic policy; full inventory has documented output; team progress and ownership survive reconnect; quest log shows pending/rejected/recovered outcomes.
@@ -331,6 +337,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 
 ### P6-2 — Implement service and social roles
 
+Status: `IN-REVIEW` — `TraderRole`/`BankerRole`/`BardRole`/`HealerRole`/`PostmanRole` now bind as NPC-attached YAML fields on `NpcDefinition` with fail-closed diagnostics; the entity executes healer/bard tick behavior on bounded periods and postman interact delivery; role removal cleans state. Trader/bank ship with M7; role-removal fixtures and per-role permission surfaces remain open.
+
 - **Intent:** Provide the target role vocabulary through composable capabilities.
 - **Expectation:** Dialogue, follower, postman/mailbox, healer, and bard roles have explicit configuration, permissions, UI, events, persistence, lifecycle and tick budgets; trader/bank roles are completed by M7.
 - **Acceptance criteria:** Each role has a separate schema subsection and fixture; follower lifecycle handles owner logout/unload; mail role stores/delivers messages; healer/bard effects validate targets/cooldowns; dialogue role opens P5 sessions; role removal cleans state; role actions route through P1-1.
@@ -341,6 +349,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 - **Verification:** Per-role create/use/remove/reload, permission, owner lifecycle, cooldown, mail delivery and event tests.
 
 ### P6-3 — Implement transport locations and transporter role
+
+Status: `IN-REVIEW` — `transports/*.yaml` is a loadable standalone family (`loadTransport`, registry map, duplicate-ID rejection); `TransportEvaluator` performs server-authoritative destination/unlock/dimension/chunk/safety/fee checks via `StoryNpcsApplicationService.requestTransport`/`listTransports`, exposed through commands and API. Unlock persistence exactly-once, cross-dimension timeout/recovery, and player transport UI remain open.
 
 - **Intent:** Add safe NPC transport and fast-travel workflows absent from StoryNPCs.
 - **Expectation:** Creators define categories/locations, destination dimensions/coordinates, unlock conditions, fees, preview and failure behavior; players discover/select/confirm transport through server-authoritative UI/command/API.
@@ -353,6 +363,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 
 ### P6-4 — Implement the exact job capability inventory
 
+Status: `IN-REVIEW` — `job:` binds on `NpcDefinition` with load-time `validate()` rejection (`JOB_CONFIG_INVALID`); `NpcJobRuntime` executes implemented types (`ITEM_GIVER` interact-driven, `HEALER`, `BARD`, `GUARD` — threat-table routed, `FARMER`, `CHUNK_LOADER` — shared-chunk reference tracking, `SPAWNER`, `CONVERSATION`, `PUPPET`) on bounded `tickPeriod` schedules from entity tick; jobs stop on unload/removal. `BUILDER` and `FOLLOWER` fail validation as unimplemented; per-job events/permissions/fixtures remain open.
+
 - **Intent:** Replace the absent jobs system with bounded, composable handlers for every target job.
 - **Expectation:** Artifact-resolved jobs each have a typed configuration, lifecycle, pause/resume, tick budget, persistence, events, permissions and cleanup. The manifest must resolve the 11th job name before certification.
 - **Acceptance criteria:** Bard, builder, chunk loader, conversation, farmer, follower, guard, healer, item giver, puppet, and spawner each have a named acceptance subsection and fixture; every job stops on actor unload/removal; handler tick cost is observable; invalid job config fails at load; no job creates unbounded entities/chunks/tasks.
@@ -363,6 +375,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 - **Verification:** Per-job fixture list, pause/resume/cleanup, unload, quota, tick-budget, reload and permission tests.
 
 ### P6-5 — Implement companion lifecycle, wages, stages, talents, and inventory
+
+Status: `IN-REVIEW` — `companion:` binds on `NpcDefinition`; `WageLedger` prevents repeated in-process charges per bounded period and stores its period in entity NBT, but no crash-spanning payment journal proves exactly-once charging. Stages/talents applying bounded effects, companion inventory containers, and dismissal state-return policy remain open.
 
 - **Intent:** Turn the partial follower role into a complete companion system.
 - **Expectation:** Hiring, wages, stages, talents, inventory, stance, formation, jobs, owner lifecycle, dismissal, death and unloaded-time policy are data-driven.
@@ -400,6 +414,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 ## M8 — Creator tools and world systems
 
 ### P8-1 — Implement persistent templates, cloning, and spawners
+
+Status: `IN-REVIEW` — `templates/*.yaml` is a loadable standalone family with `schemaVersion` bounds, `NpcTemplate.instantiate()` deep-copy isolation, registry storage, canonical import-sink write path, and template commands. Spawner quotas/placement/chunk rules and dependent-spawner reporting remain open.
 
 - **Intent:** Replace the in-memory cloner with the named-template/spawner workflows creators expect.
 - **Expectation:** Creators capture, name, version, search, preview, export/import, clone and spawn NPC templates; spawners enforce quotas, placement rules, cleanup and permissions.
@@ -469,6 +485,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 
 ### P9-1 — Deliver the typed public extension API
 
+Status: `IN-REVIEW` — `StoryNpcsApi` is reachable as a read-only facade; its direct canonical-service escape hatch was removed because compatibility methods can construct unconditional `system` requests. Safe typed mutation methods, capability grants, per-domain interfaces, and compile-checked examples remain open.
+
 - **Intent:** Give mod/plugin authors a stable way to integrate without binding them to internal entity classes.
 - **Expectation:** Public APIs expose stable IDs, immutable definitions/views, canonical operations, typed events, registries, diagnostics, version negotiation and capability grants.
 - **Acceptance criteria:** NPC/dialogue/quest/faction/role/job/trade/bank/transport/template/tool operations and events have documented interfaces; API calls cannot bypass P1-1/P1-4; version incompatibility fails clearly; listeners cannot mutate shared state directly; examples compile in CI.
@@ -479,6 +497,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 - **Verification:** Compile examples, permission, version, event isolation, reload, operation routing and API compatibility tests.
 
 ### P9-2 — Deliver a bounded scripting host and target hook matrix
+
+Status: `IN-REVIEW` — a `ScriptScheduler` model accounts for aggregate and wall-clock hook budgets, but there is no production script interpreter/storage and `ScriptBudget.Meter` is not connected to an executable script body. Current conversation/puppet dispatch is a fixed emote callback; only selected INTERACT/TICK/DIALOG paths are wired, not INIT/damaged/killed/target/quest/timer/removal. The full hook matrix, enforceable instruction/memory quotas, editor/storage, and runtime evidence remain open.
 
 - **Intent:** Provide CustomNPCs-style scripting power while preserving server authority and MMO budgets.
 - **Expectation:** Typed hooks cover `init`, `tick`, `interact`, `damaged`, `killed`, `target`, `dialog`, `quest`, and `timer`; wrappers expose only granted capabilities; execution has time/memory/recursion/command quotas and failure isolation.
@@ -501,6 +521,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 - **Verification:** Command manifest, parse/suggestion/permission, mutation/query, malformed input, localization and parity fixtures.
 
 ### P9-4 — Implement remote, player-data, global administration, and configuration parity
+
+Status: `IN-REVIEW` — `PlayerDataScope` now distinguishes self- vs cross-player operations inside `AuthorizationPolicy` (cross-player requires permission ≥2), and administration/player-data commands route through canonical requests. Remote-editor packet mapping, global menus, achievement/config surfaces, and audit records remain open.
 
 - **Intent:** Make server/operator administration explicit and safe instead of leaving remote and global target controls outside the parity plan.
 - **Expectation:** Remote editors, player-data administration, global menus, achievements/configuration and server-wide settings use authenticated capabilities, typed diagnostics, revision checks and audit records.
@@ -526,6 +548,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 
 ### P10-1 — Build the unified CustomNPCs-style authoring hub
 
+Status: `IN-REVIEW` — `AuthoringHub` has a testable panel/search/pagination model, but it is not wired into editor screens; the field matrix, undo/redo, diagnostics rendering, and GUI-scale automation remain open. The discarded static client singleton was removed to preserve managed lifecycle.
+
 - **Intent:** Make StoryNPCs faster and easier for creators already familiar with CustomNPCs while fixing its linear, fragmented tooling holes.
 - **Expectation:** A domain hub opens NPC identity/display/AI/combat/equipment/dialogue/quest/faction/role/job/trade/bank/transport/template/tool/script panels with search, pagination, previews, diagnostics, undo/redo, keyboard navigation and server-authoritative save.
 - **Acceptance criteria:** Every traceability row marked UI-applicable has an editor/view; 149 target GUI families are mapped to StoryNPCs screens or explicit improved equivalents; a creator can build one complete NPC workflow without raw YAML; screen state is revisioned; UI automation passes at 854x480 physical resolution with GUI scale 2 and verifies scroll/pagination rather than clipping; error fields identify exact schema path and repair action.
@@ -536,6 +560,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 - **Verification:** Field coverage matrix, UI automation, minimum-resolution, keyboard, stale revision, undo/redo, preview and multiplayer tests.
 
 ### P10-2 — Define safe AI-generated content and patch plans
+
+Status: `IN-REVIEW` — `DefinitionRegistry.revision()` now provides a deterministic staleness primitive for patch plans; `SchemaBundle.current()`/`PatchPlanValidator` dry-run paths exist and the import sink routes applies through canonical saves. Deterministic patch-plan apply ordering, source-location references, and rollback-on-failed-apply remain open.
 
 - **Intent:** Let an AI read the docs and generate NPCs exactly within the supported contract without raw unrestricted mutation.
 - **Expectation:** A versioned schema/reference bundle, examples, deterministic patch-plan format, dry-run validator, diagnostics, allowlist, permission context and rollback path let an external AI produce validated content.
@@ -560,6 +586,8 @@ Status: `IN-PROGRESS` — the YAML-first display contract now carries validated 
 ## M11 — Import, evidence closure, release certification
 
 ### P11-1 — Define and implement the CustomNPCs import contract
+
+Status: `IN-REVIEW` — `DefinitionImporter` is now reachable: `/storynpcs import dry-run|apply` commands drive plan/apply through the production `RegistryImportSink` (snapshot/restore, conflict policies, canonical YAML saves for npcs and templates). Evidenced-source formats only — CustomNPCs binary/text formats stay rejected pending evidence; world-NBT import remains unimplemented.
 
 - **Intent:** Provide a real migration path without pretending the supplied engine JAR contains creator-authored world data.
 - **Expectation:** Importer accepts explicitly supported sources—YAML/JSON/template packages and, if implemented, target world NBT/export data—reports field-level mappings, unsupported fields, scripts/assets, conflicts, and rollback/quarantine outcome.

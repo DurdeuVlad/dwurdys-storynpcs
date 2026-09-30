@@ -12,20 +12,43 @@ public class NpcMark {
     @JsonProperty
     private String text = "";
 
+    /** Whether the mark is currently shown; availability resynchronizes visibility. */
+    @JsonProperty
+    private boolean available = true;
+
     public NpcMark() {}
 
     public NpcMark(int type, int color, String text) {
-        this.type = type;
-        this.color = color;
-        this.text = text;
+        setType(type);
+        setColor(color);
+        setText(text);
     }
 
     public int getType() { return type; }
-    public void setType(int type) { this.type = type; }
+    public void setType(int type) {
+        if (type < 0 || type > 255) {
+            throw new IllegalArgumentException("type must be between 0 and 255");
+        }
+        this.type = type;
+    }
 
     public int getColor() { return color; }
-    public void setColor(int color) { this.color = color; }
+    public void setColor(int color) {
+        if (color < 0 || color > 0xFFFFFF) {
+            throw new IllegalArgumentException("color must be between 0x000000 and 0xFFFFFF");
+        }
+        this.color = color;
+    }
 
     public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
+    public void setText(String text) {
+        String normalized = text == null ? "" : text.trim();
+        if (normalized.length() > 128) {
+            throw new IllegalArgumentException("text exceeds 128 characters");
+        }
+        this.text = normalized;
+    }
+
+    public boolean isAvailable() { return available; }
+    public void setAvailable(boolean available) { this.available = available; }
 }

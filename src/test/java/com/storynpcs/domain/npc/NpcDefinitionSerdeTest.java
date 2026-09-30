@@ -86,14 +86,72 @@ class NpcDefinitionSerdeTest {
     }
 
     @Test
-    @DisplayName("String inventory identifiers survive definition JSON round-trip")
+    @DisplayName("Slotted inventory with item components survives definition JSON round-trip")
     void inventoryIdentifiersRoundTrip() {
         NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "quartermaster"), "Quartermaster");
-        original.setInventory(java.util.List.of("minecraft:iron_sword", "minecraft:bread"));
+        NpcInventory inventory = new NpcInventory();
+        inventory.equip(NpcInventory.ItemSlot.RIGHT_HAND,
+                new NpcItemStack(NamespacedId.of("minecraft:iron_sword"), 1, "{Damage:0}"));
+        inventory.equip(NpcInventory.ItemSlot.HELMET,
+                NpcItemStack.single(NamespacedId.of("minecraft:iron_helmet")));
+        inventory.setDrop(0, NpcItemStack.single(NamespacedId.of("minecraft:bread")), 50);
+        inventory.setDrop(9, new NpcItemStack(NamespacedId.of("minecraft:emerald"), 3, ""), 25);
+        inventory.setLootMode(NpcInventory.LootMode.NPC_ONLY);
+        original.setInventory(inventory);
 
         NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
 
-        assertEquals(java.util.List.of("minecraft:iron_sword", "minecraft:bread"), restored.getInventory());
+        NpcInventory restoredInv = restored.getInventory();
+        assertEquals("minecraft:iron_sword",
+                restoredInv.getEquipment().get(NpcInventory.ItemSlot.RIGHT_HAND).itemId().toString());
+        assertEquals("{Damage:0}",
+                restoredInv.getEquipment().get(NpcInventory.ItemSlot.RIGHT_HAND).components());
+        assertEquals("minecraft:bread",
+                restoredInv.getDrops().get(0).getItem().itemId().toString());
+        assertEquals(50, restoredInv.getDrops().get(0).getChancePercent());
+        assertEquals(3, restoredInv.getDrops().get(9).getItem().count());
+        assertEquals(25, restoredInv.getDrops().get(9).getChancePercent());
+        assertEquals(NpcInventory.LootMode.NPC_ONLY, restoredInv.getLootMode());
+        assertEquals(21, restoredInv.getDrops().size());
+    }
+
+    @Test
+    @DisplayName("Legacy string-list inventory migrates onto visible drop slots")
+    void legacyInventoryMigratesToDropSlots() {
+        String legacyJson = """
+            {"id": "storynpcs:legacy_guard", "inventory": ["minecraft:iron_sword", "minecraft:shield"]}
+            """;
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(legacyJson).orElseThrow();
+        assertEquals("minecraft:iron_sword",
+                restored.getInventory().getDrops().get(0).getItem().itemId().toString());
+        assertEquals("minecraft:shield",
+                restored.getInventory().getDrops().get(1).getItem().itemId().toString());
+        assertEquals(100, restored.getInventory().getDrops().get(0).getChancePercent());
+    }
+
+    @Test
+    @DisplayName("Legacy inventory migration preserves all entries within the supported slot count")
+    void legacyInventoryMigrationPreservesUpToTwentyOneEntries() {
+        String items = java.util.stream.IntStream.range(0, NpcInventory.DROP_SLOTS)
+                .mapToObj(i -> "\"minecraft:stone\"")
+                .collect(java.util.stream.Collectors.joining(","));
+        String json = "{\"id\":\"storynpcs:legacy_full_inventory\",\"inventory\":[" + items + "]}";
+
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(json).orElseThrow();
+
+        assertEquals(100, restored.getInventory().getDrops().get(9).getChancePercent());
+        assertEquals(NpcInventory.DROP_SLOTS, restored.getInventory().legacyItemIds().size());
+    }
+
+    @Test
+    @DisplayName("Legacy inventory migration rejects entries beyond supported slots")
+    void legacyInventoryMigrationRejectsOverflowInsteadOfTruncating() {
+        String items = java.util.stream.IntStream.range(0, NpcInventory.DROP_SLOTS + 1)
+                .mapToObj(i -> "\"minecraft:stone\"")
+                .collect(java.util.stream.Collectors.joining(","));
+        String json = "{\"id\":\"storynpcs:legacy_overflow_inventory\",\"inventory\":[" + items + "]}";
+
+        assertTrue(NpcDefinitionSerde.fromJson(json).isEmpty());
     }
 
     @Test

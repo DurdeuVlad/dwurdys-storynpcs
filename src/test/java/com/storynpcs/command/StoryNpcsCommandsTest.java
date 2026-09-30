@@ -424,6 +424,38 @@ class StoryNpcsCommandsTest {
     }
 
     @Test
+    @DisplayName("quest reset and bank share parse through the command tree")
+    void testResetAndShareCommandsParse() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        StoryNpcsCommands.register(dispatcher);
+        CommandSourceStack source = opSource();
+
+        String[] cmds = {
+                "storynpcs quest reset storynpcs:m3test",
+                "storynpcs npc bank share Steve PRIVATE",
+                "storynpcs npc bank share Steve SHARED 8d04b0a2-1f4b-4c3a-9d2e-5f6a7b8c9d0e",
+        };
+        for (String cmd : cmds) {
+            var parse = dispatcher.parse(cmd, source);
+            assertTrue(parse.getExceptions().isEmpty(),
+                    "parse failed for '" + cmd + "': " + parse.getExceptions());
+            assertFalse(parse.getReader().canRead(),
+                    "unconsumed input for '" + cmd + "': " + parse.getReader().getRemaining());
+        }
+
+        // The reset literal sits under quest with a perm-2 gate + quest_id arg.
+        CommandNode<CommandSourceStack> reset = dispatcher.getRoot()
+                .getChild("storynpcs").getChild("quest").getChild("reset");
+        assertNotNull(reset, "quest reset must exist");
+        assertNotNull(reset.getChild("quest_id"), "quest reset quest_id arg must exist");
+
+        CommandNode<CommandSourceStack> share = dispatcher.getRoot()
+                .getChild("storynpcs").getChild("npc").getChild("bank").getChild("share");
+        assertNotNull(share, "bank share must exist");
+        assertNotNull(share.getChild("owner"), "bank share owner arg must exist");
+    }
+
+    @Test
     @DisplayName("quest delete and faction delete parse to their id arguments")
     void testDeleteCommandsParse() {
         CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();

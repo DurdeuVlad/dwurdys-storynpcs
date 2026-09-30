@@ -1,0 +1,79 @@
+{
+ "checks": {
+  "benchmark_artifacts": {
+   "detail": {
+    "population": {
+     "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
+     "runs": 3,
+     "timing_repeatable_within_10pct": true
+    },
+    "siege": {
+     "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
+     "runs": 3,
+     "timing_repeatable_within_10pct": false
+    },
+    "stress": {
+     "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
+     "runs": 3,
+     "timing_repeatable_within_10pct": true
+    }
+   },
+   "findings": [],
+   "pass": true
+  },
+  "dependency_graph": {
+   "detail": {
+    "backward_edges": 207,
+    "forward_references": [
+     "P0-4 -> P8-2 (forward ownership/fixture reference)",
+     "P0-4 -> P6-4 (forward ownership/fixture reference)",
+     "P0-4 -> P9-2 (forward ownership/fixture reference)",
+     "P0-4 -> P1-1 (forward ownership/fixture reference)",
+     "P0-4 -> P8-3 (forward ownership/fixture reference)",
+     "P0-4 -> P9-1 (forward ownership/fixture reference)",
+     "P0-4 -> P6-3 (forward ownership/fixture reference)",
+     "P0-4 -> P8-1 (forward ownership/fixture reference)",
+     "P3-3 -> P6-1 (forward ownership/fixture reference)",
+     "P4-1 -> P4-3 (forward ownership/fixture reference)",
+     "P8-3 -> P9-2 (forward ownership/fixture reference)",
+     "P8-6 -> P10-1 (forward ownership/fixture reference)",
+     "P9-3 -> P11-2 (forward ownership/fixture reference)",
+     "P9-5 -> P11-2 (forward ownership/fixture reference)",
+     "P10-2 -> P10-3 (forward ownership/fixture reference)"
+    ]
+   },
+   "findings": [],
+   "pass": true
+  },
+  "fifteen_operations_evidence": {
+   "detail": "every operation row needs closing issues + a selector-mapped fixture",
+   "findings": [],
+   "pass": true
+  },
+  "issue_ids_unique": {
+   "detail": "47 issues across 12 milestones",
+   "findings": [],
+   "pass": true
+  },
+  "issue_statuses_terminal": {
+   "detail": {
+    "DONE-LOCAL": 1,
+    "IN-REVIEW": 46
+   },
+   "findings": [],
+   "interpretation": "Terminal = has a local status only. IN-REVIEW certifies local implementation under review, NOT issue closure or target parity \u2014 do not read a pass here as 'all issues done'.",
+   "pass": true
+  },
+  "twentytwo_domains_mapped": {
+   "detail": {
+    "INTENTIONAL_DEVIATION": 374,
+    "INVENTORY_ONLY": 1230,
+    "MAPPED_STORYNPCS_OBSERVED": 1232
+   },
+   "findings": [],
+   "pass": true
+  }
+ },
+ "gate_status": "PASS",
+ "honesty": "PASS means the local evidence checklist is complete; target-runtime parity remains BLOCKED \u2014 never certified by this gate."
+}

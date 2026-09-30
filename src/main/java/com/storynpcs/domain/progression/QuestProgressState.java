@@ -28,6 +28,14 @@ public class QuestProgressState {
     @JsonProperty
     private long stateRevision;
 
+    /**
+     * Epoch milliseconds of the last completion; 0 means "never recorded"
+     * (either never completed or completed before this field existed, which
+     * resolves as long-past for DAILY/WEEKLY boundaries).
+     */
+    @JsonProperty
+    private long lastCompletedEpochMillis;
+
     public QuestProgressState() {}
 
     public QuestProgressState(NamespacedId questId) {
@@ -53,6 +61,12 @@ public class QuestProgressState {
         stateRevision = Math.addExact(stateRevision, 1L);
     }
 
+    public long getLastCompletedEpochMillis() { return lastCompletedEpochMillis; }
+    public void setLastCompletedEpochMillis(long epochMillis) {
+        if (epochMillis < 0) throw new IllegalArgumentException("lastCompletedEpochMillis must be non-negative");
+        this.lastCompletedEpochMillis = epochMillis;
+    }
+
     public int getCount(String objectiveId) {
         return objectiveCounts.getOrDefault(objectiveId, 0);
     }
@@ -69,6 +83,7 @@ public class QuestProgressState {
         copy.status = status;
         copy.objectiveCounts = new HashMap<>(objectiveCounts);
         copy.stateRevision = stateRevision;
+        copy.lastCompletedEpochMillis = lastCompletedEpochMillis;
         return copy;
     }
 }

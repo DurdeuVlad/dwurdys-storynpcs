@@ -386,6 +386,55 @@ class YamlDefinitionLoaderTest {
     }
 
     @Test
+    void shouldLoadCoherentTwoInputTradeListingFromYaml() {
+        String yaml = """
+                id: "storynpcs:two_input_stall"
+                trader:
+                  listings:
+                    - offerItemId: "minecraft:bread"
+                      offerCount: 2
+                      priceItemId: "minecraft:emerald"
+                      priceCount: 1
+                      secondaryPriceItemId: "minecraft:dirt"
+                      secondaryPriceCount: 3
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "two_input_stall.yaml", result);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(npc).isNotNull();
+        var listing = npc.getTrader().getListings().get(0);
+        assertThat(listing.getSecondaryPriceItemId()).isEqualTo("minecraft:dirt");
+        assertThat(listing.getSecondaryPriceCount()).isEqualTo(3);
+        assertThat(listing.hasTwoInputs()).isTrue();
+    }
+
+    @Test
+    void shouldRejectIncoherentTwoInputTradeListingAtLoad() {
+        // A secondary item id with no count can never be charged — loading it
+        // would ship an undercharging contract, so the listing must fail here.
+        String yaml = """
+                id: "storynpcs:bad_stall"
+                trader:
+                  listings:
+                    - offerItemId: "minecraft:bread"
+                      offerCount: 2
+                      priceItemId: "minecraft:emerald"
+                      priceCount: 1
+                      secondaryPriceItemId: "minecraft:dirt"
+                """;
+
+        ValidationResult result = ValidationResult.valid();
+        NpcDefinition npc = loader.loadNpc(yaml, "bad_stall.yaml", result);
+
+        assertThat(npc).isNull();
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anySatisfy(error ->
+                assertThat(error.code()).isEqualTo("TRADE_LISTING_INVALID"));
+    }
+
+    @Test
     void shouldRoundTripRolesThroughNpcDefinitionSerde() {
         NpcDefinition npc = new NpcDefinition(NamespacedId.of("storynpcs:banker_npc"), "Vault Keeper");
         var banker = new com.storynpcs.domain.role.banker.BankerRole("Deep Vault");
@@ -405,5 +454,70 @@ class YamlDefinitionLoaderTest {
         assertThat(restored.get().getBanker()).isNotNull();
         assertThat(restored.get().getBanker().getBankName()).isEqualTo("Deep Vault");
         assertThat(restored.get().getBanker().getMaxTabs()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldRejectRecognizedButUnsupportedFamilyDirectories(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        java.nio.file.Path jobs = tempDir.resolve("jobs");
+        java.nio.file.Files.createDirectories(jobs);
+        java.nio.file.Files.writeString(jobs.resolve("cook.yaml"), """
+                schemaVersion: 1
+                id: "storynpcs:cook"
+                schedule: "day"
+                """);
+        java.nio.file.Path companions = tempDir.resolve("companions");
+        java.nio.file.Files.createDirectories(companions);
+        java.nio.file.Files.writeString(companions.resolve("aide.yaml"), """
+                schemaVersion: 1
+                id: "storynpcs:aide"
+                wageAmount: 3
+                """);
+
+        ValidationResult result = loader.loadDirectory(tempDir);
+
+        assertThat(result.getErrors())
+                .extracting(DiagnosticError::code)
+                .containsExactlyInAnyOrder("SCHEMA_FAMILY_UNSUPPORTED", "SCHEMA_FAMILY_UNSUPPORTED");
+        assertThat(result.getErrors())
+                .allSatisfy(error -> assertThat(error.message()).contains("not yet loadable"));
+        assertThat(registry.getAllNpcs()).isEmpty();
+    }
+
+    @Test
+    void shouldLoadBundledStarterResourcesWithCurrentSchemaVersion(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        // Every bundled starter resource ships versioned and loads cleanly —
+        // the same documents copied into a fresh world's definitions dir.
+        java.nio.file.Path npcs = tempDir.resolve("npcs");
+        java.nio.file.Path dialogues = tempDir.resolve("dialogues");
+        java.nio.file.Files.createDirectories(npcs);
+        java.nio.file.Files.createDirectories(dialogues);
+        copyBundled("npcs/guard_captain.yaml", npcs.resolve("guard_captain.yaml"));
+        copyBundled("npcs/quickstart_demo.yaml", npcs.resolve("quickstart_demo.yaml"));
+        copyBundled("dialogues/captain_dialogue.yaml", dialogues.resolve("captain_dialogue.yaml"));
+        copyBundled("dialogues/quickstart_dialogue.yaml", dialogues.resolve("quickstart_dialogue.yaml"));
+        java.nio.file.Path factions = tempDir.resolve("factions");
+        java.nio.file.Path quests = tempDir.resolve("quests");
+        java.nio.file.Files.createDirectories(factions);
+        java.nio.file.Files.createDirectories(quests);
+        copyBundled("factions/town_guard.yaml", factions.resolve("town_guard.yaml"));
+        copyBundled("quests/bounty_goblins.yaml", quests.resolve("bounty_goblins.yaml"));
+
+        ValidationResult result = loader.loadDirectory(tempDir);
+
+        assertThat(result.hasErrors()).as("starter resources must load cleanly: %s",
+                result.formatReport()).isFalse();
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:guard_captain"))).isPresent();
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:quickstart_demo"))).isPresent();
+        assertThat(registry.getDialogue(NamespacedId.of("storynpcs:quickstart_dialogue"))).isPresent();
+    }
+
+    private static void copyBundled(String relative, java.nio.file.Path target) throws Exception {
+        try (var in = YamlDefinitionLoaderTest.class.getClassLoader()
+                .getResourceAsStream("data/storynpcs/definitions/" + relative)) {
+            assertThat(in).as("bundled starter resource %s", relative).isNotNull();
+            java.nio.file.Files.write(target, in.readAllBytes());
+        }
     }
 }

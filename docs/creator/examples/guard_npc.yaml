@@ -1,0 +1,44 @@
+# Example: a complete town-guard NPC — validated in CI by CreatorDocsExamplesTest.
+# Every field name below is real; the production loader rejects unknown keys.
+schemaVersion: 1
+id: "storynpcs:town_guard"
+factionId: "storynpcs:town_guard"
+dialogueId: "storynpcs:guard_intro"
+display:
+  name: "Town Guard"
+  title: "Protector of the Gate"
+  showName: true
+  modelType: "humanoid"
+  modelSize: 5
+  skinSource: TEXTURE
+  skinTexture: "storynpcs:textures/entity/default.png"
+stats:
+  maxHealth: 60.0
+  attackDamage: 6.0
+  healthRegenPerSecond: 0.5
+  respawnTimeSeconds: 30
+  aggroRange: 16
+  xpReward: 15
+  melee:
+    attackDelayTicks: 20
+    attackRange: 2.5
+    knockbackStrength: 0.4
+ai:
+  movementType: "STANDING"
+  tacticalStance: GUARD
+  defendAllies: true
+  returnToStart: true
+  aggroDurationTicks: 400
+inventory:
+  equipment:
+    RIGHT_HAND: { itemId: "minecraft:iron_sword", count: 1 }
+    CHESTPLATE: { itemId: "minecraft:iron_chestplate", count: 1 }
+  drops:
+    - item: { itemId: "minecraft:emerald", count: 2 }
+      chancePercent: 50
+  lootMode: NORMAL
+marks:
+  - type: 1
+    color: 3407822
+    text: "On Duty"
+    available: true
