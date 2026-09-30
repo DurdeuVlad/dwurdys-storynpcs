@@ -30,14 +30,14 @@
    "detail": {
     "backward_edges": 207,
     "forward_references": [
-     "P0-4 -> P8-1 (forward ownership/fixture reference)",
-     "P0-4 -> P6-4 (forward ownership/fixture reference)",
      "P0-4 -> P8-3 (forward ownership/fixture reference)",
-     "P0-4 -> P8-2 (forward ownership/fixture reference)",
      "P0-4 -> P9-2 (forward ownership/fixture reference)",
+     "P0-4 -> P8-1 (forward ownership/fixture reference)",
      "P0-4 -> P9-1 (forward ownership/fixture reference)",
-     "P0-4 -> P1-1 (forward ownership/fixture reference)",
      "P0-4 -> P6-3 (forward ownership/fixture reference)",
+     "P0-4 -> P8-2 (forward ownership/fixture reference)",
+     "P0-4 -> P1-1 (forward ownership/fixture reference)",
+     "P0-4 -> P6-4 (forward ownership/fixture reference)",
      "P3-3 -> P6-1 (forward ownership/fixture reference)",
      "P4-1 -> P4-3 (forward ownership/fixture reference)",
      "P8-3 -> P9-2 (forward ownership/fixture reference)",
