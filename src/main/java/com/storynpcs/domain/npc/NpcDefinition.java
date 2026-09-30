@@ -64,6 +64,10 @@ public class NpcDefinition {
     @JsonProperty
     private com.storynpcs.domain.role.social.PostmanRole postman;
 
+    /** Transporter role: fast-travel destinations offered by this NPC (#72). */
+    @JsonProperty
+    private com.storynpcs.domain.role.transporter.TransporterRole transporter;
+
     public NpcDefinition() {}
 
     public NpcDefinition(NamespacedId id, String name) {
@@ -132,5 +136,8 @@ public class NpcDefinition {
 
     public com.storynpcs.domain.role.social.PostmanRole getPostman() { return postman; }
     public void setPostman(com.storynpcs.domain.role.social.PostmanRole postman) { this.postman = postman; }
+
+    public com.storynpcs.domain.role.transporter.TransporterRole getTransporter() { return transporter; }
+    public void setTransporter(com.storynpcs.domain.role.transporter.TransporterRole transporter) { this.transporter = transporter; }
 }
 

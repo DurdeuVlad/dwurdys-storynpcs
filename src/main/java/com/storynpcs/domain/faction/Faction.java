@@ -3,6 +3,8 @@ package com.storynpcs.domain.faction;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.storynpcs.domain.common.NamespacedId;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -33,12 +35,15 @@ public class Faction {
     private boolean passive = false;
 
     /**
-     * Inter-faction relationship matrix entry: factionId -> standing name
-     * (HOSTILE/NEUTRAL/FRIENDLY). Pairwise symmetric lookup is normalized by
-     * FactionRelationshipProvider; absent pairs remain NEUTRAL.
+     * Explicit inter-faction relationship overrides (issue #70 — faction relationship
+     * matrix). A faction not present in this map has no declared relationship to this
+     * one; callers must treat that as {@link FactionStanding#NEUTRAL} via
+     * {@link #getDeclaredRelationship(NamespacedId)} rather than assuming absence
+     * means hostility or friendliness. Pairwise symmetric lookup is normalized by
+     * FactionRelationshipProvider.
      */
     @JsonProperty
-    private java.util.Map<String, String> relationships = new java.util.LinkedHashMap<>();
+    private Map<NamespacedId, FactionStanding> relationships = new HashMap<>();
 
     public Faction() {}
 
@@ -102,41 +107,49 @@ public class Faction {
     public boolean isPassive() { return passive; }
     public void setPassive(boolean passive) { this.passive = passive; }
 
-    /** Unmodifiable view — mutation goes through setRelationship/removeRelationship. */
-    public java.util.Map<String, String> getRelationships() {
+    /** Unmodifiable view — mutation goes through setRelationshipTo/removeRelationshipTo. */
+    public Map<NamespacedId, FactionStanding> getRelationships() {
         return java.util.Collections.unmodifiableMap(relationships);
     }
 
-    public void setRelationships(java.util.Map<String, String> relationships) {
+    public void setRelationships(Map<NamespacedId, FactionStanding> relationships) {
         // Validate into a staging map first: a rejected entry must not destroy
         // the previously committed matrix state.
-        java.util.Map<String, String> validated = new java.util.LinkedHashMap<>();
+        Map<NamespacedId, FactionStanding> validated = new HashMap<>();
         if (relationships != null) {
-            for (var entry : relationships.entrySet()) {
-                if (entry.getKey() == null) {
-                    throw new IllegalArgumentException("relationship key cannot be null");
+            for (Map.Entry<NamespacedId, FactionStanding> entry : relationships.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    throw new IllegalArgumentException("faction relationship entries require a non-null faction ID and standing");
                 }
-                validated.put(NamespacedId.of(entry.getKey()).toString(),
-                        normalizeStanding(entry.getValue()));
+                if (id != null && entry.getKey().equals(id)) {
+                    throw new IllegalArgumentException("a faction cannot declare a relationship to itself: " + id);
+                }
+                validated.put(entry.getKey(), entry.getValue());
             }
         }
         this.relationships = validated;
     }
 
-    public void setRelationship(NamespacedId other, String standing) {
-        relationships.put(other.toString(), normalizeStanding(standing));
-    }
-
-    private static String normalizeStanding(String standing) {
-        String normalized = standing == null ? "" : standing.toUpperCase(java.util.Locale.ROOT);
-        if (!normalized.equals("HOSTILE") && !normalized.equals("NEUTRAL") && !normalized.equals("FRIENDLY")) {
-            throw new IllegalArgumentException("standing must be HOSTILE, NEUTRAL, or FRIENDLY");
+    /** Declares (or overwrites) this faction's relationship to another. Rejects a self-relationship. */
+    public void setRelationshipTo(NamespacedId otherFactionId, FactionStanding standing) {
+        Objects.requireNonNull(otherFactionId, "otherFactionId");
+        Objects.requireNonNull(standing, "standing");
+        if (id != null && otherFactionId.equals(id)) {
+            throw new IllegalArgumentException("a faction cannot declare a relationship to itself: " + id);
         }
-        return normalized;
+        relationships.put(otherFactionId, standing);
     }
 
-    public void removeRelationship(NamespacedId other) {
-        relationships.remove(other.toString());
+    public void removeRelationshipTo(NamespacedId otherFactionId) {
+        relationships.remove(otherFactionId);
+    }
+
+    /**
+     * This faction's declared relationship to another, or {@link FactionStanding#NEUTRAL}
+     * if none is declared. Never returns null.
+     */
+    public FactionStanding getDeclaredRelationship(NamespacedId otherFactionId) {
+        return relationships.getOrDefault(otherFactionId, FactionStanding.NEUTRAL);
     }
 
     public FactionStanding getStandingForPoints(int points) {

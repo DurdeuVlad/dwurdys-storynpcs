@@ -4,6 +4,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class BankerRole {
 
+    /** Issue #76 acceptance criterion: "tab count cannot exceed six." */
+    public static final int MIN_TABS = 1;
+    public static final int MAX_TABS = 6;
+
     @JsonProperty
     private String bankName = "Standard Vault";
 
@@ -31,13 +35,18 @@ public class BankerRole {
     public String getBankName() { return bankName; }
     public void setBankName(String bankName) { this.bankName = bankName; }
 
-    /** Target bank parity: a bank may have at most six tabs. */
-    public static final int MAX_TABS = 6;
-
     public int getMaxTabs() { return maxTabs; }
+
+    /**
+     * Rejects any value outside [{@link #MIN_TABS}, {@link #MAX_TABS}] rather
+     * than silently clamping, matching how other hard-bounded fields in this
+     * codebase (e.g. {@code NpcDisplay}'s model/visibility bounds) fail loudly
+     * on an authoring mistake instead of tolerating it.
+     */
     public void setMaxTabs(int maxTabs) {
-        if (maxTabs < 1 || maxTabs > MAX_TABS) {
-            throw new IllegalArgumentException("maxTabs must be in [1," + MAX_TABS + "]");
+        if (maxTabs < MIN_TABS || maxTabs > MAX_TABS) {
+            throw new IllegalArgumentException(
+                    "maxTabs must be between " + MIN_TABS + " and " + MAX_TABS + " (was " + maxTabs + ")");
         }
         this.maxTabs = maxTabs;
     }

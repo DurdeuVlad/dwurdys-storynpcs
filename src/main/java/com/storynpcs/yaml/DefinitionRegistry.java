@@ -5,6 +5,7 @@ import com.storynpcs.domain.dialogue.DialogueGraph;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.quest.Quest;
+import com.storynpcs.domain.transport.TransportLocation;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,8 +20,7 @@ public class DefinitionRegistry {
     private final Map<NamespacedId, DialogueGraph> dialogues = new ConcurrentHashMap<>();
     private final Map<NamespacedId, Faction> factions = new ConcurrentHashMap<>();
     private final Map<NamespacedId, Quest> quests = new ConcurrentHashMap<>();
-    private final Map<NamespacedId, com.storynpcs.domain.transport.TransportLocation> transports =
-            new ConcurrentHashMap<>();
+    private final Map<NamespacedId, TransportLocation> transportLocations = new ConcurrentHashMap<>();
     private final com.storynpcs.creator.template.TemplateLibrary templates =
             new com.storynpcs.creator.template.TemplateLibrary();
     /**
@@ -148,6 +148,44 @@ public class DefinitionRegistry {
         }
     }
 
+    public void registerTransportLocation(TransportLocation location) {
+        rwLock.writeLock().lock();
+        try {
+            transportLocations.put(location.getId(), location);
+            revision.incrementAndGet();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public Optional<TransportLocation> getTransportLocation(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(transportLocations.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public Collection<TransportLocation> getAllTransportLocations() {
+        rwLock.readLock().lock();
+        try {
+            return List.copyOf(transportLocations.values());
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public void removeTransportLocation(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            transportLocations.remove(id);
+            revision.incrementAndGet();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     public void registerQuest(Quest quest) {
         rwLock.writeLock().lock();
         try {
@@ -180,44 +218,6 @@ public class DefinitionRegistry {
         rwLock.writeLock().lock();
         try {
             quests.remove(id);
-            revision.incrementAndGet();
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-
-    public void registerTransport(com.storynpcs.domain.transport.TransportLocation location) {
-        rwLock.writeLock().lock();
-        try {
-            transports.put(location.getId(), location);
-            revision.incrementAndGet();
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-
-    public Optional<com.storynpcs.domain.transport.TransportLocation> getTransport(NamespacedId id) {
-        rwLock.readLock().lock();
-        try {
-            return Optional.ofNullable(transports.get(id));
-        } finally {
-            rwLock.readLock().unlock();
-        }
-    }
-
-    public Collection<com.storynpcs.domain.transport.TransportLocation> getAllTransports() {
-        rwLock.readLock().lock();
-        try {
-            return List.copyOf(transports.values());
-        } finally {
-            rwLock.readLock().unlock();
-        }
-    }
-
-    public void removeTransport(NamespacedId id) {
-        rwLock.writeLock().lock();
-        try {
-            transports.remove(id);
             revision.incrementAndGet();
         } finally {
             rwLock.writeLock().unlock();
@@ -310,8 +310,8 @@ public class DefinitionRegistry {
             factions.putAll(other.factions);
             quests.clear();
             quests.putAll(other.quests);
-            transports.clear();
-            transports.putAll(other.transports);
+            transportLocations.clear();
+            transportLocations.putAll(other.transportLocations);
             templates.clear();
             for (var template : other.templates.all()) {
                 templates.put(template);
@@ -335,7 +335,7 @@ public class DefinitionRegistry {
             dialogues.clear();
             factions.clear();
             quests.clear();
-            transports.clear();
+            transportLocations.clear();
             templates.clear();
             revision.incrementAndGet();
         } finally {

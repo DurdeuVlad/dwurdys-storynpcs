@@ -56,9 +56,9 @@ public final class FactionDeletionPlanner {
         }
         for (Faction f : factions) {
             if (f.getId() != null && !f.getId().equals(factionId)
-                    && f.getRelationships().containsKey(target)) {
+                    && f.getRelationships().containsKey(factionId)) {
                 refs.add(new Reference("matrix-entry", f.getId().toString(),
-                        "relationship " + f.getRelationships().get(target)));
+                        "relationship " + f.getRelationships().get(factionId)));
             }
         }
         for (var dialogue : dialogues) {
@@ -245,8 +245,8 @@ public final class FactionDeletionPlanner {
         String target = plan.factionId().toString();
         List<Reference> repaired = new ArrayList<>();
         for (Faction f : factions) {
-            if (f.getId() != null && f.getRelationships().containsKey(target)) {
-                f.removeRelationship(plan.factionId());
+            if (f.getId() != null && f.getRelationships().containsKey(plan.factionId())) {
+                f.removeRelationshipTo(plan.factionId());
                 repaired.add(new Reference("matrix-entry", f.getId().toString(), "removed"));
             }
         }

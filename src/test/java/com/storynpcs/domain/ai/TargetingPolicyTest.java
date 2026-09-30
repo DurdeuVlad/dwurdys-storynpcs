@@ -188,8 +188,8 @@ class TargetingPolicyTest {
     void providerFromFactionsResolvesMostHostileDeclaration() {
         var guards = new com.storynpcs.domain.faction.Faction(OWN, "Town Guard", 0, -100, 100);
         var goblins = new com.storynpcs.domain.faction.Faction(GOBLINS, "Goblins", 0, -100, 100);
-        guards.setRelationship(GOBLINS, "HOSTILE");
-        goblins.setRelationship(OWN, "FRIENDLY");
+        guards.setRelationshipTo(GOBLINS, com.storynpcs.domain.faction.FactionStanding.HOSTILE);
+        goblins.setRelationshipTo(OWN, com.storynpcs.domain.faction.FactionStanding.FRIENDLY);
 
         var provider = FactionRelationshipProvider.fromFactions(List.of(guards, goblins));
         // Conflicting declarations resolve to the more hostile standing.

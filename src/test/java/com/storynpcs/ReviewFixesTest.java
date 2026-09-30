@@ -299,7 +299,7 @@ class ReviewFixesTest {
         savedFaction("doomed");
         savedFaction("safe");
         var other = savedFaction("other");
-        other.setRelationship(doomedId, "HOSTILE");
+        other.setRelationshipTo(doomedId, com.storynpcs.domain.faction.FactionStanding.HOSTILE);
         assertThat(service.saveFaction(other).hasErrors()).isFalse();
 
         var npcId = NamespacedId.of("storynpcs:citizen");
@@ -322,10 +322,10 @@ class ReviewFixesTest {
         // Registry now serves repaired definitions...
         assertThat(registry.getNpc(npcId).orElseThrow().getFactionId()).isEqualTo(safeId);
         assertThat(registry.getFaction(otherId).orElseThrow().getRelationships())
-                .doesNotContainKey(doomedId.toString());
+                .doesNotContainKey(doomedId);
         // ...while the previously live objects were never mutated.
         assertThat(liveNpc.getFactionId()).isEqualTo(doomedId);
-        assertThat(liveOther.getRelationships()).containsKey(doomedId.toString());
+        assertThat(liveOther.getRelationships()).containsKey(doomedId);
         assertThat(registry.getNpc(npcId).orElseThrow()).isNotSameAs(liveNpc);
         assertThat(registry.getFaction(otherId).orElseThrow()).isNotSameAs(liveOther);
     }
@@ -338,7 +338,7 @@ class ReviewFixesTest {
         savedFaction("doomed_atomic");
         savedFaction("safe_atomic");
         var other = savedFaction("other_atomic");
-        other.setRelationship(doomedId, "HOSTILE");
+        other.setRelationshipTo(doomedId, com.storynpcs.domain.faction.FactionStanding.HOSTILE);
         assertThat(service.saveFaction(other).hasErrors()).isFalse();
         var npc = new NpcDefinition(NamespacedId.of("storynpcs:citizen_atomic"), "Citizen");
         npc.setFactionId(doomedId);
@@ -367,7 +367,7 @@ class ReviewFixesTest {
         assertThat(registry.getFaction(doomedId)).isPresent();
         assertThat(registry.getNpc(npc.getId()).orElseThrow().getFactionId()).isEqualTo(doomedId);
         assertThat(registry.getFaction(otherId).orElseThrow().getRelationships())
-                .containsEntry(doomedId.toString(), "HOSTILE");
+                .containsEntry(doomedId, com.storynpcs.domain.faction.FactionStanding.HOSTILE);
     }
 
     @Test
@@ -464,7 +464,7 @@ class ReviewFixesTest {
         transport.setUnlockConditions(List.of(new com.storynpcs.domain.dialogue.DialogueCondition(
                 com.storynpcs.domain.dialogue.DialogueCondition.Type.FACTION_POINTS,
                 doomedId.toString(), ">=", "1")));
-        registry.registerTransport(transport);
+        registry.registerTransportLocation(transport);
 
         var request = new com.storynpcs.service.MutationRequest("faction.delete", "command",
                 "faction.delete", doomedId, service.currentRevision("faction", doomedId),

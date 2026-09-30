@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class StoryNpcsApplicationServiceTest {
     @TempDir
@@ -1517,6 +1518,112 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void canonicalTransportLocationCreateRequiresAuthorizationAndTracksRevision() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:harbor");
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                locationId, "Harbor", "minecraft:overworld", 100, 64, 200);
+
+        MutationRequest unprovenPlayer = new MutationRequest(
+                "transport.create", "player:no-proof", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        CanonicalMutationResult denied = service.createTransportLocation(unprovenPlayer, location);
+        assertThat(denied.applied()).isFalse();
+        assertThat(denied.recoveryOutcome()).isEqualTo("REJECTED_AUTHORIZATION");
+        assertThat(registry.getTransportLocation(locationId)).isEmpty();
+
+        MutationRequest authorized = new MutationRequest(
+                "transport.create", "command", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        CanonicalMutationResult created = service.createTransportLocation(authorized, location);
+        assertThat(created.applied()).isTrue();
+        assertThat(registry.getTransportLocation(locationId)).isPresent();
+        assertThat(created.revision()).isEqualTo(1L);
+    }
+
+    @Test
+    void canonicalTransportLocationCreateRejectsDuplicatesAndScripts() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:capital");
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                locationId, "Capital", "minecraft:overworld", 0, 70, 0);
+
+        MutationRequest scriptRequest = new MutationRequest(
+                "transport.create", "script", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        CanonicalMutationResult scriptDenied = service.createTransportLocation(scriptRequest, location);
+        assertThat(scriptDenied.applied()).isFalse();
+        assertThat(scriptDenied.recoveryOutcome()).isEqualTo("REJECTED_AUTHORIZATION");
+
+        MutationRequest first = new MutationRequest(
+                "transport.create", "command", "transport.mutate", locationId, 0L, UUID.randomUUID());
+        assertThat(service.createTransportLocation(first, location).applied()).isTrue();
+
+        MutationRequest duplicate = new MutationRequest(
+                "transport.create", "command", "transport.mutate", locationId, 1L, UUID.randomUUID());
+        CanonicalMutationResult dup = service.createTransportLocation(duplicate, location);
+        assertThat(dup.applied()).isFalse();
+        assertThat(dup.diagnostics().formatReport()).contains("TRANSPORT_LOCATION_ALREADY_EXISTS");
+    }
+
+    @Test
+    void canonicalMailReadAndDeleteRequireAuthorization() {
+        UUID player = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        var message = service.deliverMail(player, "Postmaster", "Welcome", "Hello there.");
+
+        PlayerProgressionActionRequest deniedRead = new PlayerProgressionActionRequest(
+                "mail.read", "player", other, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult readDenied = service.markMailRead(deniedRead, message.getId());
+        assertThat(readDenied.applied()).isFalse();
+        assertThat(readDenied.decision().code()).isEqualTo("PLAYER_SUBJECT_MISMATCH");
+        assertThat(service.getMailbox(player).get(0).isRead()).isFalse();
+
+        PlayerProgressionActionRequest allowedRead = new PlayerProgressionActionRequest(
+                "mail.read", "player", player, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult readApplied = service.markMailRead(allowedRead, message.getId());
+        assertThat(readApplied.applied()).isTrue();
+        assertThat(service.getMailbox(player).get(0).isRead()).isTrue();
+
+        PlayerProgressionActionRequest deniedDelete = new PlayerProgressionActionRequest(
+                "mail.delete", "command", other, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult deleteDenied = service.deleteMail(deniedDelete, message.getId());
+        assertThat(deleteDenied.applied()).isFalse();
+        assertThat(deleteDenied.decision().code()).isEqualTo("PERMISSION_DENIED");
+        assertThat(service.getMailbox(player)).hasSize(1);
+
+        PlayerProgressionActionRequest allowedDelete = new PlayerProgressionActionRequest(
+                "mail.delete", "command", other, player, UUID.randomUUID(), 2);
+        AuthorizedActionResult deleteApplied = service.deleteMail(allowedDelete, message.getId());
+        assertThat(deleteApplied.applied()).isTrue();
+        assertThat(service.getMailbox(player)).isEmpty();
+    }
+
+    @Test
+    void canonicalTransportUnlockRequiresAuthorization() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:vault_city");
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                locationId, "Vault City", "minecraft:overworld", 10, 65, 10);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
+        service.createTransportLocation(location);
+        UUID player = UUID.randomUUID();
+
+        PlayerProgressionActionRequest scriptRequest = new PlayerProgressionActionRequest(
+                "transport.unlock", "script", player, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult scriptDenied = service.unlockTransportLocation(scriptRequest, locationId);
+        assertThat(scriptDenied.applied()).isFalse();
+        assertThat(scriptDenied.decision().code()).isEqualTo("SCRIPT_CAPABILITY_REQUIRED");
+        assertThat(service.isTransportLocationUnlocked(player, locationId)).isFalse();
+
+        PlayerProgressionActionRequest systemRequest = new PlayerProgressionActionRequest(
+                "transport.unlock", "system", player, player, UUID.randomUUID(), -1);
+        AuthorizedActionResult applied = service.unlockTransportLocation(systemRequest, locationId);
+        assertThat(applied.applied()).isTrue();
+        assertThat(service.isTransportLocationUnlocked(player, locationId)).isTrue();
+    }
+
+    @Test
     void deleteQuestShouldRemoveAndReportDialogueReferences() {
         NamespacedId questId = NamespacedId.of("storynpcs:deletable");
         service.createQuest(questId, "Deletable");
@@ -1537,5 +1644,248 @@ class StoryNpcsApplicationServiceTest {
         assertThat(service.deleteQuest(questId)).isTrue();
         assertThat(registry.getQuest(questId)).isEmpty();
         assertThat(service.deleteQuest(questId)).isFalse(); // idempotent-miss
+    }
+
+    @Test
+    void deleteFactionRejectsUnknownId() {
+        assertThat(service.deleteFaction(NamespacedId.of("storynpcs:nonexistent_faction"))).isFalse();
+    }
+
+    @Test
+    void deleteFactionShouldRemoveAndReportNpcReferences() {
+        NamespacedId factionId = NamespacedId.of("storynpcs:deletable_faction");
+        service.createFaction(factionId, "Deletable Faction");
+        assertThat(registry.getFaction(factionId)).isPresent();
+
+        NamespacedId npcId = NamespacedId.of("storynpcs:faction_ref_npc");
+        NpcDefinition npc = new NpcDefinition(npcId, "Loyalist");
+        npc.setFactionId(factionId);
+        registry.registerNpc(npc);
+
+        assertThat(service.findNpcsReferencingFaction(factionId)).containsExactly(npcId);
+        // No fallback: deletion is blocked rather than silently orphaning the NPC binding.
+        assertThat(service.deleteFaction(factionId)).isFalse();
+        assertThat(registry.getFaction(factionId)).isPresent();
+
+        NamespacedId fallbackId = NamespacedId.of("storynpcs:fallback_faction");
+        service.createFaction(fallbackId, "Fallback Faction");
+        MutationRequest request = new MutationRequest("faction.delete", "command", "faction.delete",
+                factionId, service.currentRevision("faction", factionId), UUID.randomUUID(), -1);
+        assertThat(service.deleteFactionWithRepairs(request, fallbackId).applied()).isTrue();
+        assertThat(registry.getFaction(factionId)).isEmpty();
+        assertThat(registry.getNpc(npcId)).hasValueSatisfying(
+                repointed -> assertThat(repointed.getFactionId()).isEqualTo(fallbackId));
+        assertThat(service.deleteFaction(factionId)).isFalse(); // idempotent-miss
+    }
+
+    @Test
+    void deleteFactionCanonicalRequestReportsNotFoundForUnknownId() {
+        var request = new MutationRequest("faction.delete", "command", "faction.delete",
+                NamespacedId.of("storynpcs:ghost_faction"), 0L, UUID.randomUUID());
+        CanonicalMutationResult result = service.deleteFaction(request);
+        assertThat(result.applied()).isFalse();
+        assertThat(result.formatReport()).contains("FACTION_NOT_FOUND");
+    }
+
+    @Test
+    void deliverMailAppearsInMailboxUnread() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "Guard Captain", "Patrol report", "All quiet on the wall.");
+
+        var mailbox = service.getMailbox(player);
+        assertThat(mailbox).hasSize(1);
+        assertThat(mailbox.get(0).getId()).isEqualTo(message.getId());
+        assertThat(mailbox.get(0).getSender()).isEqualTo("Guard Captain");
+        assertThat(mailbox.get(0).getSubject()).isEqualTo("Patrol report");
+        assertThat(mailbox.get(0).getBody()).isEqualTo("All quiet on the wall.");
+        assertThat(mailbox.get(0).isRead()).isFalse();
+        assertThat(mailbox.get(0).getDeliveredAtEpochMillis()).isGreaterThan(0);
+    }
+
+    @Test
+    void deliveredMailPersistsAcrossRepositoryReload() {
+        UUID player = UUID.randomUUID();
+        service.deliverMail(player, "System", "Welcome", "Welcome to the server!");
+
+        progressionRepository.clearCache();
+        var reloaded = progressionRepository.getOrCreate(player);
+        assertThat(reloaded.getMailbox()).hasSize(1);
+        assertThat(reloaded.getMailbox().get(0).getSubject()).isEqualTo("Welcome");
+    }
+
+    @Test
+    void markMailReadIsIdempotentAndReturnsFalseForUnknownId() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "System", "Hi", "Body");
+
+        assertThat(service.markMailRead(player, message.getId())).isTrue();
+        assertThat(service.getMailbox(player).get(0).isRead()).isTrue();
+        assertThat(service.markMailRead(player, message.getId())).isTrue(); // idempotent
+        assertThat(service.markMailRead(player, UUID.randomUUID())).isFalse();
+    }
+
+    @Test
+    void deleteMailRemovesItAndReturnsFalseForUnknownId() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "System", "Hi", "Body");
+
+        assertThat(service.deleteMail(player, message.getId())).isTrue();
+        assertThat(service.getMailbox(player)).isEmpty();
+        assertThat(service.deleteMail(player, message.getId())).isFalse();
+    }
+
+    @Test
+    void mailboxIsScopedPerPlayer() {
+        UUID playerA = UUID.randomUUID();
+        UUID playerB = UUID.randomUUID();
+        service.deliverMail(playerA, "System", "For A", "Body A");
+
+        assertThat(service.getMailbox(playerA)).hasSize(1);
+        assertThat(service.getMailbox(playerB)).isEmpty();
+    }
+
+    @Test
+    void mailboxEvictsOldestWhenOverCapacity() {
+        UUID player = UUID.randomUUID();
+        for (int i = 0; i < 260; i++) {
+            service.deliverMail(player, "System", "Msg " + i, "Body " + i);
+        }
+        var mailbox = service.getMailbox(player);
+        assertThat(mailbox).hasSize(256);
+        // The oldest messages (0-3) were evicted; the newest (255) remains.
+        assertThat(mailbox.get(mailbox.size() - 1).getSubject()).isEqualTo("Msg 259");
+        assertThat(mailbox.stream().noneMatch(m -> m.getSubject().equals("Msg 0"))).isTrue();
+    }
+
+    @Test
+    void oversizedMailBodyIsRejected() {
+        UUID player = UUID.randomUUID();
+        String hugeBody = "x".repeat(3000);
+        assertThatThrownBy(() -> service.deliverMail(player, "System", "Subject", hugeBody))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mail body");
+    }
+
+    @Test
+    void getMailboxReturnsDefensiveCopyNotLiveState() {
+        UUID player = UUID.randomUUID();
+        service.deliverMail(player, "System", "Subject", "Body");
+
+        var mailbox = service.getMailbox(player);
+        mailbox.get(0).setRead(true); // mutate the returned copy
+
+        // The live mailbox must be unaffected by mutating the returned snapshot.
+        assertThat(service.getMailbox(player).get(0).isRead()).isFalse();
+    }
+
+    @Test
+    void createTransportLocationRejectsInvalidDestination() {
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:bad_spot"), "Bad Spot", "", 0, 0, 0);
+        var result = service.createTransportLocation(location);
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(registry.getTransportLocation(location.getId())).isEmpty();
+    }
+
+    @Test
+    void createTransportLocationRegistersValidDestination() {
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:capital"), "Capital City", "minecraft:overworld", 0, 64, 0);
+        var result = service.createTransportLocation(location);
+        assertThat(result.hasErrors()).isFalse();
+        assertThat(registry.getTransportLocation(location.getId())).isPresent();
+    }
+
+    @Test
+    void duplicateTransportLocationIdIsRejected() {
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:capital"), "Capital City", "minecraft:overworld", 0, 64, 0);
+        service.createTransportLocation(location);
+        var duplicate = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:capital"), "Again", "minecraft:overworld", 1, 65, 1);
+        var result = service.createTransportLocation(duplicate);
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.formatReport()).contains("TRANSPORT_LOCATION_ALREADY_EXISTS");
+    }
+
+    @Test
+    void freeLocationIsAlwaysAvailableWithoutUnlock() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:town_square"), "Town Square", "minecraft:overworld", 0, 64, 0);
+        service.createTransportLocation(location);
+
+        assertThat(service.isTransportLocationUnlocked(player, location.getId())).isTrue();
+        assertThat(service.listAvailableTransportLocations(player)).extracting(l -> l.getId())
+                .containsExactly(location.getId());
+    }
+
+    @Test
+    void gatedLocationRequiresUnlock() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
+        service.createTransportLocation(location);
+
+        assertThat(service.isTransportLocationUnlocked(player, location.getId())).isFalse();
+        assertThat(service.listAvailableTransportLocations(player)).isEmpty();
+
+        boolean unlocked = service.unlockTransportLocation(player, location.getId());
+        assertThat(unlocked).isTrue();
+        assertThat(service.isTransportLocationUnlocked(player, location.getId())).isTrue();
+        assertThat(service.listAvailableTransportLocations(player)).extracting(l -> l.getId())
+                .containsExactly(location.getId());
+    }
+
+    @Test
+    void unlockingTwiceIsIdempotent() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
+        service.createTransportLocation(location);
+
+        assertThat(service.unlockTransportLocation(player, location.getId())).isTrue();
+        assertThat(service.unlockTransportLocation(player, location.getId())).isTrue();
+        assertThat(service.listAvailableTransportLocations(player)).hasSize(1);
+    }
+
+    @Test
+    void unlockingUnknownLocationFails() {
+        UUID player = UUID.randomUUID();
+        assertThat(service.unlockTransportLocation(player, NamespacedId.of("storynpcs:nonexistent"))).isFalse();
+    }
+
+    @Test
+    void unlockStatePersistsAcrossRepositoryReload() {
+        UUID player = UUID.randomUUID();
+        var location = new com.storynpcs.domain.transport.TransportLocation(
+                NamespacedId.of("storynpcs:hidden_isle"), "Hidden Isle", "minecraft:the_end", 0, 64, 0);
+        // Gated location: a non-empty unlock-conditions list that a fresh
+        // player cannot satisfy (quest never completed); the explicit
+        // unlockTransportLocation grant is what opens it.
+        location.setUnlockConditions(java.util.List.of(
+                new com.storynpcs.domain.dialogue.DialogueCondition(
+                        com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                        "storynpcs:never_completed_quest", "==", "COMPLETED")));
+        service.createTransportLocation(location);
+        service.unlockTransportLocation(player, location.getId());
+
+        progressionRepository.clearCache();
+        assertThat(progressionRepository.getOrCreate(player).getUnlockedTransportLocations())
+                .containsExactly(location.getId());
     }
 }

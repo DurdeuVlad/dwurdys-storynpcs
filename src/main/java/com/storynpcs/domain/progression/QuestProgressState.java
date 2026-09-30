@@ -29,12 +29,12 @@ public class QuestProgressState {
     private long stateRevision;
 
     /**
-     * Epoch milliseconds of the last completion; 0 means "never recorded"
-     * (either never completed or completed before this field existed, which
-     * resolves as long-past for DAILY/WEEKLY boundaries).
+     * Server-clock epoch millis of the most recent COMPLETED transition; 0 if
+     * never completed (or completed before this field existed, which resolves as
+     * long-past for DAILY/WEEKLY boundaries). Drives repeat-mode boundary checks.
      */
     @JsonProperty
-    private long lastCompletedEpochMillis;
+    private long lastCompletedAtEpochMillis;
 
     public QuestProgressState() {}
 
@@ -61,10 +61,10 @@ public class QuestProgressState {
         stateRevision = Math.addExact(stateRevision, 1L);
     }
 
-    public long getLastCompletedEpochMillis() { return lastCompletedEpochMillis; }
-    public void setLastCompletedEpochMillis(long epochMillis) {
-        if (epochMillis < 0) throw new IllegalArgumentException("lastCompletedEpochMillis must be non-negative");
-        this.lastCompletedEpochMillis = epochMillis;
+    public long getLastCompletedAtEpochMillis() { return lastCompletedAtEpochMillis; }
+    public void setLastCompletedAtEpochMillis(long lastCompletedAtEpochMillis) {
+        if (lastCompletedAtEpochMillis < 0) throw new IllegalArgumentException("lastCompletedAtEpochMillis must be non-negative");
+        this.lastCompletedAtEpochMillis = lastCompletedAtEpochMillis;
     }
 
     public int getCount(String objectiveId) {
@@ -83,7 +83,7 @@ public class QuestProgressState {
         copy.status = status;
         copy.objectiveCounts = new HashMap<>(objectiveCounts);
         copy.stateRevision = stateRevision;
-        copy.lastCompletedEpochMillis = lastCompletedEpochMillis;
+        copy.lastCompletedAtEpochMillis = lastCompletedAtEpochMillis;
         return copy;
     }
 }

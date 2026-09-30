@@ -46,6 +46,7 @@ public class StoryNpcsApplicationService {
     /** Recent quest progression receipts are process-local; persisted revisions reject replay after restart. */
     private final BoundedReplayCache<UUID, CompletedQuestMutation> completedQuestMutations =
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    /** Recent faction progression receipts are process-local; persisted revisions reject replay after restart. */
     private final BoundedReplayCache<UUID, CompletedFactionMutation> completedFactionMutations =
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
     private final BoundedReplayCache<UUID, CompletedQuestCompletion> completedQuestCompletions =
@@ -1413,7 +1414,7 @@ public class StoryNpcsApplicationService {
         var plan = planner.plan(factionId, List.copyOf(registry.getAllNpcs()),
                 List.copyOf(registry.getAllTemplates()), List.copyOf(registry.getAllFactions()),
                 List.copyOf(registry.getAllDialogues()),
-                List.copyOf(registry.getAllQuests()), List.copyOf(registry.getAllTransports()),
+                List.copyOf(registry.getAllQuests()), List.copyOf(registry.getAllTransportLocations()),
                 fallbackFactionId);
         if (!plan.viable()) {
             throw new IllegalStateException(String.join("\n", plan.diagnostics()));
@@ -1462,7 +1463,7 @@ public class StoryNpcsApplicationService {
                         .map(current -> com.storynpcs.domain.faction.FactionSerde
                                 .fromJson(com.storynpcs.domain.faction.FactionSerde.toJson(current)).orElseThrow())
                         .orElseThrow(() -> new IllegalStateException("Faction disappeared during reference repair: " + holderId));
-                faction.removeRelationship(factionId);
+                faction.removeRelationshipTo(factionId);
                 result = saveFaction(faction);
             } else {
                 continue;
@@ -2362,6 +2363,236 @@ public class StoryNpcsApplicationService {
                 : new IllegalStateException(result.formatReport());
     }
 
+
+    // ==========================================
+    // Transport Location Operations (issue #72 — transport locations foundation)
+    // ==========================================
+    //
+    // Scope boundary: this defines and validates the destination CONTRACT and
+    // per-player UNLOCK STATE only. Executing a live, safe teleport (loaded-chunk
+    // check, non-obstructed landing, cross-dimension timeout/recovery) requires a
+    // real ServerLevel and is intentionally NOT implemented here.
+
+    /** Creates a transport location definition after validating its destination contract. */
+    public ValidationResult createTransportLocation(
+            com.storynpcs.domain.transport.TransportLocation location) {
+        Objects.requireNonNull(location, "location");
+        Objects.requireNonNull(location.getId(), "location.id");
+        ValidationResult result = ValidationResult.valid();
+        if (registry.getTransportLocation(location.getId()).isPresent()) {
+            result.addError("TRANSPORT_LOCATION_ALREADY_EXISTS",
+                    "Transport location '" + location.getId() + "' already exists");
+            return result;
+        }
+        for (String error : location.validateDestinationContract()) {
+            result.addError("TRANSPORT_LOCATION_INVALID", error);
+        }
+        if (result.hasErrors()) return result;
+        registry.registerTransportLocation(location);
+        definitionRevisions.merge(revisionKey("transport", location.getId()), 1L, Long::sum);
+        return result;
+    }
+
+    /**
+     * Creates a transport location through the revisioned, authorization-checked
+     * canonical request boundary (issue #54 — P1-4 authorization policy coverage).
+     * The unguarded {@link #createTransportLocation(com.storynpcs.domain.transport.TransportLocation)}
+     * overload remains for trusted internal/bootstrap callers; adapters that accept
+     * untrusted actor input (commands, packets, scripts) must route through this
+     * overload instead so definition mutation authorization is enforced uniformly,
+     * matching {@link #createQuest(MutationRequest, String)} and
+     * {@link #createFaction(MutationRequest, String)}.
+     */
+    public CanonicalMutationResult createTransportLocation(
+            MutationRequest request, com.storynpcs.domain.transport.TransportLocation location) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(location, "location");
+        return executeCanonicalMutation(request, "transport", "create",
+                MutationPayloadFingerprint.of("transport.create.id", String.valueOf(location.getId())), () -> {
+            if (!request.targetId().equals(location.getId())) {
+                ValidationResult result = ValidationResult.valid();
+                result.addError("TARGET_ID_MISMATCH", "Transport location mutation cannot change the request target ID");
+                return result;
+            }
+            return createTransportLocation(location);
+        });
+    }
+
+    /** All defined transport locations, regardless of unlock state. */
+    public java.util.Collection<com.storynpcs.domain.transport.TransportLocation> getAllTransportLocations() {
+        return registry.getAllTransportLocations();
+    }
+
+    /**
+     * Locations currently selectable by this player: every location that does not
+     * require an unlock, plus every location this player has unlocked.
+     */
+    public java.util.List<com.storynpcs.domain.transport.TransportLocation> listAvailableTransportLocations(UUID playerUuid) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        java.util.Set<NamespacedId> unlocked = unlockedTransportLocations(progression);
+        java.util.List<com.storynpcs.domain.transport.TransportLocation> available = new ArrayList<>();
+        for (var location : registry.getAllTransportLocations()) {
+            if (location.getUnlockConditions().isEmpty() || unlocked.contains(location.getId())) {
+                available.add(location);
+            }
+        }
+        return available;
+    }
+
+    public boolean isTransportLocationUnlocked(UUID playerUuid, NamespacedId locationId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(locationId, "locationId");
+        var location = registry.getTransportLocation(locationId).orElse(null);
+        if (location == null) return false;
+        if (location.getUnlockConditions().isEmpty()) return true;
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        return unlockedTransportLocations(progression).contains(locationId);
+    }
+
+    /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. */
+    public boolean unlockTransportLocation(UUID playerUuid, NamespacedId locationId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(locationId, "locationId");
+        if (registry.getTransportLocation(locationId).isEmpty()) return false;
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            boolean added = progression.getUnlockedTransportLocations().add(locationId);
+            if (added) saveProgression(playerUuid, progression);
+        }
+        return true;
+    }
+
+    /**
+     * Authorization-checked unlock (issue #54 — P1-4 coverage). Adapters that accept
+     * untrusted actor input should route through this overload instead of the
+     * unguarded {@link #unlockTransportLocation(UUID, NamespacedId)}, which remains
+     * for trusted internal callers.
+     */
+    public AuthorizedActionResult unlockTransportLocation(PlayerProgressionActionRequest request, NamespacedId locationId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(locationId, "locationId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
+        return AuthorizedActionResult.of(unlockTransportLocation(request.playerUuid(), locationId));
+    }
+
+    // ==========================================
+    // Mail Operations (issue #71 — postman/mailbox role foundation)
+    // ==========================================
+
+    private static final int MAIL_SUBJECT_MAX_LENGTH = 128;
+    private static final int MAIL_BODY_MAX_LENGTH = 2048;
+    private static final int MAIL_SENDER_MAX_LENGTH = 128;
+    private static final int MAILBOX_MAX_MESSAGES = 256;
+
+    /**
+     * Delivers a durable mail message to a player's mailbox, evicting the oldest
+     * message first if the mailbox is at capacity. Returns the delivered message
+     * (with its generated ID) so the caller can reference it.
+     */
+    public com.storynpcs.domain.progression.MailMessage deliverMail(
+            UUID playerUuid, String sender, String subject, String body) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        String boundedSender = bound(sender, MAIL_SENDER_MAX_LENGTH, "mail sender");
+        String boundedSubject = bound(subject, MAIL_SUBJECT_MAX_LENGTH, "mail subject");
+        String boundedBody = bound(body, MAIL_BODY_MAX_LENGTH, "mail body");
+
+        com.storynpcs.domain.progression.MailMessage message = new com.storynpcs.domain.progression.MailMessage(
+                UUID.randomUUID(), boundedSender, boundedSubject, boundedBody, System.currentTimeMillis());
+
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            List<com.storynpcs.domain.progression.MailMessage> mailbox = progression.getMailbox();
+            mailbox.add(message);
+            while (mailbox.size() > MAILBOX_MAX_MESSAGES) {
+                mailbox.remove(0);
+            }
+            saveProgression(playerUuid, progression);
+        }
+        return message;
+    }
+
+    /** Read-only snapshot of a player's mailbox, newest-last. */
+    public List<com.storynpcs.domain.progression.MailMessage> getMailbox(UUID playerUuid) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            List<com.storynpcs.domain.progression.MailMessage> copy = new ArrayList<>();
+            for (var m : progression.getMailbox()) copy.add(m.copy());
+            return copy;
+        }
+    }
+
+    /** Marks a mail message read. Returns false if no message with that ID exists. */
+    public boolean markMailRead(UUID playerUuid, UUID mailId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(mailId, "mailId");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            for (var m : progression.getMailbox()) {
+                if (m.getId().equals(mailId)) {
+                    if (m.isRead()) return true; // idempotent no-op
+                    m.setRead(true);
+                    saveProgression(playerUuid, progression);
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Authorization-checked mail-read (issue #54 — P1-4 coverage). Adapters that
+     * accept untrusted actor input should route through this overload instead of
+     * the unguarded {@link #markMailRead(UUID, UUID)}, which remains for trusted
+     * internal callers.
+     */
+    public AuthorizedActionResult markMailRead(PlayerProgressionActionRequest request, UUID mailId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(mailId, "mailId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
+        return AuthorizedActionResult.of(markMailRead(request.playerUuid(), mailId));
+    }
+
+    /** Deletes a mail message. Returns false if no message with that ID exists. */
+    public boolean deleteMail(UUID playerUuid, UUID mailId) {
+        Objects.requireNonNull(playerUuid, "playerUuid");
+        Objects.requireNonNull(mailId, "mailId");
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        synchronized (progression) {
+            boolean removed = progression.getMailbox().removeIf(m -> m.getId().equals(mailId));
+            if (removed) saveProgression(playerUuid, progression);
+            return removed;
+        }
+    }
+
+    /**
+     * Authorization-checked mail deletion (issue #54 — P1-4 coverage). Adapters that
+     * accept untrusted actor input should route through this overload instead of
+     * the unguarded {@link #deleteMail(UUID, UUID)}, which remains for trusted
+     * internal callers.
+     */
+    public AuthorizedActionResult deleteMail(PlayerProgressionActionRequest request, UUID mailId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(mailId, "mailId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
+        return AuthorizedActionResult.of(deleteMail(request.playerUuid(), mailId));
+    }
+
+    private static String bound(String raw, int maxLength, String label) {
+        String value = raw == null ? "" : raw;
+        if (value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException(label + " cannot contain a null character");
+        }
+        if (value.length() > maxLength) {
+            throw new IllegalArgumentException(label + " must be at most " + maxLength + " characters");
+        }
+        return value;
+    }
+
     // ==========================================
     // 4. Quest Operations
     // ==========================================
@@ -2534,7 +2765,7 @@ public class StoryNpcsApplicationService {
                 // Repeat-boundary enforcement: NORMAL/RESET stay closed until an
                 // explicit reset clears the state, DAILY/WEEKLY reopen on the
                 // authored boundary, REPEATABLE/INSTANT reopen freely.
-                Instant lastCompleted = Instant.ofEpochMilli(current.getLastCompletedEpochMillis());
+                Instant lastCompleted = Instant.ofEpochMilli(current.getLastCompletedAtEpochMillis());
                 if (!QUEST_REPEAT_SCHEDULE.canRepeat(quest.getRepeatType(), lastCompleted, Instant.now())) {
                     ValidationResult diagnostics = ValidationResult.valid();
                     diagnostics.addWarning("QUEST_ALREADY_COMPLETED", switch (quest.getRepeatType()) {
@@ -2995,11 +3226,14 @@ public class StoryNpcsApplicationService {
                     factionStandingChanged = true;
                 }
             }
+            // Keep the typed faction-mutation revision consistent with this internal,
+            // already-canonical (locked, revisioned quest-completion) reward commit so a
+            // client's cached faction revision never silently goes stale after rewards land.
             if (factionStandingChanged) {
                 progression.setFactionRevision(Math.addExact(progression.getFactionRevision(), 1L));
             }
             state.setStatus(QuestProgressState.Status.COMPLETED);
-            state.setLastCompletedEpochMillis(System.currentTimeMillis());
+            state.setLastCompletedAtEpochMillis(System.currentTimeMillis());
             state.advanceStateRevision();
             progression.getPendingQuestCompletions().remove(questId);
             progression.getDeliveredQuestRewards().remove(questId);
@@ -5221,7 +5455,7 @@ public class StoryNpcsApplicationService {
         if (player == null) {
             return new TransportResult(false, null, 0, "PLAYER_OFFLINE");
         }
-        var location = registry.getTransport(locationId).orElse(null);
+        var location = registry.getTransportLocation(locationId).orElse(null);
         var progression = loadProgression(playerUuid);
         boolean conditionsMet = location != null
                 && evalConditions(location.getUnlockConditions(), progression, null);
@@ -5334,12 +5568,18 @@ public class StoryNpcsApplicationService {
         java.util.Set<NamespacedId> unlocked = progression == null
                 ? java.util.Set.of() : unlockedTransportLocations(progression);
         return new com.storynpcs.domain.transport.TransportEvaluator()
-                .visibleFor(registry.getAllTransports().stream().toList(), unlocked);
+                .visibleFor(registry.getAllTransportLocations().stream().toList(), unlocked);
     }
 
     private java.util.Set<NamespacedId> unlockedTransportLocations(PlayerProgression progression) {
-        java.util.Set<NamespacedId> unlocked = new java.util.HashSet<>();
-        for (var location : registry.getAllTransports()) {
+        // A location is available when it declares no unlock conditions, when
+        // its authored conditions evaluate true for this player, or when an
+        // explicit per-player grant was persisted via unlockTransportLocation.
+        java.util.Set<NamespacedId> unlocked;
+        synchronized (progression) {
+            unlocked = new java.util.HashSet<>(progression.getUnlockedTransportLocations());
+        }
+        for (var location : registry.getAllTransportLocations()) {
             if (location.getUnlockConditions().isEmpty()
                     || evalConditions(location.getUnlockConditions(), progression, null)) {
                 unlocked.add(location.getId());

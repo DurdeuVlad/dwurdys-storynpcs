@@ -264,12 +264,12 @@ public class YamlDefinitionLoader {
                         "Transport definition must declare an 'id'");
                 return null;
             }
-            if (registry.getTransport(location.getId()).isPresent()) {
+            if (registry.getTransportLocation(location.getId()).isPresent()) {
                 result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
                         "Duplicate Transport ID '" + location.getId() + "' is already defined in another file");
                 return null;
             }
-            registry.registerTransport(location);
+            registry.registerTransportLocation(location);
             return location;
         } catch (JsonParseException e) {
             result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),

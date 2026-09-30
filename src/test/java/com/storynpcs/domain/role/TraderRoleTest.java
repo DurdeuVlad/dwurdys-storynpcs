@@ -106,6 +106,24 @@ class TraderRoleTest {
     }
 
     @Test
+    @DisplayName("A two-input listing executes with reservation accounting and a single trade event")
+    void testTwoInputListingExecutesAndRecordsOneUse() {
+        UUID playerUuid = UUID.randomUUID();
+        NamespacedId npcId = NamespacedId.of("storynpcs:merchant");
+
+        TradeListing listing = new TradeListing(
+                "minecraft:golden_apple", 1, "minecraft:emerald", 5, "minecraft:gold_ingot", 3);
+        listing.setMaxUses(5);
+        assertTrue(listing.hasTwoInputs());
+
+        boolean executed = service.executeTrade(playerUuid, npcId, listing);
+
+        assertTrue(executed, "Two-input listings execute; the inventory-charging path charges both inputs server-side");
+        assertEquals(1, listing.getUses(), "An executed two-input trade consumes exactly one listing use");
+        assertEquals(1, tradeEvents.size(), "An executed trade publishes exactly one TradeExecutedEvent");
+    }
+
+    @Test
     @DisplayName("A repeated trade request replays without charging another listing use")
     void testTradeRequestReplayIsIdempotent() {
         UUID playerUuid = UUID.randomUUID();

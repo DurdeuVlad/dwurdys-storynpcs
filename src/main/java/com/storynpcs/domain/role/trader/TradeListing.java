@@ -28,7 +28,7 @@ public class TradeListing {
     @JsonProperty
     private int priceCount = 1;
 
-    /** Optional second input slot — up to two inputs/one output (P7-1). */
+    /** Optional second input slot — up to two inputs/one output (P7-1 / issue #75). Null/blank = single-input listing. */
     @JsonProperty
     private String secondaryPriceItemId;
 
@@ -72,6 +72,14 @@ public class TradeListing {
         this.offerCount = offerCount;
         this.priceItemId = priceItemId;
         this.priceCount = priceCount;
+    }
+
+    /** Two-input constructor (issue #75). */
+    public TradeListing(String offerItemId, int offerCount, String priceItemId, int priceCount,
+                         String secondaryPriceItemId, int secondaryPriceCount) {
+        this(offerItemId, offerCount, priceItemId, priceCount);
+        setSecondaryPriceItemId(secondaryPriceItemId);
+        setSecondaryPriceCount(secondaryPriceCount);
     }
 
     public String getOfferItemId() { return offerItemId; }
@@ -227,6 +235,13 @@ public class TradeListing {
                 ? Optional.of(generatedId(legacyContractIdentity())) : Optional.empty();
     }
 
+    /**
+     * Backward-compatibility invariant: a single-input listing (no second input
+     * item) must hash to exactly the same string this method produced before
+     * the second-input slot existed, so previously persisted {@code legacy-<hash>}
+     * listing IDs never change out from under an already-shipped world. The
+     * second-input fields are only appended when {@link #hasTwoInputs()}.
+     */
     String contractIdentity() {
         String identity = legacyContractIdentity();
         return hasTwoInputs()

@@ -1,0 +1,173 @@
+package com.storynpcs.domain.command;
+
+import java.util.List;
+
+/**
+ * The full target command-leaf inventory (issue #85 — P9-3 command and
+ * suggestion parity), evidence-sourced from
+ * {@code docs/parity/target-surface-manifest.json}'s {@code commands} surface
+ * (exactly 70 leaves, confirmed via a direct query against that manifest).
+ * Every {@code SUPPORTED} classification below was verified by reading the
+ * actual command tree registered in {@code StoryNpcsCommands}, not assumed.
+ *
+ * <p><b>Scope boundary:</b> this is a read-only, evidence-backed snapshot of
+ * current parity status. It records where StoryNPCs already has an
+ * equivalent and, for every leaf that does not, an honest {@code UNVERIFIED}
+ * status with the specific reason (never a silent gap). It does NOT implement
+ * any of the missing command trees themselves (clone, config, mark, scene,
+ * schema, script, slay, and the several NPC/quest/faction/dialog gaps
+ * documented per-entry below) — that remains open on #85.
+ */
+public final class CommandParityCatalog {
+
+    public static final int TARGET_COMMAND_LEAF_COUNT = 70;
+
+    private static final List<CommandParityEntry> ENTRIES = List.of(
+            new CommandParityEntry("target.commands.0001", "/noppes/clone/list/<tab>", "list stored NPC clone names",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0002", "/noppes/clone/add/<npc>/<tab>", "save the first named live NPC as a clone",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0003", "/noppes/clone/add/<npc>/<tab>/<name>", "save the first named live NPC under an explicit clone name",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0004", "/noppes/clone/remove/<npc>/<tab>", "remove a named clone",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0005", "/noppes/clone/spawn/<npc>/<tab>", "spawn a clone at the command source position",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0006", "/noppes/clone/spawn/<npc>/<tab>/<pos>", "spawn a clone at a loaded block position",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0007", "/noppes/clone/spawn/<npc>/<tab>/<pos>/<display_name>", "spawn a clone and override its display name",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0008", "/noppes/clone/grid/<npc>/<tab>/<length>/<width>", "spawn a clone grid at the command source position",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0009", "/noppes/clone/grid/<npc>/<tab>/<length>/<width>/<pos>", "spawn a clone grid at a loaded position",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0010", "/noppes/clone/grid/<npc>/<tab>/<length>/<width>/<pos>/<display_name>", "spawn a clone grid with one display name",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-clone command tree exists in StoryNpcsCommands yet; #77 delivered the underlying NpcTemplate capture/clone-isolation domain model but no command surface on top of it."),
+            new CommandParityEntry("target.commands.0011", "/noppes/config/leavesdecay", "read LeavesDecayEnabled",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0012", "/noppes/config/leavesdecay/<boolean>", "set LeavesDecayEnabled",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0013", "/noppes/config/vineinflateth", "read VineGrowthEnabled",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0014", "/noppes/config/vineinflateth/<boolean>", "set VineGrowthEnabled",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0015", "/noppes/config/icemelts", "read IceMeltsEnabled",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0016", "/noppes/config/icemelts/<boolean>", "set IceMeltsEnabled",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0017", "/noppes/config/freezenpcs", "read FreezeNPCs",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0018", "/noppes/config/freezenpcs/<boolean>", "set FreezeNPCs",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0019", "/noppes/config/debug", "read VerboseDebug",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0020", "/noppes/config/debug/<boolean>", "set VerboseDebug",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0021", "/noppes/config/scripting", "read EnableScripting",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0022", "/noppes/config/scripting/<boolean>", "set EnableScripting",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0023", "/noppes/config/chunkloaders", "report active/max chunk loaders",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0024", "/noppes/config/chunkloaders/<number>", "set maximum chunk loaders",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0025", "/noppes/config/font", "send current font settings to the command player",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0026", "/noppes/config/font/<font>", "send font name with default size to the command player",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0027", "/noppes/config/font/<font>/<size>", "send font name and size to the command player",
+                    CommandParityStatus.UNVERIFIED, null, "No /storynpcs config command tree exists yet for any global server setting."),
+            new CommandParityEntry("target.commands.0028", "/noppes/dialog/reload", "reload dialogs and sync all dialogs",
+                    CommandParityStatus.SUPPORTED, "/storynpcs reload", "Global definitions reload (dialogues/NPCs/quests/factions) via StoryNpcsCommands.reload(); broader scope than the target's dialog-only reload, disclosed."),
+            new CommandParityEntry("target.commands.0029", "/noppes/dialog/read/<players>/<dialog>", "mark a dialog read for each selected player",
+                    CommandParityStatus.UNVERIFIED, null, "No per-player dialog-read-marker tracking or command exists yet."),
+            new CommandParityEntry("target.commands.0030", "/noppes/dialog/unread/<players>/<dialog>", "remove a dialog read marker for each selected player",
+                    CommandParityStatus.UNVERIFIED, null, "No per-player dialog-read-marker tracking or command exists yet."),
+            new CommandParityEntry("target.commands.0031", "/noppes/dialog/show/<players>/<dialog>/<name>", "open a dialog for selected players through a temporary dialog NPC",
+                    CommandParityStatus.SUPPORTED, "/storynpcs dialogue start <dialogue_id> [player]", "Opens the named dialogue for the executing or specified player."),
+            new CommandParityEntry("target.commands.0032", "/noppes/faction/<players>/<faction>/add/<points>", "increase faction points",
+                    CommandParityStatus.SUPPORTED, "/storynpcs faction adjust <player> <faction_id> <delta>", "Adjusts a player's faction points via the canonical mutation path."),
+            new CommandParityEntry("target.commands.0033", "/noppes/faction/<players>/<faction>/set/<points>", "set faction points",
+                    CommandParityStatus.SUPPORTED, "/storynpcs faction set <player> <faction_id> <points>", "Sets a player's faction points via the canonical mutation path."),
+            new CommandParityEntry("target.commands.0034", "/noppes/faction/<players>/<faction>/reset", "reset faction points to faction default",
+                    CommandParityStatus.UNVERIFIED, null, "Only faction point set/adjust exist; no reset-to-default or drop-entry subcommand exists yet."),
+            new CommandParityEntry("target.commands.0035", "/noppes/faction/<players>/<faction>/drop", "remove faction entry",
+                    CommandParityStatus.UNVERIFIED, null, "Only faction point set/adjust exist; no reset-to-default or drop-entry subcommand exists yet."),
+            new CommandParityEntry("target.commands.0036", "/noppes/mark/<clear>", "clear marks from living selected entities",
+                    CommandParityStatus.UNVERIFIED, null, "No entity-marking command exists yet (distinct from the authored NpcMark field on NpcDefinition, which has no command exposure)."),
+            new CommandParityEntry("target.commands.0037", "/noppes/mark/<entities>/<type>", "replace marks with one white mark",
+                    CommandParityStatus.UNVERIFIED, null, "No entity-marking command exists yet (distinct from the authored NpcMark field on NpcDefinition, which has no command exposure)."),
+            new CommandParityEntry("target.commands.0038", "/noppes/mark/<entities>/<type>/<color>", "replace marks with one parsed-color mark",
+                    CommandParityStatus.UNVERIFIED, null, "No entity-marking command exists yet (distinct from the authored NpcMark field on NpcDefinition, which has no command exposure)."),
+            new CommandParityEntry("target.commands.0039", "/noppes/npc/<npc>/home/<pos>", "set start/home position for the first matching NPC",
+                    CommandParityStatus.UNVERIFIED, null, "No home/start-position command exists yet under /storynpcs npc set."),
+            new CommandParityEntry("target.commands.0040", "/noppes/npc/<npc>/visible/<visibility>", "set visibility mode for every matching NPC",
+                    CommandParityStatus.UNVERIFIED, null, "No visibility-mode command exists yet under /storynpcs npc set."),
+            new CommandParityEntry("target.commands.0041", "/noppes/npc/<npc>/delete", "delete every matching NPC",
+                    CommandParityStatus.SUPPORTED, "/storynpcs npc delete <npc_id>", "Deletes the NPC definition; target selects multiple live entities by selector, this deletes one definition by ID — semantic gap disclosed."),
+            new CommandParityEntry("target.commands.0042", "/noppes/npc/<npc>/owner", "report owner for matching follower/companion NPCs",
+                    CommandParityStatus.UNVERIFIED, null, "No owner report/set command exists yet under /storynpcs npc."),
+            new CommandParityEntry("target.commands.0043", "/noppes/npc/<npc>/owner/<player>", "set owner for matching follower/companion NPCs",
+                    CommandParityStatus.UNVERIFIED, null, "No owner report/set command exists yet under /storynpcs npc."),
+            new CommandParityEntry("target.commands.0044", "/noppes/npc/<npc>/delete/<name>", "rename every matching NPC",
+                    CommandParityStatus.SUPPORTED, "/storynpcs npc set name <npc_id> <value>", "Renames the NPC; the target symbol's own path segment says 'delete' but its operation text says rename, matching this command's actual effect."),
+            new CommandParityEntry("target.commands.0045", "/noppes/npc/<npc>/reset", "reset every matching NPC",
+                    CommandParityStatus.UNVERIFIED, null, "No NPC-reset command exists yet under /storynpcs npc."),
+            new CommandParityEntry("target.commands.0046", "/noppes/npc/<npc>/create", "create and spawn a new NPC at command source position",
+                    CommandParityStatus.SUPPORTED, "/storynpcs npc create <npc_id> [name] then /storynpcs npc spawn <npc_id>", "Target creates and spawns in one step; StoryNPCs splits definition-create and world-spawn into two commands — disclosed."),
+            new CommandParityEntry("target.commands.0047", "/noppes/quest/start/<players>/<quest>", "start a quest",
+                    CommandParityStatus.SUPPORTED, "/storynpcs quest start <quest_id> [player]", "Starts the quest for the executing or specified player."),
+            new CommandParityEntry("target.commands.0048", "/noppes/quest/finish/<players>/<quest>", "finish a quest",
+                    CommandParityStatus.SUPPORTED, "/storynpcs quest complete <quest_id> [player]", "Finishes the quest for the executing or specified player; target calls this 'finish', StoryNPCs calls it 'complete'."),
+            new CommandParityEntry("target.commands.0049", "/noppes/quest/stop/<players>/<quest>", "stop a quest",
+                    CommandParityStatus.UNVERIFIED, null, "No quest-abandon command exists yet; only start and complete exist."),
+            new CommandParityEntry("target.commands.0050", "/noppes/quest/remove/<players>/<quest>", "remove active and finished quest state",
+                    CommandParityStatus.UNVERIFIED, null, "No command removes a player's active/finished quest state; /storynpcs quest delete only removes the quest DEFINITION."),
+            new CommandParityEntry("target.commands.0051", "/noppes/quest/objective/<players>/<quest>", "report all objectives for an active quest",
+                    CommandParityStatus.UNVERIFIED, null, "The existing /storynpcs quest objective add/remove authors quest DEFINITIONS; the target command reports/sets a specific player's live objective PROGRESS, which has no command equivalent yet."),
+            new CommandParityEntry("target.commands.0052", "/noppes/quest/objective/<players>/<quest>/<objective>", "report one objective for an active quest",
+                    CommandParityStatus.UNVERIFIED, null, "The existing /storynpcs quest objective add/remove authors quest DEFINITIONS; the target command reports/sets a specific player's live objective PROGRESS, which has no command equivalent yet."),
+            new CommandParityEntry("target.commands.0053", "/noppes/quest/objective/<players>/<quest>/<objective>/<value>", "set progress for one objective on active quests",
+                    CommandParityStatus.UNVERIFIED, null, "The existing /storynpcs quest objective add/remove authors quest DEFINITIONS; the target command reports/sets a specific player's live objective PROGRESS, which has no command equivalent yet."),
+            new CommandParityEntry("target.commands.0054", "/noppes/quest/reload", "reload quest resources and sync all quests",
+                    CommandParityStatus.SUPPORTED, "/storynpcs reload", "Global definitions reload; same broader-scope disclosure as target.commands.0028."),
+            new CommandParityEntry("target.commands.0055", "/noppes/scene/time", "list active scenes and their ticks",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0056", "/noppes/scene/time/<time>", "set all active scene ticks",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0057", "/noppes/scene/time/<time>/<name>", "set one named scene tick",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0058", "/noppes/scene/reset", "reset all scenes",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0059", "/noppes/scene/reset/<name>", "reset one named scene",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0060", "/noppes/scene/start/<name>", "start one named scene",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0061", "/noppes/scene/pause", "pause all scenes",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0062", "/noppes/scene/pause/<name>", "pause one named scene",
+                    CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0063", "/noppes/schema/build/<name>/<pos>/<rotation>", "load and build a schematic",
+                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0064", "/noppes/schema/stop", "stop active schematic build",
+                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0065", "/noppes/schema/info", "report schematic build info",
+                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0066", "/noppes/schema/list", "list available schematic names",
+                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0067", "/noppes/script/reload", "reload script files, player scripts, Forge scripts, and world stored data",
+                    CommandParityStatus.UNVERIFIED, null, "No scripting engine or script command tree exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0068", "/noppes/script/trigger/<id>", "trigger script event with no arguments",
+                    CommandParityStatus.UNVERIFIED, null, "No scripting engine or script command tree exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0069", "/noppes/script/trigger/<id>/<args>", "trigger script event with space-split arguments",
+                    CommandParityStatus.UNVERIFIED, null, "No scripting engine or script command tree exists yet in this codebase."),
+            new CommandParityEntry("target.commands.0070", "/noppes/slay/<type>/<range>", "remove nearby entities matching a dynamic slay class",
+                    CommandParityStatus.UNVERIFIED, null, "No mass-entity-removal-by-class command exists yet.")
+    );
+
+    private CommandParityCatalog() {}
+
+    public static List<CommandParityEntry> all() {
+        return ENTRIES;
+    }
+}

@@ -60,6 +60,48 @@ class QuestDefinitionContractTest {
     }
 
     @Test
+    void weeklyBoundaryIsCorrectAcrossACalendarYearTurn() {
+        // 2025-12-31 (Wednesday) is ISO week 1 of 2026 — the same week as
+        // 2026-01-01 — so a Friday boundary crossing must not reopen it.
+        RepeatSchedule schedule = RepeatSchedule.utcDefault();
+        Instant completedNewYearsEve = Instant.parse("2025-12-31T08:00:00Z");
+        Instant sameIsoWeekJan1 = Instant.parse("2026-01-01T08:00:00Z");
+        Instant nextMonday = Instant.parse("2026-01-05T08:00:00Z");
+        assertThat(schedule.canRepeat(Quest.RepeatType.WEEKLY, completedNewYearsEve, sameIsoWeekJan1)).isFalse();
+        assertThat(schedule.canRepeat(Quest.RepeatType.WEEKLY, completedNewYearsEve, nextMonday)).isTrue();
+    }
+
+    @Test
+    void dailyAllowsRestartOnceTheDayBoundaryPasses() {
+        RepeatSchedule schedule = RepeatSchedule.utcDefault();
+        Instant completedLateNight = Instant.parse("2026-03-10T23:00:00Z");
+        Instant nextDayJustAfterMidnight = Instant.parse("2026-03-11T00:30:00Z");
+        assertThat(schedule.canRepeat(Quest.RepeatType.DAILY, completedLateNight, completedLateNight)).isFalse();
+        assertThat(schedule.canRepeat(Quest.RepeatType.DAILY, completedLateNight, nextDayJustAfterMidnight)).isTrue();
+    }
+
+    @Test
+    void epochZeroLegacyCompletionIsTreatedAsLongAgo() {
+        // Legacy save data with no recorded completion time must not newly
+        // block a restart of a clock-gated quest.
+        RepeatSchedule schedule = RepeatSchedule.utcDefault();
+        Instant legacyZero = Instant.EPOCH;
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        assertThat(schedule.canRepeat(Quest.RepeatType.DAILY, legacyZero, now)).isTrue();
+        assertThat(schedule.canRepeat(Quest.RepeatType.WEEKLY, legacyZero, now)).isTrue();
+        assertThat(schedule.canRepeat(Quest.RepeatType.NORMAL, legacyZero, now)).isFalse();
+    }
+
+    @Test
+    void resetNeverAutoReopensAndNullRepeatTypeFailsClosed() {
+        RepeatSchedule schedule = RepeatSchedule.utcDefault();
+        Instant morning = Instant.parse("2026-03-10T01:00:00Z");
+        Instant nextDay = Instant.parse("2026-03-11T00:00:00Z");
+        assertThat(schedule.canRepeat(Quest.RepeatType.RESET, morning, nextDay)).isFalse();
+        assertThat(schedule.canRepeat(null, morning, nextDay)).isFalse();
+    }
+
+    @Test
     void dependencyValidatorDetectsCyclesAndMissingPrereqs() {
         QuestDependencyValidator validator = new QuestDependencyValidator();
         Quest a = quest("a", "b");

@@ -93,7 +93,11 @@ class P7DomainTest {
         vault.setUnlockedTabs(6);
         assertThatThrownBy(() -> vault.setUnlockedTabs(7))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> vault.setUnlockedTabs(0))
+        // Zero unlocked tabs is a representable vault state (pre-first-unlock);
+        // only negative and over-cap counts are rejected.
+        vault.setUnlockedTabs(0);
+        assertThat(vault.getUnlockedTabs()).isEqualTo(0);
+        assertThatThrownBy(() -> vault.setUnlockedTabs(-1))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(BankVault.MAX_TABS).isEqualTo(6);
         assertThat(BankerRole.MAX_TABS).isEqualTo(6);

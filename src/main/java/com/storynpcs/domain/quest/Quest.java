@@ -12,13 +12,17 @@ public class Quest {
         NORMAL,
         /** Freely repeatable. */
         REPEATABLE,
-        /** Repeatable once per local day boundary (see RepeatSchedule). */
+        /** Repeatable once per local day boundary. */
         DAILY,
-        /** Repeatable once per local week boundary. */
+        /** Resets on the server's next ISO week boundary (Monday, server time zone). */
         WEEKLY,
-        /** Repeatable only after an explicit reset of the quest state. */
+        /**
+         * Resets on a schedule, like {@link #DAILY}. Per-player restart eligibility
+         * mirrors DAILY; this does not yet implement the target's server-wide
+         * simultaneous-reset-for-all-players semantics — per-player repeat eligibility is computed by {@link com.storynpcs.domain.quest.RepeatSchedule}; explicit RESET mutations handle reopening.
+         */
         RESET,
-        /** Completes instantly on objective satisfaction without a turn-in step. */
+        /** Completes instantly on objective satisfaction without a turn-in step; immediately restartable like REPEATABLE. */
         INSTANT;
 
         /** Whether completion happens automatically when objectives are satisfied. */

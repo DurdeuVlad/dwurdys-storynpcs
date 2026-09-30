@@ -33,9 +33,14 @@ public record RepeatSchedule(ZoneId zone, int dayStartHour, java.time.DayOfWeek 
      * Whether the quest may be completed again given the last completion instant.
      * NORMAL/RESET/INSTANT do not consult the clock here — RESET is governed by
      * the reset token, INSTANT/NORMAL semantics are handled by callers.
+     * A null repeat type fails closed (non-repeatable); a null completion
+     * timestamp means no recorded completion, so clock-gated modes are open.
      */
     public boolean canRepeat(Quest.RepeatType repeatType, Instant lastCompleted, Instant now) {
-        if (repeatType == null || lastCompleted == null) {
+        if (repeatType == null) {
+            return false;
+        }
+        if (lastCompleted == null) {
             return true;
         }
         return switch (repeatType) {

@@ -129,9 +129,18 @@ public class BankVault {
     public enum AccessPolicy { PRIVATE, SHARED }
 
     public int getUnlockedTabs() { return unlockedTabs; }
+    /**
+     * Rejects a tab count outside [0, {@link BankerRole#MAX_TABS}] (issue #76:
+     * "tab count cannot exceed six"). This is deliberate defense-in-depth
+     * independent of {@code BankerRole.maxTabs}'s own bound: a vault must
+     * never accept an unlocked-tab count the target spec forbids regardless of
+     * how the value arrived (network payload, YAML/JSON deserialization, a
+     * future admin API), not only when the unlock path itself enforces it.
+     */
     public void setUnlockedTabs(int unlockedTabs) {
-        if (unlockedTabs < 1 || unlockedTabs > MAX_TABS) {
-            throw new IllegalArgumentException("unlockedTabs must be in [1," + MAX_TABS + "]");
+        if (unlockedTabs < 0 || unlockedTabs > BankerRole.MAX_TABS) {
+            throw new IllegalArgumentException(
+                    "unlockedTabs must be between 0 and " + BankerRole.MAX_TABS + " (was " + unlockedTabs + ")");
         }
         this.unlockedTabs = unlockedTabs;
     }

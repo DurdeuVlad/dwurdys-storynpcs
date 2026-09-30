@@ -176,6 +176,56 @@ class NpcDefinitionSerdeTest {
     }
 
     @Test
+    @DisplayName("Healer and bard role config survive definition JSON round-trip")
+    void healerAndBardRoleRoundTrip() {
+        NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "chapel_healer"), "Chapel Healer");
+        var healer = new com.storynpcs.domain.role.social.HealerRole();
+        healer.setHealAmount(6.0f);
+        healer.setRangeBlocks(8.0);
+        healer.setCooldownTicks(5_000);
+        healer.setTargetPolicy(com.storynpcs.domain.role.social.HealerRole.TargetPolicy.ANY_LIVING);
+        original.setHealer(healer);
+        var bard = new com.storynpcs.domain.role.social.BardRole();
+        bard.setSongId(NamespacedId.of("storynpcs:ballad"));
+        bard.setBuffEffect(NamespacedId.of("minecraft:strength"));
+        bard.setEffectRadiusBlocks(12.0);
+        bard.setCooldownTicks(900);
+        original.setBard(bard);
+
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
+
+        assertEquals(6.0f, restored.getHealer().getHealAmount());
+        assertEquals(8.0, restored.getHealer().getRangeBlocks());
+        assertEquals(5_000, restored.getHealer().getCooldownTicks());
+        assertEquals(com.storynpcs.domain.role.social.HealerRole.TargetPolicy.ANY_LIVING,
+                restored.getHealer().getTargetPolicy());
+
+        assertEquals(NamespacedId.of("storynpcs:ballad"), restored.getBard().getSongId());
+        assertEquals(NamespacedId.of("minecraft:strength"), restored.getBard().getBuffEffect());
+        assertEquals(12.0, restored.getBard().getEffectRadiusBlocks());
+        assertEquals(900, restored.getBard().getCooldownTicks());
+    }
+
+    @Test
+    @DisplayName("Transporter role config survives definition JSON round-trip")
+    void transporterRoleRoundTrip() {
+        NpcDefinition original = new NpcDefinition(NamespacedId.of("storynpcs", "ferryman"), "Ferryman");
+        com.storynpcs.domain.role.transporter.TransporterRole transporter =
+                new com.storynpcs.domain.role.transporter.TransporterRole(
+                        java.util.Set.of(NamespacedId.of("storynpcs", "harbor"), NamespacedId.of("storynpcs", "capital")),
+                        25);
+        original.setTransporter(transporter);
+
+        NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
+
+        assertEquals(2, restored.getTransporter().getOfferedDestinationIds().size());
+        assertTrue(restored.getTransporter().offers(NamespacedId.of("storynpcs", "harbor")));
+        assertTrue(restored.getTransporter().offers(NamespacedId.of("storynpcs", "capital")));
+        assertEquals(25, restored.getTransporter().getFeeOverride());
+        assertTrue(restored.getTransporter().hasFeeOverride());
+    }
+
+    @Test
     @DisplayName("Display bounds reject unsafe model and visibility values")
     void testDisplayBounds() {
         NpcDisplay display = new NpcDisplay();

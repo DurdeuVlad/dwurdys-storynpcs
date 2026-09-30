@@ -181,7 +181,7 @@ class P6P9WiringTest {
                 """, "ferry.yaml", result);
         assertThat(loaded).isNotNull();
         assertThat(result.hasErrors()).isFalse();
-        assertThat(registry.getTransport(NamespacedId.of("storynpcs:ferry_dock"))).isPresent();
+        assertThat(registry.getTransportLocation(NamespacedId.of("storynpcs:ferry_dock"))).isPresent();
 
         // Locked locations only surface when marked visibleWhenLocked.
         var visible = service.listTransports(UUID.randomUUID());
@@ -202,7 +202,7 @@ class P6P9WiringTest {
                     operator: ">="
                     value: "50"
                 """, "gate.yaml", hiddenResult);
-        assertThat(registry.getTransport(NamespacedId.of("storynpcs:secret_gate"))).isPresent();
+        assertThat(registry.getTransportLocation(NamespacedId.of("storynpcs:secret_gate"))).isPresent();
         assertThat(service.listTransports(UUID.randomUUID())).hasSize(1);
         assertThat(service.listTransports(eligiblePlayer)).hasSize(2);
     }

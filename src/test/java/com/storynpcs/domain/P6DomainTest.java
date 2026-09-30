@@ -14,6 +14,7 @@ import com.storynpcs.domain.companion.CompanionProfile;
 import com.storynpcs.domain.companion.WageLedger;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.faction.FactionDeletionPlanner;
+import com.storynpcs.domain.faction.FactionStanding;
 import com.storynpcs.domain.job.JobConfig;
 import com.storynpcs.domain.job.JobInstance;
 import com.storynpcs.domain.job.JobType;
@@ -37,31 +38,34 @@ class P6DomainTest {
         Faction f = new Faction(id("guards"), "Guards", 1000, 500, 1500);
         f.setColor(0xFF8800);
         f.setPassive(true);
-        f.setRelationship(id("bandits"), "hostile");
-        assertThat(f.getRelationships()).containsEntry("storynpcs:bandits", "HOSTILE");
+        f.setRelationshipTo(id("bandits"), FactionStanding.HOSTILE);
+        assertThat(f.getRelationships()).containsEntry(id("bandits"), FactionStanding.HOSTILE);
         assertThatThrownBy(() -> f.setColor(0x1_000_000)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> f.setRelationship(id("x"), "FRIENEMY"))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> f.getRelationships().put("a", "b"))
+        assertThatThrownBy(() -> f.setRelationshipTo(id("x"), null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> f.getRelationships().put(id("a"), FactionStanding.HOSTILE))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
     void bulkRelationshipsCannotBypassStandingValidation() {
         Faction f = new Faction(id("guards"), "Guards", 1000, 500, 1500);
-        f.setRelationships(java.util.Map.of("storynpcs:bandits", "hostile", "custom:allies", "Friendly"));
+        f.setRelationships(java.util.Map.of(id("bandits"), FactionStanding.HOSTILE,
+                NamespacedId.of("custom:allies"), FactionStanding.FRIENDLY));
         assertThat(f.getRelationships())
-                .containsEntry("storynpcs:bandits", "HOSTILE")
-                .containsEntry("custom:allies", "FRIENDLY");
+                .containsEntry(id("bandits"), FactionStanding.HOSTILE)
+                .containsEntry(NamespacedId.of("custom:allies"), FactionStanding.FRIENDLY);
 
-        assertThatThrownBy(() -> f.setRelationships(java.util.Map.of("storynpcs:x", "FRIENEMY")))
+        java.util.Map<NamespacedId, FactionStanding> withNull = new java.util.HashMap<>();
+        withNull.put(id("x"), null);
+        assertThatThrownBy(() -> f.setRelationships(withNull))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> f.setRelationships(java.util.Map.of("", "HOSTILE")))
+        assertThatThrownBy(() -> f.setRelationships(java.util.Map.of(id("guards"), FactionStanding.HOSTILE)))
                 .isInstanceOf(IllegalArgumentException.class);
         // A failed bulk assignment leaves no partially-applied entries behind.
         assertThat(f.getRelationships())
-                .containsEntry("storynpcs:bandits", "HOSTILE")
-                .doesNotContainKey("storynpcs:x");
+                .containsEntry(id("bandits"), FactionStanding.HOSTILE)
+                .doesNotContainKey(id("x"));
         f.setRelationships(null);
         assertThat(f.getRelationships()).isEmpty();
     }
@@ -73,7 +77,7 @@ class P6DomainTest {
         npc.setId(id("guard-1"));
         npc.setFactionId(id("guards"));
         Faction allied = new Faction(id("villagers"), "Villagers", 1000, 500, 1500);
-        allied.setRelationship(id("guards"), "FRIENDLY");
+        allied.setRelationshipTo(id("guards"), FactionStanding.FRIENDLY);
         List<Faction> factions = List.of(allied);
         List<NpcDefinition> npcs = List.of(npc);
 
@@ -91,7 +95,7 @@ class P6DomainTest {
         var repaired = planner.apply(viable, npcs, factions);
         assertThat(repaired).hasSize(2);
         assertThat(npc.getFactionId()).isEqualTo(id("villagers"));
-        assertThat(allied.getRelationships()).doesNotContainKey("storynpcs:guards");
+        assertThat(allied.getRelationships()).doesNotContainKey(id("guards"));
         assertThatThrownBy(() -> planner.apply(blocked, npcs, factions))
                 .isInstanceOf(IllegalStateException.class);
     }

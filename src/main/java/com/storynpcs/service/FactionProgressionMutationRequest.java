@@ -38,15 +38,27 @@ public record FactionProgressionMutationRequest(
     public static FactionProgressionMutationRequest set(
             String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
             int points, long expectedRevision, UUID requestId) {
+        return set(actorType, actorId, playerUuid, factionId, points, expectedRevision, requestId, -1);
+    }
+
+    public static FactionProgressionMutationRequest set(
+            String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
+            int points, long expectedRevision, UUID requestId, int permissionLevel) {
         return new FactionProgressionMutationRequest(actorType, actorId, playerUuid, factionId,
-                Action.SET, points, expectedRevision, requestId, -1);
+                Action.SET, points, expectedRevision, requestId, permissionLevel);
     }
 
     public static FactionProgressionMutationRequest adjust(
             String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
             int delta, long expectedRevision, UUID requestId) {
+        return adjust(actorType, actorId, playerUuid, factionId, delta, expectedRevision, requestId, -1);
+    }
+
+    public static FactionProgressionMutationRequest adjust(
+            String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
+            int delta, long expectedRevision, UUID requestId, int permissionLevel) {
         return new FactionProgressionMutationRequest(actorType, actorId, playerUuid, factionId,
-                Action.ADJUST, delta, expectedRevision, requestId, -1);
+                Action.ADJUST, delta, expectedRevision, requestId, permissionLevel);
     }
 
     public String operation() {

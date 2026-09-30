@@ -49,15 +49,13 @@ public interface FactionRelationshipProvider {
                     .toList();
             for (var faction : ordered) {
                 for (var entry : faction.getRelationships().entrySet()) {
-                    NamespacedId other;
-                    try {
-                        other = NamespacedId.of(entry.getKey());
-                    } catch (RuntimeException bad) {
-                        continue; // malformed relationship key — skipped, never hostile
+                    NamespacedId other = entry.getKey();
+                    if (other == null || entry.getValue() == null) {
+                        continue; // malformed entry — skipped, never hostile
                     }
                     Relationship declared;
                     try {
-                        declared = Relationship.valueOf(entry.getValue());
+                        declared = Relationship.valueOf(entry.getValue().name());
                     } catch (RuntimeException bad) {
                         continue; // unknown standing — skipped, never hostile
                     }

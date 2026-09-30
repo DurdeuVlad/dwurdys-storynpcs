@@ -31,13 +31,13 @@
     "backward_edges": 207,
     "forward_references": [
      "P0-4 -> P8-1 (forward ownership/fixture reference)",
-     "P0-4 -> P1-1 (forward ownership/fixture reference)",
+     "P0-4 -> P6-4 (forward ownership/fixture reference)",
+     "P0-4 -> P8-3 (forward ownership/fixture reference)",
      "P0-4 -> P8-2 (forward ownership/fixture reference)",
      "P0-4 -> P9-2 (forward ownership/fixture reference)",
      "P0-4 -> P9-1 (forward ownership/fixture reference)",
+     "P0-4 -> P1-1 (forward ownership/fixture reference)",
      "P0-4 -> P6-3 (forward ownership/fixture reference)",
-     "P0-4 -> P6-4 (forward ownership/fixture reference)",
-     "P0-4 -> P8-3 (forward ownership/fixture reference)",
      "P3-3 -> P6-1 (forward ownership/fixture reference)",
      "P4-1 -> P4-3 (forward ownership/fixture reference)",
      "P8-3 -> P9-2 (forward ownership/fixture reference)",
@@ -64,8 +64,8 @@
    "blocked": true,
    "detail": {
     "BLOCKED": 1,
-    "DONE-LOCAL": 5,
-    "IN-PROGRESS": 18,
+    "DONE-LOCAL": 6,
+    "IN-PROGRESS": 17,
     "IN-REVIEW": 23
    },
    "findings": [
@@ -109,8 +109,7 @@
     "P9-1: IN-REVIEW",
     "P9-2: IN-REVIEW",
     "P9-3: IN-PROGRESS",
-    "P9-4: IN-REVIEW",
-    "P9-5: IN-PROGRESS"
+    "P9-4: IN-REVIEW"
    ],
    "interpretation": "IN-REVIEW and unaccepted BLOCKED issues are not terminal; only completed or user-accepted blocked issues satisfy release closure.",
    "pass": false
@@ -124,7 +123,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 753,
+    "junit_test_case_count": 962,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,
