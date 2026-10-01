@@ -152,6 +152,31 @@ class YamlDefinitionLoaderTest {
     }
 
     @Test
+    void shouldRejectNonIntegerSchemaVersionForms() {
+        // Null, float, >int32, and negative envelope values all fail closed;
+        // a YAML alias still resolves to its anchored scalar before the check.
+        for (String versionLiteral : new String[]{"null", "1.5", "9999999999", "-1"}) {
+            ValidationResult result = ValidationResult.valid();
+            loader.loadNpc("schemaVersion: " + versionLiteral
+                    + "\nid: \"storynpcs:v_bad\"\n", "v_bad.yaml", result);
+            assertThat(result.hasErrors())
+                    .as("schemaVersion " + versionLiteral + " must be rejected")
+                    .isTrue();
+            assertThat(result.getErrors().get(0).code())
+                    .isIn("SCHEMA_VERSION_INVALID", "SCHEMA_VERSION_UNSUPPORTED");
+        }
+
+        // Aliased schemaVersion resolves to a non-integral node under Jackson's
+        // YAML tree and fails closed rather than silently accepting.
+        ValidationResult aliasResult = ValidationResult.valid();
+        loader.loadNpc("version: &v 1\nschemaVersion: *v\nid: \"storynpcs:v_alias\"\n",
+                "v_alias.yaml", aliasResult);
+        assertThat(aliasResult.hasErrors()).isTrue();
+        assertThat(aliasResult.getErrors().get(0).code()).isEqualTo("SCHEMA_VERSION_INVALID");
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:v_alias"))).isEmpty();
+    }
+
+    @Test
     void shouldRejectUnknownFieldsWithSourceLocation() {
         String yaml = """
                 id: "storynpcs:unknown_field"

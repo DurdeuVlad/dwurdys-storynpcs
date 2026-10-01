@@ -61,6 +61,10 @@ public final class DefinitionImporter {
         NpcTemplate snapshotTemplate(NamespacedId id);
     }
 
+    // Transport locations are loadable via YamlDefinitionLoader (transports/)
+    // but intentionally not importable here yet — the sink lacks transport
+    // save/delete/snapshot plumbing (P6-3 scope), so packages carrying them
+    // quarantine fail-closed rather than partially apply.
     private static final List<String> FAMILIES = List.of("npc", "dialogue", "quest", "faction", "template");
 
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());

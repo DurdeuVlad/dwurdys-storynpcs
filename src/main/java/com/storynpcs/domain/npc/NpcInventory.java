@@ -250,17 +250,20 @@ public class NpcInventory {
                 }
                 int index = 0;
                 for (JsonNode drop : drops) {
+                    if (!drop.isObject()) {
+                        throw new IllegalArgumentException(
+                                "inventory.drops[" + index + "] must be an object with item/chancePercent");
+                    }
+                    rejectUnknownKeys(drop, java.util.Set.of("item", "chancePercent"),
+                            "inventory.drops[" + index + "]");
                     JsonNode itemNode = drop.get("item");
                     if (itemNode == null || itemNode.isNull()) {
                         index++; // serialized empty slot — a gap, not dropped content
                         continue;
                     }
                     NpcItemStack item = requireItem(itemNode, "inventory.drops[" + index + "].item");
-                    int chance = drop.has("chancePercent") ? drop.get("chancePercent").asInt(100) : 100;
-                    if (chance < 0 || chance > 100) {
-                        throw new IllegalArgumentException(
-                                "inventory.drops[" + index + "].chancePercent must be 0..100, got " + chance);
-                    }
+                    int chance = requireBoundedInt(drop.get("chancePercent"),
+                            "inventory.drops[" + index + "].chancePercent", 0, 100, 100);
                     inventory.setDrop(index, item, chance);
                     index++;
                 }
@@ -282,27 +285,48 @@ public class NpcInventory {
         throw new IllegalArgumentException("inventory must be an object or legacy item-id array");
     }
 
-    private static NpcItemStack requireItem(JsonNode node, String fieldPath) {
-        NpcItemStack item = itemFromNode(node);
-        if (item == null) {
-            throw new IllegalArgumentException(
-                    fieldPath + ": malformed item stack (requires textual itemId and count 1.."
-                            + NpcItemStack.MAX_COUNT + ")");
+    private static void rejectUnknownKeys(JsonNode object, java.util.Set<String> known,
+                                          String fieldPath) {
+        for (Iterator<String> it = object.fieldNames(); it.hasNext();) {
+            String key = it.next();
+            if (!known.contains(key)) {
+                throw new IllegalArgumentException(fieldPath + "." + key + ": unknown field");
+            }
         }
-        return item;
     }
 
-    private static NpcItemStack itemFromNode(JsonNode node) {
-        if (node == null || node.isNull() || !node.isObject()) return null;
-        JsonNode id = node.get("itemId");
-        if (id == null || !id.isTextual() || id.asText().isBlank()) return null;
-        int count = node.has("count") ? node.get("count").asInt(1) : 1;
-        String components = node.has("components") ? node.get("components").asText("") : "";
-        try {
-            return new NpcItemStack(NamespacedId.of(id.asText()), count, components);
-        } catch (IllegalArgumentException invalid) {
-            return null;
+    private static int requireBoundedInt(JsonNode node, String fieldPath, int min, int max,
+                                         int defaultValue) {
+        if (node == null || node.isNull()) return defaultValue;
+        if (!node.isIntegralNumber() || !node.canConvertToInt()) {
+            throw new IllegalArgumentException(fieldPath + " must be an integer, got " + node);
         }
+        int value = node.intValue();
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(
+                    fieldPath + " must be " + min + ".." + max + ", got " + value);
+        }
+        return value;
+    }
+
+    private static NpcItemStack requireItem(JsonNode node, String fieldPath) {
+        if (node == null || !node.isObject()) {
+            throw new IllegalArgumentException(
+                    fieldPath + ": malformed item stack (requires an object with itemId)");
+        }
+        rejectUnknownKeys(node, java.util.Set.of("itemId", "count", "components"), fieldPath);
+        JsonNode id = node.get("itemId");
+        if (id == null || !id.isTextual() || id.asText().isBlank()) {
+            throw new IllegalArgumentException(fieldPath + ".itemId: textual namespaced id required");
+        }
+        int count = requireBoundedInt(node.get("count"), fieldPath + ".count",
+                1, NpcItemStack.MAX_COUNT, 1);
+        JsonNode componentsNode = node.get("components");
+        if (componentsNode != null && !componentsNode.isNull() && !componentsNode.isTextual()) {
+            throw new IllegalArgumentException(fieldPath + ".components must be a string");
+        }
+        String components = componentsNode != null ? componentsNode.asText("") : "";
+        return new NpcItemStack(NamespacedId.of(id.asText()), count, components);
     }
 
 }

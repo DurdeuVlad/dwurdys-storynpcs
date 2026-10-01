@@ -24,7 +24,7 @@ Status: `IN-REVIEW`
 - `YamlDefinitionWriterTest`: versioned writer output, atomic temporary-file cleanup, and writer-to-loader dialogue round trip.
 - `QuickstartLogicTest`: resolve order unchanged, bundled quickstart resources are versioned/namespaced/loadable and resolve the demo NPC through the real loader, and a source-level guard asserts the quickstart command constructs and persists no definition objects.
 - Focused YAML/command tests: `BUILD SUCCESSFUL`.
-- Full suite after this slice: `BUILD SUCCESSFUL`, 469 tests, 0 failures/errors.
+- Full suite after review remediation: `BUILD SUCCESSFUL`, 999 tests, 0 failures/errors.
 - Truth gate: passed. `git diff --check`: passed; only repository line-ending warnings.
 - Research basis: Jackson's official YAML backend supports the tree model and general `ObjectMapper` data binding; NeoForge's data-driven resource model reinforces versioned, loader-bound definition data rather than embedding content in code. See [Jackson YAML backend](https://github.com/FasterXML/jackson-dataformats-text/tree/3.x/yaml) and [NeoForge data maps](https://docs.neoforged.net/docs/1.21.3/resources/server/datamaps/).
 
