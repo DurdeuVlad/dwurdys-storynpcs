@@ -193,4 +193,19 @@ public class PlayerProgression {
     public boolean hasVisitedDialogueNode(String nodeId) {
         return visitedDialogueNodes.contains(nodeId);
     }
+
+    /**
+     * Dialogue-scoped visit tracking: two dialogues may share a node id (e.g.
+     * every graph conventionally has a {@code "start"} entry), so visits are
+     * keyed {@code dialogueId#nodeId} to keep per-dialogue state distinct.
+     * Bare-node-id entries written by older builds remain in the set and stay
+     * readable through the unscoped accessors above.
+     */
+    public void recordDialogueNodeVisit(NamespacedId dialogueId, String nodeId) {
+        visitedDialogueNodes.add(dialogueId + "#" + nodeId);
+    }
+
+    public boolean hasVisitedDialogueNode(NamespacedId dialogueId, String nodeId) {
+        return visitedDialogueNodes.contains(dialogueId + "#" + nodeId);
+    }
 }

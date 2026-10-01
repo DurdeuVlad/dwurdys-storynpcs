@@ -6,8 +6,8 @@ import java.util.UUID;
 
 /**
  * Immutable command for a player-scoped progression action that carries no numeric
- * payload — mail read/delete, transport-location unlock, and similar (issue #54 —
- * P1-4 authorization policy coverage). Mirrors
+ * payload — mail read/delete, transport-location unlock, dialogue node-visit
+ * recording, and similar (issues #51/#54). Mirrors
  * {@link QuestProgressionMutationRequest}/{@link FactionProgressionMutationRequest}'s
  * actor/subject shape without a resource-specific field: the actual target (a mail
  * ID, a transport location ID, ...) is passed as a separate method parameter by the
