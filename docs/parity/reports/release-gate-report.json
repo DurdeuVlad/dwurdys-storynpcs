@@ -141,10 +141,11 @@
   "target_runtime_evidence": {
    "blocked": true,
    "detail": {
+    "imported_target_observation_count": 3,
     "parity_status": "BLOCKED"
    },
    "findings": [
-    "target-runtime observations are unavailable; target parity remains BLOCKED"
+    "3 fixture(s) carry imported VERIFIED_TARGET_RUNTIME observations; no fixture reaches VERIFIED_PARITY, so target parity remains BLOCKED"
    ],
    "pass": false
   },

@@ -19,10 +19,22 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 try:
-    from tools.parity.fixture_harness import load_catalog, run_catalog, source_fingerprint
+    from tools.parity.fixture_harness import (
+        load_catalog,
+        load_target_import,
+        run_catalog,
+        source_fingerprint,
+        target_probe_map,
+    )
 except ModuleNotFoundError:  # Direct execution: python tools/parity/run_storynpcs_fixtures.py
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from tools.parity.fixture_harness import load_catalog, run_catalog, source_fingerprint
+    from tools.parity.fixture_harness import (
+        load_catalog,
+        load_target_import,
+        run_catalog,
+        source_fingerprint,
+        target_probe_map,
+    )
 
 
 MAX_JUNIT_REPORTS = 1024
@@ -182,6 +194,7 @@ def read_junit_cases(
 def build_probe_report(
     catalog: dict[str, Any],
     junit_cases: dict[str, dict[str, Any]],
+    target_probes: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, int], list[str]]:
     test_map = catalog.get("storynpcs_test_map", {})
     coverage_map = catalog.get("storynpcs_test_coverage", {})
@@ -299,11 +312,18 @@ def build_probe_report(
             if outcome != "PASSED":
                 counts["failed"] += 1
 
+        target_probe = (target_probes or {}).get(fixture_id)
         observations.append({
             "fixture_id": fixture_id,
             "storynpcs_probe": probe,
-            # Target runtime evidence remains independently required for parity.
-            "evidence_state": "UNVERIFIED_TARGET_RUNTIME",
+            **({"target_probe": target_probe} if target_probe is not None else {}),
+            # Parity still requires a MATCH comparison; imported target
+            # observations advance the row only to VERIFIED_TARGET_RUNTIME.
+            "evidence_state": (
+                "VERIFIED_TARGET_RUNTIME"
+                if isinstance(target_probe, dict) and target_probe.get("status") == "OBSERVED"
+                else "UNVERIFIED_TARGET_RUNTIME"
+            ),
         })
 
     return {"fixtures": observations}, counts, missing_selectors
@@ -531,6 +551,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=repository_root / "build" / "reports" / "parity" / "fixture-report.json",
     )
+    parser.add_argument(
+        "--target-import",
+        type=Path,
+        default=repository_root / "docs" / "parity" / "target-runtime-import.json",
+        help="versioned VERIFIED_TARGET_RUNTIME import artifact (committed, provenance-checked)",
+    )
     parser.add_argument("--jar", type=Path, help="exact target CustomNPCs JAR used for source verification")
     parser.add_argument("--research-root", type=Path, help="root containing the hashed research inventories")
     parser.add_argument("--decompiled-root", type=Path, help="root containing source decompiled from the target JAR")
@@ -593,7 +619,26 @@ def main() -> int:
     try:
         catalog = load_catalog(args.catalog)
         junit_cases = read_junit_cases(repository_root / "build" / "test-results" / "test")
-        probe_report, counts, missing_selectors = build_probe_report(catalog, junit_cases)
+        target_import = None
+        import_display = "docs/parity/target-runtime-import.json"
+        if args.target_import is not None:
+            resolved_import = Path(args.target_import).resolve()
+            try:
+                import_display = resolved_import.relative_to(
+                    repository_root.resolve()).as_posix()
+            except ValueError:
+                import_display = str(resolved_import)
+            if resolved_import.is_file():
+                target_import = load_target_import(resolved_import)
+            else:
+                print(
+                    f"warning: target-runtime import not found at {resolved_import}; "
+                    "all fixtures keep UNAVAILABLE target probes",
+                    file=sys.stderr,
+                )
+        target_probes = target_probe_map(catalog, target_import, import_display)
+        probe_report, counts, missing_selectors = build_probe_report(
+            catalog, junit_cases, target_probes)
         _write_json(args.probe_report, probe_report)
         fixture_report = run_catalog(
             args.catalog,
@@ -601,6 +646,7 @@ def main() -> int:
             jar_path=args.jar,
             research_root=args.research_root,
             decompiled_root=args.decompiled_root,
+            target_import_path=args.target_import,
         )
     except (OSError, TypeError, ValueError, KeyError, ET.ParseError) as error:
         reason = f"StoryNPCs fixture adapter failed; no JUnit evidence was accepted: {error}"
