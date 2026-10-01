@@ -57,10 +57,6 @@ def _class_path_exists(root: Path, fqcn: str, test_only: bool) -> bool:
     return any((root / base / rel).is_file() for base in sources)
 
 
-def verify_storynpcs_ref(ref: str, root: Path,
-                         operations: frozenset[str] | None = None) -> list[str]:
-    """Validate one storynpcs_ref token list. Returns a list of problems
-    (empty = every token names a verifiable repository artifact)."""
 def _verify_ref_token(token: str, root: Path, resolved_root: Path,
                       operations: frozenset[str]) -> str | None:
     """Return a problem string for one artifact token, or None if verified."""
