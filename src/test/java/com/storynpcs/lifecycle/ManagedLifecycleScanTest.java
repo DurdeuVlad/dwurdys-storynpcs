@@ -111,6 +111,27 @@ class ManagedLifecycleScanTest {
     }
 
     @Test
+    void annotationArrayBracesCannotSplitADeclaration() {
+        // @SuppressWarnings({"unchecked"}) contains '{' — splitting before
+        // annotation stripping would leave a ') private static int x' fragment
+        // that fails the field-shape check and evades the gate.
+        String source = "class T {\n"
+                + "    @SuppressWarnings({\"unchecked\"})\n"
+                + "    private static int counter;\n"
+                + "    @Deprecated(since = \"1\")\n"
+                + "    private static java.util.List<String> names = new java.util.ArrayList<>();\n"
+                + "}";
+        String sanitized = stripAnnotations(stripCommentsAndLiterals(source));
+        int found = 0;
+        for (String fragment : sanitized.split("[;{}]")) {
+            if (isMutableStaticField(fragment)) {
+                found++;
+            }
+        }
+        assertThat(found).isEqualTo(2);
+    }
+
+    @Test
     void scannerIgnoresImmutableAndNonFieldStatics() {
         assertThat(isMutableStaticField("private static final int LIMIT = 5")).isFalse();
         assertThat(isMutableStaticField("public static final Map<String, Integer> M = Map.of()")).isFalse();
@@ -143,12 +164,18 @@ class ManagedLifecycleScanTest {
         assertThat(sawLimit).isFalse();
     }
 
+    /** Annotation (with optional one-level-nested argument list) — stripped before statement splitting so braces in array args cannot split a declaration. */
+    private static final Pattern ANNOTATION_WITH_ARGS = Pattern.compile(
+            "@\\w+(?:\\s*\\((?:[^()]|\\([^()]*\\))*\\))?");
+
     private void scanFile(Path file, List<String> violations) throws IOException {
         // Sanitize the whole file first so comments and string/char literals
-        // cannot hide declarations or fake block-comment state, then split on
-        // statement/scope boundaries so multi-line declarations and single-line
-        // nested types cannot evade per-line matching.
-        String sanitized = stripCommentsAndLiterals(Files.readString(file));
+        // cannot hide declarations or fake block-comment state, then blank out
+        // annotations (whose argument braces would otherwise split statements),
+        // and finally split on statement/scope boundaries so multi-line
+        // declarations and single-line nested types cannot evade per-line matching.
+        String sanitized = stripAnnotations(
+                stripCommentsAndLiterals(Files.readString(file)));
         int statementStart = 0;
         int line = 1;
         for (int i = 0; i <= sanitized.length(); i++) {
@@ -184,6 +211,22 @@ class ManagedLifecycleScanTest {
             return false;
         }
         return FIELD_SHAPE.matcher(f).matches();
+    }
+
+    /**
+     * Replaces every annotation (including argument lists, one level of nested
+     * parens, and array braces like {@code @SuppressWarnings({"unchecked"})})
+     * with whitespace, preserving newlines so line diagnostics stay accurate.
+     */
+    static String stripAnnotations(String source) {
+        java.util.regex.Matcher m = ANNOTATION_WITH_ARGS.matcher(source);
+        StringBuilder out = new StringBuilder(source.length());
+        while (m.find()) {
+            m.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(
+                    m.group().replaceAll("[^\\n]", " ")));
+        }
+        m.appendTail(out);
+        return out.toString();
     }
 
     /**

@@ -74,6 +74,27 @@ public class WorldLifecycleHandler {
         initializeServer(event.getServer());
     }
 
+    /**
+     * Disk-loaded entities finish deserializing on an IO worker and enter the
+     * level via {@code PersistentEntitySectionManager}'s pending inbox during
+     * the first ticks — after ServerStartedEvent. Reconcile each StoryNPC as it
+     * joins so a pre-runtime load cannot leave its logical actor unbound for
+     * the whole session. Reconciliation is idempotent: an already-bound
+     * projection rebinds as a refresh.
+     */
+    public void onEntityJoinLevel(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide()
+                || !(event.getEntity() instanceof com.storynpcs.entity.StoryNpcEntity npc)) {
+            return;
+        }
+        try {
+            npc.reconcileActorBinding();
+        } catch (RuntimeException e) {
+            LOGGER.warn("Could not reconcile StoryNPC projection {} on level join: {}",
+                    npc.getUUID(), e.getMessage());
+        }
+    }
+
     public void onLevelSave(net.neoforged.neoforge.event.level.LevelEvent.Save event) {
         // VULN-53: Save all online player data on every world auto-save, not just server shutdown
         if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel
@@ -219,15 +240,20 @@ public class WorldLifecycleHandler {
             LOGGER.warn("Could not restore logical StoryNPC actors: {}", e.getMessage());
         }
 
-        // Entities in spawn-area and forced chunks deserialize during level
-        // load — before ServerStartedEvent registers this runtime — so their
-        // projection binding was silently skipped at read time. Re-run binding
-        // now that the server-scoped actor service exists; otherwise durable-ID
-        // actors would stay UNLOADED for the whole session and legacy entities
-        // would never migrate.
+        // Entities added synchronously during prepareLevels (e.g. legacy chunk
+        // upgrade entities) deserialize before ServerStartedEvent registers this
+        // runtime, so their projection binding was skipped at read time. Re-run
+        // binding for anything already visible; disk-loaded entities still
+        // queued in PersistentEntitySectionManager's loadingInbox are covered
+        // by the EntityJoinLevelEvent listener (onEntityJoinLevel), which fires
+        // as the inbox drains during the first ticks.
         if (server != null) {
             for (net.minecraft.server.level.ServerLevel level : server.getAllLevels()) {
-                for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
+                // Snapshot before iterating: reconciliation publishes lifecycle
+                // events, and a listener mutating the entity set mid-sweep must
+                // not corrupt the live view.
+                for (net.minecraft.world.entity.Entity entity
+                        : com.google.common.collect.Lists.newArrayList(level.getAllEntities())) {
                     if (entity instanceof com.storynpcs.entity.StoryNpcEntity npc) {
                         try {
                             npc.reconcileActorBinding();

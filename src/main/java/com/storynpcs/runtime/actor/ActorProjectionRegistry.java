@@ -293,12 +293,6 @@ public final class ActorProjectionRegistry {
             try {
                 NamespacedId actorId = NamespacedId.of(saved.actorId());
                 NamespacedId definitionId = NamespacedId.of(saved.definitionId());
-                ActorLifecycleReason reason;
-                try {
-                    reason = ActorLifecycleReason.valueOf(saved.lastReason());
-                } catch (IllegalArgumentException ignored) {
-                    reason = ActorLifecycleReason.RESTORED;
-                }
                 actors.put(actorId, new ActorRecord(
                         actorId,
                         definitionId,

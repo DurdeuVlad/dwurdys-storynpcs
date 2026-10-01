@@ -1189,7 +1189,9 @@ public class StoryNpcEntity extends PathfinderMob {
      * {@code StoryNpcActorId} NBT value.
      */
     public void reconcileActorBinding() {
-        if (this.level().isClientSide) {
+        // Discarded entities must not bind a projection they no longer hold —
+        // a stale PROJECTED record would block the actor's next real projection.
+        if (this.level().isClientSide || this.isRemoved()) {
             return;
         }
         StoryNpcs mod = StoryNpcsAccess.mod(this);
