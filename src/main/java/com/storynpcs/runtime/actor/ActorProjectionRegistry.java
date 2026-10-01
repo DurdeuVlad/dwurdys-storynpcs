@@ -114,6 +114,15 @@ public final class ActorProjectionRegistry {
                     true
             );
         }
+        if (expectedProjectionId.equals(replacementProjectionId)) {
+            return ActorProjectionResult.rejected(
+                    actorId,
+                    replacementProjectionId,
+                    previous.state(),
+                    "Replacement projection must differ from the expected projection",
+                    true
+            );
+        }
         NamespacedId existingActor = projectionToActor.get(replacementProjectionId);
         if (existingActor != null && !existingActor.equals(actorId)) {
             return ActorProjectionResult.rejected(
@@ -295,7 +304,7 @@ public final class ActorProjectionRegistry {
                         definitionId,
                         null,
                         ActorLifecycleState.UNLOADED,
-                        reason == ActorLifecycleReason.RESTORED ? reason : ActorLifecycleReason.RESTORED,
+                        ActorLifecycleReason.RESTORED,
                         saved.diagnostic()
                 ));
                 restored++;

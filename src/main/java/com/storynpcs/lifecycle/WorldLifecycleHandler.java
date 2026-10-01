@@ -219,6 +219,27 @@ public class WorldLifecycleHandler {
             LOGGER.warn("Could not restore logical StoryNPC actors: {}", e.getMessage());
         }
 
+        // Entities in spawn-area and forced chunks deserialize during level
+        // load — before ServerStartedEvent registers this runtime — so their
+        // projection binding was silently skipped at read time. Re-run binding
+        // now that the server-scoped actor service exists; otherwise durable-ID
+        // actors would stay UNLOADED for the whole session and legacy entities
+        // would never migrate.
+        if (server != null) {
+            for (net.minecraft.server.level.ServerLevel level : server.getAllLevels()) {
+                for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
+                    if (entity instanceof com.storynpcs.entity.StoryNpcEntity npc) {
+                        try {
+                            npc.reconcileActorBinding();
+                        } catch (RuntimeException e) {
+                            LOGGER.warn("Could not reconcile StoryNPC projection {} after startup: {}",
+                                    npc.getUUID(), e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+
         StoryNpcsApplicationService appService = new StoryNpcsApplicationService(
                 mod.getRegistry(),
                 progressionRepo,

@@ -26,10 +26,14 @@ class ManagedLifecycleScanTest {
 
     private static final Path MAIN_SOURCES = Path.of("src", "main", "java");
 
-    /** static field declarations: any access modifier, optional extra modifiers, type, name, then ';' or '='. */
-    private static final Pattern MUTABLE_STATIC_FIELD = Pattern.compile(
-            "^\\s*(?:public|protected|private)?\\s*static\\s+(?!.*\\bfinal\\s)(?!class\\b|interface\\b|enum\\b|record\\b|@interface\\b)"
-                    + "[\\w.<>\\[\\],?\\s]+?\\s+(\\w+)\\s*(?:;|=).*");
+    /** Field shape after annotation stripping: modifiers/type words, a name, optional initializer. */
+    private static final Pattern FIELD_SHAPE = Pattern.compile(
+            "^(?:[\\w.<>\\[\\],?]+\\s+)+\\w+\\s*(?:=.*)?$", Pattern.DOTALL);
+    private static final Pattern STATIC = Pattern.compile("\\bstatic\\b");
+    private static final Pattern FINAL = Pattern.compile("\\bfinal\\b");
+    private static final Pattern TYPE_KEYWORD = Pattern.compile(
+            "\\b(class|interface|enum|record|@interface)\\b");
+    private static final Pattern ANNOTATION = Pattern.compile("@\\w+(?:\\s*\\([^)]*\\))?");
 
     @Test
     void unattachedLevelResolvesNoModInstance() {
@@ -83,33 +87,160 @@ class ManagedLifecycleScanTest {
                 .isEmpty();
     }
 
+    @Test
+    void scannerCatchesMutableStaticEvasionShapes() {
+        // Shapes that defeated the original per-line regex: annotation-prefixed
+        // declarations, line-split declarations, single-line nested types, and
+        // comment/string confusion.
+        assertThat(isMutableStaticField("@Deprecated private static int counter")).isTrue();
+        assertThat(isMutableStaticField("private static\n    int counter")).isTrue();
+        assertThat(isMutableStaticField("static int counter")).isTrue();
+        assertThat(isMutableStaticField("private static Map<String, Integer> counts = new HashMap<>()"))
+                .isTrue();
+        assertThat(isMutableStaticField("public static var state")).isTrue();
+
+        // And the surrounding file context: a single-line nested class's field
+        // must still surface after statement splitting.
+        String nested = stripCommentsAndLiterals(
+                "class Outer { static class Holder { private static int counter; } }");
+        boolean found = false;
+        for (String fragment : nested.split("[;{}]")) {
+            found |= isMutableStaticField(fragment);
+        }
+        assertThat(found).isTrue();
+    }
+
+    @Test
+    void scannerIgnoresImmutableAndNonFieldStatics() {
+        assertThat(isMutableStaticField("private static final int LIMIT = 5")).isFalse();
+        assertThat(isMutableStaticField("public static final Map<String, Integer> M = Map.of()")).isFalse();
+        assertThat(isMutableStaticField("import static com.x.Y")).isFalse();
+        assertThat(isMutableStaticField("private static int compute()")).isFalse();
+        assertThat(isMutableStaticField("static class Holder")).isFalse();
+        assertThat(isMutableStaticField("static")).isFalse();
+        assertThat(isMutableStaticField("")).isFalse();
+    }
+
+    @Test
+    void literalsAndCommentsCannotConfuseTheScanner() {
+        // A '/*' inside a string literal must not open a fake block comment that
+        // suppresses later lines, and '//' inside a string must not truncate.
+        String source = "class T {\n"
+                + "    String s = \"/* not a comment */\";\n"
+                + "    String u = \"// not a comment\";\n"
+                + "    private static int counter;\n"
+                + "    // a real comment mentions static int ignored\n"
+                + "    /* block mentions static int ignoredToo */\n"
+                + "    private static final int LIMIT = 3;\n"
+                + "}";
+        String sanitized = stripCommentsAndLiterals(source);
+        boolean sawMutable = false, sawLimit = false;
+        for (String fragment : sanitized.split("[;{}]")) {
+            sawMutable |= isMutableStaticField(fragment);
+            sawLimit |= fragment.contains("LIMIT") && isMutableStaticField(fragment);
+        }
+        assertThat(sawMutable).isTrue();
+        assertThat(sawLimit).isFalse();
+    }
+
     private void scanFile(Path file, List<String> violations) throws IOException {
-        String fileName = file.getFileName().toString();
-        boolean inBlockComment = false;
-        int lineNo = 0;
-        for (String rawLine : Files.readAllLines(file)) {
-            lineNo++;
-            String line = rawLine;
-            StringBuilder code = new StringBuilder();
-            for (int i = 0; i < line.length(); i++) {
-                if (inBlockComment) {
-                    if (i + 1 < line.length() && line.charAt(i) == '*' && line.charAt(i + 1) == '/') {
-                        inBlockComment = false;
-                        i++;
-                    }
-                } else if (i + 1 < line.length() && line.charAt(i) == '/' && line.charAt(i + 1) == '*') {
-                    inBlockComment = true;
-                    i++;
-                } else if (i + 1 < line.length() && line.charAt(i) == '/' && line.charAt(i + 1) == '/') {
-                    break;
-                } else {
-                    code.append(line.charAt(i));
-                }
+        // Sanitize the whole file first so comments and string/char literals
+        // cannot hide declarations or fake block-comment state, then split on
+        // statement/scope boundaries so multi-line declarations and single-line
+        // nested types cannot evade per-line matching.
+        String sanitized = stripCommentsAndLiterals(Files.readString(file));
+        int statementStart = 0;
+        int line = 1;
+        for (int i = 0; i <= sanitized.length(); i++) {
+            char c = i < sanitized.length() ? sanitized.charAt(i) : ';';
+            if (c == '\n') {
+                line++;
+                continue;
             }
-            var matcher = MUTABLE_STATIC_FIELD.matcher(code.toString().trim());
-            if (matcher.matches()) {
-                violations.add(file + ":" + lineNo + " -> static field '" + matcher.group(1) + "'");
+            if (c != ';' && c != '{' && c != '}') {
+                continue;
+            }
+            String fragment = sanitized.substring(statementStart, i).trim();
+            if (isMutableStaticField(fragment)) {
+                violations.add(file + ":" + line
+                        + " -> mutable static field: " + fragment.replaceAll("\\s+", " "));
+            }
+            statementStart = i + 1;
+        }
+    }
+
+    /**
+     * Detects a {@code static} field declaration lacking {@code final} in one
+     * logical statement fragment (no braces or semicolons inside). Package-private
+     * for direct unit tests of evasion shapes.
+     */
+    static boolean isMutableStaticField(String fragment) {
+        String f = ANNOTATION.matcher(fragment).replaceAll("").trim();
+        if (f.isEmpty() || f.startsWith("import ") || f.startsWith("package ")) {
+            return false;
+        }
+        if (!STATIC.matcher(f).find() || FINAL.matcher(f).find()
+                || TYPE_KEYWORD.matcher(f).find()) {
+            return false;
+        }
+        return FIELD_SHAPE.matcher(f).matches();
+    }
+
+    /**
+     * Blanks out comments and string/char literals so neither can disguise code
+     * or corrupt comment state for later lines.
+     */
+    static String stripCommentsAndLiterals(String source) {
+        StringBuilder out = new StringBuilder(source.length());
+        boolean blockComment = false, lineComment = false, inString = false, inChar = false, escaped = false;
+        for (int i = 0; i < source.length(); i++) {
+            char c = source.charAt(i);
+            char next = i + 1 < source.length() ? source.charAt(i + 1) : '\0';
+            if (blockComment) {
+                if (c == '*' && next == '/') {
+                    blockComment = false;
+                    i++;
+                } else {
+                    out.append(c == '\n' ? '\n' : ' ');
+                }
+                continue;
+            }
+            if (lineComment) {
+                if (c == '\n') {
+                    lineComment = false;
+                    out.append(c);
+                }
+                continue;
+            }
+            if (inString || inChar) {
+                out.append(c == '\n' ? '\n' : ' ');
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (inString && c == '"') {
+                    inString = false;
+                } else if (inChar && c == '\'') {
+                    inChar = false;
+                }
+                continue;
+            }
+            if (c == '/' && next == '*') {
+                blockComment = true;
+                i++;
+            } else if (c == '/' && next == '/') {
+                lineComment = true;
+                i++;
+            } else if (c == '"') {
+                inString = true;
+                out.append(' ');
+            } else if (c == '\'') {
+                inChar = true;
+                out.append(' ');
+            } else {
+                out.append(c);
             }
         }
+        return out.toString();
     }
 }

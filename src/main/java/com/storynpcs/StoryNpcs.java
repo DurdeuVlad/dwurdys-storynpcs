@@ -327,9 +327,15 @@ public class StoryNpcs {
     }
 
     public RuntimeSessionRegistry getRuntimeSessions(MinecraftServer server) {
-        return server == null
-                ? runtimeSessions
-                : serverRuntimeSessions.computeIfAbsent(server, ignored -> new RuntimeSessionRegistry());
+        if (server == null) {
+            return runtimeSessions;
+        }
+        // Never resurrect an entry after clearServerRuntime — a re-inserted
+        // dead-server key would retain the entire stopped MinecraftServer.
+        // Shutdown-time cleanup callers get an ephemeral registry so their
+        // clear/no-op semantics are preserved without mutating shared state.
+        RuntimeSessionRegistry registry = serverRuntimeSessions.get(server);
+        return registry != null ? registry : new RuntimeSessionRegistry();
     }
 
     public FollowerGroup getFollowerGroup() {
@@ -337,9 +343,11 @@ public class StoryNpcs {
     }
 
     public FollowerGroup getFollowerGroup(MinecraftServer server) {
-        return server == null
-                ? followerGroup
-                : serverFollowerGroups.computeIfAbsent(server, ignored -> new FollowerGroup());
+        if (server == null) {
+            return followerGroup;
+        }
+        FollowerGroup group = serverFollowerGroups.get(server);
+        return group != null ? group : new FollowerGroup();
     }
 
     public com.storynpcs.domain.common.ValidationResult getLastLoadDiagnostics() {
