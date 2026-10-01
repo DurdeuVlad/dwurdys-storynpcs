@@ -10,7 +10,7 @@ import java.util.TreeMap;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import com.storynpcs.creator.template.NpcTemplate;
@@ -357,19 +357,9 @@ public final class DefinitionImporter {
             case "dialogue" -> loader.loadDialogue(content, file, result);
             case "quest" -> loader.loadQuest(content, file, result);
             case "faction" -> loader.loadFaction(content, file, result);
-            case "template" -> loadTemplate(content, file, result);
+            case "template" -> loader.loadTemplate(content, file, result);
             default -> null;
         };
-    }
-
-    private NpcTemplate loadTemplate(String content, String file, ValidationResult result) {
-        try {
-            JsonNode node = yamlMapper.readTree(content);
-            return JsonMapper.builder().build().treeToValue(node, NpcTemplate.class);
-        } catch (Exception e) {
-            result.addError(file, 1, 1, "TEMPLATE_PARSE_ERROR", String.valueOf(e.getMessage()));
-            return null;
-        }
     }
 
     private NamespacedId extractId(JsonNode root) {

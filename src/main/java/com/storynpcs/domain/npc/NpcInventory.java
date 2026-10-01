@@ -213,43 +213,83 @@ public class NpcInventory {
             return inventory;
         }
         if (node.isObject()) {
+            // Strict boundary (issue #55 / P2-1): unknown keys, unknown slot
+            // names, malformed stacks, and out-of-range values are rejected
+            // with field-path diagnostics instead of being silently dropped.
+            for (Iterator<String> it = node.fieldNames(); it.hasNext();) {
+                String key = it.next();
+                if (!key.equals("equipment") && !key.equals("drops") && !key.equals("lootMode")) {
+                    throw new IllegalArgumentException("inventory." + key + ": unknown field");
+                }
+            }
             JsonNode equipment = node.get("equipment");
-            if (equipment != null && equipment.isObject()) {
+            if (equipment != null) {
+                if (!equipment.isObject()) {
+                    throw new IllegalArgumentException("inventory.equipment must be a slot-name mapping");
+                }
                 for (Iterator<Map.Entry<String, JsonNode>> it = equipment.fields(); it.hasNext();) {
                     Map.Entry<String, JsonNode> field = it.next();
+                    ItemSlot slot;
                     try {
-                        ItemSlot slot = ItemSlot.valueOf(field.getKey().trim().toUpperCase());
-                        inventory.equip(slot, itemFromNode(field.getValue()));
-                    } catch (IllegalArgumentException ignored) {
-                        // Unknown slot names or malformed stacks are skipped, not fatal.
+                        slot = ItemSlot.valueOf(field.getKey().trim().toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        throw new IllegalArgumentException(
+                                "inventory.equipment." + field.getKey() + ": unknown equipment slot");
                     }
+                    inventory.equip(slot, requireItem(field.getValue(),
+                            "inventory.equipment." + field.getKey()));
                 }
             }
             JsonNode drops = node.get("drops");
-            if (drops != null && drops.isArray()) {
+            if (drops != null) {
+                if (!drops.isArray()) {
+                    throw new IllegalArgumentException("inventory.drops must be an array");
+                }
                 if (drops.size() > DROP_SLOTS) {
                     throw new IllegalArgumentException("drops exceeds " + DROP_SLOTS + " supported slots");
                 }
                 int index = 0;
                 for (JsonNode drop : drops) {
-                    if (index >= DROP_SLOTS) break;
-                    NpcItemStack item = itemFromNode(drop.get("item"));
-                    if (item != null) {
-                        int chance = drop.has("chancePercent") ? drop.get("chancePercent").asInt(100) : 100;
-                        inventory.setDrop(index, item, chance);
+                    JsonNode itemNode = drop.get("item");
+                    if (itemNode == null || itemNode.isNull()) {
+                        index++; // serialized empty slot — a gap, not dropped content
+                        continue;
                     }
+                    NpcItemStack item = requireItem(itemNode, "inventory.drops[" + index + "].item");
+                    int chance = drop.has("chancePercent") ? drop.get("chancePercent").asInt(100) : 100;
+                    if (chance < 0 || chance > 100) {
+                        throw new IllegalArgumentException(
+                                "inventory.drops[" + index + "].chancePercent must be 0..100, got " + chance);
+                    }
+                    inventory.setDrop(index, item, chance);
                     index++;
                 }
             }
             JsonNode lootMode = node.get("lootMode");
-            if (lootMode != null && lootMode.isTextual()) {
+            if (lootMode != null) {
+                if (!lootMode.isTextual()) {
+                    throw new IllegalArgumentException("inventory.lootMode must be a string");
+                }
                 try {
                     inventory.setLootMode(LootMode.valueOf(lootMode.asText().trim().toUpperCase()));
-                } catch (IllegalArgumentException ignored) {}
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException(
+                            "inventory.lootMode: unknown value '" + lootMode.asText() + "'");
+                }
             }
             return inventory;
         }
         throw new IllegalArgumentException("inventory must be an object or legacy item-id array");
+    }
+
+    private static NpcItemStack requireItem(JsonNode node, String fieldPath) {
+        NpcItemStack item = itemFromNode(node);
+        if (item == null) {
+            throw new IllegalArgumentException(
+                    fieldPath + ": malformed item stack (requires textual itemId and count 1.."
+                            + NpcItemStack.MAX_COUNT + ")");
+        }
+        return item;
     }
 
     private static NpcItemStack itemFromNode(JsonNode node) {

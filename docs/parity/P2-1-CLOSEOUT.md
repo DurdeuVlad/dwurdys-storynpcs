@@ -14,7 +14,7 @@ Status: `IN-REVIEW`
 - The dialogue node's derived `terminal` property is explicitly excluded from serialized YAML so strict read/write round trips remain stable.
 - All six bundled starter resources now declare `schemaVersion: 1` (captain NPC/dialogue, faction, quest, plus the two new quickstart resources).
 - Bundled `quickstart_dialogue.yaml` + `quickstart_demo.yaml` NPC ship in `data/storynpcs/definitions/` and are seeded through `STARTER_DEFINITIONS`; `/storynpcs quickstart` now only resolves loaded definition IDs and spawns/reuses the entity projection — it never constructs or persists definition objects from Java. When no talkable starter/demo definition is loaded, the command fails with a pointer to loader diagnostics.
-- `YamlDefinitionLoader.loadDirectory` now emits `SCHEMA_FAMILY_UNSUPPORTED` for recognized-but-not-yet-loadable family directories (`roles/`, `jobs/`, `templates/`, `tools/`, `worlds/`, `companions/`, `trades/`, `banks/`, `followers/`, `transports/`, `scenes/`, `linked_npcs/`) instead of silently binding them to the NPC domain.
+- `YamlDefinitionLoader.loadDirectory` now emits `SCHEMA_FAMILY_UNSUPPORTED` for recognized-but-not-yet-loadable family directories (`role(s)/`, `job(s)/`, `tool(s)/`, `world(s)/`, `companion(s)/`, `trade(s)/`, `bank(s)/`, `follower(s)/`, `scene(s)/`, `linked_npc(s)/`) at **any depth below the definitions root** instead of silently binding them to the NPC domain; nested `roles/deep/x.yaml` is rejected the same as `roles/x.yaml`. `templates/` and `transports/` are fully loadable families, not reserved.
 - Quest objective `requiredCount` is validated against `QuestProgressState.MAX_OBJECTIVE_COUNT` (100,000) at the cross-reference boundary.
 - Cross-reference diagnostics name both sides of each broken reference (referring definition + missing target id).
 
@@ -30,6 +30,8 @@ Status: `IN-REVIEW`
 
 ## Explicit limits
 
-- Top-level job, companion, template, tool, and world domains do not exist yet — their family directories fail closed with `SCHEMA_FAMILY_UNSUPPORTED` until the owning issues (P6/P8) land the domain models and loaders.
+- Top-level job, companion, tool, and world domains do not exist yet — their family directories fail closed with `SCHEMA_FAMILY_UNSUPPORTED` until the owning issues (P6/P8) land the domain models and loaders. Templates and transports already have loadable families.
+- Strict inventory diagnostics: `NpcInventory` binding no longer silently drops content — unknown `inventory:` keys, unknown equipment slots, malformed stacks, non-0..100 `chancePercent`, and invalid `lootMode` values fail the document with field-path diagnostics.
+- `DefinitionImporter` template probing routes through the shared strict loader path (`YamlDefinitionLoader.loadTemplate`), so imported templates get the version envelope, strict-field binding, missing-id/definition checks, and duplicate detection like every other family.
 - Starter seeding is copy-when-empty only: worlds with existing YAML never receive new bundled files; a world lacking the demo definitions gets an honest quickstart failure instead of scaffolded content.
 - Version 0 currently preserves the existing field shape; no field-rename migration has been needed yet. Future migrations must add deterministic version steps rather than editing old fixtures in place.
