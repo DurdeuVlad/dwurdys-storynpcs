@@ -550,12 +550,12 @@ def validate_target_import(
                 errors.append(f"{obs_prefix} requires a non-empty probe label")
                 entry_errors = True
             result = observation.get("observed_result")
-            if (
-                result is None
-                or (isinstance(result, str) and not result.strip())
-                or (isinstance(result, (dict, list)) and not result)
-            ):
-                errors.append(f"{obs_prefix} requires a non-empty observed_result")
+            if not isinstance(result, (str, dict, list)) or (
+                isinstance(result, str) and not result.strip()
+            ) or (isinstance(result, (dict, list)) and not result):
+                errors.append(
+                    f"{obs_prefix} requires a non-empty observed_result "
+                    "(string, object, or list)")
                 entry_errors = True
             provenance = observation.get("provenance")
             if not isinstance(provenance, dict):
@@ -581,7 +581,11 @@ def validate_target_import(
     return indexed, errors
 
 
-def _imported_target_probe(entry: dict[str, Any], import_doc: dict[str, Any]) -> dict[str, Any]:
+def _imported_target_probe(
+    entry: dict[str, Any],
+    import_doc: dict[str, Any],
+    import_display_path: str,
+) -> dict[str, Any]:
     observations = [
         {
             "probe": observation["probe"],
@@ -603,7 +607,7 @@ def _imported_target_probe(entry: dict[str, Any], import_doc: dict[str, Any]) ->
         },
         "provenance": {
             "evidence_label": "VERIFIED_TARGET_RUNTIME",
-            "imported_from": "docs/parity/target-runtime-import.json",
+            "imported_from": import_display_path,
             "import_version": import_doc.get("import_version"),
             "source_repository": source.get("repository"),
             "source_documents": source.get("documents"),
@@ -614,28 +618,16 @@ def _imported_target_probe(entry: dict[str, Any], import_doc: dict[str, Any]) ->
     }
 
 
-def expand_fixtures(
-    catalog: dict[str, Any],
-    probe_report: dict[str, Any] | None = None,
-    target_import: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    template = deepcopy(BASELINE_EVIDENCE_TEMPLATE)
-    probe_entries, probe_errors = _probe_report_entries(probe_report)
-    if probe_errors:
-        raise ValueError("; ".join(probe_errors))
-    catalog_ids = {entry["fixture_id"] for entry in catalog["fixtures"]}
-    unknown_probe_ids = sorted(set(probe_entries) - catalog_ids)
-    if unknown_probe_ids:
-        raise ValueError("probe report references unknown fixtures: " + ", ".join(unknown_probe_ids))
 def _resolve_target_probe(
     fixture_id: str,
     import_entries: dict[str, dict[str, Any]],
     target_import: dict[str, Any] | None,
     template: dict[str, Any],
+    import_display_path: str,
 ) -> dict[str, Any]:
     import_entry = import_entries.get(fixture_id)
     if import_entry is not None:
-        return _imported_target_probe(import_entry, target_import)
+        return _imported_target_probe(import_entry, target_import, import_display_path)
     if target_import is not None:
         return {
             "status": "UNAVAILABLE",
@@ -654,6 +646,7 @@ def _resolve_target_probe(
 def target_probe_map(
     catalog: dict[str, Any],
     target_import: dict[str, Any] | None,
+    import_display_path: str = "docs/parity/target-runtime-import.json",
 ) -> dict[str, dict[str, Any]]:
     """fixture_id -> populated target_probe for every catalog fixture.
 
@@ -668,7 +661,8 @@ def target_probe_map(
             raise ValueError("; ".join(import_errors))
     return {
         fixture_id: _resolve_target_probe(
-            fixture_id, import_entries, target_import, BASELINE_EVIDENCE_TEMPLATE)
+            fixture_id, import_entries, target_import, BASELINE_EVIDENCE_TEMPLATE,
+            import_display_path)
         for fixture_id in catalog_ids
     }
 
@@ -677,6 +671,7 @@ def expand_fixtures(
     catalog: dict[str, Any],
     probe_report: dict[str, Any] | None = None,
     target_import: dict[str, Any] | None = None,
+    import_display_path: str = "docs/parity/target-runtime-import.json",
 ) -> list[dict[str, Any]]:
     template = deepcopy(BASELINE_EVIDENCE_TEMPLATE)
     probe_entries, probe_errors = _probe_report_entries(probe_report)
@@ -702,7 +697,8 @@ def expand_fixtures(
         if isinstance(probe.get("storynpcs_probe"), dict):
             storynpcs_probe.update(deepcopy(probe["storynpcs_probe"]))
         target_probe = _resolve_target_probe(
-            entry["fixture_id"], import_entries, target_import, template)
+            entry["fixture_id"], import_entries, target_import, template,
+            import_display_path)
         if target_probe.get("status") == "OBSERVED":
             comparison = {
                 "rule": "imported-target-observation",
@@ -856,6 +852,12 @@ def run_catalog(
         target_import_path = (
             repository_root / "docs" / "parity" / "target-runtime-import.json"
         )
+    target_import_path = Path(target_import_path).resolve()
+    try:
+        import_display_path = target_import_path.relative_to(
+            repository_root.resolve()).as_posix()
+    except ValueError:
+        import_display_path = str(target_import_path)
     target_import = None
     if target_import_path.is_file():
         try:
@@ -871,7 +873,8 @@ def run_catalog(
                 "evidence": {"status": "FAIL", "parity_status": "BLOCKED"},
             }
     try:
-        fixtures = expand_fixtures(catalog, probe_report, target_import)
+        fixtures = expand_fixtures(
+            catalog, probe_report, target_import, import_display_path)
     except ValueError as error:
         return {
             "status": "FAIL",
@@ -899,10 +902,7 @@ def run_catalog(
             else "PASS"
         ),
         "target_import": {
-            "path": (
-                target_import_path.relative_to(repository_root).as_posix()
-                if target_import is not None else None
-            ),
+            "path": import_display_path if target_import is not None else None,
             "import_version": (
                 target_import.get("import_version") if target_import is not None else None
             ),

@@ -620,9 +620,23 @@ def main() -> int:
         catalog = load_catalog(args.catalog)
         junit_cases = read_junit_cases(repository_root / "build" / "test-results" / "test")
         target_import = None
-        if args.target_import is not None and args.target_import.is_file():
-            target_import = load_target_import(args.target_import)
-        target_probes = target_probe_map(catalog, target_import)
+        import_display = "docs/parity/target-runtime-import.json"
+        if args.target_import is not None:
+            resolved_import = Path(args.target_import).resolve()
+            try:
+                import_display = resolved_import.relative_to(
+                    repository_root.resolve()).as_posix()
+            except ValueError:
+                import_display = str(resolved_import)
+            if resolved_import.is_file():
+                target_import = load_target_import(resolved_import)
+            else:
+                print(
+                    f"warning: target-runtime import not found at {resolved_import}; "
+                    "all fixtures keep UNAVAILABLE target probes",
+                    file=sys.stderr,
+                )
+        target_probes = target_probe_map(catalog, target_import, import_display)
         probe_report, counts, missing_selectors = build_probe_report(
             catalog, junit_cases, target_probes)
         _write_json(args.probe_report, probe_report)

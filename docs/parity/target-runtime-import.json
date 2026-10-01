@@ -24,11 +24,15 @@
       "reason": "ambiguous per research/05-runtime-setup.md section 7; two competing interpretations remain INFERENCE"
     },
     {
-      "observation": "entity-ID reuse/non-persistence",
+      "observation": "NPC entity-ID reuse across sessions",
       "status": "NOT_RUN",
-      "reason": "listed as unrun in research/05-runtime-setup.md sections 4-5; not imported"
+      "reason": "player-session entity-ID non-persistence is verified (section 6, imported under P0-4.core-entity); NPC-specific entity-ID reuse across despawn/respawn remains unprobed"
     }
   ],
+  "minimum_set_notes": {
+    "P0-4.spawner": "the 'noppes clone list' observation exercises the clone-storage command surface, not noppes.npcs.roles.JobSpawner; attached to P0-4.commands only — no recorded probe touches JobSpawner",
+    "P0-4.persistence": "'save-all flush' verifies chunk/dimension save at server level; the per-store PlayerData probe remains unrun; mark region-file persistence is imported under P0-4.marks instead"
+  },
   "fixtures": [
     {
       "fixture_id": "P0-4.commands",
@@ -209,12 +213,13 @@
         {
           "probe": "mark persistence across client login/logout",
           "command": "client harness cycles, then marks list readback on SmokeNPC",
-          "observed_result": "Marks list still showed one entry at type=3 after client connect/disconnect cycles",
+          "observed_result": "The type=3 color=16777215 mark on SmokeNPC survived both player login/logout cycles unchanged, confirming mark persistence is independent of client session state",
           "provenance": {
             "evidence_label": "VERIFIED_TARGET_RUNTIME",
             "source_document": "research/05-runtime-setup.md",
-            "source_section": "7. Second mark-add probe (2026-09-17 continuation)",
-            "recorded_on": "2026-09-17"
+            "source_section": "6. Client harness provisioning (Issue #1 — 2026-09-17 continuation)",
+            "recorded_on": "2026-09-17",
+            "logs": [".local/runtime/server/logs/latest.log"]
           }
         },
         {
@@ -267,6 +272,18 @@
             "source_section": "4. Server-command NPC and mark probes",
             "recorded_on": "2026-09-17",
             "logs": [".local/runtime/server/world/entities/r.0.-1.mca"]
+          }
+        },
+        {
+          "probe": "runtime entity-ID non-persistence across reconnects",
+          "command": "two offline-mode client connection cycles to 127.0.0.1:25566",
+          "observed_result": "Entity ID is not preserved across reconnects: cycle 1 assigned entity ID 10, cycle 2 assigned entity ID 469; player-session scope — directly relevant to any state keyed on runtime entity IDs (GUI-open tracking, mark targeting, packet routing)",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "6. Client harness provisioning (Issue #1 — 2026-09-17 continuation)",
+            "recorded_on": "2026-09-17",
+            "logs": [".local/runtime/server/logs/latest.log"]
           }
         }
       ]
