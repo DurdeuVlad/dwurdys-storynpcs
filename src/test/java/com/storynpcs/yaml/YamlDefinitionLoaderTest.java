@@ -152,6 +152,30 @@ class YamlDefinitionLoaderTest {
     }
 
     @Test
+    void shouldRejectNonIntegerSchemaVersionForms() {
+        // Null, float, >int32, and negative envelope values all fail closed.
+        for (String versionLiteral : new String[]{"null", "1.5", "9999999999", "-1"}) {
+            ValidationResult result = ValidationResult.valid();
+            loader.loadNpc("schemaVersion: " + versionLiteral
+                    + "\nid: \"storynpcs:v_bad\"\n", "v_bad.yaml", result);
+            assertThat(result.hasErrors())
+                    .as("schemaVersion " + versionLiteral + " must be rejected")
+                    .isTrue();
+            assertThat(result.getErrors().get(0).code())
+                    .isIn("SCHEMA_VERSION_INVALID", "SCHEMA_VERSION_UNSUPPORTED");
+        }
+
+        // Aliased schemaVersion resolves to a non-integral node under Jackson's
+        // YAML tree and fails closed rather than silently accepting.
+        ValidationResult aliasResult = ValidationResult.valid();
+        loader.loadNpc("version: &v 1\nschemaVersion: *v\nid: \"storynpcs:v_alias\"\n",
+                "v_alias.yaml", aliasResult);
+        assertThat(aliasResult.hasErrors()).isTrue();
+        assertThat(aliasResult.getErrors().get(0).code()).isEqualTo("SCHEMA_VERSION_INVALID");
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:v_alias"))).isEmpty();
+    }
+
+    @Test
     void shouldRejectUnknownFieldsWithSourceLocation() {
         String yaml = """
                 id: "storynpcs:unknown_field"
@@ -499,6 +523,78 @@ class YamlDefinitionLoaderTest {
                 .containsExactlyInAnyOrder("SCHEMA_FAMILY_UNSUPPORTED", "SCHEMA_FAMILY_UNSUPPORTED");
         assertThat(result.getErrors())
                 .allSatisfy(error -> assertThat(error.message()).contains("not yet loadable"));
+        assertThat(registry.getAllNpcs()).isEmpty();
+    }
+
+    @Test
+    void shouldRejectReservedFamilyAtNestedDepth(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        // A reserved-family document hidden one level deeper must still fail
+        // closed — nesting cannot launder it into the NPC domain.
+        java.nio.file.Path nested = tempDir.resolve("roles").resolve("deep");
+        java.nio.file.Files.createDirectories(nested);
+        java.nio.file.Files.writeString(nested.resolve("guard.yaml"), """
+                schemaVersion: 1
+                id: "storynpcs:smuggled"
+                display:
+                  name: "Smuggled Role"
+                """);
+
+        ValidationResult result = loader.loadDirectory(tempDir);
+
+        assertThat(result.getErrors())
+                .extracting(DiagnosticError::code)
+                .containsExactly("SCHEMA_FAMILY_UNSUPPORTED");
+        assertThat(registry.getNpc(NamespacedId.of("storynpcs:smuggled"))).isEmpty();
+    }
+
+    @Test
+    void shouldRejectMalformedInventoryFieldsInsteadOfDroppingThem() {
+        // Unknown inventory keys, unknown equipment slots, malformed stacks,
+        // out-of-range chance, and invalid lootMode each fail the document
+        // rather than being silently dropped (P2-1 strict boundary).
+        ValidationResult keyResult = ValidationResult.valid();
+        assertThat(loader.loadNpc("""
+                schemaVersion: 1
+                id: "storynpcs:bad_inv_key"
+                inventory:
+                  lootmode: NPC_ONLY
+                """, "bad_inv_key.yaml", keyResult)).isNull();
+        assertThat(keyResult.hasErrors()).isTrue();
+
+        ValidationResult slotResult = ValidationResult.valid();
+        assertThat(loader.loadNpc("""
+                schemaVersion: 1
+                id: "storynpcs:bad_slot"
+                inventory:
+                  equipment:
+                    jetpack: {itemId: "minecraft:stone", count: 1}
+                """, "bad_slot.yaml", slotResult)).isNull();
+        assertThat(slotResult.hasErrors()).isTrue();
+        assertThat(slotResult.formatReport()).contains("jetpack");
+
+        ValidationResult chanceResult = ValidationResult.valid();
+        assertThat(loader.loadNpc("""
+                schemaVersion: 1
+                id: "storynpcs:bad_chance"
+                inventory:
+                  drops:
+                    - item: {itemId: "minecraft:stone", count: 1}
+                      chancePercent: 500
+                """, "bad_chance.yaml", chanceResult)).isNull();
+        assertThat(chanceResult.hasErrors()).isTrue();
+        assertThat(chanceResult.formatReport()).contains("chancePercent");
+
+        ValidationResult lootResult = ValidationResult.valid();
+        assertThat(loader.loadNpc("""
+                schemaVersion: 1
+                id: "storynpcs:bad_loot"
+                inventory:
+                  lootMode: EVERYTHING
+                """, "bad_loot.yaml", lootResult)).isNull();
+        assertThat(lootResult.hasErrors()).isTrue();
+        assertThat(lootResult.formatReport()).contains("lootMode");
+
         assertThat(registry.getAllNpcs()).isEmpty();
     }
 

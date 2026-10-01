@@ -10,7 +10,7 @@ import java.util.TreeMap;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import com.storynpcs.creator.template.NpcTemplate;
@@ -61,6 +61,10 @@ public final class DefinitionImporter {
         NpcTemplate snapshotTemplate(NamespacedId id);
     }
 
+    // Transport locations are loadable via YamlDefinitionLoader (transports/)
+    // but intentionally not importable here yet — the sink lacks transport
+    // save/delete/snapshot plumbing (P6-3 scope), so packages carrying them
+    // quarantine fail-closed rather than partially apply.
     private static final List<String> FAMILIES = List.of("npc", "dialogue", "quest", "faction", "template");
 
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
@@ -357,19 +361,9 @@ public final class DefinitionImporter {
             case "dialogue" -> loader.loadDialogue(content, file, result);
             case "quest" -> loader.loadQuest(content, file, result);
             case "faction" -> loader.loadFaction(content, file, result);
-            case "template" -> loadTemplate(content, file, result);
+            case "template" -> loader.loadTemplate(content, file, result);
             default -> null;
         };
-    }
-
-    private NpcTemplate loadTemplate(String content, String file, ValidationResult result) {
-        try {
-            JsonNode node = yamlMapper.readTree(content);
-            return JsonMapper.builder().build().treeToValue(node, NpcTemplate.class);
-        } catch (Exception e) {
-            result.addError(file, 1, 1, "TEMPLATE_PARSE_ERROR", String.valueOf(e.getMessage()));
-            return null;
-        }
     }
 
     private NamespacedId extractId(JsonNode root) {
