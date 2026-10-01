@@ -146,7 +146,7 @@ def dependency_graph(register: dict[str, Any], order_index: dict[str, int]) -> t
     for issue_id, body in issues.items():
         deps, dep_errors = expand_dependencies(body, milestones)
         errors.extend(f"{issue_id}: {e}" for e in dep_errors)
-        for dep in deps:
+        for dep in sorted(deps):
             if dep == issue_id:
                 continue  # self-reference from own milestone expansion — not a cycle
             if dep not in issues:
@@ -156,7 +156,9 @@ def dependency_graph(register: dict[str, Any], order_index: dict[str, int]) -> t
                 forward_refs.append(f"{issue_id} -> {dep} (forward ownership/fixture reference)")
                 continue
             graph.setdefault(issue_id, set()).add(dep)
-    return graph, errors, forward_refs
+    # Set-sourced sequences must serialize deterministically: sorted order keeps
+    # report bytes identical across runs regardless of hash-seed iteration order.
+    return graph, errors, sorted(forward_refs)
 
 
 def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
@@ -167,7 +169,7 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
     def visit(node: str, stack: list[str]) -> None:
         color[node] = GRAY
         stack.append(node)
-        for nxt in graph.get(node, ()):
+        for nxt in sorted(graph.get(node, ())):
             if color.get(nxt, WHITE) == GRAY:
                 cycles.append(stack[stack.index(nxt):] + [nxt])
             elif color.get(nxt, WHITE) == WHITE:
@@ -175,7 +177,7 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
         stack.pop()
         color[node] = BLACK
 
-    for node in list(graph):
+    for node in sorted(graph):
         if color[node] == WHITE:
             visit(node, [])
     return cycles

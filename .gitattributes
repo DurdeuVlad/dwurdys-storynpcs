@@ -1,0 +1,31 @@
+# Normalize text files to LF in the index; control checkout EOL per type so
+# source and generated reports are byte-identical across platforms (#127).
+
+# Source and generated report inputs: always LF in the index and on checkout.
+# Fingerprint/evidence inputs are byte-sensitive; autocrlf must not rewrite them.
+*.java    text eol=lf
+*.json    text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.md      text eol=lf
+*.py      text eol=lf
+*.gradle  text eol=lf
+*.properties text eol=lf
+*.toml    text eol=lf
+*.sh      text eol=lf
+gradlew   text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Windows batch scripts require CRLF to parse reliably.
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Binary payloads — never line-ending normalized.
+*.jar     binary
+*.class   binary
+*.nbt     binary
+*.png     binary
+*.gif     binary
+*.ico     binary
+*.zip     binary
