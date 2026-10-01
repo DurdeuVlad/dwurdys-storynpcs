@@ -153,8 +153,7 @@ class YamlDefinitionLoaderTest {
 
     @Test
     void shouldRejectNonIntegerSchemaVersionForms() {
-        // Null, float, >int32, and negative envelope values all fail closed;
-        // a YAML alias still resolves to its anchored scalar before the check.
+        // Null, float, >int32, and negative envelope values all fail closed.
         for (String versionLiteral : new String[]{"null", "1.5", "9999999999", "-1"}) {
             ValidationResult result = ValidationResult.valid();
             loader.loadNpc("schemaVersion: " + versionLiteral
