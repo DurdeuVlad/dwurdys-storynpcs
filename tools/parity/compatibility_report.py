@@ -61,26 +61,43 @@ def verify_storynpcs_ref(ref: str, root: Path,
                          operations: frozenset[str] | None = None) -> list[str]:
     """Validate one storynpcs_ref token list. Returns a list of problems
     (empty = every token names a verifiable repository artifact)."""
+def _verify_ref_token(token: str, root: Path, resolved_root: Path,
+                      operations: frozenset[str]) -> str | None:
+    """Return a problem string for one artifact token, or None if verified."""
+    kind, sep, value = token.partition(":")
+    if not sep or kind not in REF_KINDS or not value.strip():
+        return (f"{token!r}: unverifiable ref token (expected "
+                + "/".join(f"{k}:" for k in REF_KINDS) + ")")
+    if kind == "path":
+        candidate = Path(value)
+        resolved = (resolved_root / candidate).resolve()
+        if (candidate.is_absolute() or ".." in candidate.parts
+                or resolved == resolved_root
+                or resolved_root not in resolved.parents):
+            return f"{token!r}: path must be a repo-relative path inside the repo"
+        if not resolved.exists():
+            return f"{token!r}: path does not exist"
+        return None
+    if kind == "class" and not _class_path_exists(root, value, test_only=False):
+        return f"{token!r}: no java source for class"
+    if kind == "test" and not _class_path_exists(root, value, test_only=True):
+        return f"{token!r}: no java test source for class"
+    if kind == "op" and value not in operations:
+        return f"{token!r}: not a registered canonical operation"
+    return None
+
+
+def verify_storynpcs_ref(ref: str, root: Path,
+                         operations: frozenset[str] | None = None) -> list[str]:
+    """Validate one storynpcs_ref token list. Returns a list of problems
+    (empty = every token names a verifiable repository artifact)."""
     tokens = str(ref).split()
     if not tokens:
         return ["empty storynpcs_ref — MAPPED rows must name concrete artifacts"]
     ops = operations if operations is not None else _canonical_operations(root)
-    problems: list[str] = []
-    for token in tokens:
-        kind, sep, value = token.partition(":")
-        if not sep or kind not in REF_KINDS:
-            problems.append(f"{token!r}: unverifiable ref token (expected "
-                            + "/".join(f"{k}:" for k in REF_KINDS) + ")")
-            continue
-        if kind == "path" and not (root / value).exists():
-            problems.append(f"{token!r}: path does not exist")
-        elif kind == "class" and not _class_path_exists(root, value, test_only=False):
-            problems.append(f"{token!r}: no java source for class")
-        elif kind == "test" and not _class_path_exists(root, value, test_only=True):
-            problems.append(f"{token!r}: no java test source for class")
-        elif kind == "op" and value not in ops:
-            problems.append(f"{token!r}: not a registered canonical operation")
-    return problems
+    resolved_root = root.resolve()
+    return [problem for token in tokens
+            if (problem := _verify_ref_token(token, root, resolved_root, ops))]
 
 
 def _resolve_mapping(row: dict[str, Any], surface_map: dict[str, Any]) -> dict[str, Any] | None:
@@ -98,6 +115,7 @@ def expand_compatibility(manifest: dict[str, Any],
                          surface_map: dict[str, Any],
                          root: Path | None = None) -> dict[str, Any]:
     root = root or Path(__file__).resolve().parents[2]
+    resolved_root = root.resolve()
     operations = _canonical_operations(root)
     errors: list[str] = []
     ref_checks = {"rows": 0, "verified_tokens": 0, "failed": []}
@@ -136,10 +154,12 @@ def expand_compatibility(manifest: dict[str, Any],
                 continue
             if state == "MAPPED_STORYNPCS_OBSERVED":
                 ref_checks["rows"] += 1
+                ref_tokens = str(mapping.get("storynpcs_ref", "")).split()
                 problems = verify_storynpcs_ref(
                     mapping.get("storynpcs_ref", ""), root, operations)
-                ref_checks["verified_tokens"] += len(str(
-                    mapping.get("storynpcs_ref", "")).split()) - len(problems)
+                ref_checks["verified_tokens"] += sum(
+                    1 for token in ref_tokens
+                    if _verify_ref_token(token, root, resolved_root, operations) is None)
                 for problem in problems:
                     errors.append(f"{inventory_id}: MAPPED_STORYNPCS_OBSERVED "
                                   f"storynpcs_ref {problem}")

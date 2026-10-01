@@ -131,6 +131,24 @@ class CompatibilityReportTest(unittest.TestCase):
         self.assertTrue(any("not a registered canonical operation" in e
                             for e in report["errors"]))
 
+    def test_path_tokens_must_be_repo_confined_and_nonempty(self):
+        from tools.parity.compatibility_report import verify_storynpcs_ref
+        for bad in ("path:", "path:.", "path:src/../..", "path:../outside",
+                    "path:C:/Windows", "path:/etc/hostname"):
+            problems = verify_storynpcs_ref(bad, ROOT)
+            self.assertTrue(problems, f"{bad} should not verify")
+        self.assertEqual(
+            verify_storynpcs_ref("path:docs/parity/storynpcs-surface-map.json", ROOT), [])
+
+    def test_test_kind_resolves_only_test_sources(self):
+        from tools.parity.compatibility_report import verify_storynpcs_ref
+        # A main-source class is not a test artifact.
+        problems = verify_storynpcs_ref(
+            "test:com.storynpcs.service.CapabilityRegistry", ROOT)
+        self.assertTrue(any("no java test source" in p for p in problems))
+        self.assertEqual(
+            verify_storynpcs_ref("test:com.storynpcs.service.TemplateMutationTest", ROOT), [])
+
     def test_checked_in_refs_all_resolve_and_markovnames_are_corrected(self):
         # Every MAPPED row's tokens resolve; markovnames data rows — the case
         # that motivated #124 — are INVENTORY_ONLY.

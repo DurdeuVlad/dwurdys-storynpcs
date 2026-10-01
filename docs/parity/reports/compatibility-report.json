@@ -2,8 +2,8 @@
  "errors": [],
  "mapping_integrity": {
   "failed_refs": [],
-  "mapped_rows_checked": 106,
-  "verified_ref_tokens": 242
+  "mapped_rows_checked": 104,
+  "verified_ref_tokens": 239
  },
  "rows": [
   {
@@ -11172,7 +11172,7 @@
    "inventory_id": "target.events.0023",
    "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
    "parity_state": "UNVERIFIED_TARGET_RUNTIME",
-   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.DialogueOpenEvent",
+   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
    "surface": "events",
    "symbol": "noppes.npcs.api.event.DialogEvent"
   },
@@ -11362,7 +11362,7 @@
    "inventory_id": "target.events.0042",
    "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
    "parity_state": "UNVERIFIED_TARGET_RUNTIME",
-   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.NpcDefeatedEvent",
+   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
    "surface": "events",
    "symbol": "noppes.npcs.api.event.NpcEvent"
   },
@@ -11762,7 +11762,7 @@
    "inventory_id": "target.events.0082",
    "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
    "parity_state": "UNVERIFIED_TARGET_RUNTIME",
-   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.QuestStartEvent",
+   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
    "surface": "events",
    "symbol": "noppes.npcs.api.event.QuestEvent"
   },
@@ -11802,7 +11802,7 @@
    "inventory_id": "target.events.0086",
    "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
    "parity_state": "UNVERIFIED_TARGET_RUNTIME",
-   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.TradeExecutedEvent",
+   "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
    "surface": "events",
    "symbol": "noppes.npcs.api.event.RoleEvent"
   },
@@ -11830,9 +11830,9 @@
    "deviation_id": null,
    "evidence_required": "",
    "inventory_id": "target.events.0089",
-   "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-   "parity_state": "UNVERIFIED_TARGET_RUNTIME",
-   "storynpcs_ref": "class:com.storynpcs.api.event.FollowerStateChangeEvent",
+   "mapping_state": "INVENTORY_ONLY",
+   "parity_state": "NOT_APPLICABLE",
+   "storynpcs_ref": "",
    "surface": "events",
    "symbol": "noppes.npcs.api.event.RoleEvent$FollowerFinishedEvent"
   },
@@ -11860,9 +11860,9 @@
    "deviation_id": null,
    "evidence_required": "",
    "inventory_id": "target.events.0092",
-   "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-   "parity_state": "UNVERIFIED_TARGET_RUNTIME",
-   "storynpcs_ref": "class:com.storynpcs.api.event.TradeExecutedEvent op:trade.execute",
+   "mapping_state": "INVENTORY_ONLY",
+   "parity_state": "NOT_APPLICABLE",
+   "storynpcs_ref": "",
    "surface": "events",
    "symbol": "noppes.npcs.api.event.RoleEvent$TradeFailedEvent"
   },
@@ -28370,8 +28370,8 @@
  "summary": {
   "by_state": {
    "INTENTIONAL_DEVIATION": 375,
-   "INVENTORY_ONLY": 2355,
-   "MAPPED_STORYNPCS_OBSERVED": 106
+   "INVENTORY_ONLY": 2357,
+   "MAPPED_STORYNPCS_OBSERVED": 104
   },
   "by_surface": {
    "assets": {
@@ -28388,8 +28388,8 @@
     "INVENTORY_ONLY": 49
    },
    "events": {
-    "INVENTORY_ONLY": 73,
-    "MAPPED_STORYNPCS_OBSERVED": 24
+    "INVENTORY_ONLY": 75,
+    "MAPPED_STORYNPCS_OBSERVED": 22
    },
    "gui": {
     "INTENTIONAL_DEVIATION": 149
@@ -28420,7 +28420,7 @@
    }
   },
   "mapped_rows": 2836,
-  "parity_blocked_rows": 481,
+  "parity_blocked_rows": 479,
   "total_rows": 2836,
   "unmapped_rows": 0
  },

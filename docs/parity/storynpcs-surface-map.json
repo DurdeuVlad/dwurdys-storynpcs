@@ -96,8 +96,8 @@
     {
       "inventory_id": "target.events.0023",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.DialogueOpenEvent",
-      "rationale": "Dialog event family exists under the typed surface."
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Typed base event + publisher infrastructure exist."
     },
     {
       "inventory_id": "target.events.0024",
@@ -120,8 +120,8 @@
     {
       "inventory_id": "target.events.0042",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.NpcDefeatedEvent",
-      "rationale": "NPC event family exists under the typed surface."
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Typed base event + publisher infrastructure exist."
     },
     {
       "inventory_id": "target.events.0045",
@@ -162,8 +162,8 @@
     {
       "inventory_id": "target.events.0082",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.QuestStartEvent",
-      "rationale": "Quest event family exists."
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Typed base event + publisher infrastructure exist."
     },
     {
       "inventory_id": "target.events.0083",
@@ -186,8 +186,8 @@
     {
       "inventory_id": "target.events.0086",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.TradeExecutedEvent",
-      "rationale": "Role event family exists."
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Typed base event + publisher infrastructure exist."
     },
     {
       "inventory_id": "target.events.0087",
@@ -202,22 +202,10 @@
       "rationale": "Bank upgrade rides the bank event."
     },
     {
-      "inventory_id": "target.events.0089",
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "class:com.storynpcs.api.event.FollowerStateChangeEvent",
-      "rationale": "Follower finished is a state transition."
-    },
-    {
       "inventory_id": "target.events.0090",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.api.event.FollowerStateChangeEvent op:follower.state.set",
       "rationale": "Hire is a follower state transition + op."
-    },
-    {
-      "inventory_id": "target.events.0092",
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "class:com.storynpcs.api.event.TradeExecutedEvent op:trade.execute",
-      "rationale": "Trade outcomes flow through trade.execute + event."
     },
     {
       "inventory_id": "target.events.0093",
@@ -277,67 +265,67 @@
       "inventory_id": "target.jobs.0001",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.BARD plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0002",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.BUILDER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0003",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.CHUNK_LOADER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0004",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.CONVERSATION plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0005",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.FARMER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0006",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.FOLLOWER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0007",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.GUARD plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0008",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.HEALER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0009",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.ITEM_GIVER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0010",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.PUPPET plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.jobs.0011",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
-      "rationale": "JobType.SPAWNER plus job config/instance/assignment subsystem."
+      "rationale": "Job vocabulary/lifecycle artifacts exist (JobType value, bounded JobConfig, JobInstance/JobAssignment); per-job tick behavior is still pending under P6-4."
     },
     {
       "inventory_id": "target.persistence_participants.0016",
@@ -655,7 +643,7 @@
       "inventory_id": "target.operation_matrix.0007",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.role.trader.TraderRole",
-      "rationale": "Role/job capability artifacts exist."
+      "rationale": "Role/job capability artifacts exist (JobType vocabulary + job lifecycle + role classes); per-job behavior pending under P6-4."
     },
     {
       "inventory_id": "target.operation_matrix.0008",
@@ -697,7 +685,7 @@
       "inventory_id": "target.operation_matrix.0014",
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "class:com.storynpcs.script.ScriptScheduler class:com.storynpcs.script.ScriptHook class:com.storynpcs.script.ScriptBudget",
-      "rationale": "Bounded script scheduling artifacts exist (engine still open)."
+      "rationale": "Bounded script scheduling artifacts exist; the scripting engine itself remains open under issue #84 (P9-2)."
     },
     {
       "inventory_id": "target.operation_matrix.0015",
