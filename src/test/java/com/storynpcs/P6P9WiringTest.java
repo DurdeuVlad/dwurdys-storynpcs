@@ -209,7 +209,9 @@ class P6P9WiringTest {
 
     @Test
     void requestTransport_failsClosedWithoutServer() {
-        var result = service.requestTransport(UUID.randomUUID(),
+        UUID player = UUID.randomUUID();
+        var result = service.requestTransport(new com.storynpcs.service.PlayerProgressionActionRequest(
+                "transport.request", "system", player, player, UUID.randomUUID(), -1),
                 NamespacedId.of("storynpcs:anywhere"));
         assertThat(result.approved()).isFalse();
         assertThat(result.detail()).isEqualTo("SERVER_UNAVAILABLE");

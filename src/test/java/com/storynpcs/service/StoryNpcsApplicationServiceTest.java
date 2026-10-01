@@ -1662,6 +1662,88 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void pparOperationsBindOperationReplaySafelyAndAuditEveryAttempt() {
+        UUID player = UUID.randomUUID();
+        var message = service.deliverMail(player, "Postmaster", "Subject", "Body");
+
+        // Operation binding: a mail.read envelope cannot authorize a delete.
+        var mismatched = service.deleteMail(new PlayerProgressionActionRequest(
+                "mail.read", "player", player, player, UUID.randomUUID(), -1), message.getId());
+        assertThat(mismatched.applied()).isFalse();
+        assertThat(mismatched.decision().code()).isEqualTo("OPERATION_MISMATCH");
+        assertThat(service.getMailbox(player)).hasSize(1);
+
+        // Denials are not journaled: the same request id with operator proof
+        // is re-evaluated and applies — privilege changes apply next request.
+        UUID retriedId = UUID.randomUUID();
+        var denied = service.markMailRead(new PlayerProgressionActionRequest(
+                "mail.read", "command", UUID.randomUUID(), player, retriedId, -1), message.getId());
+        assertThat(denied.applied()).isFalse();
+        assertThat(denied.decision().code()).isEqualTo("PERMISSION_DENIED");
+        var retried = service.markMailRead(new PlayerProgressionActionRequest(
+                "mail.read", "command", UUID.randomUUID(), player, retriedId, 2), message.getId());
+        assertThat(retried.applied()).isTrue();
+        assertThat(service.getMailbox(player).get(0).isRead()).isTrue();
+
+        // Replay: the same request id returns the journaled outcome without
+        // re-running the mutation; a rebound payload is rejected.
+        UUID replayId = UUID.randomUUID();
+        var first = service.deleteMail(new PlayerProgressionActionRequest(
+                "mail.delete", "player", player, player, replayId, -1), message.getId());
+        assertThat(first.applied()).isTrue();
+        var second = service.deliverMail(player, "Postmaster", "Second", "Body2");
+        var replay = service.deleteMail(new PlayerProgressionActionRequest(
+                "mail.delete", "player", player, player, replayId, -1), second.getId());
+        assertThat(replay.applied()).isFalse();
+        assertThat(replay.decision().code()).isEqualTo("REQUEST_PAYLOAD_MISMATCH");
+        var replayed = service.deleteMail(new PlayerProgressionActionRequest(
+                "mail.delete", "player", player, player, replayId, -1), message.getId());
+        assertThat(replayed.duplicate()).isTrue();
+        assertThat(service.getMailbox(player)).hasSize(1); // replay deleted nothing
+
+        // Audit: every typed PPAR attempt publishes a CanonicalMutationEvent
+        // carrying actor, subject, operation, request id, and outcome.
+        var mailEvents = publishedEvents.stream()
+                .filter(CanonicalMutationEvent.class::isInstance)
+                .map(CanonicalMutationEvent.class::cast)
+                .filter(e -> "mail.read".equals(e.operation()) || "mail.delete".equals(e.operation()))
+                .toList();
+        assertThat(mailEvents).hasSizeGreaterThanOrEqualTo(5);
+        assertThat(mailEvents).allSatisfy(e -> {
+            assertThat(e.subjectId()).isEqualTo(player);
+            assertThat(e.requestId()).isNotNull();
+            assertThat(e.outcome()).isNotBlank();
+        });
+        assertThat(mailEvents.stream().map(CanonicalMutationEvent::outcome))
+                .contains("OPERATION_MISMATCH", "PERMISSION_DENIED", "COMMITTED", "REPLAYED",
+                        "REQUEST_PAYLOAD_MISMATCH");
+    }
+
+    @Test
+    void pparTransportReplayReturnsRecordedResultWithoutReapplying() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:replay_port");
+        UUID player = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+
+        var first = service.requestTransport(new PlayerProgressionActionRequest(
+                "transport.request", "system", player, player, requestId, -1), locationId);
+        assertThat(first.approved()).isFalse();
+        assertThat(first.detail()).contains("SERVER_UNAVAILABLE");
+
+        // The journaled result is returned verbatim — the world/economy
+        // mutation is never re-attempted on replay.
+        var replayed = service.requestTransport(new PlayerProgressionActionRequest(
+                "transport.request", "system", player, player, requestId, -1), locationId);
+        assertThat(replayed).isSameAs(first);
+
+        var mismatched = service.requestTransport(new PlayerProgressionActionRequest(
+                "transport.request", "system", player, player, requestId, -1),
+                NamespacedId.of("storynpcs:elsewhere"));
+        assertThat(mismatched.approved()).isFalse();
+        assertThat(mismatched.detail()).contains("REQUEST_PAYLOAD_MISMATCH");
+    }
+
+    @Test
     void deleteQuestShouldRemoveAndReportDialogueReferences() {
         NamespacedId questId = NamespacedId.of("storynpcs:deletable");
         service.createQuest(questId, "Deletable");
