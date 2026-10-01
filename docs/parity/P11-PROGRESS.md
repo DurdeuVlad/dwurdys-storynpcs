@@ -42,8 +42,9 @@ creator world data:
   dialogue tokens, quest recovery, faction matrix).
 - `storynpcs-surface-map.json` + `tools/parity/compatibility_report.py`:
   expands over the manifest — **2,836/2,836 rows terminal**:
-  1,232 `MAPPED_STORYNPCS_OBSERVED`, 374 `INTENTIONAL_DEVIATION`,
-  1,230 `INVENTORY_ONLY`, zero `UNKNOWN`/unmapped. Deviations declared with
+  106 `MAPPED_STORYNPCS_OBSERVED` (artifact-verified refs only, per #124),
+  375 `INTENTIONAL_DEVIATION`, 2,355 `INVENTORY_ONLY`, zero
+  `UNKNOWN`/unmapped. Deviations declared with
   rationale + migration impact (unified hub, protocol modernization, command
   grammar, directed-graph dialogue, typed-hook scripting).
   Every behavioral row keeps `parity_state: UNVERIFIED_TARGET_RUNTIME` —

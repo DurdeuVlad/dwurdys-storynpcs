@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "P11-2 StoryNPCs compatibility map. Expands over target-surface-manifest.json: every inventory row resolves to exactly one terminal mapping state through surface_defaults or a row_override. Terminal states: INVENTORY_ONLY (non-behavioral static inventory), MAPPED_STORYNPCS_OBSERVED (StoryNPCs implementation + JVM evidence exists), INTENTIONAL_DEVIATION (documented redesign with rationale), UNVERIFIED_STORYNPCS (implementation gap — evidence required), UNKNOWN (unclassified — evidence required). No state claims target-runtime parity: every non-inventory row also records parity_state UNVERIFIED_TARGET_RUNTIME because target probes are unavailable.",
+  "description": "P11-2 surface map. MAPPED_STORYNPCS_OBSERVED is feature-mapped per issue #124: storynpcs_ref must be whitespace-separated verifiable artifact tokens (path:/class:/test:/op:) that resolve against the repository. Surfaces without per-row artifacts default to INVENTORY_ONLY.",
   "surface_defaults": {
     "target_classes": {
       "mapping_state": "INVENTORY_ONLY",
@@ -8,14 +8,12 @@
       "note": "Static class inventory; behavioral coverage flows through the fixture-referenced surfaces."
     },
     "assets": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P3-1/P8-3: namespaced asset references validated by DisplayProjection + creator schemas",
-      "note": "StoryNPCs-side schema coverage; asset byte equivalence unverified."
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "data": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P2-1: versioned YAML families with envelope + migration boundary",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "gui": {
       "mapping_state": "INTENTIONAL_DEVIATION",
@@ -36,42 +34,678 @@
       "note": "70 target leaves mapped semantically onto the namespaced typed tree; literal /noppes grammar not preserved."
     },
     "events": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P9-1: typed api.event surface + canonical mutation events",
-      "note": "Semantic coverage observed in tests; one-to-one class equivalence unverified."
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "roles": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P6-2/P7-1/P7-2: trader, banker, postman, healer, bard + follower/companion roles",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "jobs": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P6-4: JobType/JobConfig/JobInstance — all eleven target jobs",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "companion_jobs": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P6-5: CompanionProfile + job assignment + wage ledger",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "persistence_participants": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P2-2: durable stores + PersistenceStoreMap 18-category ownership",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "persistence_stores": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P2-2: PersistenceStoreMap maps all 18 target store categories",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     },
     "operation_matrix": {
-      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
-      "storynpcs_ref": "P1-1..P1-4: 15 operation families typed through StoryNpcsApplicationService",
-      "note": ""
+      "mapping_state": "INVENTORY_ONLY",
+      "rationale": "No concrete per-row StoryNPCs artifact exists for this surface; rows with real artifacts are mapped individually via row_overrides (#124)."
     }
   },
-  "row_overrides": [],
+  "row_overrides": [
+    {
+      "inventory_id": "target.assets.0048",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/assets/storynpcs/models/item/npc_cloner.json",
+      "rationale": "StoryNPCs ships the mob-cloner item model."
+    },
+    {
+      "inventory_id": "target.assets.0049",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/assets/storynpcs/models/item/npc_mounter.json",
+      "rationale": "StoryNPCs ships the mounter item model."
+    },
+    {
+      "inventory_id": "target.assets.0050",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/assets/storynpcs/models/item/npc_path.json",
+      "rationale": "StoryNPCs ships the moving-path item model."
+    },
+    {
+      "inventory_id": "target.assets.0059",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/assets/storynpcs/models/item/npc_wand.json",
+      "rationale": "StoryNPCs ships the wand item model."
+    },
+    {
+      "inventory_id": "target.events.0022",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Base typed event + publisher exist."
+    },
+    {
+      "inventory_id": "target.events.0023",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.DialogueOpenEvent",
+      "rationale": "Dialog event family exists under the typed surface."
+    },
+    {
+      "inventory_id": "target.events.0024",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.DialogueClosedEvent",
+      "rationale": "Dialogue close is published."
+    },
+    {
+      "inventory_id": "target.events.0025",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.DialogueOpenEvent",
+      "rationale": "Dialogue open is published."
+    },
+    {
+      "inventory_id": "target.events.0026",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.DialogueOptionSelectEvent class:com.storynpcs.api.event.DialogueChoiceRejectedEvent",
+      "rationale": "Option select + rejection events exist."
+    },
+    {
+      "inventory_id": "target.events.0042",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.NpcDefeatedEvent",
+      "rationale": "NPC event family exists under the typed surface."
+    },
+    {
+      "inventory_id": "target.events.0045",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.NpcDefeatedEvent",
+      "rationale": "NPC death is published as NpcDefeatedEvent."
+    },
+    {
+      "inventory_id": "target.events.0046",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.ActorLifecycleEvent",
+      "rationale": "Actor lifecycle covers init/spawn."
+    },
+    {
+      "inventory_id": "target.events.0051",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.NpcAggroChangeEvent",
+      "rationale": "Target acquisition is published as aggro change."
+    },
+    {
+      "inventory_id": "target.events.0052",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.NpcAggroChangeEvent",
+      "rationale": "Target loss is the same aggro-state transition."
+    },
+    {
+      "inventory_id": "target.events.0055",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Base typed event + publisher exist."
+    },
+    {
+      "inventory_id": "target.events.0064",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.FactionReputationChangeEvent",
+      "rationale": "Player faction update is published."
+    },
+    {
+      "inventory_id": "target.events.0082",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.QuestStartEvent",
+      "rationale": "Quest event family exists."
+    },
+    {
+      "inventory_id": "target.events.0083",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.QuestCompleteEvent",
+      "rationale": "Quest completion is published."
+    },
+    {
+      "inventory_id": "target.events.0084",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.QuestStartEvent",
+      "rationale": "Quest start is published."
+    },
+    {
+      "inventory_id": "target.events.0085",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.QuestCompleteEvent",
+      "rationale": "Turn-in completes the quest."
+    },
+    {
+      "inventory_id": "target.events.0086",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.TradeExecutedEvent",
+      "rationale": "Role event family exists."
+    },
+    {
+      "inventory_id": "target.events.0087",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.BankTransactionEvent op:bank.unlock",
+      "rationale": "Bank unlock is a canonical op + bank event."
+    },
+    {
+      "inventory_id": "target.events.0088",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.BankTransactionEvent",
+      "rationale": "Bank upgrade rides the bank event."
+    },
+    {
+      "inventory_id": "target.events.0089",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.FollowerStateChangeEvent",
+      "rationale": "Follower finished is a state transition."
+    },
+    {
+      "inventory_id": "target.events.0090",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.FollowerStateChangeEvent op:follower.state.set",
+      "rationale": "Hire is a follower state transition + op."
+    },
+    {
+      "inventory_id": "target.events.0092",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.TradeExecutedEvent op:trade.execute",
+      "rationale": "Trade outcomes flow through trade.execute + event."
+    },
+    {
+      "inventory_id": "target.events.0093",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.TradeExecutedEvent",
+      "rationale": "Trader activity is published."
+    },
+    {
+      "inventory_id": "target.events.0096",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.api.event.StoryNpcsEvent class:com.storynpcs.api.event.EventPublisher",
+      "rationale": "Base typed event + publisher exist."
+    },
+    {
+      "inventory_id": "target.roles.0001",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.role.banker.BankerRole class:com.storynpcs.domain.role.banker.BankVault",
+      "rationale": "Banker role + vault exist."
+    },
+    {
+      "inventory_id": "target.roles.0002",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.companion.CompanionProfile",
+      "rationale": "Companion role is the companion profile subsystem."
+    },
+    {
+      "inventory_id": "target.roles.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueSession class:com.storynpcs.domain.dialogue.DialogueGraph",
+      "rationale": "Dialog role function is the dialogue session/graph subsystem."
+    },
+    {
+      "inventory_id": "target.roles.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.role.follower.FollowerRole",
+      "rationale": "Follower role exists."
+    },
+    {
+      "inventory_id": "target.roles.0005",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.role.social.PostmanRole",
+      "rationale": "Postman role exists."
+    },
+    {
+      "inventory_id": "target.roles.0006",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.role.trader.TraderRole",
+      "rationale": "Trader role exists."
+    },
+    {
+      "inventory_id": "target.roles.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.role.transporter.TransporterRole",
+      "rationale": "Transporter role exists."
+    },
+    {
+      "inventory_id": "target.jobs.0001",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.BARD plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0002",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.BUILDER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.CHUNK_LOADER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.CONVERSATION plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0005",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.FARMER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0006",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.FOLLOWER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.GUARD plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0008",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.HEALER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0009",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.ITEM_GIVER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0010",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.PUPPET plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.jobs.0011",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobConfig class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobAssignment",
+      "rationale": "JobType.SPAWNER plus job config/instance/assignment subsystem."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0016",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.BankRepository class:com.storynpcs.domain.role.banker.BankVault",
+      "rationale": "Bank records persist via BankRepository vault."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0002",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.BankRepository",
+      "rationale": "Bank controller state persists via BankRepository."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0017",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.BankRepository class:com.storynpcs.domain.role.banker.BankVault",
+      "rationale": "Bank data persists via vault records."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0019",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueGraph class:com.storynpcs.yaml.YamlDefinitionLoader",
+      "rationale": "Dialog definitions persist as YAML."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0020",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueGraph class:com.storynpcs.yaml.DefinitionRegistry",
+      "rationale": "Dialog categories ride the YAML definition registry."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0021",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueEdge class:com.storynpcs.domain.dialogue.DialogueNode",
+      "rationale": "Dialog options are graph edges/nodes in YAML."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.yaml.YamlDefinitionLoader class:com.storynpcs.yaml.DefinitionRegistry",
+      "rationale": "Dialog content persists via the definition pipeline."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0022",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.faction.Faction class:com.storynpcs.domain.faction.FactionSerde class:com.storynpcs.yaml.DefinitionRegistry",
+      "rationale": "Factions persist as YAML definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.faction.Faction class:com.storynpcs.persistence.ProgressionRepository class:com.storynpcs.yaml.YamlDefinitionLoader",
+      "rationale": "Faction defs + standings persist."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0049",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobState class:com.storynpcs.domain.job.JobType",
+      "rationale": "Persisting job classes are covered by the job state subsystem in NPC definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0050",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobState class:com.storynpcs.domain.job.JobType",
+      "rationale": "Persisting job classes are covered by the job state subsystem in NPC definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0051",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobState class:com.storynpcs.domain.job.JobType",
+      "rationale": "Persisting job classes are covered by the job state subsystem in NPC definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0052",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.job.JobState class:com.storynpcs.domain.job.JobType",
+      "rationale": "Persisting job classes are covered by the job state subsystem in NPC definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0023",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueGraph class:com.storynpcs.domain.dialogue.DialogueNode",
+      "rationale": "Lines are nodes in the dialogue graph."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0024",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.npc.NpcMark",
+      "rationale": "Mark data persists on the NPC definition."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0025",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.BankRepository",
+      "rationale": "Player bank data persists via BankRepository."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0026",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.ProgressionRepository class:com.storynpcs.persistence.DurableJsonStore",
+      "rationale": "Player data persists via the progression repository."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Player data controller equivalent."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0028",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.ProgressionRepository class:com.storynpcs.domain.progression.PlayerProgression",
+      "rationale": "Player faction standing persists."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0030",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.QuestMailStore class:com.storynpcs.domain.progression.MailMessage",
+      "rationale": "Player mail persists via QuestMailStore."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0031",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.QuestMailStore",
+      "rationale": "Mail data persists via QuestMailStore."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0032",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.ProgressionRepository class:com.storynpcs.domain.progression.PlayerProgression",
+      "rationale": "Player quest data persists."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0034",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.ProgressionRepository class:com.storynpcs.domain.progression.PlayerProgression",
+      "rationale": "Transport unlocks persist per player."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0035",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.Quest class:com.storynpcs.domain.quest.QuestSerde class:com.storynpcs.yaml.DefinitionRegistry",
+      "rationale": "Quest definitions persist as YAML."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0036",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.Quest class:com.storynpcs.yaml.DefinitionRegistry",
+      "rationale": "Quest categories ride the definition registry."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0008",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.Quest class:com.storynpcs.yaml.YamlDefinitionLoader class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Quest defs + progression persist."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0037",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.Quest class:com.storynpcs.domain.quest.QuestSerde",
+      "rationale": "Quest data serializes via QuestSerde."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0043",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueGraph class:com.storynpcs.domain.quest.Quest",
+      "rationale": "Quest-dialogue linkage persists in definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0044",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.Quest class:com.storynpcs.domain.quest.QuestObjective",
+      "rationale": "Quest contract persists as a definition model."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0045",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.QuestObjective class:com.storynpcs.domain.quest.Quest",
+      "rationale": "Objective family persists inside quest definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0046",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.QuestObjective class:com.storynpcs.domain.quest.Quest",
+      "rationale": "Objective family persists inside quest definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0047",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.QuestObjective class:com.storynpcs.domain.quest.Quest",
+      "rationale": "Objective family persists inside quest definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0048",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.QuestObjective class:com.storynpcs.domain.quest.Quest",
+      "rationale": "Objective family persists inside quest definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0053",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.companion.CompanionProfile",
+      "rationale": "Companion role state persists via the companion profile."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0054",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.role.trader.TraderRole",
+      "rationale": "Trader role persists via the role definition."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0040",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.transport.TransportCategory",
+      "rationale": "Transport categories persist in definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0015",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.transport.TransportLocation class:com.storynpcs.domain.transport.TransportEvaluator class:com.storynpcs.yaml.YamlDefinitionLoader",
+      "rationale": "Transport data persists as YAML definitions."
+    },
+    {
+      "inventory_id": "target.persistence_participants.0041",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.transport.TransportLocation",
+      "rationale": "Transport locations persist in definitions."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0002",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.faction.Faction class:com.storynpcs.domain.faction.FactionSerde class:com.storynpcs.yaml.YamlDefinitionLoader class:com.storynpcs.yaml.DefinitionRegistry class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Faction defs (YAML) + per-player standings (repository)."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.yaml.YamlDefinitionLoader class:com.storynpcs.yaml.YamlDefinitionWriter class:com.storynpcs.yaml.DefinitionRegistry class:com.storynpcs.domain.dialogue.DialogueGraphSerde",
+      "rationale": "Dialog store = YAML definition persistence."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.quest.Quest class:com.storynpcs.domain.quest.QuestSerde class:com.storynpcs.yaml.YamlDefinitionLoader class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Quest defs + player progression persist."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0005",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.BankRepository class:com.storynpcs.persistence.DurableOperationJournal class:com.storynpcs.persistence.DurableJsonStore",
+      "rationale": "Bank vault records persist transactionally."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.transport.TransportLocation class:com.storynpcs.domain.transport.TransportCategory class:com.storynpcs.yaml.YamlDefinitionLoader class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Transport defs + per-player unlocks persist."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0009",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.persistence.ProgressionRepository class:com.storynpcs.domain.progression.PlayerProgression class:com.storynpcs.persistence.DurableJsonStore",
+      "rationale": "Player data persists via the repository."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0012",
+      "mapping_state": "INTENTIONAL_DEVIATION",
+      "deviation_id": "no-embedded-sql-store",
+      "rationale": "Target embedded H2 store intentionally not adopted."
+    },
+    {
+      "inventory_id": "target.persistence_stores.0014",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.entity.StoryNpcEntity class:com.storynpcs.runtime.actor.ActorStateRepository",
+      "rationale": "Entity NBT + logical actor state persist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0001",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:npc.mutate op:npc.edit op:npc.delete class:com.storynpcs.service.StoryNpcsApplicationService",
+      "rationale": "Typed canonical NPC mutation family exists."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0002",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:dialogue.mutate op:dialogue.edit op:dialogue.delete class:com.storynpcs.domain.dialogue.DialogueGraph",
+      "rationale": "Dialogue definition mutations exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.dialogue.DialogueSession class:com.storynpcs.domain.dialogue.DialogueChoiceProtocol",
+      "rationale": "Authoritative dialogue session + choice protocol exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:faction.mutate op:faction.progress.set op:faction.progress.adjust class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Faction mutations + progression ops exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0005",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:quest.mutate op:quest.edit op:quest.delete class:com.storynpcs.domain.quest.QuestSerde",
+      "rationale": "Quest definition mutations exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0006",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:quest.start op:quest.progress op:quest.complete op:quest.reset class:com.storynpcs.persistence.ProgressionRepository",
+      "rationale": "Player-scoped quest completion ops exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.job.JobType class:com.storynpcs.domain.job.JobInstance class:com.storynpcs.domain.role.trader.TraderRole",
+      "rationale": "Role/job capability artifacts exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0008",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.npc.NpcInventory",
+      "rationale": "NPC inventory/equipment artifact exists."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0009",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:trade.execute class:com.storynpcs.domain.role.trader.TraderRole",
+      "rationale": "Trade execution op + trader role exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0010",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:bank.deposit op:bank.withdraw op:bank.share op:bank.unlock class:com.storynpcs.persistence.BankRepository class:com.storynpcs.domain.role.banker.BankerRole",
+      "rationale": "Bank ops + repository + role exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0011",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:transport.mutate op:transport.edit op:transport.delete class:com.storynpcs.domain.transport.TransportEvaluator",
+      "rationale": "Transport mutations exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0012",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:template.mutate op:template.edit op:template.delete class:com.storynpcs.creator.template.NpcTemplate",
+      "rationale": "Template/clone ops exist."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0013",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.npc.NpcMark",
+      "rationale": "Mark artifact exists on NPC definitions."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0014",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.script.ScriptScheduler class:com.storynpcs.script.ScriptHook class:com.storynpcs.script.ScriptBudget",
+      "rationale": "Bounded script scheduling artifacts exist (engine still open)."
+    },
+    {
+      "inventory_id": "target.operation_matrix.0015",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "op:config.mutate path:src/main/java/com/storynpcs/creator",
+      "rationale": "Config mutation op + creator tools package exist."
+    }
+  ],
   "deviations": [
     {
       "deviation_id": "gui-unified-hub",
@@ -85,7 +719,7 @@
     },
     {
       "deviation_id": "command-grammar",
-      "rationale": "The /noppes grammar predates Brigadier conventions; /storynpcs uses typed literals, namespaced IDs, and deterministic suggestions — see P9-PROGRESS.md for the leaf mapping.",
+      "rationale": "The /noppes grammar predates Brigadier conventions; /storynpcs uses typed literals, namespaced IDs, and deterministic suggestions \u2014 see P9-PROGRESS.md for the leaf mapping.",
       "migration_impact": "Command scripts written for /noppes require translation; every leaf maps to a /storynpcs equivalent or an explicit gap in the parity register."
     },
     {
@@ -97,6 +731,11 @@
       "deviation_id": "scripting-typed-hooks",
       "rationale": "Arbitrary script source on definitions is rejected; the P9-2 host exposes nine typed hooks under instruction/memory/depth/operation budgets.",
       "migration_impact": "CustomNPCs .js scripts are UNSUPPORTED at import (reported, never silently dropped); behavior must be re-authored as typed hook bindings."
+    },
+    {
+      "deviation_id": "no-embedded-sql-store",
+      "rationale": "The target persists arbitrary data in an embedded H2 SQL database (DatabaseController). AGENTS.md mandates versioned file-backed stores (DurableJsonStore) over an embedded relational database; no StoryNPCs feature needs ad hoc relational queries over save data.",
+      "migration_impact": "A CustomNPCs world relying on the H2 database has no direct import path; equivalent state is covered by per-record JSON repositories instead."
     }
   ]
 }

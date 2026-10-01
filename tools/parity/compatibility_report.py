@@ -24,9 +24,63 @@ TERMINAL_STATES = {
 STATES_REQUIRING_EVIDENCE = {"UNVERIFIED_STORYNPCS", "UNKNOWN"}
 INVENTORY_ID_PATTERN = re.compile(r"^target\.[a-z_]+\.\d{4}$")
 
+# Issue #124: MAPPED_STORYNPCS_OBSERVED is *feature-mapped* — the row must name
+# concrete, verifiable StoryNPCs artifacts that implement the row's function.
+# storynpcs_ref is a whitespace-separated token list; every token must carry a
+# recognized kind prefix and resolve against the repository:
+#   path:<repo-relative file/dir>   — exists on disk
+#   class:<fqcn>                    — src/main/java or src/test/java source file
+#   test:<fqcn>                     — src/test/java source file
+#   op:<canonical-operation>        — registered in CapabilityRegistry
+# Milestone labels ("P8-3"), prose, or bare names are unverifiable and fail.
+REF_KINDS = ("path", "class", "test", "op")
+CAPABILITY_REGISTRY = "src/main/java/com/storynpcs/service/CapabilityRegistry.java"
+
 
 def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _canonical_operations(root: Path) -> frozenset[str]:
+    """Operation names registered in CapabilityRegistry's Map.entry table."""
+    registry = root / CAPABILITY_REGISTRY
+    if not registry.is_file():
+        return frozenset()
+    return frozenset(re.findall(r'Map\.entry\("([^"]+)"', registry.read_text(encoding="utf-8")))
+
+
+def _class_path_exists(root: Path, fqcn: str, test_only: bool) -> bool:
+    if not re.fullmatch(r"[A-Za-z_][\w$]*(\.[A-Za-z_][\w$]*)+", fqcn):
+        return False
+    rel = Path(*fqcn.split(".")).with_suffix(".java")
+    sources = ("src/test/java",) if test_only else ("src/main/java", "src/test/java")
+    return any((root / base / rel).is_file() for base in sources)
+
+
+def verify_storynpcs_ref(ref: str, root: Path,
+                         operations: frozenset[str] | None = None) -> list[str]:
+    """Validate one storynpcs_ref token list. Returns a list of problems
+    (empty = every token names a verifiable repository artifact)."""
+    tokens = str(ref).split()
+    if not tokens:
+        return ["empty storynpcs_ref — MAPPED rows must name concrete artifacts"]
+    ops = operations if operations is not None else _canonical_operations(root)
+    problems: list[str] = []
+    for token in tokens:
+        kind, sep, value = token.partition(":")
+        if not sep or kind not in REF_KINDS:
+            problems.append(f"{token!r}: unverifiable ref token (expected "
+                            + "/".join(f"{k}:" for k in REF_KINDS) + ")")
+            continue
+        if kind == "path" and not (root / value).exists():
+            problems.append(f"{token!r}: path does not exist")
+        elif kind == "class" and not _class_path_exists(root, value, test_only=False):
+            problems.append(f"{token!r}: no java source for class")
+        elif kind == "test" and not _class_path_exists(root, value, test_only=True):
+            problems.append(f"{token!r}: no java test source for class")
+        elif kind == "op" and value not in ops:
+            problems.append(f"{token!r}: not a registered canonical operation")
+    return problems
 
 
 def _resolve_mapping(row: dict[str, Any], surface_map: dict[str, Any]) -> dict[str, Any] | None:
@@ -41,8 +95,12 @@ def _resolve_mapping(row: dict[str, Any], surface_map: dict[str, Any]) -> dict[s
 
 
 def expand_compatibility(manifest: dict[str, Any],
-                         surface_map: dict[str, Any]) -> dict[str, Any]:
+                         surface_map: dict[str, Any],
+                         root: Path | None = None) -> dict[str, Any]:
+    root = root or Path(__file__).resolve().parents[2]
+    operations = _canonical_operations(root)
     errors: list[str] = []
+    ref_checks = {"rows": 0, "verified_tokens": 0, "failed": []}
     deviations = {d.get("deviation_id"): d for d in surface_map.get("deviations", [])}
     for deviation_id, deviation in deviations.items():
         if not str(deviation.get("rationale", "")).strip():
@@ -76,6 +134,17 @@ def expand_compatibility(manifest: dict[str, Any],
             if state not in TERMINAL_STATES:
                 errors.append(f"{inventory_id}: non-terminal mapping_state {state!r}")
                 continue
+            if state == "MAPPED_STORYNPCS_OBSERVED":
+                ref_checks["rows"] += 1
+                problems = verify_storynpcs_ref(
+                    mapping.get("storynpcs_ref", ""), root, operations)
+                ref_checks["verified_tokens"] += len(str(
+                    mapping.get("storynpcs_ref", "")).split()) - len(problems)
+                for problem in problems:
+                    errors.append(f"{inventory_id}: MAPPED_STORYNPCS_OBSERVED "
+                                  f"storynpcs_ref {problem}")
+                    ref_checks["failed"].append(
+                        {"inventory_id": inventory_id, "problem": problem})
             if state in STATES_REQUIRING_EVIDENCE and not str(
                     mapping.get("evidence_required", "")).strip():
                 errors.append(f"{inventory_id}: {state} row must name evidence_required")
@@ -119,6 +188,11 @@ def expand_compatibility(manifest: dict[str, Any],
             "by_surface": by_surface,
             "parity_blocked_rows": len(blocked_rows),
         },
+        "mapping_integrity": {
+            "mapped_rows_checked": ref_checks["rows"],
+            "verified_ref_tokens": ref_checks["verified_tokens"],
+            "failed_refs": ref_checks["failed"],
+        },
         "rows": rows_out,
     }
 
@@ -134,7 +208,7 @@ def main() -> int:
     root = Path(__file__).resolve().parents[2]
     manifest = load_json(root / "docs" / "parity" / "target-surface-manifest.json")
     surface_map = load_json(root / "docs" / "parity" / "storynpcs-surface-map.json")
-    report = expand_compatibility(manifest, surface_map)
+    report = expand_compatibility(manifest, surface_map, root)
     out = root / "docs" / "parity" / "reports" / "compatibility-report.json"
     write_report(report, out)
     print(f"validation={report['validation_status']} rows={report['summary']['mapped_rows']}/"
