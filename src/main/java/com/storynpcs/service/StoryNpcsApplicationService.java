@@ -4929,7 +4929,12 @@ public class StoryNpcsApplicationService {
         try {
             String playerSubject = playerUuid.toString();
             String compoundSubjectPrefix = playerSubject + "|";
-            pendingRecords = bankRepo.operationJournal().pending().stream()
+            var journalScan = bankRepo.operationJournal().pending();
+            for (String diagnostic : journalScan.diagnostics()) {
+                System.err.println("[StoryNPCs] bank operation journal recovery for "
+                        + playerUuid + ": " + diagnostic);
+            }
+            pendingRecords = journalScan.records().stream()
                     .filter(record -> playerSubject.equals(record.subject())
                             || record.subject().startsWith(compoundSubjectPrefix))
                     .toList();
@@ -5067,7 +5072,12 @@ public class StoryNpcsApplicationService {
         java.util.List<com.storynpcs.persistence.DurableOperationJournal.OperationRecord> pending;
         try {
             String subjectPrefix = playerUuid + "|";
-            pending = tradeOperationJournal.pending().stream()
+            var journalScan = tradeOperationJournal.pending();
+            for (String diagnostic : journalScan.diagnostics()) {
+                System.err.println("[StoryNPCs] trade operation journal recovery for "
+                        + playerUuid + ": " + diagnostic);
+            }
+            pending = journalScan.records().stream()
                     .filter(record -> "trade.execute".equals(record.operationType()))
                     .filter(record -> record.subject() != null && record.subject().startsWith(subjectPrefix))
                     .toList();

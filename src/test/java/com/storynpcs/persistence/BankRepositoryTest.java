@@ -235,15 +235,15 @@ class BankRepositoryTest {
             // STARTED bank.withdraw record — proof the compat path could not
             // reach the vault without journaling.
             var pending = repo.operationJournal().pending();
-            assertEquals(1, pending.size());
-            assertEquals("bank.withdraw", pending.get(0).operationType());
+            assertEquals(1, pending.records().size());
+            assertEquals("bank.withdraw", pending.records().get(0).operationType());
         } finally {
             allowTransaction.countDown();
         }
         worker.join(10_000);
         assertNull(workerFailure.get());
         assertTrue(withdrawalResult.get().accepted());
-        assertTrue(repo.operationJournal().pending().isEmpty());
+        assertTrue(repo.operationJournal().pending().records().isEmpty());
         assertTrue(repo.getOrCreate(playerUuid).getTabItems(0).isEmpty());
     }
 

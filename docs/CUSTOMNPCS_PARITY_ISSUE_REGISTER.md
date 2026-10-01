@@ -152,7 +152,7 @@ Status: `IN-REVIEW` — current top-level NPC/dialogue/faction/quest loading and
 
 ### P2-2 — Implement durable world/player/economy stores
 
-Status: `IN-REVIEW` — progression, bank, and actor state now share a versioned forced-write/recovery policy; the full 18-store mapping and injected crash matrix are not yet complete. See [P2-2 closeout](parity/P2-2-CLOSEOUT.md).
+Status: `DONE-LOCAL` — progression, bank, trade, quest-mail, and actor state share a versioned forced-write/recovery policy with 3-generation backup retention, quarantine-based recovery, per-record scan tolerance in the operation journal, and deterministic index reconciliation; all 18 target categories are mapped with declared ownership in `PersistenceStoreMap` and the eight still-unbuilt categories are DEFERRED to their owning issues on a fixed contract. The required independent adversarial review is complete and its findings are remediated or documented. SavedData world-index integration and broader journal coverage remain P2-3 scope. See [P2-2 closeout](parity/P2-2-CLOSEOUT.md). Target-runtime parity evidence remains a separate repo-wide gate.
 
 - **Intent:** Make progression, role state, containers, templates, sessions, and actor state survive crash, restart, unload, and migration.
 - **Expectation:** Stores use versioned records, temp write, flush/force, atomic replace, backup retention, corruption quarantine, recovery diagnostics, and lifecycle ownership.
