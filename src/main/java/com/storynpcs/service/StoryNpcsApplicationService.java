@@ -1231,9 +1231,118 @@ public class StoryNpcsApplicationService {
      * @return validation result; on errors nothing is written or registered.
      */
     public ValidationResult saveTemplate(com.storynpcs.creator.template.NpcTemplate template) {
-        synchronized (canonicalMutationLock) {
-            return saveTemplateUnderCanonicalLock(template);
+        Objects.requireNonNull(template, "template");
+        if (template.getId() == null) {
+            ValidationResult result = ValidationResult.valid();
+            result.addError("TEMPLATE_ID_MISSING", "Template must have an ID");
+            return result;
         }
+        return saveTemplate(new MutationRequest(
+                "template.replace", "adapter", "template.mutate", template.getId(),
+                definitionRevisions.getOrDefault(revisionKey("template", template.getId()), 0L),
+                UUID.randomUUID()), template).diagnostics();
+    }
+
+    /**
+     * Typed, replay-safe template save (upsert) — mirrors {@link #replaceNpc}.
+     * The request binds actor, capability, target id, and expected revision; the
+     * payload fingerprint covers the full template (id, schema, revision,
+     * description, tags, embedded definition) so an identical retry replays the
+     * recorded result instead of re-writing YAML and re-registering.
+     */
+    public CanonicalMutationResult saveTemplate(MutationRequest request,
+            com.storynpcs.creator.template.NpcTemplate template) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(template, "template");
+        var payload = detachedTemplateCopy(template);
+        return executeCanonicalMutation(request, "template", "replace",
+                MutationPayloadFingerprint.ofFields("template.replace", canonicalTemplateFields(payload)),
+                () -> {
+                    if (payload.getId() == null) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TEMPLATE_ID_MISSING", "Template must have an ID");
+                        return result;
+                    }
+                    if (!request.targetId().equals(payload.getId())) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TARGET_ID_MISMATCH", "Template ID does not match request target");
+                        return result;
+                    }
+                    return saveTemplateUnderCanonicalLock(payload);
+                });
+    }
+
+    /**
+     * Replay-safe, revision-checked template deletion — mirrors
+     * {@link #deleteQuest(MutationRequest)}. Orphaned dependent spawners are
+     * surfaced as a diagnostic warning; callers that need the full
+     * {@code DeleteOutcome} use {@link #deleteTemplate(NamespacedId)}.
+     */
+    public CanonicalMutationResult deleteTemplate(MutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return executeCanonicalMutation(request, "template", "delete",
+                MutationPayloadFingerprint.of("template.delete", request.targetId().toString()), () -> {
+                    if (registry.getTemplate(request.targetId()).isEmpty()) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TEMPLATE_NOT_FOUND", "Template not found: " + request.targetId());
+                        return result;
+                    }
+                    var outcome = deleteTemplate(request.targetId());
+                    if (!outcome.removed()) {
+                        ValidationResult failure = ValidationResult.valid();
+                        failure.addError(registry.getTemplate(request.targetId()).isPresent()
+                                        ? "DEFINITION_DELETE_FAILED" : "TEMPLATE_NOT_FOUND",
+                                "Template '" + request.targetId() + "' could not be deleted");
+                        return failure;
+                    }
+                    ValidationResult result = ValidationResult.valid();
+                    if (!outcome.dependentSpawners().isEmpty()) {
+                        result.addWarning("TEMPLATE_SPAWNERS_ORPHANED",
+                                "Deleted template '" + request.targetId()
+                                        + "' leaves dependent spawners: " + outcome.dependentSpawners());
+                    }
+                    return result;
+                });
+    }
+
+    private static com.storynpcs.creator.template.NpcTemplate detachedTemplateCopy(
+            com.storynpcs.creator.template.NpcTemplate source) {
+        var copy = new com.storynpcs.creator.template.NpcTemplate();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setRevision(source.getRevision());
+        copy.setDescription(source.getDescription());
+        copy.setTags(source.getTags());
+        if (source.getDefinition() != null) {
+            copy.setDefinition(NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(source.getDefinition()))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Unable to detach template payload: " + source.getId())));
+        }
+        return copy;
+    }
+
+    /**
+     * Labeled, self-describing field sequence bound to a template save request.
+     * Labels and length-prefixed digesting make field boundaries unforgeable:
+     * sequence equality is exactly semantic payload equality.
+     */
+    private static java.util.List<String> canonicalTemplateFields(
+            com.storynpcs.creator.template.NpcTemplate template) {
+        var fields = new java.util.ArrayList<String>();
+        fields.add("id");
+        fields.add(template.getId() == null ? null : template.getId().toString());
+        fields.add("schemaVersion");
+        fields.add(Integer.toString(template.getSchemaVersion()));
+        fields.add("revision");
+        fields.add(Long.toString(template.getRevision()));
+        fields.add("description");
+        fields.add(template.getDescription());
+        fields.add("tags");
+        fields.addAll(template.getTags());
+        fields.add("definition");
+        fields.add(template.getDefinition() == null ? null
+                : NpcDefinitionSerde.toJson(template.getDefinition()));
+        return fields;
     }
 
     private synchronized ValidationResult saveTemplateUnderCanonicalLock(

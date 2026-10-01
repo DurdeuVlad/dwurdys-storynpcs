@@ -28,6 +28,22 @@ final class MutationPayloadFingerprint {
         });
     }
 
+    /**
+     * Digest a labeled field sequence for non-JSON payloads. Each field is
+     * length-prefixed, so field boundaries are unforgeable — unlike raw
+     * delimiter concatenation, a value containing separator characters cannot
+     * alias a different payload.
+     */
+    static String ofFields(String operation, List<String> fields) {
+        Objects.requireNonNull(operation, "operation");
+        Objects.requireNonNull(fields, "fields");
+        return digest(digest -> {
+            update(digest, operation);
+            updateLength(digest, fields.size());
+            for (String field : fields) update(digest, field);
+        });
+    }
+
     static String ofJson(String operation, String json) {
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(json, "json");
