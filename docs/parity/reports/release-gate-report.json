@@ -150,9 +150,9 @@
   },
   "twentytwo_domains_mapped": {
    "detail": {
-    "INTENTIONAL_DEVIATION": 374,
-    "INVENTORY_ONLY": 1230,
-    "MAPPED_STORYNPCS_OBSERVED": 1232
+    "INTENTIONAL_DEVIATION": 375,
+    "INVENTORY_ONLY": 2357,
+    "MAPPED_STORYNPCS_OBSERVED": 104
    },
    "findings": [],
    "pass": true
