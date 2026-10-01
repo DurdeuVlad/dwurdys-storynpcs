@@ -98,7 +98,7 @@ Status: `IN-REVIEW` — typed player-scoped quest start/progress/completion, tra
 
 ### P1-2 — Separate stable NPC actors from entity projections
 
-Status: `IN-REVIEW` — stable actor/projection behavior has local coverage and the mutable `StoryNpcs.instance` singleton is now fully removed: the mod instance resolves through a level-scoped NeoForge data attachment (`StoryNpcsAccess`/`StoryNpcsAttachments`), all 129 former singleton call sites rewired, and `ManagedLifecycleScanTest` fails on any non-final static field with no allowlist. Remaining gate: independent adversarial review of the resolution layer plus `UNVERIFIED_TARGET_RUNTIME` parity evidence.
+Status: `DONE-LOCAL` — stable actor/projection behavior has local coverage, the mutable `StoryNpcs.instance` singleton is fully removed in favor of level-scoped attachment resolution (`StoryNpcsAccess`/`StoryNpcsAttachments`), and the independent resolution-layer review is complete: it surfaced and drove fixes for pre-`ServerStartedEvent` entity projection binding (startup reconciliation sweep + blank-actor-ID poison guard), post-teardown dead-server registry resurrection (ephemeral lookups), and a bypassable static-state scan (comment/literal-aware statement scanner). See [P1-2 closeout](parity/P1-2-CLOSEOUT.md). Target-runtime parity evidence remains a separate repo-wide gate.
 
 - **Intent:** Preserve NPC identity, progression, roles, and content when a Minecraft entity unloads, dies, respawns, or is replaced.
 - **Expectation:** A namespaced logical actor owns durable state; entity UUIDs are projections with explicit spawn/despawn reasons, loaded/unloaded transitions, and projection refresh.

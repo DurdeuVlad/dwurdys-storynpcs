@@ -1,6 +1,22 @@
 # P1-2 Closeout — Stable actors and managed runtime lifecycles
 
-Status: `IN-REVIEW`
+Status: `DONE-LOCAL` — the outstanding gate (independent review of the `StoryNpcsAccess` resolution layer) has now been performed; its findings are remediated below. All local acceptance criteria hold with the residuals noted in *Known boundary*; target-runtime parity evidence remains a separate repo-wide gate.
+
+## Resolution-layer adversarial review remediation (current)
+
+An independent review of the level-attachment resolution layer verified that publication timing (constructor-registered `LevelEvent.Load` covers every real level), null-safety, transience, and per-JVM isolation are sound — and found three defects, all fixed:
+
+- **P1 — pre-runtime entity loads were silently unbound.** Spawn-area and forced-chunk entities deserialize during level load, *before* `ServerStartedEvent` registers the server-scoped actor runtime, so `refreshActorProjection`/`bindLegacyProjection` skipped them for the whole session — and a blank `StoryNpcActorId` was then persisted, which made `contains("StoryNpcActorId")` true on every later load and **permanently self-poisoned** legacy migration. Fixed on two layers: `readAdditionalSaveData` now routes through `reconcileActorBinding()`, which treats a blank stored ID as unbound-legacy and is skipped for removed/client-side entities, and `addAdditionalSaveData` never writes a blank `StoryNpcActorId`. Timing closure: `initializeWorld` still sweeps entities added synchronously during `prepareLevels`, and a new `EntityJoinLevelEvent` listener re-runs `reconcileActorBinding()` as `PersistentEntitySectionManager`'s loading inbox drains into each level during the first ticks — the sweep alone cannot observe inbox-pending entities (vanilla defers them until first `ServerLevel.tick`). Reconciliation is idempotent (`PROJECTION_REFRESHED` on re-bind).
+- **P2 — dead-server resurrection.** `getRuntimeSessions(server)`/`getFollowerGroup(server)` auto-created entries, so post-`clearServerRuntime` cleanup callers (shutdown logouts, follower unregister during level close) re-inserted keys that retained the stopped `MinecraftServer` — a world-session memory leak on save→quit→rejoin. The getters now return an ephemeral instance for unregistered servers: shutdown cleanup semantics preserved, nothing retained.
+- **P3 — bypassable static-state gate.** `ManagedLifecycleScanTest`'s per-line regex missed annotation-prefixed declarations, line-split declarations, single-line nested types, and could be confused by `//`/`/*` inside string literals. Replaced with a comment/literal sanitizer plus logical-statement scanning (split on `;`/`{`/`}`) with a field-declaration shape check; new tests pin each evasion shape. Also fixed: dead `RESTORED` ternary in `ActorProjectionRegistry.restore`, and `replace` now rejects identical expected/replacement UUIDs instead of emitting a spurious `REPLACED`.
+
+### Acceptance-criteria evidence
+
+- *Actor identity stable across entity replacement and restart* — durable `StoryNpcActorId` in NBT, expected-UUID replacement tokens, stale rebind/failure rejection, plus the startup reconciliation sweep closing the pre-runtime gap. `ActorLifecycleServiceTest` covers replacement, unload/reload, failure/retry, and scope isolation.
+- *Two worlds/servers do not share mutable actor state* — server-keyed service/repository/session/follower maps with `clearServerRuntime` teardown; ephemeral post-teardown lookups prevent resurrection.
+- *Projection failure reported and retryable* — `FAILED` results with `retryable` + diagnostic; stale failures rejected.
+- *Lifecycle events carry reason and actor ID* — `ActorLifecycleEvent(scopeId, actorId, projectionId, reason, state, applied, retryable, diagnostic)`.
+- *No mutable runtime singleton* — `StoryNpcs.instance` removed; hardened scan gate enforced.
 
 This slice implements the runtime foundation for separating durable logical NPC actors from replaceable Minecraft entity projections. It does not certify overall CustomNPCs parity; the target runtime evidence gate remains separate.
 
@@ -41,6 +57,6 @@ This slice implements the runtime foundation for separating durable logical NPC 
 
 ## Known boundary
 
-`StoryNpcsAccess` resolution depends on `LevelEvent.Load` firing for every level the mod serves — NeoForge fires it for the overworld, each dimension, and the client world, and the listener is registered in the mod constructor so no load can precede publication. Certification still requires an independent adversarial review of this resolution layer plus the target-runtime evidence gate; attachment-population timing inside the live client bootstrap is part of that gate.
+`StoryNpcsAccess` resolution depends on `LevelEvent.Load` firing for every level the mod serves — NeoForge fires it for the overworld, each dimension, and the client world, and the listener is registered in the mod constructor so no load can precede publication. The independent adversarial review of this resolution layer has now been performed (see *Resolution-layer adversarial review remediation* above); live client bootstrap timing and target-runtime parity remain part of the repo-wide runtime evidence gate, not this issue.
 
 The logical actor registry currently persists identity and definition association. Role-specific durable payload migration and progression/economy recovery remain tracked by P2-2 and the role milestone; this issue provides the stable owner and lifecycle hooks those stores will use.

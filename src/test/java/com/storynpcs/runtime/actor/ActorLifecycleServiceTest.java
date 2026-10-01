@@ -193,4 +193,23 @@ class ActorLifecycleServiceTest {
         assertEquals(legacyProjection, service.registry().find(ACTOR).orElseThrow().projectionId());
         assertEquals(1, service.registry().records().size());
     }
+
+    @Test
+    void replaceRejectsIdenticalExpectedAndReplacementProjection() {
+        // A same-UUID "replace" used to emit a spurious REPLACED while only
+        // re-binding the existing projection — a misleading lifecycle event.
+        ActorLifecycleService service = new ActorLifecycleService(
+                new ActorProjectionRegistry("server-a/overworld"),
+                null
+        );
+        UUID projection = UUID.randomUUID();
+        service.bindProjection(ACTOR, DEFINITION, projection);
+
+        ActorProjectionResult noop = service.replaceProjection(
+                ACTOR, DEFINITION, projection, projection);
+
+        assertFalse(noop.applied());
+        assertTrue(noop.retryable());
+        assertEquals(projection, service.registry().find(ACTOR).orElseThrow().projectionId());
+    }
 }

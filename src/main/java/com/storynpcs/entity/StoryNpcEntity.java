@@ -1089,7 +1089,12 @@ public class StoryNpcEntity extends PathfinderMob {
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
-        compound.putString("StoryNpcActorId", getActorId());
+        // Never persist a blank actor ID — an entity loaded before the actor
+        // runtime existed would otherwise carry StoryNpcActorId:"" forever,
+        // permanently skipping legacy reconciliation on every later load.
+        if (getActorId() != null && !getActorId().isBlank()) {
+            compound.putString("StoryNpcActorId", getActorId());
+        }
         if (startPosition != null) {
             compound.putInt("StartX", startPosition.getX());
             compound.putInt("StartY", startPosition.getY());
@@ -1171,11 +1176,33 @@ public class StoryNpcEntity extends PathfinderMob {
             loadingSavedData = false;
         }
 
+        reconcileActorBinding();
+    }
+
+    /**
+     * Binds this entity's projection to its logical actor. Spawn-area and forced
+     * chunks deserialize entities during level load — before ServerStartedEvent
+     * registers the server-scoped actor runtime — so the world lifecycle handler
+     * re-runs this reconciliation once the runtime exists. A blank actor ID is
+     * treated as unbound (legacy reconciliation), never persisted, so a
+     * pre-runtime load cannot poison future migrations with an empty
+     * {@code StoryNpcActorId} NBT value.
+     */
+    public void reconcileActorBinding() {
+        // Discarded entities must not bind a projection they no longer hold —
+        // a stale PROJECTED record would block the actor's next real projection.
+        if (this.level().isClientSide || this.isRemoved()) {
+            return;
+        }
         StoryNpcs mod = StoryNpcsAccess.mod(this);
         net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                 ? serverLevel.getServer()
                 : null;
-        if (!compound.contains("StoryNpcActorId") && mod != null && mod.getActorLifecycleService(server) != null) {
+        if (mod == null || mod.getActorLifecycleService(server) == null) {
+            return;
+        }
+        String actorId = getActorId();
+        if (actorId == null || actorId.isBlank()) {
             try {
                 NamespacedId definitionId = NamespacedId.of(getDefinitionId());
                 var result = mod.getActorLifecycleService(server).bindLegacyProjection(definitionId, this.getUUID());
@@ -1187,7 +1214,7 @@ public class StoryNpcEntity extends PathfinderMob {
             } catch (RuntimeException e) {
                 StoryNpcs.LOGGER.warn("Could not reconcile legacy StoryNPC projection {}: {}", this.getUUID(), e.getMessage());
             }
-        } else if (compound.contains("StoryNpcActorId")) {
+        } else {
             refreshActorProjection();
         }
     }
