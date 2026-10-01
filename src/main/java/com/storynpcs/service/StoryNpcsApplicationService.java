@@ -53,6 +53,12 @@ public class StoryNpcsApplicationService {
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
     private final BoundedReplayCache<UUID, CompletedFollowerMutation> completedFollowerMutations =
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    /** Recent progression-action receipts; replays return the recorded outcome instead of re-applying. */
+    private final BoundedReplayCache<UUID, CompletedProgressionAction> completedProgressionActions =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    private final BoundedReplayCache<UUID, CompletedTransportRequest> completedTransportRequests =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    private final Object[] progressionActionLocks = createMutationLocks();
 
     /**
      * Bounded live runtime configuration (P9-4) — shared with the owning mod
@@ -515,6 +521,10 @@ public class StoryNpcsApplicationService {
     private record CompletedQuestCompletion(
             String payloadFingerprint, QuestCompletionResult result) {}
 
+    private record CompletedProgressionAction(String fingerprint, AuthorizedActionResult result) {}
+
+    private record CompletedTransportRequest(String fingerprint, TransportResult result) {}
+
     private record CompletedFollowerMutation(
             String payloadFingerprint, CanonicalMutationResult result) {}
 
@@ -597,6 +607,68 @@ public class StoryNpcsApplicationService {
         eventPublisher.publish(new CanonicalMutationEvent(
                 request.operation(), request.actorType(), request.targetId(), request.requestId(),
                 result.applied(), result.revision(), result.recoveryOutcome()));
+    }
+
+    /**
+     * Shared pipeline for {@link PlayerProgressionActionRequest} operations
+     * (issue #54): request-id replay dedup, authorization (capability, actor
+     * rules, and operation binding to the invoked method), then the mutation.
+     * Every attempt — allowed, denied, or replayed — publishes a
+     * {@link CanonicalMutationEvent} so denials stay observable. Denied
+     * requests are never journaled, so privilege changes apply on retry.
+     */
+    private AuthorizedActionResult runProgressionAction(
+            PlayerProgressionActionRequest request, String expectedOperation,
+            String fingerprintKey, NamespacedId eventTarget,
+            java.util.function.Supplier<AuthorizedActionResult> action) {
+        String fingerprint = request.playerUuid() + "|" + expectedOperation + "|" + fingerprintKey;
+        Object requestLock = progressionActionLocks[request.requestId().hashCode()
+                & (progressionActionLocks.length - 1)];
+        AuthorizedActionResult result;
+        synchronized (requestLock) {
+            CompletedProgressionAction prior = completedProgressionActions.get(request.requestId());
+            if (prior != null) {
+                if (!expectedOperation.equals(request.operation())) {
+                    result = AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "OPERATION_MISMATCH",
+                            "Request operation '" + request.operation()
+                                    + "' does not match " + expectedOperation));
+                } else {
+                    result = prior.fingerprint().equals(fingerprint)
+                            ? AuthorizedActionResult.replayOf(prior.result())
+                            : AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                                    "REQUEST_PAYLOAD_MISMATCH",
+                                    "Request ID is already bound to a different progression action"));
+                }
+            } else {
+                AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+                if (decision.allowed() && !expectedOperation.equals(request.operation())) {
+                    decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
+                            "Request operation '" + request.operation()
+                                    + "' does not match " + expectedOperation);
+                }
+                result = decision.allowed()
+                        ? action.get()
+                        : AuthorizedActionResult.denied(decision);
+                if (decision.allowed()) {
+                    completedProgressionActions.put(request.requestId(),
+                            new CompletedProgressionAction(fingerprint, result));
+                }
+            }
+        }
+        publishProgressionActionEvent(request, eventTarget, result.applied(), result);
+        return result;
+    }
+
+    private void publishProgressionActionEvent(PlayerProgressionActionRequest request,
+                                               NamespacedId targetId, boolean applied,
+                                               AuthorizedActionResult result) {
+        String outcome = !result.decision().allowed() ? result.decision().code()
+                : result.duplicate() ? "REPLAYED"
+                : applied ? "COMMITTED" : "REJECTED_NO_SIDE_EFFECTS";
+        dispatchQuestEvents(request.playerUuid(), List.of(new CanonicalMutationEvent(
+                request.operation(), request.actorType(), targetId, request.requestId(),
+                applied, 0L, outcome, request.actorId(), request.playerUuid())));
     }
 
     /** Revision tokens for every definition of one kind, keyed by bare definition id. */
@@ -920,12 +992,10 @@ public class StoryNpcsApplicationService {
     private AuthorizedActionResult recordDialogueVisitChecked(
             PlayerProgressionActionRequest request, NamespacedId dialogueId, String nodeId,
             PlayerProgression progression) {
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) {
-            return AuthorizedActionResult.denied(decision);
-        }
-        return AuthorizedActionResult.of(
-                recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId));
+        return runProgressionAction(request, "dialogue.visit.record",
+                dialogueId + "#" + nodeId, dialogueId,
+                () -> AuthorizedActionResult.of(
+                        recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId)));
     }
 
     /**
@@ -941,23 +1011,22 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(dialogueId, "dialogueId");
         Objects.requireNonNull(nodeId, "nodeId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) {
-            return AuthorizedActionResult.denied(decision);
-        }
-        // Boundary hygiene: only nodes that exist in the named dialogue may be
-        // recorded — a privileged caller cannot persist arbitrary keys.
-        boolean nodeExists = registry.getDialogue(dialogueId)
-                .flatMap(graph -> graph.getNode(nodeId))
-                .isPresent();
-        if (!nodeExists) {
-            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
-                    "DIALOGUE_NODE_NOT_FOUND",
-                    "Dialogue " + dialogueId + " has no node '" + nodeId + "'."));
-        }
-        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
-        return AuthorizedActionResult.of(
-                recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId));
+        return runProgressionAction(request, "dialogue.visit.record",
+                dialogueId + "#" + nodeId, dialogueId, () -> {
+            // Boundary hygiene: only nodes that exist in the named dialogue may
+            // be recorded — a privileged caller cannot persist arbitrary keys.
+            boolean nodeExists = registry.getDialogue(dialogueId)
+                    .flatMap(graph -> graph.getNode(nodeId))
+                    .isPresent();
+            if (!nodeExists) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "DIALOGUE_NODE_NOT_FOUND",
+                        "Dialogue " + dialogueId + " has no node '" + nodeId + "'."));
+            }
+            PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+            return AuthorizedActionResult.of(
+                    recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId));
+        });
     }
 
     private void rejectChoice(UUID playerUuid, DialogueSession session, String nodeId, String reason) {
@@ -2559,8 +2628,8 @@ public class StoryNpcsApplicationService {
     // check, non-obstructed landing, cross-dimension timeout/recovery) requires a
     // real ServerLevel and is intentionally NOT implemented here.
 
-    /** Creates a transport location definition after validating its destination contract. */
-    public ValidationResult createTransportLocation(
+    /** Creates a transport location definition after validating its destination contract. Internal-only (issue #54): adapters must use the typed {@code MutationRequest} overload. */
+    ValidationResult createTransportLocation(
             com.storynpcs.domain.transport.TransportLocation location) {
         Objects.requireNonNull(location, "location");
         Objects.requireNonNull(location.getId(), "location.id");
@@ -2582,7 +2651,7 @@ public class StoryNpcsApplicationService {
     /**
      * Creates a transport location through the revisioned, authorization-checked
      * canonical request boundary (issue #54 — P1-4 authorization policy coverage).
-     * The unguarded {@link #createTransportLocation(com.storynpcs.domain.transport.TransportLocation)}
+     * The package-private {@link #createTransportLocation(com.storynpcs.domain.transport.TransportLocation)}
      * overload remains for trusted internal/bootstrap callers; adapters that accept
      * untrusted actor input (commands, packets, scripts) must route through this
      * overload instead so definition mutation authorization is enforced uniformly,
@@ -2636,8 +2705,8 @@ public class StoryNpcsApplicationService {
         return unlockedTransportLocations(progression).contains(locationId);
     }
 
-    /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. */
-    public boolean unlockTransportLocation(UUID playerUuid, NamespacedId locationId) {
+    /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. Internal-only (issue #54): adapters must use the typed request overload. */
+    boolean unlockTransportLocation(UUID playerUuid, NamespacedId locationId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(locationId, "locationId");
         if (registry.getTransportLocation(locationId).isEmpty()) return false;
@@ -2652,15 +2721,14 @@ public class StoryNpcsApplicationService {
     /**
      * Authorization-checked unlock (issue #54 — P1-4 coverage). Adapters that accept
      * untrusted actor input should route through this overload instead of the
-     * unguarded {@link #unlockTransportLocation(UUID, NamespacedId)}, which remains
-     * for trusted internal callers.
+     * package-private {@link #unlockTransportLocation(UUID, NamespacedId)}, which
+     * remains for trusted internal callers.
      */
     public AuthorizedActionResult unlockTransportLocation(PlayerProgressionActionRequest request, NamespacedId locationId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(locationId, "locationId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
-        return AuthorizedActionResult.of(unlockTransportLocation(request.playerUuid(), locationId));
+        return runProgressionAction(request, "transport.unlock", locationId.toString(), locationId,
+                () -> AuthorizedActionResult.of(unlockTransportLocation(request.playerUuid(), locationId)));
     }
 
     // ==========================================
@@ -2677,7 +2745,10 @@ public class StoryNpcsApplicationService {
      * message first if the mailbox is at capacity. Returns the delivered message
      * (with its generated ID) so the caller can reference it.
      */
-    public com.storynpcs.domain.progression.MailMessage deliverMail(
+    // Issue #54: internal-only primitive — adapters must not call this; tests in
+    // this package seed mailbox fixtures with it. Player-facing paths use the
+    // typed overloads or deliverQuestMail (self-bound to the interactor).
+    com.storynpcs.domain.progression.MailMessage deliverMail(
             UUID playerUuid, String sender, String subject, String body) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         String boundedSender = bound(sender, MAIL_SENDER_MAX_LENGTH, "mail sender");
@@ -2711,7 +2782,7 @@ public class StoryNpcsApplicationService {
     }
 
     /** Marks a mail message read. Returns false if no message with that ID exists. */
-    public boolean markMailRead(UUID playerUuid, UUID mailId) {
+    boolean markMailRead(UUID playerUuid, UUID mailId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(mailId, "mailId");
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
@@ -2731,19 +2802,18 @@ public class StoryNpcsApplicationService {
     /**
      * Authorization-checked mail-read (issue #54 — P1-4 coverage). Adapters that
      * accept untrusted actor input should route through this overload instead of
-     * the unguarded {@link #markMailRead(UUID, UUID)}, which remains for trusted
-     * internal callers.
+     * the package-private {@link #markMailRead(UUID, UUID)}, which remains for
+     * trusted internal callers.
      */
     public AuthorizedActionResult markMailRead(PlayerProgressionActionRequest request, UUID mailId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(mailId, "mailId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
-        return AuthorizedActionResult.of(markMailRead(request.playerUuid(), mailId));
+        return runProgressionAction(request, "mail.read", mailId.toString(), null,
+                () -> AuthorizedActionResult.of(markMailRead(request.playerUuid(), mailId)));
     }
 
     /** Deletes a mail message. Returns false if no message with that ID exists. */
-    public boolean deleteMail(UUID playerUuid, UUID mailId) {
+    boolean deleteMail(UUID playerUuid, UUID mailId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(mailId, "mailId");
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
@@ -2757,15 +2827,14 @@ public class StoryNpcsApplicationService {
     /**
      * Authorization-checked mail deletion (issue #54 — P1-4 coverage). Adapters that
      * accept untrusted actor input should route through this overload instead of
-     * the unguarded {@link #deleteMail(UUID, UUID)}, which remains for trusted
-     * internal callers.
+     * the package-private {@link #deleteMail(UUID, UUID)}, which remains for
+     * trusted internal callers.
      */
     public AuthorizedActionResult deleteMail(PlayerProgressionActionRequest request, UUID mailId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(mailId, "mailId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
-        return AuthorizedActionResult.of(deleteMail(request.playerUuid(), mailId));
+        return runProgressionAction(request, "mail.delete", mailId.toString(), null,
+                () -> AuthorizedActionResult.of(deleteMail(request.playerUuid(), mailId)));
     }
 
     private static String bound(String raw, int maxLength, String label) {
@@ -5626,6 +5695,63 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Authorization-checked transport request (issue #54 — adapter coverage):
+     * a self-scoped {@code command}/{@code player}/{@code dialogue} actor may
+     * transport only themselves; transporting another player requires operator
+     * level 2 proof, matching the canonical player-scoped policy.
+     */
+    public TransportResult requestTransport(
+            PlayerProgressionActionRequest request, NamespacedId locationId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(locationId, "locationId");
+        String fingerprint = request.playerUuid() + "|transport.request|" + locationId;
+        Object requestLock = progressionActionLocks[request.requestId().hashCode()
+                & (progressionActionLocks.length - 1)];
+        TransportResult result;
+        String outcome;
+        synchronized (requestLock) {
+            CompletedTransportRequest prior = completedTransportRequests.get(request.requestId());
+            if (prior != null) {
+                if (!"transport.request".equals(request.operation())) {
+                    result = new TransportResult(false, null, 0,
+                            "OPERATION_MISMATCH: Request operation '" + request.operation()
+                                    + "' does not match transport.request");
+                    outcome = "OPERATION_MISMATCH";
+                } else if (!prior.fingerprint().equals(fingerprint)) {
+                    result = new TransportResult(false, null, 0,
+                            "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
+                    outcome = "REQUEST_PAYLOAD_MISMATCH";
+                } else {
+                    result = prior.result();
+                    outcome = "REPLAYED";
+                }
+            } else {
+                AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+                if (decision.allowed() && !"transport.request".equals(request.operation())) {
+                    decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
+                            "Request operation '" + request.operation() + "' does not match transport.request");
+                }
+                result = decision.allowed()
+                        ? requestTransport(request.playerUuid(), locationId)
+                        : new TransportResult(false, null, 0, decision.code() + ": " + decision.message());
+                if (decision.allowed()) {
+                    completedTransportRequests.put(request.requestId(),
+                            new CompletedTransportRequest(fingerprint, result));
+                    outcome = result.approved() ? "COMMITTED"
+                            : result.detail() == null ? "REJECTED_NO_SIDE_EFFECTS"
+                            : result.detail().split(":", 2)[0];
+                } else {
+                    outcome = decision.code();
+                }
+            }
+        }
+        dispatchQuestEvents(request.playerUuid(), List.of(new CanonicalMutationEvent(
+                request.operation(), request.actorType(), locationId, request.requestId(),
+                result.approved(), 0L, outcome, request.actorId(), request.playerUuid())));
+        return result;
+    }
+
+    /**
      * Authoritative transport operation (P6-3): evaluates the destination via
      * {@link com.storynpcs.domain.transport.TransportEvaluator} BEFORE any fee
      * is charged, then charges emeralds and teleports the player on the server
@@ -5633,7 +5759,9 @@ public class StoryNpcsApplicationService {
      * by returning the player to their origin when the target dimension cannot
      * accept them — matching the evaluator's bounded-recovery contract.
      */
-    public TransportResult requestTransport(UUID playerUuid, NamespacedId locationId) {
+    // Internal-only (issue #54): the typed request overload above is the
+    // adapter-facing entry point; this performs the authorized mutation.
+    TransportResult requestTransport(UUID playerUuid, NamespacedId locationId) {
         if (minecraftServer == null) {
             return new TransportResult(false, null, 0, "SERVER_UNAVAILABLE");
         }
