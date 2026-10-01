@@ -1,27 +1,42 @@
 # P1-1 closeout — typed canonical mutation boundary
 
-Status: `IN-REVIEW` — every mutation family listed in the acceptance criteria now routes through a typed request boundary: definition create/replace/delete (`MutationRequest` + canonical payload fingerprints), quest start/progress/completion, faction standing, follower state/formation, template replace/delete, bank vault access and operations (`BankAccessMutationRequest`/`BankOperationRequest`), trade execution (`TradeExecutionRequest`), and player-scoped progression actions (`PlayerProgressionActionRequest` — transport unlock, mail read/delete, and dialogue node-visit recording). Remaining residuals are scoped below and do not include any known direct field mutation outside the service.
+Status: `IN-REVIEW` — every mutation family listed in the acceptance criteria now routes through a typed request boundary: definition create/replace/delete (`MutationRequest` + canonical payload fingerprints), quest start/progress/completion, faction standing, follower state/formation, template replace/delete, bank vault access and operations (`BankAccessMutationRequest`/`BankOperationRequest`), trade execution (`TradeExecutionRequest`), and player-scoped progression actions (`PlayerProgressionActionRequest` — transport unlock, mail read/delete, and dialogue node-visit recording). Residuals scoped below: system-internal progression writes (`deliverMail`, faction repair paths, pending-completion cleanup), a mutating `getQuestState` read on dialogue condition evaluation, and the fact that the `PlayerProgressionActionRequest` family carries no expected-revision/request-ID replay machinery (proportionate for flag-set writes, but thinner than the definition/progression envelopes).
 
 ## Dialogue node-visit typed migration (current)
 
-- `PlayerProgression.recordDialogueNodeVisit` was the last progression write issued
-  by raw field mutation inside `StoryNpcsApplicationService` (`startDialogue` and
-  `advanceAlongEdge`), and — worse — it mutated cached state with **no durable
-  save**, so visits only survived if a later periodic `saveAll` ran.
+- `PlayerProgression.recordDialogueNodeVisit` was the last *session-driven*
+  progression write issued by raw field mutation inside
+  `StoryNpcsApplicationService` (`startDialogue` and `advanceAlongEdge`), and —
+  worse — it mutated cached state with **no durable save**, so visits only
+  survived if a later periodic `saveAll` ran.
 - Added `recordDialogueNodeVisit(PlayerProgressionActionRequest, NamespacedId, String)`:
   the same authorized player-scoped boundary used by transport unlock and mail
   read/delete. Dialogue navigation submits `"dialogue"`-actor requests bound to
   the visiting player (`playerUuid == actorId`), so visit recording honors the
   same actor/subject policy as every other progression mutation and every
-  rejection carries a machine-readable `AuthorizationDecision` code.
-- Added `recordDialogueNodeVisitInternal(...)`: writes through only when the node
-  is newly visited and persists via `saveProgression(...)` in the same critical
-  section, making first-visit recording durable and repeat navigation a
-  side-effect-free `applied=false` no-op.
+  rejection carries a machine-readable `AuthorizationDecision` code. The public
+  boundary additionally rejects node ids absent from the named dialogue
+  (`DIALOGUE_NODE_NOT_FOUND`) so privileged callers cannot persist arbitrary keys.
+- Visits are now keyed per dialogue (`dialogueId#nodeId` via scoped
+  `PlayerProgression` overloads): bare node ids collide across graphs — every
+  dialogue conventionally has a `"start"` entry — and nothing consumed the flat
+  set yet, so the durable format was scoped before it gained readers. Legacy
+  bare-node-id entries remain readable through the unscoped accessors.
+- `recordDialogueNodeVisitInternal(...)` writes through only when the node is
+  newly visited and persists via `saveProgression(...)` in the same critical
+  section: first visits are durable, repeat navigation is a side-effect-free
+  `applied=false` no-op, and session paths reuse the `PlayerProgression`
+  instance already fetched for the view build.
+- Consistent with the rest of the `PlayerProgressionActionRequest` family, this
+  path emits no `CanonicalMutationEvent` and `applied=true` means in-memory
+  commit (a swallowed `IOException` during save is reported on stderr only) —
+  thinner than the definition/faction envelopes, proportionate for a flag-set
+  write, recorded here as a known envelope gap.
 - `DialogueVisitMutationTest` covers: root-node visit on `startDialogue`,
   target-node visit on `chooseDialogueOption`, durability across a repository
-  reload, idempotent repeats, and denial diagnostics for script actors,
-  cross-subject dialogue actors, and under-privileged command actors.
+  reload, per-dialogue scoping, idempotent repeats, `DIALOGUE_NODE_NOT_FOUND`
+  rejection, and denial diagnostics for script actors, cross-subject dialogue
+  actors, and under-privileged command actors.
 
 ## Stale-gap corrections (current tree vs. older wording)
 

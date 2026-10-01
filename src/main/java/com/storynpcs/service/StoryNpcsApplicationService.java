@@ -761,10 +761,12 @@ public class StoryNpcsApplicationService {
         session.setNpcDisplayName(resolveNpcDisplayName(npcEntityUuid));
         activeSessions.put(playerUuid, session);
 
-        recordDialogueNodeVisit(new PlayerProgressionActionRequest(
-                "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
-                UUID.randomUUID(), -1), dialogueId, session.getCurrentNodeId());
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        // Self-scoped "dialogue" request is always allowed; the visit record is
+        // session bookkeeping and its result is intentionally not consulted.
+        recordDialogueVisitChecked(new PlayerProgressionActionRequest(
+                "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
+                UUID.randomUUID(), -1), dialogueId, session.getCurrentNodeId(), progression);
 
         eventPublisher.publish(new DialogueOpenEvent(playerUuid, dialogueId, session.getCurrentNodeId()));
         return buildDialogueView(session, progression);
@@ -867,9 +869,10 @@ public class StoryNpcsApplicationService {
         eventPublisher.publish(new DialogueOptionSelectEvent(playerUuid, session.getDialogueId(),
                 fromNodeId, toNodeId, optionIndex));
         session.advanceTo(toNodeId);
-        recordDialogueNodeVisit(new PlayerProgressionActionRequest(
+        // Self-scoped "dialogue" request is always allowed; result intentionally unused.
+        recordDialogueVisitChecked(new PlayerProgressionActionRequest(
                 "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
-                UUID.randomUUID(), -1), session.getDialogueId(), toNodeId);
+                UUID.randomUUID(), -1), session.getDialogueId(), toNodeId, progression);
 
         DialogueView view = buildDialogueView(session, progression);
         if (view.isTerminal()) {
@@ -888,29 +891,46 @@ public class StoryNpcsApplicationService {
     }
 
     /**
-     * Records a player's dialogue-node visit into durable progression.
-     * Trusted internal path for session bookkeeping — writes through only when
-     * the visit is new, so repeat navigation does not rewrite the store.
-     * Returns whether the node was newly recorded.
+     * Records a player's dialogue-node visit into durable progression on the
+     * already-held {@link PlayerProgression}. Writes through only when the
+     * visit is new, so repeat navigation does not rewrite the store. Visits are
+     * keyed per dialogue ({@code dialogueId#nodeId}) so node ids shared across
+     * dialogues do not collide. Returns whether the node was newly recorded.
      */
-    private boolean recordDialogueNodeVisitInternal(UUID playerUuid, NamespacedId dialogueId, String nodeId) {
-        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+    private boolean recordDialogueNodeVisitInternal(
+            UUID playerUuid, PlayerProgression progression, NamespacedId dialogueId, String nodeId) {
         synchronized (progression) {
-            if (progression.hasVisitedDialogueNode(nodeId)) {
+            if (progression.hasVisitedDialogueNode(dialogueId, nodeId)) {
                 return false;
             }
-            progression.recordDialogueNodeVisit(nodeId);
+            progression.recordDialogueNodeVisit(dialogueId, nodeId);
             saveProgression(playerUuid, progression);
             return true;
         }
     }
 
     /**
+     * Evaluates authorization then applies the visit to the supplied progression
+     * instance, so session paths reuse the object already fetched for the view.
+     */
+    private AuthorizedActionResult recordDialogueVisitChecked(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId, String nodeId,
+            PlayerProgression progression) {
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) {
+            return AuthorizedActionResult.denied(decision);
+        }
+        return AuthorizedActionResult.of(
+                recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId));
+    }
+
+    /**
      * Authorization-checked dialogue node-visit recording (issue #51 — the last
-     * untyped progression write). Dialogue navigation submits a
-     * {@link PlayerProgressionActionRequest} with actor {@code "dialogue"} bound
-     * to the visiting player, so visit recording honors the same
-     * actor/subject policy as every other player-scoped mutation.
+     * session-driven progression write that bypassed the typed boundary).
+     * Dialogue navigation submits a {@link PlayerProgressionActionRequest} with
+     * actor {@code "dialogue"} bound to the visiting player, so visit recording
+     * honors the same actor/subject policy as every other player-scoped
+     * mutation; denials carry machine-readable codes and are side-effect-free.
      */
     public AuthorizedActionResult recordDialogueNodeVisit(
             PlayerProgressionActionRequest request, NamespacedId dialogueId, String nodeId) {
@@ -921,8 +941,19 @@ public class StoryNpcsApplicationService {
         if (!decision.allowed()) {
             return AuthorizedActionResult.denied(decision);
         }
+        // Boundary hygiene: only nodes that exist in the named dialogue may be
+        // recorded — a privileged caller cannot persist arbitrary keys.
+        boolean nodeExists = registry.getDialogue(dialogueId)
+                .flatMap(graph -> graph.getNode(nodeId))
+                .isPresent();
+        if (!nodeExists) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "DIALOGUE_NODE_NOT_FOUND",
+                    "Dialogue " + dialogueId + " has no node '" + nodeId + "'."));
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
         return AuthorizedActionResult.of(
-                recordDialogueNodeVisitInternal(request.playerUuid(), dialogueId, nodeId));
+                recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId));
     }
 
     private void rejectChoice(UUID playerUuid, DialogueSession session, String nodeId, String reason) {
