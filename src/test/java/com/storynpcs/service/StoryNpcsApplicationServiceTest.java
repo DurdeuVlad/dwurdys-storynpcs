@@ -1701,6 +1701,12 @@ class StoryNpcsApplicationServiceTest {
         assertThat(replayed.duplicate()).isTrue();
         assertThat(service.getMailbox(player)).hasSize(1); // replay deleted nothing
 
+        // A replayed request id under a mislabeled operation is denied.
+        var spoofedReplay = service.deleteMail(new PlayerProgressionActionRequest(
+                "mail.read", "player", player, player, replayId, -1), message.getId());
+        assertThat(spoofedReplay.applied()).isFalse();
+        assertThat(spoofedReplay.decision().code()).isEqualTo("OPERATION_MISMATCH");
+
         // Audit: every typed PPAR attempt publishes a CanonicalMutationEvent
         // carrying actor, subject, operation, request id, and outcome.
         var mailEvents = publishedEvents.stream()
@@ -1736,6 +1742,12 @@ class StoryNpcsApplicationServiceTest {
                 "transport.request", "system", player, player, requestId, -1), locationId);
         assertThat(replayed).isSameAs(first);
 
+        // A replayed request id carrying a different operation label or target
+        // is denied — the journal cannot be served under a mislabeled envelope.
+        var spoofed = service.requestTransport(new PlayerProgressionActionRequest(
+                "mail.read", "system", player, player, requestId, -1), locationId);
+        assertThat(spoofed.approved()).isFalse();
+        assertThat(spoofed.detail()).contains("OPERATION_MISMATCH");
         var mismatched = service.requestTransport(new PlayerProgressionActionRequest(
                 "transport.request", "system", player, player, requestId, -1),
                 NamespacedId.of("storynpcs:elsewhere"));

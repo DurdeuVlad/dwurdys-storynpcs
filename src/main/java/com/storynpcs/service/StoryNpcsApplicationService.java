@@ -628,11 +628,18 @@ public class StoryNpcsApplicationService {
         synchronized (requestLock) {
             CompletedProgressionAction prior = completedProgressionActions.get(request.requestId());
             if (prior != null) {
-                result = prior.fingerprint().equals(fingerprint)
-                        ? AuthorizedActionResult.replayOf(prior.result())
-                        : AuthorizedActionResult.denied(AuthorizationDecision.deny(
-                                "REQUEST_PAYLOAD_MISMATCH",
-                                "Request ID is already bound to a different progression action"));
+                if (!expectedOperation.equals(request.operation())) {
+                    result = AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "OPERATION_MISMATCH",
+                            "Request operation '" + request.operation()
+                                    + "' does not match " + expectedOperation));
+                } else {
+                    result = prior.fingerprint().equals(fingerprint)
+                            ? AuthorizedActionResult.replayOf(prior.result())
+                            : AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                                    "REQUEST_PAYLOAD_MISMATCH",
+                                    "Request ID is already bound to a different progression action"));
+                }
             } else {
                 AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
                 if (decision.allowed() && !expectedOperation.equals(request.operation())) {
@@ -5701,17 +5708,24 @@ public class StoryNpcsApplicationService {
         Object requestLock = progressionActionLocks[request.requestId().hashCode()
                 & (progressionActionLocks.length - 1)];
         TransportResult result;
-        boolean replayed;
+        String outcome;
         synchronized (requestLock) {
             CompletedTransportRequest prior = completedTransportRequests.get(request.requestId());
             if (prior != null) {
-                replayed = true;
-                result = prior.fingerprint().equals(fingerprint)
-                        ? prior.result()
-                        : new TransportResult(false, null, 0,
-                                "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
+                if (!"transport.request".equals(request.operation())) {
+                    result = new TransportResult(false, null, 0,
+                            "OPERATION_MISMATCH: Request operation '" + request.operation()
+                                    + "' does not match transport.request");
+                    outcome = "OPERATION_MISMATCH";
+                } else if (!prior.fingerprint().equals(fingerprint)) {
+                    result = new TransportResult(false, null, 0,
+                            "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
+                    outcome = "REQUEST_PAYLOAD_MISMATCH";
+                } else {
+                    result = prior.result();
+                    outcome = "REPLAYED";
+                }
             } else {
-                replayed = false;
                 AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
                 if (decision.allowed() && !"transport.request".equals(request.operation())) {
                     decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
@@ -5723,10 +5737,14 @@ public class StoryNpcsApplicationService {
                 if (decision.allowed()) {
                     completedTransportRequests.put(request.requestId(),
                             new CompletedTransportRequest(fingerprint, result));
+                    outcome = result.approved() ? "COMMITTED"
+                            : result.detail() == null ? "REJECTED_NO_SIDE_EFFECTS"
+                            : result.detail().split(":", 2)[0];
+                } else {
+                    outcome = decision.code();
                 }
             }
         }
-        String outcome = replayed ? "REPLAYED" : result.approved() ? "COMMITTED" : "REJECTED_NO_SIDE_EFFECTS";
         dispatchQuestEvents(request.playerUuid(), List.of(new CanonicalMutationEvent(
                 request.operation(), request.actorType(), locationId, request.requestId(),
                 result.approved(), 0L, outcome, request.actorId(), request.playerUuid())));
