@@ -462,7 +462,10 @@ def gradle_test_command() -> str:
 
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+    # newline="\n": generated report bytes stay LF on every platform (#127).
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8", newline="\n")
 
 
 def _invalidate_previous_reports(probe_report_path: Path, report_path: Path) -> None:

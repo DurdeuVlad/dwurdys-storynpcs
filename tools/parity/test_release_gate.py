@@ -110,6 +110,38 @@ class ReleaseGateTest(unittest.TestCase):
         self.assertEqual(release_gate.find_cycles(graph), [])
         self.assertTrue(any(f.startswith("P0-4") for f in forward))
 
+    def test_forward_references_serialize_in_sorted_order(self):
+        # Set-iteration order must not leak into the report: identical inputs
+        # must yield byte-identical release-gate output across runs/platforms.
+        register = {"issues": {
+                        "P1-1": "**Dependencies and open decisions:** P9-1, P9-3, P9-2.",
+                        "P9-1": "", "P9-2": "", "P9-3": ""},
+                    "milestones": {"M1": ["P1-1"], "M9": ["P9-1", "P9-2", "P9-3"]}}
+        order = {"P1-1": 0, "P9-1": 1, "P9-2": 2, "P9-3": 3}
+        _graph, errors, forward = release_gate.dependency_graph(register, order)
+        self.assertEqual(errors, [])
+        # Exact expected list, not just sortedness — a lucky hash seed must not
+        # be able to mask nondeterministic set-iteration order (#127).
+        self.assertEqual(forward, [
+            "P1-1 -> P9-1 (forward ownership/fixture reference)",
+            "P1-1 -> P9-2 (forward ownership/fixture reference)",
+            "P1-1 -> P9-3 (forward ownership/fixture reference)",
+        ])
+
+    def test_write_report_emits_lf_bytes_on_every_platform(self):
+        report = release_gate.run_gate(ROOT)
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "release-gate-report.json"
+            release_gate.write_report(report, out)
+            raw = out.read_bytes()
+        self.assertNotIn(b"\r", raw)
+        self.assertTrue(raw.endswith(b"\n"))
+
+    def test_report_forward_references_are_sorted(self):
+        report = release_gate.run_gate(ROOT)
+        forward = report["checks"]["dependency_graph"]["detail"]["forward_references"]
+        self.assertEqual(forward, sorted(forward))
+
     def test_issue_statuses_cover_all_issues(self):
         register = release_gate.parse_register(
             ROOT / "docs" / "CUSTOMNPCS_PARITY_ISSUE_REGISTER.md")

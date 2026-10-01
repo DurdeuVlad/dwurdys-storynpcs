@@ -150,6 +150,18 @@
       "rule": "large_scale_claim",
       "line_sha256": "870bca1b9949a710ff6ac8a949dff86a9e9a0eec52344d6acb1cf8f705327a7d",
       "reason": "Benchmark workload description, not a delivered claim."
+    },
+    {
+      "path": "docs/parity/draft-issues/target-research-2026-10.md",
+      "rule": "large_scale_claim",
+      "line_sha256": "e19b50c4c624043db2be24ccee3e57c5cd63c40388a6ee2cbf0d793df5b84569",
+      "reason": "Draft requirement describing future #126 benchmark workload, not a delivered claim."
+    },
+    {
+      "path": "docs/parity/draft-issues/target-research-2026-10.md",
+      "rule": "large_scale_claim",
+      "line_sha256": "d26eaf338da0e0c22fb57885f282e4498e72891e8e1ead640c0b581fe93424d7",
+      "reason": "Draft requirement describing future #126 benchmark workload, not a delivered claim."
     }
   ]
 }

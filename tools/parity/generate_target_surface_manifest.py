@@ -1100,7 +1100,8 @@ def main() -> int:
         if len(encoded.encode("utf-8")) > MAX_OUTPUT_BYTES:
             raise ValueError(f"manifest exceeds {MAX_OUTPUT_BYTES} bytes")
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(encoded, encoding="utf-8")
+        # newline="\n": generated manifest bytes stay LF on every platform (#127).
+        args.output.write_text(encoded, encoding="utf-8", newline="\n")
     except (OSError, ValueError, KeyError, json.JSONDecodeError, zipfile.BadZipFile) as error:
         print(f"target surface manifest failed: {error}", file=sys.stderr)
         return 1

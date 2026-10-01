@@ -125,7 +125,9 @@ def expand_compatibility(manifest: dict[str, Any],
 
 def write_report(report: dict[str, Any], out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    # newline="\n": generated report bytes stay LF on every platform (#127).
+    out_path.write_text(
+        json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def main() -> int:
