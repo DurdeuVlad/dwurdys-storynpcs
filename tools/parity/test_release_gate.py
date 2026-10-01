@@ -120,8 +120,22 @@ class ReleaseGateTest(unittest.TestCase):
         order = {"P1-1": 0, "P9-1": 1, "P9-2": 2, "P9-3": 3}
         _graph, errors, forward = release_gate.dependency_graph(register, order)
         self.assertEqual(errors, [])
-        self.assertEqual(len(forward), 3)
-        self.assertEqual(forward, sorted(forward))
+        # Exact expected list, not just sortedness — a lucky hash seed must not
+        # be able to mask nondeterministic set-iteration order (#127).
+        self.assertEqual(forward, [
+            "P1-1 -> P9-1 (forward ownership/fixture reference)",
+            "P1-1 -> P9-2 (forward ownership/fixture reference)",
+            "P1-1 -> P9-3 (forward ownership/fixture reference)",
+        ])
+
+    def test_write_report_emits_lf_bytes_on_every_platform(self):
+        report = release_gate.run_gate(ROOT)
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "release-gate-report.json"
+            release_gate.write_report(report, out)
+            raw = out.read_bytes()
+        self.assertNotIn(b"\r", raw)
+        self.assertTrue(raw.endswith(b"\n"))
 
     def test_report_forward_references_are_sorted(self):
         report = release_gate.run_gate(ROOT)

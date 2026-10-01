@@ -1,8 +1,11 @@
-# Normalize text files to LF in the index; control checkout EOL per type so
-# source and generated reports are byte-identical across platforms (#127).
+# Normalize every text file to LF in the index and on checkout so source and
+# generated parity reports are byte-identical across platforms (#127).
+# `text=auto` sniffs binary content; `eol=lf` pins checkout bytes; the rules
+# below force `text` on for the types named in the issue and keep CRLF only
+# where the format requires it.
+* text=auto eol=lf
 
-# Source and generated report inputs: always LF in the index and on checkout.
-# Fingerprint/evidence inputs are byte-sensitive; autocrlf must not rewrite them.
+# Source and generated report inputs: always LF.
 *.java    text eol=lf
 *.json    text eol=lf
 *.yaml    text eol=lf
@@ -21,7 +24,8 @@ gradlew   text eol=lf
 *.bat     text eol=crlf
 *.cmd     text eol=crlf
 
-# Binary payloads — never line-ending normalized.
+# Binary payloads — never line-ending normalized (explicit belt-and-braces for
+# formats whose small fixtures could defeat text sniffing).
 *.jar     binary
 *.class   binary
 *.nbt     binary
