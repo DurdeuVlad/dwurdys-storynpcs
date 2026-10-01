@@ -1,7 +1,10 @@
 package com.storynpcs.service;
 
+import com.storynpcs.api.event.CanonicalMutationEvent;
 import com.storynpcs.api.event.EventPublisher;
+import com.storynpcs.api.event.StoryNpcsEvent;
 import com.storynpcs.creator.template.NpcTemplate;
+import com.storynpcs.domain.common.DiagnosticError;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.persistence.ProgressionRepository;
@@ -11,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,13 +33,17 @@ class TemplateMutationTest {
     Path tempDir;
 
     private DefinitionRegistry registry;
+    private List<StoryNpcsEvent> publishedEvents;
     private StoryNpcsApplicationService service;
 
     @BeforeEach
     void setUp() {
         registry = new DefinitionRegistry();
+        var events = new EventPublisher();
+        publishedEvents = new ArrayList<>();
+        events.register(publishedEvents::add);
         service = new StoryNpcsApplicationService(
-                registry, new ProgressionRepository(tempDir), new EventPublisher());
+                registry, new ProgressionRepository(tempDir), events);
     }
 
     private static NpcTemplate template(NamespacedId id) {
@@ -208,6 +217,66 @@ class TemplateMutationTest {
         assertThat(result.hasErrors()).isFalse();
         assertThat(registry.getTemplate(TEMPLATE_ID)).isPresent();
         assertThat(service.currentRevision("template", TEMPLATE_ID)).isEqualTo(1L);
+        // Canonical events are only emitted by the typed boundary — a direct
+        // registry/file write would leave this list empty.
+        assertThat(publishedEvents)
+                .filteredOn(event -> event instanceof CanonicalMutationEvent)
+                .anySatisfy(event -> {
+                    var canonical = (CanonicalMutationEvent) event;
+                    assertThat(canonical.operation()).isEqualTo("template.replace");
+                    assertThat(canonical.actorType()).isEqualTo("adapter");
+                    assertThat(canonical.applied()).isTrue();
+                });
+    }
+
+    @Test
+    void reusedRequestIdWithChangedEnvelopeIsRejected() {
+        UUID requestId = UUID.randomUUID();
+        service.saveTemplate(saveRequest(TEMPLATE_ID, 0L, requestId), template(TEMPLATE_ID));
+
+        var alteredEnvelope = new MutationRequest("template.replace", "command",
+                "template.mutate", TEMPLATE_ID, 0L, requestId, 2);
+        var result = service.saveTemplate(alteredEnvelope, template(TEMPLATE_ID));
+
+        assertThat(result.applied()).isFalse();
+        assertThat(result.diagnostics().getErrors())
+                .anyMatch(error -> error.code().equals("REQUEST_ID_REUSE"));
+    }
+
+    @Test
+    void payloadFingerprintCannotBeForgedAcrossFieldBoundaries() {
+        // Regression: a raw-delimiter payload composition would alias these two
+        // distinct templates — a replay must see them as different payloads.
+        NpcTemplate first = template(TEMPLATE_ID);
+        first.setDescription("a");
+        first.setTags(List.of("b\nc"));
+        NpcTemplate second = template(TEMPLATE_ID);
+        second.setDescription("a\nb");
+        second.setTags(List.of("c"));
+
+        UUID requestId = UUID.randomUUID();
+        var applied = service.saveTemplate(saveRequest(TEMPLATE_ID, 0L, requestId), first);
+        assertThat(applied.newlyApplied()).isTrue();
+
+        var replay = service.saveTemplate(saveRequest(TEMPLATE_ID, 0L, requestId), second);
+        assertThat(replay.applied()).isFalse();
+        assertThat(replay.diagnostics().getErrors())
+                .anyMatch(error -> error.code().equals("REQUEST_PAYLOAD_MISMATCH"));
+        assertThat(registry.getTemplate(TEMPLATE_ID).orElseThrow().getDescription())
+                .isEqualTo("a");
+    }
+
+    @Test
+    void typedDeleteWarnsAboutOrphanedSpawners() {
+        service.saveTemplate(saveRequest(TEMPLATE_ID, 0L, UUID.randomUUID()), template(TEMPLATE_ID));
+        registry.registerTemplateSpawnerDependent(TEMPLATE_ID, NamespacedId.of("storynpcs:spawner_a"));
+
+        var result = service.deleteTemplate(deleteRequest(TEMPLATE_ID, 1L, UUID.randomUUID()));
+
+        assertThat(result.newlyApplied()).isTrue();
+        assertThat(result.diagnostics().getDiagnostics())
+                .anyMatch(d -> d.severity() == DiagnosticError.Severity.WARNING
+                        && d.code().equals("TEMPLATE_SPAWNERS_ORPHANED"));
     }
 
     @Test

@@ -1256,7 +1256,7 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(template, "template");
         var payload = detachedTemplateCopy(template);
         return executeCanonicalMutation(request, "template", "replace",
-                MutationPayloadFingerprint.of("template.replace", canonicalTemplatePayload(payload)),
+                MutationPayloadFingerprint.ofFields("template.replace", canonicalTemplateFields(payload)),
                 () -> {
                     if (payload.getId() == null) {
                         ValidationResult result = ValidationResult.valid();
@@ -1321,21 +1321,28 @@ public class StoryNpcsApplicationService {
         return copy;
     }
 
-    private static String canonicalTemplatePayload(
+    /**
+     * Labeled, self-describing field sequence bound to a template save request.
+     * Labels and length-prefixed digesting make field boundaries unforgeable:
+     * sequence equality is exactly semantic payload equality.
+     */
+    private static java.util.List<String> canonicalTemplateFields(
             com.storynpcs.creator.template.NpcTemplate template) {
-        StringBuilder payload = new StringBuilder();
-        payload.append(template.getId()).append('\n')
-                .append(template.getSchemaVersion()).append('\n')
-                .append(template.getRevision()).append('\n')
-                .append(template.getDescription()).append('\n');
-        for (String tag : template.getTags()) {
-            payload.append(tag).append('￾');
-        }
-        payload.append('\n');
-        if (template.getDefinition() != null) {
-            payload.append(NpcDefinitionSerde.toJson(template.getDefinition()));
-        }
-        return payload.toString();
+        var fields = new java.util.ArrayList<String>();
+        fields.add("id");
+        fields.add(template.getId() == null ? null : template.getId().toString());
+        fields.add("schemaVersion");
+        fields.add(Integer.toString(template.getSchemaVersion()));
+        fields.add("revision");
+        fields.add(Long.toString(template.getRevision()));
+        fields.add("description");
+        fields.add(template.getDescription());
+        fields.add("tags");
+        fields.addAll(template.getTags());
+        fields.add("definition");
+        fields.add(template.getDefinition() == null ? null
+                : NpcDefinitionSerde.toJson(template.getDefinition()));
+        return fields;
     }
 
     private synchronized ValidationResult saveTemplateUnderCanonicalLock(
