@@ -109,6 +109,7 @@ FINGERPRINT_FILES = (
     "gradle/wrapper/gradle-wrapper.properties",
     "docs/parity/evidence-schema.json",
     "docs/parity/fixture-catalog.json",
+    "docs/parity/target-runtime-import.json",
     "docs/parity/target-surface-manifest.json",
     "docs/parity/truth-gate-exceptions.json",
 )
@@ -477,9 +478,146 @@ def _probe_report_entries(probe_report: dict[str, Any] | None) -> tuple[dict[str
     return indexed, errors
 
 
+TARGET_IMPORT_SCHEMA = "storynpcs.target-runtime-import/v1"
+IMPORT_PROVENANCE_FIELDS = {"evidence_label", "source_document", "source_section", "recorded_on"}
+
+
+def load_target_import(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("target-runtime import must be an object")
+    return value
+
+
+def validate_target_import(
+    document: dict[str, Any],
+    catalog_fixture_ids: set[str],
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Validate the versioned target-runtime import artifact.
+
+    Returns a fixture_id -> observations map plus errors. Only observations
+    carrying full provenance and an exact VERIFIED_TARGET_RUNTIME label are
+    importable; anything else fails validation so a provenance-less OBSERVED
+    claim can never reach the emitted fixtures.
+    """
+    indexed: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    if document.get("schema") != TARGET_IMPORT_SCHEMA:
+        errors.append(f"target-runtime import schema must be {TARGET_IMPORT_SCHEMA}")
+    if not isinstance(document.get("import_version"), str) or not document["import_version"].strip():
+        errors.append("target-runtime import requires a non-empty import_version")
+    source = document.get("source")
+    if not isinstance(source, dict):
+        errors.append("target-runtime import requires a source object")
+    else:
+        if source.get("target_jar_sha256") != TARGET_SHA256:
+            errors.append("target-runtime import target_jar_sha256 does not match the pinned target JAR")
+        if not isinstance(source.get("target_jar"), str) or source.get("target_jar") != TARGET_NAME:
+            errors.append("target-runtime import target_jar must be the pinned target JAR name")
+        for field in ("repository", "documents", "runtime"):
+            if field not in source:
+                errors.append(f"target-runtime import source is missing {field}")
+    fixtures = document.get("fixtures")
+    if not isinstance(fixtures, list):
+        return indexed, errors + ["target-runtime import fixtures must be a list"]
+    for index, entry in enumerate(fixtures):
+        prefix = f"target_import.fixtures[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{prefix} must be an object")
+            continue
+        fixture_id = entry.get("fixture_id")
+        if not isinstance(fixture_id, str) or not fixture_id.strip():
+            errors.append(f"{prefix}.fixture_id must be a non-empty string")
+            continue
+        if fixture_id not in catalog_fixture_ids:
+            errors.append(f"{prefix} references unknown fixture: {fixture_id}")
+            continue
+        if fixture_id in indexed:
+            errors.append(f"target-runtime import contains duplicate fixture_id: {fixture_id}")
+            continue
+        observations = entry.get("observations")
+        if not isinstance(observations, list) or not observations:
+            errors.append(f"{prefix} must list at least one observation")
+            continue
+        entry_errors = False
+        for obs_index, observation in enumerate(observations):
+            obs_prefix = f"{prefix}.observations[{obs_index}]"
+            if not isinstance(observation, dict):
+                errors.append(f"{obs_prefix} must be an object")
+                entry_errors = True
+                continue
+            if not isinstance(observation.get("probe"), str) or not observation["probe"].strip():
+                errors.append(f"{obs_prefix} requires a non-empty probe label")
+                entry_errors = True
+            result = observation.get("observed_result")
+            if (
+                result is None
+                or (isinstance(result, str) and not result.strip())
+                or (isinstance(result, (dict, list)) and not result)
+            ):
+                errors.append(f"{obs_prefix} requires a non-empty observed_result")
+                entry_errors = True
+            provenance = observation.get("provenance")
+            if not isinstance(provenance, dict):
+                errors.append(f"{obs_prefix} requires a provenance object")
+                entry_errors = True
+            else:
+                missing = sorted(IMPORT_PROVENANCE_FIELDS - set(provenance))
+                if missing:
+                    errors.append(f"{obs_prefix}.provenance missing fields: {missing}")
+                    entry_errors = True
+                if provenance.get("evidence_label") != "VERIFIED_TARGET_RUNTIME":
+                    errors.append(
+                        f"{obs_prefix}.provenance.evidence_label must be VERIFIED_TARGET_RUNTIME"
+                    )
+                    entry_errors = True
+                for field in ("source_document", "source_section", "recorded_on"):
+                    value = provenance.get(field)
+                    if not isinstance(value, str) or not value.strip():
+                        errors.append(f"{obs_prefix}.provenance.{field} must be a non-empty string")
+                        entry_errors = True
+        if not entry_errors:
+            indexed[fixture_id] = entry
+    return indexed, errors
+
+
+def _imported_target_probe(entry: dict[str, Any], import_doc: dict[str, Any]) -> dict[str, Any]:
+    observations = [
+        {
+            "probe": observation["probe"],
+            "command": observation.get("command"),
+            "observed_result": observation["observed_result"],
+            "provenance": observation["provenance"],
+        }
+        for observation in entry["observations"]
+    ]
+    source = import_doc.get("source", {})
+    return {
+        "status": "OBSERVED",
+        "result": {
+            "observations": observations,
+            "execution_scope": (
+                "Recorded dedicated-server console probes on the exact target JAR; "
+                "no live probe was re-executed by StoryNPCs tooling"
+            ),
+        },
+        "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "imported_from": "docs/parity/target-runtime-import.json",
+            "import_version": import_doc.get("import_version"),
+            "source_repository": source.get("repository"),
+            "source_documents": source.get("documents"),
+            "target_jar_sha256": source.get("target_jar_sha256"),
+            "runtime": source.get("runtime"),
+            "observations": [o["provenance"] for o in entry["observations"]],
+        },
+    }
+
+
 def expand_fixtures(
     catalog: dict[str, Any],
     probe_report: dict[str, Any] | None = None,
+    target_import: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     template = deepcopy(BASELINE_EVIDENCE_TEMPLATE)
     probe_entries, probe_errors = _probe_report_entries(probe_report)
@@ -489,18 +627,95 @@ def expand_fixtures(
     unknown_probe_ids = sorted(set(probe_entries) - catalog_ids)
     if unknown_probe_ids:
         raise ValueError("probe report references unknown fixtures: " + ", ".join(unknown_probe_ids))
+def _resolve_target_probe(
+    fixture_id: str,
+    import_entries: dict[str, dict[str, Any]],
+    target_import: dict[str, Any] | None,
+    template: dict[str, Any],
+) -> dict[str, Any]:
+    import_entry = import_entries.get(fixture_id)
+    if import_entry is not None:
+        return _imported_target_probe(import_entry, target_import)
+    if target_import is not None:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": (
+                "no VERIFIED_TARGET_RUNTIME observation in the committed "
+                "import artifact covers this fixture"
+            ),
+            "next_evidence": (
+                "run a target runtime probe and record it in "
+                "docs/parity/target-runtime-import.json with provenance"
+            ),
+        }
+    return dict(template.get("target_probe", {}))
+
+
+def target_probe_map(
+    catalog: dict[str, Any],
+    target_import: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    """fixture_id -> populated target_probe for every catalog fixture.
+
+    Used by the probe-report generator so emitted rows show the imported
+    target observation (or an explicit not-imported reason) per fixture.
+    """
+    catalog_ids = {entry["fixture_id"] for entry in catalog["fixtures"]}
+    import_entries: dict[str, dict[str, Any]] = {}
+    if target_import is not None:
+        import_entries, import_errors = validate_target_import(target_import, catalog_ids)
+        if import_errors:
+            raise ValueError("; ".join(import_errors))
+    return {
+        fixture_id: _resolve_target_probe(
+            fixture_id, import_entries, target_import, BASELINE_EVIDENCE_TEMPLATE)
+        for fixture_id in catalog_ids
+    }
+
+
+def expand_fixtures(
+    catalog: dict[str, Any],
+    probe_report: dict[str, Any] | None = None,
+    target_import: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    template = deepcopy(BASELINE_EVIDENCE_TEMPLATE)
+    probe_entries, probe_errors = _probe_report_entries(probe_report)
+    if probe_errors:
+        raise ValueError("; ".join(probe_errors))
+    catalog_ids = {entry["fixture_id"] for entry in catalog["fixtures"]}
+    unknown_probe_ids = sorted(set(probe_entries) - catalog_ids)
+    if unknown_probe_ids:
+        raise ValueError("probe report references unknown fixtures: " + ", ".join(unknown_probe_ids))
+    import_entries: dict[str, dict[str, Any]] = {}
+    if target_import is not None:
+        import_entries, import_errors = validate_target_import(target_import, catalog_ids)
+        if import_errors:
+            raise ValueError("; ".join(import_errors))
     fixtures: list[dict[str, Any]] = []
     for entry in catalog["fixtures"]:
         probe = probe_entries.get(entry["fixture_id"], {})
-        target_probe = dict(template.get("target_probe", {}))
         storynpcs_probe = dict(template.get("storynpcs_probe", {}))
-        comparison = dict(template.get("comparison", {}))
-        # Probe JSON is caller-controlled input, not proof of a target runtime.
-        # Until a provenance-verifying target adapter exists, imports may add
-        # StoryNPCs observations only; target and comparison state stay blocked.
+        # Probe JSON is caller-controlled input; it may carry StoryNPCs
+        # observations only. Target observations arrive exclusively through the
+        # committed, schema-validated import artifact — never through
+        # caller-supplied probe JSON.
         if isinstance(probe.get("storynpcs_probe"), dict):
             storynpcs_probe.update(deepcopy(probe["storynpcs_probe"]))
-        evidence_state = template["evidence_state"]
+        target_probe = _resolve_target_probe(
+            entry["fixture_id"], import_entries, target_import, template)
+        if target_probe.get("status") == "OBSERVED":
+            comparison = {
+                "rule": "imported-target-observation",
+                "outcome": "NOT_COMPARABLE",
+                "reason": (
+                    "imported observations record target behavior verbatim; JSON "
+                    "equality with JUnit outcomes is not a valid parity comparison"
+                ),
+            }
+            evidence_state = "VERIFIED_TARGET_RUNTIME"
+        else:
+            comparison = dict(template.get("comparison", {}))
+            evidence_state = template["evidence_state"]
         actual_result = probe.get("actual_result")
         if actual_result is None and storynpcs_probe.get("status") == "OBSERVED":
             actual_result = storynpcs_probe.get("result")
@@ -536,6 +751,7 @@ def run_catalog(
     jar_path: Path | None = None,
     research_root: Path | None = None,
     decompiled_root: Path | None = None,
+    target_import_path: Path | None = None,
 ) -> dict[str, Any]:
     catalog = load_catalog(path)
     repository_root = path.resolve().parents[2]
@@ -636,8 +852,26 @@ def run_catalog(
                 "coverage": {},
                 "evidence": {"status": "FAIL", "parity_status": "BLOCKED"},
             }
+    if target_import_path is None:
+        target_import_path = (
+            repository_root / "docs" / "parity" / "target-runtime-import.json"
+        )
+    target_import = None
+    if target_import_path.is_file():
+        try:
+            target_import = load_target_import(target_import_path)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            return {
+                "status": "FAIL",
+                "validation_status": "PASS",
+                "source_provenance_status": source_provenance_status,
+                "provenance_blockers": provenance_blockers,
+                "catalog_errors": [f"could not load target-runtime import: {error}"],
+                "coverage": {},
+                "evidence": {"status": "FAIL", "parity_status": "BLOCKED"},
+            }
     try:
-        fixtures = expand_fixtures(catalog, probe_report)
+        fixtures = expand_fixtures(catalog, probe_report, target_import)
     except ValueError as error:
         return {
             "status": "FAIL",
@@ -654,17 +888,36 @@ def run_catalog(
         fixture["fixture_id"] for fixture in catalog["fixtures"]
         if not test_map.get(fixture["fixture_id"])
     )
+    imported_fixture_ids = sorted(
+        fixture["fixture_id"] for fixture in fixtures
+        if fixture["target_probe"].get("status") == "OBSERVED"
+    )
     return {
         "status": (
             "FAIL" if evidence["status"] != "PASS"
             else "BLOCKED" if source_provenance_status != "VERIFIED"
             else "PASS"
         ),
+        "target_import": {
+            "path": (
+                target_import_path.relative_to(repository_root).as_posix()
+                if target_import is not None else None
+            ),
+            "import_version": (
+                target_import.get("import_version") if target_import is not None else None
+            ),
+            "fixtures_imported": imported_fixture_ids,
+            "fixtures_without_import": sorted(
+                fixture["fixture_id"] for fixture in fixtures
+                if fixture["fixture_id"] not in set(imported_fixture_ids)
+            ),
+        },
         "validation_status": "PASS",
         "source_provenance_status": source_provenance_status,
         "provenance_blockers": provenance_blockers,
         "storynpcs_execution_coverage": "INCOMPLETE" if unmapped_junit_fixtures else "MAPPED",
         "catalog_errors": [],
+        "fixtures": fixtures,
         "coverage": {
             "operation_families": sorted({fixture["operation_family"] for fixture in fixtures}),
             "domains": sorted({fixture["setup"]["domain"] for fixture in fixtures}),

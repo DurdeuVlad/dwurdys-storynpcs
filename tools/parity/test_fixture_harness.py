@@ -82,6 +82,69 @@ class FixtureHarnessTest(unittest.TestCase):
         self.assertFalse(report["evidence"]["certification_eligible"])
         self.assertEqual(len(expand_fixtures(catalog)), 25)
 
+    def test_target_import_advances_covered_fixtures_and_marks_the_rest_uncovered(self):
+        root = Path(__file__).resolve().parents[2]
+        catalog = load_catalog(root / "docs" / "parity" / "fixture-catalog.json")
+        target_import = json.loads(
+            (root / "docs" / "parity" / "target-runtime-import.json").read_text(encoding="utf-8")
+        )
+        fixtures = expand_fixtures(catalog, None, target_import)
+        by_id = {fixture["fixture_id"]: fixture for fixture in fixtures}
+        for fixture_id in ("P0-4.commands", "P0-4.marks", "P0-4.core-entity"):
+            fixture = by_id[fixture_id]
+            self.assertEqual(fixture["target_probe"]["status"], "OBSERVED")
+            self.assertTrue(fixture["target_probe"]["result"]["observations"])
+            provenance = fixture["target_probe"]["provenance"]
+            self.assertEqual(provenance["evidence_label"], "VERIFIED_TARGET_RUNTIME")
+            self.assertEqual(provenance["target_jar_sha256"], TARGET_SHA256)
+            self.assertEqual(fixture["evidence_state"], "VERIFIED_TARGET_RUNTIME")
+            self.assertEqual(fixture["comparison"]["outcome"], "NOT_COMPARABLE")
+        uncovered = by_id["P0-4.display"]
+        self.assertEqual(uncovered["target_probe"]["status"], "UNAVAILABLE")
+        self.assertIn("no VERIFIED_TARGET_RUNTIME observation", uncovered["target_probe"]["reason"])
+        self.assertEqual(uncovered["evidence_state"], "UNVERIFIED_TARGET_RUNTIME")
+
+    def test_target_import_rejects_unknown_fixture_and_provenanceless_observation(self):
+        root = Path(__file__).resolve().parents[2]
+        catalog = load_catalog(root / "docs" / "parity" / "fixture-catalog.json")
+        target_import = json.loads(
+            (root / "docs" / "parity" / "target-runtime-import.json").read_text(encoding="utf-8")
+        )
+        bogus = copy.deepcopy(target_import)
+        bogus["fixtures"][0]["fixture_id"] = "P0-4.nonexistent"
+        with self.assertRaises(ValueError):
+            expand_fixtures(catalog, None, bogus)
+        provenanceless = copy.deepcopy(target_import)
+        del provenanceless["fixtures"][0]["observations"][0]["provenance"]
+        with self.assertRaises(ValueError):
+            expand_fixtures(catalog, None, provenanceless)
+        wrong_label = copy.deepcopy(target_import)
+        wrong_label["fixtures"][0]["observations"][0]["provenance"]["evidence_label"] = (
+            "HISTORICAL_SOURCE"
+        )
+        with self.assertRaises(ValueError):
+            expand_fixtures(catalog, None, wrong_label)
+        wrong_jar = copy.deepcopy(target_import)
+        wrong_jar["source"]["target_jar_sha256"] = "0" * 64
+        with self.assertRaises(ValueError):
+            expand_fixtures(catalog, None, wrong_jar)
+
+    def test_run_catalog_loads_committed_target_import(self):
+        root = Path(__file__).resolve().parents[2]
+        report = run_catalog(root / "docs" / "parity" / "fixture-catalog.json")
+        self.assertEqual(report["validation_status"], "PASS")
+        self.assertEqual(
+            sorted(report["target_import"]["fixtures_imported"]),
+            ["P0-4.commands", "P0-4.core-entity", "P0-4.marks"],
+        )
+        self.assertIn("P0-4.display", report["target_import"]["fixtures_without_import"])
+        states = {
+            row["fixture_id"]: row["evidence_state"] for row in report["evidence"]["fixtures"]
+        }
+        self.assertEqual(states["P0-4.commands"], "VERIFIED_TARGET_RUNTIME")
+        self.assertEqual(report["evidence"]["status"], "PASS")
+        self.assertEqual(report["evidence"]["parity_status"], "BLOCKED")
+
     def test_run_catalog_only_passes_after_exact_jar_and_source_provenance_check(self):
         root = Path(__file__).resolve().parents[2]
         catalog_path = root / "docs" / "parity" / "fixture-catalog.json"

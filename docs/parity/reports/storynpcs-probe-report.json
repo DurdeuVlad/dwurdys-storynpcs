@@ -1,7 +1,7 @@
 {
   "fixtures": [
     {
-      "evidence_state": "UNVERIFIED_TARGET_RUNTIME",
+      "evidence_state": "VERIFIED_TARGET_RUNTIME",
       "fixture_id": "P0-4.core-entity",
       "storynpcs_probe": {
         "result": {
@@ -13,7 +13,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#replacementPreservesLogicalIdentityAndPublishesReasonedEvents()",
               "test_name": "replacementPreservesLogicalIdentityAndPublishesReasonedEvents()"
@@ -27,6 +27,103 @@
             }
           ],
           "uncovered_scope": "No live Minecraft entity spawn/despawn, client projection, or multi-world runtime fixture."
+        },
+        "status": "OBSERVED"
+      },
+      "target_probe": {
+        "provenance": {
+          "evidence_label": "VERIFIED_TARGET_RUNTIME",
+          "import_version": "2026-10-01.1",
+          "imported_from": "docs/parity/target-runtime-import.json",
+          "observations": [
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "logs": [
+                ".local/runtime/server/world/entities/r.0.-1.mca"
+              ],
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            }
+          ],
+          "runtime": {
+            "dedicated_server_port": 25566,
+            "loader": "NeoForge 21.1.230",
+            "probe_scope": "Option A+C server-console probes only"
+          },
+          "source_documents": [
+            "research/05-runtime-setup.md"
+          ],
+          "source_repository": "dwurdys-storynpcs-research",
+          "target_jar_sha256": "6c28d87b215fc1191488194188ec8a39dd908ae7d2d887b7c9d7d463be0a162c"
+        },
+        "result": {
+          "execution_scope": "Recorded dedicated-server console probes on the exact target JAR; no live probe was re-executed by StoryNPCs tooling",
+          "observations": [
+            {
+              "command": "data get entity @e[type=customnpcs:customnpc,limit=1]",
+              "observed_result": {
+                "entity_uuid": "[-1810586351, -1801566552, -1943627450, -1700839614]",
+                "fields": {
+                  "FactionPoints": "present",
+                  "ModRev": 18,
+                  "NpcInteractLines": {
+                    "Lines": [
+                      {
+                        "Line": "Hello @p",
+                        "Slot": 0,
+                        "Song": ""
+                      }
+                    ]
+                  },
+                  "NpcModelData": "present",
+                  "Pos": [
+                    0.5,
+                    69.0,
+                    32.5
+                  ],
+                  "RespawnTime": 20,
+                  "VisibleAvailability": "present",
+                  "cnpcmarkdata": {
+                    "marks": [
+                      {
+                        "color": 16777215,
+                        "type": 3
+                      }
+                    ]
+                  }
+                },
+                "summary": "Complete live NBT compound dumped from runtime NPC 'Probe'"
+              },
+              "probe": "live entity NBT inspection",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "offline Anvil region read of .local/runtime/server/world/entities/r.0.-1.mca",
+              "observed_result": "customnpcs:customnpc, Name=Probe, NeoForgeData.cnpcmarkdata.marks[0] type=3 color=16777215 present in saved entity data",
+              "probe": "saved region entity verification",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "logs": [
+                  ".local/runtime/server/world/entities/r.0.-1.mca"
+                ],
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            }
+          ]
         },
         "status": "OBSERVED"
       }
@@ -44,21 +141,21 @@
           "tests": [
             {
               "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-              "duration_seconds": 0.942,
+              "duration_seconds": 0.661,
               "outcome": "PASSED",
               "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Should resolve custom skin texture when specified in NpcDisplay",
               "test_name": "Should resolve custom skin texture when specified in NpcDisplay"
             },
             {
               "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-              "duration_seconds": 0.005,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Name mode can hide names or show them only during attack",
               "test_name": "Name mode can hide names or show them only during attack"
             },
             {
               "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.003,
               "outcome": "PASSED",
               "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Should format name tag with name and optional title bracket",
               "test_name": "Should format name tag with name and optional title bracket"
@@ -67,6 +164,11 @@
           "uncovered_scope": "No live client render, resource reload, skin download, or GUI resolution fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -91,6 +193,11 @@
           "uncovered_scope": "No numeric-bound validation, server combat damage, melee/ranged behavior, resistance or immunity, defeat/respawn, XP/drop, or live server fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -106,28 +213,28 @@
           "tests": [
             {
               "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Immobilized entity triggers progressive recovery actions as stall persists",
               "test_name": "Immobilized entity triggers progressive recovery actions as stall persists"
             },
             {
               "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Stopping navigation immediately clears stall state",
               "test_name": "Stopping navigation immediately clears stall state"
             },
             {
               "class_name": "com.storynpcs.domain.ai.WaypointPathTest",
-              "duration_seconds": 0.0,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.ai.WaypointPathTest#LOOP mode cycles continuously from start to end and wraps back",
               "test_name": "LOOP mode cycles continuously from start to end and wraps back"
             },
             {
               "class_name": "com.storynpcs.domain.ai.WaypointPathTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.ai.WaypointPathTest#PING_PONG mode reverses direction at both ends",
               "test_name": "PING_PONG mode reverses direction at both ends"
@@ -148,7 +255,7 @@
             },
             {
               "class_name": "com.storynpcs.domain.npc.NpcAiPolicyTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.003,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.npc.NpcAiPolicyTest#threatTargetChangesEmitReasonsThroughTheSink()",
               "test_name": "threatTargetChangesEmitReasonsThroughTheSink()"
@@ -157,6 +264,11 @@
           "uncovered_scope": "No live entity navigation, wander-radius, path-work budget, or large-population performance fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -172,14 +284,14 @@
           "tests": [
             {
               "class_name": "com.storynpcs.ai.combat.ThreatManagerTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.ai.combat.ThreatManagerTest#Second strike within tolerance window triggers retaliation and acquires target",
               "test_name": "Second strike within tolerance window triggers retaliation and acquires target"
             },
             {
               "class_name": "com.storynpcs.ai.combat.ThreatManagerTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.ai.combat.ThreatManagerTest#Threat decays over time and clears target when out of combat",
               "test_name": "Threat decays over time and clears target when out of combat"
@@ -188,6 +300,11 @@
           "uncovered_scope": "No faction-policy targeting, entity defeat lifecycle, or server-world combat fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -224,21 +341,21 @@
             },
             {
               "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.npc.NpcInventoryTest#itemStacksAreBoundedServerAuthoritativeComponents()",
               "test_name": "itemStacksAreBoundedServerAuthoritativeComponents()"
             },
             {
               "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-              "duration_seconds": 0.0,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.npc.NpcInventoryTest#equipReplacesAndUnequipsWithoutLoss()",
               "test_name": "equipReplacesAndUnequipsWithoutLoss()"
             },
             {
               "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.npc.NpcInventoryTest#dropSlotsEnforceIndexChanceAndItemBounds()",
               "test_name": "dropSlotsEnforceIndexChanceAndItemBounds()"
@@ -247,6 +364,11 @@
           "uncovered_scope": "No live inventory GUI/session, persistence reload of equipped state on a live server, or target-runtime inventory fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -262,28 +384,28 @@
           "tests": [
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidDialogueGraph()",
               "test_name": "shouldLoadValidDialogueGraph()"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.011,
+              "duration_seconds": 0.008,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Written dialogue YAML loads back through YamlDefinitionLoader",
               "test_name": "Written dialogue YAML loads back through YamlDefinitionLoader"
             },
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.015,
+              "duration_seconds": 0.011,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#saveDialogueShouldWriteYamlFileWhenLoaderIsBound()",
               "test_name": "saveDialogueShouldWriteYamlFileWhenLoaderIsBound()"
             },
             {
               "class_name": "com.storynpcs.domain.DialogueGraphSerdeTest",
-              "duration_seconds": 0.006,
+              "duration_seconds": 0.004,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.DialogueGraphSerdeTest#JSON round-trip preserves all graph fields",
               "test_name": "JSON round-trip preserves all graph fields"
@@ -306,6 +428,11 @@
           "uncovered_scope": "No live editor-screen authoring, client/server synchronization, or rendered dialogue fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -321,7 +448,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.021,
+              "duration_seconds": 0.018,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()",
               "test_name": "shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()"
@@ -349,7 +476,7 @@
             },
             {
               "class_name": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest",
-              "duration_seconds": 0.0,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest#indexOnlyAndUnknownTokensRejected()",
               "test_name": "indexOnlyAndUnknownTokensRejected()"
@@ -363,7 +490,7 @@
             },
             {
               "class_name": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest#sessionRevocationDropsPendingTokens()",
               "test_name": "sessionRevocationDropsPendingTokens()"
@@ -372,6 +499,11 @@
           "uncovered_scope": "No live packet-to-service choice fixture, concurrent-choice determinism on a live server, or target-runtime choice fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -401,84 +533,84 @@
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.017,
+              "duration_seconds": 0.014,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Written quest YAML round-trips every definition field",
               "test_name": "Written quest YAML round-trips every definition field"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.023,
+              "duration_seconds": 0.026,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Namespaced quest saves migrate matching legacy files without overwriting another namespace",
               "test_name": "Namespaced quest saves migrate matching legacy files without overwriting another namespace"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.018,
+              "duration_seconds": 0.015,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Sanitized legacy path collisions never overwrite a different quest ID",
               "test_name": "Sanitized legacy path collisions never overwrite a different quest ID"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.009,
+              "duration_seconds": 0.01,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Malformed existing YAML is preserved when its definition identity cannot be checked",
               "test_name": "Malformed existing YAML is preserved when its definition identity cannot be checked"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.01,
+              "duration_seconds": 0.009,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Unrelated malformed YAML does not block saving a different definition",
               "test_name": "Unrelated malformed YAML does not block saving a different definition"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.035,
+              "duration_seconds": 0.028,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer updates a renamed definition and fails closed on duplicate IDs",
               "test_name": "Writer updates a renamed definition and fails closed on duplicate IDs"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.016,
+              "duration_seconds": 0.014,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Loader refuses duplicate-ID deletion without removing either source",
               "test_name": "Loader refuses duplicate-ID deletion without removing either source"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.003,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer rejects subdirectory traversal outside the definitions root",
               "test_name": "Writer rejects subdirectory traversal outside the definitions root"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-              "duration_seconds": 0.057,
+              "duration_seconds": 0.053,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Concurrent writes to one definition use separate atomic temporary files",
               "test_name": "Concurrent writes to one definition use separate atomic temporary files"
             },
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.026,
+              "duration_seconds": 0.021,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#deletingLegacyFlatQuestClearsSourceIndexAndAllowsRecreation()",
               "test_name": "deletingLegacyFlatQuestClearsSourceIndexAndAllowsRecreation()"
             },
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.016,
+              "duration_seconds": 0.013,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()",
               "test_name": "failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()"
             },
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.302,
+              "duration_seconds": 0.261,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()",
               "test_name": "concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()"
@@ -487,6 +619,11 @@
           "uncovered_scope": "Not every RepeatType, QuestObjective.Type, or QuestReward.Type enum value is round-tripped; corrupt unparseable legacy files require manual recovery; external file renames made after load require reloading definitions before save; concurrent same-ID writes are serialized but last-writer-wins; symlink escape coverage is skipped when the Windows test account cannot create symbolic links; a hostile local process can race path validation and rename unless the definitions root remains admin-controlled; no live quest editor, client/server synchronization, or Minecraft runtime fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -502,7 +639,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.026,
+              "duration_seconds": 0.022,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldManageQuestProgressionAndRewards()",
               "test_name": "shouldManageQuestProgressionAndRewards()"
@@ -523,35 +660,35 @@
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.031,
+              "duration_seconds": 0.023,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()",
               "test_name": "experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.029,
+              "duration_seconds": 0.026,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()",
               "test_name": "rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.024,
+              "duration_seconds": 0.022,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()",
               "test_name": "rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.038,
+              "duration_seconds": 0.031,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()",
               "test_name": "loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()"
             },
             {
               "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-              "duration_seconds": 0.055,
+              "duration_seconds": 0.049,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#mailSurvivesReopenAndClaimsExactlyOnce(Path)",
               "test_name": "mailSurvivesReopenAndClaimsExactlyOnce(Path)"
@@ -574,6 +711,11 @@
           "uncovered_scope": "No process-kill/live-server recovery fixture beyond headless crash-injection and no target-runtime completion fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -589,35 +731,35 @@
           "tests": [
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.015,
+              "duration_seconds": 0.014,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()",
               "test_name": "typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.017,
+              "duration_seconds": 0.016,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()",
               "test_name": "playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.015,
+              "duration_seconds": 0.012,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#reusingAProgressionRequestIdForDifferentPayloadFailsClosed()",
               "test_name": "reusingAProgressionRequestIdForDifferentPayloadFailsClosed()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.019,
+              "duration_seconds": 0.016,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()",
               "test_name": "objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.005,
+              "duration_seconds": 0.004,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#anotherPlayerCannotMutateTheSubjectsQuestProgression()",
               "test_name": "anotherPlayerCannotMutateTheSubjectsQuestProgression()"
@@ -631,7 +773,7 @@
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.023,
+              "duration_seconds": 0.021,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()",
               "test_name": "concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()"
@@ -645,21 +787,21 @@
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.007,
+              "duration_seconds": 0.006,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()",
               "test_name": "failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.017,
+              "duration_seconds": 0.015,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()",
               "test_name": "completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.02,
+              "duration_seconds": 0.018,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#reentrantCanonicalListenerCannotOvertakeOuterObjectiveEvent()",
               "test_name": "reentrantCanonicalListenerCannotOvertakeOuterObjectiveEvent()"
@@ -680,7 +822,7 @@
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.236,
+              "duration_seconds": 0.171,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentProgressCommitsKeepTheirNotificationGroupsTogether()",
               "test_name": "concurrentProgressCommitsKeepTheirNotificationGroupsTogether()"
@@ -694,35 +836,35 @@
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.016,
+              "duration_seconds": 0.012,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()",
               "test_name": "nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.021,
+              "duration_seconds": 0.02,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()",
               "test_name": "failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.031,
+              "duration_seconds": 0.025,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()",
               "test_name": "pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.028,
+              "duration_seconds": 0.025,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()",
               "test_name": "pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()"
             },
             {
               "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-              "duration_seconds": 0.017,
+              "duration_seconds": 0.015,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.QuestProgressionMutationTest#publisherFailureDoesNotStrandLaterQuestNotificationGroups()",
               "test_name": "publisherFailureDoesNotStrandLaterQuestNotificationGroups()"
@@ -731,6 +873,11 @@
           "uncovered_scope": "Quest reward fan-out across a real process kill is exercised only by headless crash-injection fixtures; remaining operation families beyond quest/faction/follower/bank/trade route through typed requests but lack live-server fixtures; target runtime behavior remains unverified."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -746,35 +893,35 @@
           "tests": [
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.016,
+              "duration_seconds": 0.013,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldClampFactionPointsOnArithmeticOverflow()",
               "test_name": "shouldClampFactionPointsOnArithmeticOverflow()"
             },
             {
               "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-              "duration_seconds": 0.004,
+              "duration_seconds": 0.005,
               "outcome": "PASSED",
               "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#questAndFactionAdapterMutationsCommitOnlyThroughService()",
               "test_name": "questAndFactionAdapterMutationsCommitOnlyThroughService()"
             },
             {
               "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidFactionDefinition()",
               "test_name": "shouldLoadValidFactionDefinition()"
             },
             {
               "class_name": "com.storynpcs.domain.P6DomainTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P6DomainTest#factionMatrixFieldsAndBounds()",
               "test_name": "factionMatrixFieldsAndBounds()"
             },
             {
               "class_name": "com.storynpcs.domain.P6DomainTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P6DomainTest#deletionPlanRepairsOrFailsExplicitly()",
               "test_name": "deletionPlanRepairsOrFailsExplicitly()"
@@ -783,6 +930,11 @@
           "uncovered_scope": "No live faction UI/network adapter or full provenance/threshold lifecycle fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -805,14 +957,14 @@
             },
             {
               "class_name": "com.storynpcs.domain.role.RoleSerdeTest",
-              "duration_seconds": 0.01,
+              "duration_seconds": 0.007,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.role.RoleSerdeTest#TraderRole, BankerRole, BankVault and score map survive JSON round-trip",
               "test_name": "TraderRole, BankerRole, BankVault and score map survive JSON round-trip"
             },
             {
               "class_name": "com.storynpcs.domain.P6DomainTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P6DomainTest#socialRolesCarryBoundedConfig()",
               "test_name": "socialRolesCarryBoundedConfig()"
@@ -821,6 +973,11 @@
           "uncovered_scope": "No role capability authorization, attach/detach lifecycle, or live NPC role fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -836,7 +993,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.domain.P6DomainTest",
-              "duration_seconds": 0.003,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P6DomainTest#allElevenJobsHaveTypedConfigsAndLifecycle()",
               "test_name": "allElevenJobsHaveTypedConfigsAndLifecycle()"
@@ -845,6 +1002,11 @@
           "uncovered_scope": "No live entity job-tick, chunk-loader world interaction, or target-runtime job fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -869,6 +1031,11 @@
           "uncovered_scope": "No live cross-dimension teleport, client UI session, or target-runtime transport fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -884,28 +1051,28 @@
           "tests": [
             {
               "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-              "duration_seconds": 0.018,
+              "duration_seconds": 0.021,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.BankRepositoryTest#BankRepository saves and reloads vaults atomically from disk",
               "test_name": "BankRepository saves and reloads vaults atomically from disk"
             },
             {
               "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-              "duration_seconds": 0.069,
+              "duration_seconds": 0.078,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.BankRepositoryTest#unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events",
               "test_name": "unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events"
             },
             {
               "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-              "duration_seconds": 0.031,
+              "duration_seconds": 0.026,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.BankRepositoryTest#Whole-stack withdrawal request IDs replay without withdrawing twice",
               "test_name": "Whole-stack withdrawal request IDs replay without withdrawing twice"
             },
             {
               "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-              "duration_seconds": 0.043,
+              "duration_seconds": 0.034,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.BankRepositoryTest#Recovery cannot abort a withdrawal between prepare and bank commit",
               "test_name": "Recovery cannot abort a withdrawal between prepare and bank commit"
@@ -919,14 +1086,14 @@
             },
             {
               "class_name": "com.storynpcs.domain.P7DomainTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.003,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P7DomainTest#tabCountCannotExceedSix()",
               "test_name": "tabCountCannotExceedSix()"
             },
             {
               "class_name": "com.storynpcs.domain.P7DomainTest",
-              "duration_seconds": 0.0,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P7DomainTest#accessPolicyIsPrivateByDefaultAndSharedOnlyWhenListed()",
               "test_name": "accessPolicyIsPrivateByDefaultAndSharedOnlyWhenListed()"
@@ -935,6 +1102,11 @@
           "uncovered_scope": "No live bank GUI/session fixture or process-kill inventory-delivery recovery fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -950,42 +1122,42 @@
           "tests": [
             {
               "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-              "duration_seconds": 0.003,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.role.TraderRoleTest#TradeListing enforces stock limits and restocks properly",
               "test_name": "TradeListing enforces stock limits and restocks properly"
             },
             {
               "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-              "duration_seconds": 0.026,
+              "duration_seconds": 0.024,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.role.TraderRoleTest#A repeated trade request replays without charging another listing use",
               "test_name": "A repeated trade request replays without charging another listing use"
             },
             {
               "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-              "duration_seconds": 0.003,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.role.TraderRoleTest#Owned trade reservations roll back only their own use",
               "test_name": "Owned trade reservations roll back only their own use"
             },
             {
               "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-              "duration_seconds": 0.305,
+              "duration_seconds": 0.168,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
               "test_name": "Concurrent executeTrade calls cannot exceed a listing's maxUses"
             },
             {
               "class_name": "com.storynpcs.persistence.TradeStateRepositoryTest",
-              "duration_seconds": 0.014,
+              "duration_seconds": 0.012,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload",
               "test_name": "Listing uses reserve durably and survive repository reload"
             },
             {
               "class_name": "com.storynpcs.domain.P7DomainTest",
-              "duration_seconds": 0.0,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P7DomainTest#twoInputsAndOutputValidateBeforeCommit()",
               "test_name": "twoInputsAndOutputValidateBeforeCommit()"
@@ -1008,6 +1180,11 @@
           "uncovered_scope": "No live player purchase GUI flow, output inventory delivery, or restart recovery fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -1023,7 +1200,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.domain.role.FollowerRoleTest",
-              "duration_seconds": 0.007,
+              "duration_seconds": 0.006,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.role.FollowerRoleTest#FollowerRole ownership check allows owner to change state and denies strangers",
               "test_name": "FollowerRole ownership check allows owner to change state and denies strangers"
@@ -1037,7 +1214,7 @@
             },
             {
               "class_name": "com.storynpcs.ai.FollowerFormationGoalTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.ai.FollowerFormationGoalTest#Follower in auto slot mode dynamically resolves unique position in formation",
               "test_name": "Follower in auto slot mode dynamically resolves unique position in formation"
@@ -1051,7 +1228,7 @@
             },
             {
               "class_name": "com.storynpcs.domain.P6DomainTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.002,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.P6DomainTest#companionProfileBoundsAndStageSelection()",
               "test_name": "companionProfileBoundsAndStageSelection()"
@@ -1060,6 +1237,11 @@
           "uncovered_scope": "No live companion entity lifecycle, dismissal/death world effects, owner logout world behavior, or target-runtime companion fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -1075,7 +1257,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.creator.P8DomainTest",
-              "duration_seconds": 0.001,
+              "duration_seconds": 0.0,
               "outcome": "PASSED",
               "selector": "com.storynpcs.creator.P8DomainTest#spawnerRuleIsDeterministicAndBounded()",
               "test_name": "spawnerRuleIsDeterministicAndBounded()"
@@ -1091,10 +1273,15 @@
           "uncovered_scope": "No live world spawn execution, chunk-load spawn, or target-runtime spawner fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
-      "evidence_state": "UNVERIFIED_TARGET_RUNTIME",
+      "evidence_state": "VERIFIED_TARGET_RUNTIME",
       "fixture_id": "P0-4.marks",
       "storynpcs_probe": {
         "result": {
@@ -1106,7 +1293,7 @@
           "tests": [
             {
               "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#Single mark type, color, and text survive definition JSON round-trip",
               "test_name": "Single mark type, color, and text survive definition JSON round-trip"
@@ -1120,6 +1307,113 @@
             }
           ],
           "uncovered_scope": "No client mark rendering, resync, or target-runtime mark fixture."
+        },
+        "status": "OBSERVED"
+      },
+      "target_probe": {
+        "provenance": {
+          "evidence_label": "VERIFIED_TARGET_RUNTIME",
+          "import_version": "2026-10-01.1",
+          "imported_from": "docs/parity/target-runtime-import.json",
+          "observations": [
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "logs": [
+                ".local/runtime/server/logs/2026-09-17-6.log.gz",
+                ".local/runtime/server/world/entities/r.0.-1.mca"
+              ],
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "logs": [
+                ".local/runtime/server/logs/latest.log"
+              ],
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "7. Second mark-add probe (2026-09-17 continuation)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            }
+          ],
+          "runtime": {
+            "dedicated_server_port": 25566,
+            "loader": "NeoForge 21.1.230",
+            "probe_scope": "Option A+C server-console probes only"
+          },
+          "source_documents": [
+            "research/05-runtime-setup.md"
+          ],
+          "source_repository": "dwurdys-storynpcs-research",
+          "target_jar_sha256": "6c28d87b215fc1191488194188ec8a39dd908ae7d2d887b7c9d7d463be0a162c"
+        },
+        "result": {
+          "execution_scope": "Recorded dedicated-server console probes on the exact target JAR; no live probe was re-executed by StoryNPCs tooling",
+          "observations": [
+            {
+              "command": "noppes mark @e[type=customnpcs:customnpc,limit=1] 3",
+              "observed_result": "Command completed; saved entity data contains mark type 3, color 16777215; independently verified in region file .local/runtime/server/world/entities/r.0.-1.mca (NeoForgeData.cnpcmarkdata.marks[0])",
+              "probe": "mark add, default color",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "logs": [
+                  ".local/runtime/server/logs/2026-09-17-6.log.gz",
+                  ".local/runtime/server/world/entities/r.0.-1.mca"
+                ],
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            },
+            {
+              "command": "server stop/start on port 25566, then name and mark readback",
+              "observed_result": "'Probe', mark type 3, and color 16777215 survived restart",
+              "probe": "mark persistence across restart",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "logs": [
+                  ".local/runtime/server/logs/latest.log"
+                ],
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            },
+            {
+              "command": "client harness cycles, then marks list readback on SmokeNPC",
+              "observed_result": "Marks list still showed one entry at type=3 after client connect/disconnect cycles",
+              "probe": "mark persistence across client login/logout",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "7. Second mark-add probe (2026-09-17 continuation)"
+              }
+            },
+            {
+              "command": "noppes mark @e[type=customnpcs:customnpc,limit=1] 3 ff00ff",
+              "observed_result": "Brigadier rejected the color token with 'Unknown or incomplete command' (recorded runtime defect candidate, not generalized)",
+              "probe": "mark color-form rejection",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            }
+          ]
         },
         "status": "OBSERVED"
       }
@@ -1144,7 +1438,7 @@
             },
             {
               "class_name": "com.storynpcs.creator.P8DomainTest",
-              "duration_seconds": 0.004,
+              "duration_seconds": 0.003,
               "outcome": "PASSED",
               "selector": "com.storynpcs.creator.P8DomainTest#worldToolDefinitionsCarryInertHooks()",
               "test_name": "worldToolDefinitionsCarryInertHooks()"
@@ -1160,6 +1454,11 @@
           "uncovered_scope": "No live item-use session, world mutation execution, or target-runtime creator-tool fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -1182,7 +1481,7 @@
             },
             {
               "class_name": "com.storynpcs.P9DomainTest",
-              "duration_seconds": 0.005,
+              "duration_seconds": 0.006,
               "outcome": "PASSED",
               "selector": "com.storynpcs.P9DomainTest#meterEnforcesAllQuotaAxes()",
               "test_name": "meterEnforcesAllQuotaAxes()"
@@ -1198,10 +1497,15 @@
           "uncovered_scope": "No JS/engine runtime inside hooks, live script-triggered world effects, or target-runtime script fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
-      "evidence_state": "UNVERIFIED_TARGET_RUNTIME",
+      "evidence_state": "VERIFIED_TARGET_RUNTIME",
       "fixture_id": "P0-4.commands",
       "storynpcs_probe": {
         "result": {
@@ -1213,14 +1517,14 @@
           "tests": [
             {
               "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-              "duration_seconds": 0.004,
+              "duration_seconds": 0.003,
               "outcome": "PASSED",
               "selector": "com.storynpcs.command.StoryNpcsCommandsTest#Command tree registers /storynpcs and /sn alias with all subcommands",
               "test_name": "Command tree registers /storynpcs and /sn alias with all subcommands"
             },
             {
               "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-              "duration_seconds": 0.003,
+              "duration_seconds": 0.001,
               "outcome": "PASSED",
               "selector": "com.storynpcs.command.StoryNpcsCommandsTest#npc trade and npc bank subcommands register with perm-2 gates on mutations",
               "test_name": "npc trade and npc bank subcommands register with perm-2 gates on mutations"
@@ -1248,6 +1552,260 @@
             }
           ],
           "uncovered_scope": "No per-command mutation equivalence or end-to-end Minecraft command execution/service convergence fixture."
+        },
+        "status": "OBSERVED"
+      },
+      "target_probe": {
+        "provenance": {
+          "evidence_label": "VERIFIED_TARGET_RUNTIME",
+          "import_version": "2026-10-01.1",
+          "imported_from": "docs/parity/target-runtime-import.json",
+          "observations": [
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "logs": [
+                ".local/runtime/server/logs/2026-09-17-6.log.gz",
+                ".local/runtime/server/logs/latest.log"
+              ],
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "4. Server-command NPC and mark probes"
+            },
+            {
+              "evidence_label": "VERIFIED_TARGET_RUNTIME",
+              "recorded_on": "2026-09-17",
+              "source_document": "research/05-runtime-setup.md",
+              "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+            }
+          ],
+          "runtime": {
+            "dedicated_server_port": 25566,
+            "loader": "NeoForge 21.1.230",
+            "probe_scope": "Option A+C server-console probes only"
+          },
+          "source_documents": [
+            "research/05-runtime-setup.md"
+          ],
+          "source_repository": "dwurdys-storynpcs-research",
+          "target_jar_sha256": "6c28d87b215fc1191488194188ec8a39dd908ae7d2d887b7c9d7d463be0a162c"
+        },
+        "result": {
+          "execution_scope": "Recorded dedicated-server console probes on the exact target JAR; no live probe was re-executed by StoryNPCs tooling",
+          "observations": [
+            {
+              "command": "help noppes",
+              "observed_result": "Returned 11 subcommands: clone, config, dialog, faction, mark, npc, quest, scene, schema, script, slay",
+              "probe": "root command discovery",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes config debug 1",
+              "observed_result": "Invalid boolean, expected 'true' or 'false' but found '1'",
+              "probe": "boolean validation",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes config debug true",
+              "observed_result": "Verbose debug is nowtrue",
+              "probe": "debug toggle",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes config freezenpcs true",
+              "observed_result": "Frozen NPCs: true",
+              "probe": "freeze NPCs toggle",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes dialog reload",
+              "observed_result": "'Loading Dialogs' followed by 'Done loading Dialogs' via noppes.npcs.shared.common.util.LogWriter",
+              "probe": "dialog reload",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes quest reload",
+              "observed_result": "Server-side quest subsystem reloaded cleanly without error",
+              "probe": "quest reload",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes clone list 1",
+              "observed_result": "'--- Stored NPCs --- (server side)' header output",
+              "probe": "stored clones query",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes schema list",
+              "observed_result": "Enumerated 28 built-in schematics: archery_range, bakery, barn, building_site, chapel, church, gate, glassworks, guard_tower, guild_house, house, house_small, inn, library, lighthouse, mill, observatory, ship, shop, stall, stall2, stall3, tier_house1, tier_house2, tier_house3, tower, wall, wall_corner (.schematic)",
+              "probe": "schematic catalog",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            },
+            {
+              "command": "noppes npc Probe create; execute as @e[type=customnpcs:customnpc,limit=1] run data get entity @s Name",
+              "observed_result": "A customnpcs:customnpc named 'Probe' was created and readable",
+              "probe": "NPC create/name readback",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "logs": [
+                  ".local/runtime/server/logs/2026-09-17-6.log.gz",
+                  ".local/runtime/server/logs/latest.log"
+                ],
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            },
+            {
+              "command": "noppes npc Probe owner",
+              "observed_result": "Console reported 'No owner' for the newly created NPC",
+              "probe": "NPC owner query",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            },
+            {
+              "command": "noppes npc Probe visible false / semi",
+              "observed_result": "NpcVisible readback values 1 and 2 observed respectively",
+              "probe": "NPC visibility mutation",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            },
+            {
+              "command": "noppes npc Probe delete",
+              "observed_result": "Entity removed; npc_reload_deleted confirmation ran",
+              "probe": "NPC delete",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "4. Server-command NPC and mark probes"
+              }
+            },
+            {
+              "command": "save-all flush; stop",
+              "observed_result": "All chunks and dimensions saved (ThreadedAnvilChunkStorage); process exited cleanly with code 0",
+              "probe": "chunk flush and shutdown",
+              "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "recorded_on": "2026-09-17",
+                "source_document": "research/05-runtime-setup.md",
+                "source_section": "8. Live Server Command & Data Probes (Option C Verification)"
+              }
+            }
+          ]
         },
         "status": "OBSERVED"
       }
@@ -1279,7 +1837,7 @@
             },
             {
               "class_name": "com.storynpcs.network.NetworkPayloadsTest",
-              "duration_seconds": 0.002,
+              "duration_seconds": 0.003,
               "outcome": "PASSED",
               "selector": "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects an oversized editor document",
               "test_name": "payload codec rejects an oversized editor document"
@@ -1288,6 +1846,11 @@
           "uncovered_scope": "No stale-revision, duplicate replay, session binding, or unauthorized actor fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     },
     {
@@ -1310,14 +1873,14 @@
             },
             {
               "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-              "duration_seconds": 0.015,
+              "duration_seconds": 0.013,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
               "test_name": "failedFinalRenameRecoversPreviousGenerationFromBackup()"
             },
             {
               "class_name": "com.storynpcs.persistence.ProgressionRepositoryTest",
-              "duration_seconds": 0.012,
+              "duration_seconds": 0.009,
               "outcome": "PASSED",
               "selector": "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()",
               "test_name": "shouldAtomicallyPersistAndReloadProgression()"
@@ -1326,6 +1889,11 @@
           "uncovered_scope": "No exact target PlayerData migration corpus or live multi-store restart/crash fixture."
         },
         "status": "OBSERVED"
+      },
+      "target_probe": {
+        "next_evidence": "run a target runtime probe and record it in docs/parity/target-runtime-import.json with provenance",
+        "reason": "no VERIFIED_TARGET_RUNTIME observation in the committed import artifact covers this fixture",
+        "status": "UNAVAILABLE"
       }
     }
   ]

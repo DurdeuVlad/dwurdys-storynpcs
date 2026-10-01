@@ -1,0 +1,275 @@
+{
+  "schema": "storynpcs.target-runtime-import/v1",
+  "import_version": "2026-10-01.1",
+  "source": {
+    "repository": "dwurdys-storynpcs-research",
+    "documents": ["research/05-runtime-setup.md"],
+    "target_jar": "CustomNPCs-Unofficial-NeoForge-1.21.1.20251230.jar",
+    "target_jar_sha256": "6c28d87b215fc1191488194188ec8a39dd908ae7d2d887b7c9d7d463be0a162c",
+    "runtime": {
+      "loader": "NeoForge 21.1.230",
+      "dedicated_server_port": 25566,
+      "probe_scope": "Option A+C server-console probes only"
+    }
+  },
+  "exclusions": [
+    {
+      "observation": "GUI/client paths (NPC editing, dialog slots, client packets, reconnect sync, two-client projections)",
+      "status": "NOT_RUN (BLOCKED_NO_CLIENT_HARNESS)",
+      "reason": "no connected Minecraft client in the probed runtime; not imported as observed"
+    },
+    {
+      "observation": "second mark-add probe (noppes mark ... 1 producing no output)",
+      "status": "PARTIAL",
+      "reason": "ambiguous per research/05-runtime-setup.md section 7; two competing interpretations remain INFERENCE"
+    },
+    {
+      "observation": "entity-ID reuse/non-persistence",
+      "status": "NOT_RUN",
+      "reason": "listed as unrun in research/05-runtime-setup.md sections 4-5; not imported"
+    }
+  ],
+  "fixtures": [
+    {
+      "fixture_id": "P0-4.commands",
+      "observations": [
+        {
+          "probe": "root command discovery",
+          "command": "help noppes",
+          "observed_result": "Returned 11 subcommands: clone, config, dialog, faction, mark, npc, quest, scene, schema, script, slay",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "boolean validation",
+          "command": "noppes config debug 1",
+          "observed_result": "Invalid boolean, expected 'true' or 'false' but found '1'",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "debug toggle",
+          "command": "noppes config debug true",
+          "observed_result": "Verbose debug is nowtrue",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "freeze NPCs toggle",
+          "command": "noppes config freezenpcs true",
+          "observed_result": "Frozen NPCs: true",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "dialog reload",
+          "command": "noppes dialog reload",
+          "observed_result": "'Loading Dialogs' followed by 'Done loading Dialogs' via noppes.npcs.shared.common.util.LogWriter",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "quest reload",
+          "command": "noppes quest reload",
+          "observed_result": "Server-side quest subsystem reloaded cleanly without error",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "stored clones query",
+          "command": "noppes clone list 1",
+          "observed_result": "'--- Stored NPCs --- (server side)' header output",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "schematic catalog",
+          "command": "noppes schema list",
+          "observed_result": "Enumerated 28 built-in schematics: archery_range, bakery, barn, building_site, chapel, church, gate, glassworks, guard_tower, guild_house, house, house_small, inn, library, lighthouse, mill, observatory, ship, shop, stall, stall2, stall3, tier_house1, tier_house2, tier_house3, tower, wall, wall_corner (.schematic)",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "NPC create/name readback",
+          "command": "noppes npc Probe create; execute as @e[type=customnpcs:customnpc,limit=1] run data get entity @s Name",
+          "observed_result": "A customnpcs:customnpc named 'Probe' was created and readable",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17",
+            "logs": [".local/runtime/server/logs/2026-09-17-6.log.gz", ".local/runtime/server/logs/latest.log"]
+          }
+        },
+        {
+          "probe": "NPC owner query",
+          "command": "noppes npc Probe owner",
+          "observed_result": "Console reported 'No owner' for the newly created NPC",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "NPC visibility mutation",
+          "command": "noppes npc Probe visible false / semi",
+          "observed_result": "NpcVisible readback values 1 and 2 observed respectively",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "NPC delete",
+          "command": "noppes npc Probe delete",
+          "observed_result": "Entity removed; npc_reload_deleted confirmation ran",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "chunk flush and shutdown",
+          "command": "save-all flush; stop",
+          "observed_result": "All chunks and dimensions saved (ThreadedAnvilChunkStorage); process exited cleanly with code 0",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "P0-4.marks",
+      "observations": [
+        {
+          "probe": "mark add, default color",
+          "command": "noppes mark @e[type=customnpcs:customnpc,limit=1] 3",
+          "observed_result": "Command completed; saved entity data contains mark type 3, color 16777215; independently verified in region file .local/runtime/server/world/entities/r.0.-1.mca (NeoForgeData.cnpcmarkdata.marks[0])",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17",
+            "logs": [".local/runtime/server/logs/2026-09-17-6.log.gz", ".local/runtime/server/world/entities/r.0.-1.mca"]
+          }
+        },
+        {
+          "probe": "mark persistence across restart",
+          "command": "server stop/start on port 25566, then name and mark readback",
+          "observed_result": "'Probe', mark type 3, and color 16777215 survived restart",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17",
+            "logs": [".local/runtime/server/logs/latest.log"]
+          }
+        },
+        {
+          "probe": "mark persistence across client login/logout",
+          "command": "client harness cycles, then marks list readback on SmokeNPC",
+          "observed_result": "Marks list still showed one entry at type=3 after client connect/disconnect cycles",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "7. Second mark-add probe (2026-09-17 continuation)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "mark color-form rejection",
+          "command": "noppes mark @e[type=customnpcs:customnpc,limit=1] 3 ff00ff",
+          "observed_result": "Brigadier rejected the color token with 'Unknown or incomplete command' (recorded runtime defect candidate, not generalized)",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17"
+          }
+        }
+      ]
+    },
+    {
+      "fixture_id": "P0-4.core-entity",
+      "observations": [
+        {
+          "probe": "live entity NBT inspection",
+          "command": "data get entity @e[type=customnpcs:customnpc,limit=1]",
+          "observed_result": {
+            "summary": "Complete live NBT compound dumped from runtime NPC 'Probe'",
+            "entity_uuid": "[-1810586351, -1801566552, -1943627450, -1700839614]",
+            "fields": {
+              "ModRev": 18,
+              "cnpcmarkdata": {"marks": [{"color": 16777215, "type": 3}]},
+              "VisibleAvailability": "present",
+              "NpcModelData": "present",
+              "FactionPoints": "present",
+              "NpcInteractLines": {"Lines": [{"Line": "Hello @p", "Song": "", "Slot": 0}]},
+              "Pos": [0.5, 69.0, 32.5],
+              "RespawnTime": 20
+            }
+          },
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "8. Live Server Command & Data Probes (Option C Verification)",
+            "recorded_on": "2026-09-17"
+          }
+        },
+        {
+          "probe": "saved region entity verification",
+          "command": "offline Anvil region read of .local/runtime/server/world/entities/r.0.-1.mca",
+          "observed_result": "customnpcs:customnpc, Name=Probe, NeoForgeData.cnpcmarkdata.marks[0] type=3 color=16777215 present in saved entity data",
+          "provenance": {
+            "evidence_label": "VERIFIED_TARGET_RUNTIME",
+            "source_document": "research/05-runtime-setup.md",
+            "source_section": "4. Server-command NPC and mark probes",
+            "recorded_on": "2026-09-17",
+            "logs": [".local/runtime/server/world/entities/r.0.-1.mca"]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -81,6 +81,26 @@ def _probe_errors(name: str, probe: Any, statuses: set[str]) -> list[str]:
             errors.append(f"{name} {status.lower()} probe requires next_evidence")
     if status == "OBSERVED" and ("result" not in probe or not _meaningful_result(probe.get("result"))):
         errors.append(f"{name} observed probe requires a meaningful result")
+    if name == "target" and status == "OBSERVED":
+        provenance = probe.get("provenance")
+        if not isinstance(provenance, dict):
+            errors.append("target observed probe requires a provenance object")
+        else:
+            if provenance.get("evidence_label") != "VERIFIED_TARGET_RUNTIME":
+                errors.append("target provenance evidence_label must be VERIFIED_TARGET_RUNTIME")
+            observations = provenance.get("observations")
+            if not isinstance(observations, list) or not observations:
+                errors.append("target provenance requires a non-empty observations list")
+            elif not all(
+                isinstance(item, dict)
+                and all(_nonempty_string(item.get(field))
+                        for field in ("source_document", "source_section", "recorded_on"))
+                for item in observations
+            ):
+                errors.append(
+                    "every target provenance observation requires source_document, "
+                    "source_section, and recorded_on"
+                )
     return errors
 
 

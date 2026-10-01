@@ -270,6 +270,22 @@ def fixture_evidence_checks(root: Path, expected_fixture_count: int) -> tuple[di
     certification_eligible = evidence.get("certification_eligible") is True
     target_verified = parity_status == "VERIFIED" and certification_eligible
     runtime_blocked = not target_verified
+    imported = sum(
+        1
+        for row in evidence.get("fixtures", [])
+        if isinstance(row, dict) and row.get("evidence_state") == "VERIFIED_TARGET_RUNTIME"
+    )
+    runtime_findings: list[str] = []
+    if not target_verified:
+        if imported:
+            runtime_findings.append(
+                f"{imported} fixture(s) carry imported VERIFIED_TARGET_RUNTIME observations; "
+                "no fixture reaches VERIFIED_PARITY, so target parity remains BLOCKED"
+            )
+        else:
+            runtime_findings.append(
+                "target-runtime observations are unavailable; target parity remains BLOCKED"
+            )
     return (
         {
             "pass": current,
@@ -284,10 +300,11 @@ def fixture_evidence_checks(root: Path, expected_fixture_count: int) -> tuple[di
         {
             "pass": certification_eligible and parity_status == "VERIFIED",
             "blocked": runtime_blocked,
-            "findings": [] if target_verified else [
-                "target-runtime observations are unavailable; target parity remains BLOCKED"
-            ],
-            "detail": {"parity_status": parity_status},
+            "findings": runtime_findings,
+            "detail": {
+                "parity_status": parity_status,
+                "imported_target_observation_count": imported,
+            },
         },
     )
 

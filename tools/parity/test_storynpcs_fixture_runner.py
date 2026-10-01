@@ -348,6 +348,7 @@ class StoryNpcsFixtureRunnerTest(unittest.TestCase):
                 "jar": None,
                 "research_root": None,
                 "decompiled_root": None,
+                "target_import": None,
                 "ci_allow_declared_blockers": True,
             })()
             with (

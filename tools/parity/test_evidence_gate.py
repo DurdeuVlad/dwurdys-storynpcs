@@ -11,7 +11,18 @@ def fixture(**overrides):
         "operation_family": "NPC-MODULE-MUTATION",
         "setup": {"world": "fixed-seed"},
         "required_layers": ["server", "target-runtime", "storynpcs-runtime"],
-        "target_probe": {"status": "OBSERVED", "result": {"health": 20}},
+        "target_probe": {
+            "status": "OBSERVED",
+            "result": {"health": 20},
+            "provenance": {
+                "evidence_label": "VERIFIED_TARGET_RUNTIME",
+                "observations": [{
+                    "source_document": "research/05-runtime-setup.md",
+                    "source_section": "8. Live Server Command & Data Probes",
+                    "recorded_on": "2026-09-17",
+                }],
+            },
+        },
         "storynpcs_probe": {"status": "OBSERVED", "result": {"health": 20}},
         "comparison": {"rule": "health-equals", "outcome": "MATCH"},
         "evidence_state": "VERIFIED_PARITY",
@@ -55,6 +66,29 @@ class EvidenceGateTest(unittest.TestCase):
         self.assertFalse(report["certification_eligible"])
         self.assertEqual(report["parity_status"], "BLOCKED")
         self.assertTrue(report["certification_blockers"])
+
+    def test_observed_target_probe_without_provenance_fails(self):
+        value = fixture(target_probe={"status": "OBSERVED", "result": {"health": 20}})
+        report = evaluate_fixtures([value])
+        self.assertEqual(report["status"], "FAIL")
+        messages = [e["message"] for e in report["errors"]]
+        self.assertTrue(any("provenance" in m for m in messages))
+
+    def test_observed_target_probe_with_wrong_evidence_label_fails(self):
+        value = fixture(target_probe={
+            "status": "OBSERVED",
+            "result": {"health": 20},
+            "provenance": {
+                "evidence_label": "HISTORICAL_SOURCE",
+                "observations": [{
+                    "source_document": "docs/old.md",
+                    "source_section": "1",
+                    "recorded_on": "2020-01-01",
+                }],
+            },
+        })
+        report = evaluate_fixtures([value])
+        self.assertEqual(report["status"], "FAIL")
 
     def test_blocked_probe_requires_next_evidence(self):
         value = fixture(

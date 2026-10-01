@@ -31,6 +31,7 @@
   ],
   "runtime_rules": {
     "VERIFIED_PARITY": "target_probe.status=OBSERVED, storynpcs_probe.status=OBSERVED, comparison.outcome=MATCH, and target_probe.result equals storynpcs_probe.result; observed results must be meaningful and non-empty",
+    "VERIFIED_TARGET_RUNTIME": "target_probe.status=OBSERVED with provenance (evidence_label=VERIFIED_TARGET_RUNTIME plus per-observation source_document/source_section/recorded_on), ingested only via the committed target-runtime-import.json artifact",
     "UNVERIFIED_TARGET_RUNTIME": "target_probe.status is UNAVAILABLE, BLOCKED, or NOT_RUN and requires reason plus next_evidence",
     "INTENTIONAL_DEVIATION": "requires rationale and migration_impact",
     "certification_eligible": "only VERIFIED_PARITY and INTENTIONAL_DEVIATION fixtures with no validation errors",
