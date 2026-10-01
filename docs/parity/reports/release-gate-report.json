@@ -122,7 +122,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 992,
+    "junit_test_case_count": 994,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,

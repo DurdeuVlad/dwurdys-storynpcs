@@ -1624,6 +1624,44 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void canonicalTransportRequestRequiresAuthorization() {
+        NamespacedId locationId = NamespacedId.of("storynpcs:harbor_auth");
+        UUID player = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+
+        // Cross-subject command without permission proof is denied BEFORE the
+        // server/runtime path runs — no fee, no teleport, no progression touch.
+        PlayerProgressionActionRequest denied = new PlayerProgressionActionRequest(
+                "transport.request", "command", other, player, UUID.randomUUID(), -1);
+        var deniedResult = service.requestTransport(denied, locationId);
+        assertThat(deniedResult.approved()).isFalse();
+        assertThat(deniedResult.detail()).contains("PERMISSION_DENIED");
+
+        // Script actors are unconditionally denied.
+        PlayerProgressionActionRequest script = new PlayerProgressionActionRequest(
+                "transport.request", "script", player, player, UUID.randomUUID(), -1);
+        var scriptResult = service.requestTransport(script, locationId);
+        assertThat(scriptResult.approved()).isFalse();
+        assertThat(scriptResult.detail()).contains("SCRIPT_CAPABILITY_REQUIRED");
+
+        // An unregistered operation string is rejected as an unknown capability.
+        PlayerProgressionActionRequest unregistered = new PlayerProgressionActionRequest(
+                "transport.teleport.free", "system", player, player, UUID.randomUUID(), -1);
+        var unregisteredResult = service.requestTransport(unregistered, locationId);
+        assertThat(unregisteredResult.approved()).isFalse();
+        assertThat(unregisteredResult.detail()).contains("UNKNOWN_CAPABILITY");
+
+        // An authorized self-transport clears the authorization boundary; with
+        // no live server bound the inner operation reports SERVER_UNAVAILABLE,
+        // proving the request was admitted past authorization.
+        PlayerProgressionActionRequest allowed = new PlayerProgressionActionRequest(
+                "transport.request", "player", player, player, UUID.randomUUID(), -1);
+        var allowedResult = service.requestTransport(allowed, locationId);
+        assertThat(allowedResult.approved()).isFalse();
+        assertThat(allowedResult.detail()).contains("SERVER_UNAVAILABLE");
+    }
+
+    @Test
     void deleteQuestShouldRemoveAndReportDialogueReferences() {
         NamespacedId questId = NamespacedId.of("storynpcs:deletable");
         service.createQuest(questId, "Deletable");

@@ -541,7 +541,15 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var message = mail.get(index1Based - 1);
-        service.markMailRead(player.getUUID(), message.getId());
+        var readResult = service.markMailRead(new com.storynpcs.service.PlayerProgressionActionRequest(
+                "mail.read", "command", player.getUUID(), player.getUUID(),
+                java.util.UUID.randomUUID(), ctx.getSource().hasPermission(2) ? 2 : -1),
+                message.getId());
+        if (!readResult.applied() && !readResult.decision().allowed()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] " + readResult.decision().code() + ": " + readResult.decision().message()));
+            return 0;
+        }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§bFrom " + message.getSender() + "§r — §e" + message.getSubject() + "\n§f" + message.getBody()), false);
         return 1;
@@ -559,7 +567,15 @@ public final class StoryNpcsCommands {
             return 0;
         }
         var message = mail.get(index1Based - 1);
-        service.deleteMail(player.getUUID(), message.getId());
+        var deleteResult = service.deleteMail(new com.storynpcs.service.PlayerProgressionActionRequest(
+                "mail.delete", "command", player.getUUID(), player.getUUID(),
+                java.util.UUID.randomUUID(), ctx.getSource().hasPermission(2) ? 2 : -1),
+                message.getId());
+        if (!deleteResult.applied() && !deleteResult.decision().allowed()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] " + deleteResult.decision().code() + ": " + deleteResult.decision().message()));
+            return 0;
+        }
         ctx.getSource().sendSuccess(() -> Component.literal("§7Deleted mail: " + message.getSubject()), false);
         return 1;
     }
@@ -3151,7 +3167,10 @@ public final class StoryNpcsCommands {
         }
         var locationId = NamespacedId.of(
                 ResourceLocationArgument.getId(ctx, "location_id").toString());
-        var result = service.requestTransport(player.getUUID(), locationId);
+        var result = service.requestTransport(new com.storynpcs.service.PlayerProgressionActionRequest(
+                "transport.request", "command", player.getUUID(), player.getUUID(),
+                java.util.UUID.randomUUID(), ctx.getSource().hasPermission(2) ? 2 : -1),
+                locationId);
         if (!result.approved()) {
             ctx.getSource().sendFailure(Component.literal(
                     "[StoryNPCs] Transport refused: " + result.detail()));

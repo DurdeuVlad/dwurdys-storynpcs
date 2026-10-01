@@ -5626,6 +5626,24 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Authorization-checked transport request (issue #54 — adapter coverage):
+     * a self-scoped {@code command}/{@code player}/{@code dialogue} actor may
+     * transport only themselves; transporting another player requires operator
+     * level 2 proof, matching the canonical player-scoped policy.
+     */
+    public TransportResult requestTransport(
+            PlayerProgressionActionRequest request, NamespacedId locationId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(locationId, "locationId");
+        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+        if (!decision.allowed()) {
+            return new TransportResult(false, null, 0,
+                    decision.code() + ": " + decision.message());
+        }
+        return requestTransport(request.playerUuid(), locationId);
+    }
+
+    /**
      * Authoritative transport operation (P6-3): evaluates the destination via
      * {@link com.storynpcs.domain.transport.TransportEvaluator} BEFORE any fee
      * is charged, then charges emeralds and teleports the player on the server
