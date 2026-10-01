@@ -899,6 +899,10 @@ public class StoryNpcsApplicationService {
      */
     private boolean recordDialogueNodeVisitInternal(
             UUID playerUuid, PlayerProgression progression, NamespacedId dialogueId, String nodeId) {
+        if (!playerUuid.equals(progression.getPlayerUuid())) {
+            throw new IllegalArgumentException(
+                    "progression instance does not belong to the request subject");
+        }
         synchronized (progression) {
             if (progression.hasVisitedDialogueNode(dialogueId, nodeId)) {
                 return false;
