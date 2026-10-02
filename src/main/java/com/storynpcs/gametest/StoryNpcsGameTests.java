@@ -95,6 +95,8 @@ public final class StoryNpcsGameTests {
                 "Hidden-defeat statue must suppress its glow outline — it renders through invisibility");
         helper.assertFalse(npc.isCustomNameVisible(),
                 "Hidden-defeat statue must suppress its nameplate — it renders through invisibility");
+        helper.assertFalse(npc.hasCustomName(),
+                "Hidden-defeat statue must drop its synced name — crosshair-pick plates render on invisible entities");
         helper.assertFalse(npc.isRemoved(), "Hidden-defeat statue must not be removed");
         helper.assertTrue(npc.getHealth() > 0.0F,
                 "Hidden-defeat statue must never sit at 0 HP (vanilla tickDeath would remove it)");

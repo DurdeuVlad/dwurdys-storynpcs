@@ -842,8 +842,11 @@ public class StoryNpcEntity extends PathfinderMob {
         // Glowing outline renders on invisible entities — suppress it while
         // hidden and restore the authored flag on reappearance.
         this.setGlowingTag(false);
-        // Custom nameplates render on invisible entities too.
+        // Custom nameplates render on invisible entities too — including the
+        // crosshair-pick plate (shouldShowName checks hasCustomName). Clearing
+        // the synced name suppresses it; reappear re-applies the authored one.
         this.setCustomNameVisible(false);
+        this.setCustomName(null);
         this.wasInvulnerableBeforeHide = this.isInvulnerable();
         this.wasNoPhysicsBeforeHide = this.noPhysics;
         this.setInvulnerable(true);
@@ -960,14 +963,15 @@ public class StoryNpcEntity extends PathfinderMob {
 
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
-        if (hand != InteractionHand.MAIN_HAND) {
-            return InteractionResult.PASS;
-        }
-
         // A hidden-defeat statue is not interactable — FAIL (not PASS) so the
-        // item-use fallback (name tags, leads) cannot reach it either.
+        // item-use fallback (name tags, leads) cannot reach it either. This
+        // check precedes the hand filter so off-hand items are blocked too.
         if (hiddenDefeatTicksLeft != 0) {
             return InteractionResult.FAIL;
+        }
+
+        if (hand != InteractionHand.MAIN_HAND) {
+            return InteractionResult.PASS;
         }
 
         if (this.level().isClientSide) {
@@ -1403,6 +1407,12 @@ public class StoryNpcEntity extends PathfinderMob {
             if (compound.contains("StoryNpcActorId")) {
                 this.state.setActorId(compound.getString("StoryNpcActorId"));
             }
+            // Hidden-defeat state must be restored BEFORE definition binding:
+            // applyDefinition re-projects nameplate/glow/visibility and would
+            // resurface a counting-down statue if it ran while hiddenTicks==0.
+            if (compound.contains("HiddenDefeatTicksLeft")) {
+                this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
+            }
             if (compound.contains("StoryNpcDefinitionId")) {
                 setDefinitionId(compound.getString("StoryNpcDefinitionId"));
             }
@@ -1443,17 +1453,16 @@ public class StoryNpcEntity extends PathfinderMob {
                         companionTag.getLong("LastChargedWagePeriod"));
                 this.companionPaused = companionTag.getBoolean("Paused");
             }
-            if (compound.contains("HiddenDefeatTicksLeft")) {
-                this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
-                if (this.hiddenDefeatTicksLeft != 0) {
-                    this.wasInvulnerableBeforeHide = compound.getBoolean("HiddenDefeatWasInvulnerable");
-                    this.wasNoPhysicsBeforeHide = compound.getBoolean("HiddenDefeatWasNoPhysics");
-                    // Restore the full hidden-defeat posture — the countdown
-                    // surviving a world save must restore invisibility too.
-                    this.setInvisible(true);
-                    this.setInvulnerable(true);
-                    this.noPhysics = true;
-                }
+            if (this.hiddenDefeatTicksLeft != 0) {
+                this.wasInvulnerableBeforeHide = compound.getBoolean("HiddenDefeatWasInvulnerable");
+                this.wasNoPhysicsBeforeHide = compound.getBoolean("HiddenDefeatWasNoPhysics");
+                // Restore the full hidden-defeat posture — the countdown
+                // surviving a world save must restore the suppression too.
+                this.setInvisible(true);
+                this.setInvulnerable(true);
+                this.noPhysics = true;
+                this.setGlowingTag(false);
+                this.setCustomNameVisible(false);
             }
         } finally {
             loadingSavedData = false;
