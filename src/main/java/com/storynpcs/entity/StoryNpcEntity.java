@@ -151,10 +151,13 @@ public class StoryNpcEntity extends PathfinderMob {
             return;
         }
         // Fail-safe for entities forced to 0 HP without resolving die()
-        // (external setHealth / corrupt NBT): isAlive() is false only after
-        // dead=true, so this cannot re-fire for an entity already dying.
-        if (!this.level().isClientSide && this.isAlive()
-                && this.getHealth() <= 0.0F && !this.isRemoved()) {
+        // (external setHealth / corrupt NBT): LivingEntity.isAlive() is
+        // health-based in 1.21.1, so the guard is the `dead` flag — a husk
+        // (dead=false, health=0) re-resolves through the defeat contract
+        // instead of standing inert forever; an entity already dying
+        // (dead=true) is left to vanilla corpse handling.
+        if (!this.level().isClientSide && !this.dead && !this.isRemoved()
+                && this.getHealth() <= 0.0F) {
             die(this.damageSources().generic());
             return;
         }
@@ -707,10 +710,19 @@ public class StoryNpcEntity extends PathfinderMob {
     /** Defeat resolution honors the authored mode contract (P3-2, issue #59). */
     @Override
     public void die(net.minecraft.world.damagesource.DamageSource source) {
+        // An already-dead entity never re-resolves — prevents a second
+        // NpcDefeatedEvent during the corpse window (kill() reaches die()
+        // directly, bypassing hurt()'s isDeadOrDying check).
+        if (this.dead) {
+            return;
+        }
         // A resolved defeat never re-resolves: bypass-invulnerability sources
         // (void, /kill) hitting a hidden statue must not reset the respawn
-        // countdown or republish the defeat event.
+        // countdown or republish the defeat event. The forced health is
+        // restored because vanilla tickDeath() (driven by tick(), not our
+        // frozen aiStep) would corpse-remove a hidden statue left at 0 HP.
         if (hiddenDefeatTicksLeft != 0) {
+            this.setHealth(Math.min(1.0f, this.getMaxHealth()));
             return;
         }
         if (!this.level().isClientSide && !this.isRemoved()) {
@@ -745,6 +757,30 @@ public class StoryNpcEntity extends PathfinderMob {
             }
         }
         super.die(source);
+    }
+
+    /**
+     * /kill and Entity.kill() are removal intent, not damage — they discard a
+     * defeat-resolved projection outright (a hidden statue or authored-FLEE
+     * NPC would otherwise survive, still reporting "Killed" to the admin).
+     * DIE-mode NPCs take the normal death path so corpse/drops resolve.
+     */
+    @Override
+    public void kill() {
+        if (hiddenDefeatTicksLeft != 0) {
+            this.discard();
+            return;
+        }
+        var mod = StoryNpcsAccess.mod(this);
+        boolean survives = !this.level().isClientSide && mod != null && mod.getRegistry() != null
+                && state.getStats(mod.getRegistry())
+                        .map(stats -> !com.storynpcs.domain.npc.DefeatResolution.resolve(stats).performsDeath())
+                        .orElse(false);
+        if (survives) {
+            this.discard();
+            return;
+        }
+        super.kill();
     }
 
     /**
@@ -786,6 +822,12 @@ public class StoryNpcEntity extends PathfinderMob {
         this.getNavigation().stop();
         if (decision.returnsHome()) {
             net.minecraft.core.BlockPos home = getStartPosition();
+            this.fallDistance = 0.0F; // banked fall damage must not kill on arrival
+            if (home.getY() < this.level().dimensionType().minY()) {
+                // A lazy-snapshotted or corrupted home below the world floor
+                // can never resolve — flee in place instead.
+                return;
+            }
             if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
                 this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
             } else {
@@ -800,7 +842,12 @@ public class StoryNpcEntity extends PathfinderMob {
      */
     private void reappearFromHiddenDefeat() {
         net.minecraft.core.BlockPos home = getStartPosition();
-        this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
+        // A home below the world floor (lazy snapshot, corrupt NBT) resolves
+        // in place — never teleport into the void.
+        if (home.getY() >= this.level().dimensionType().minY()) {
+            this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
+        }
+        this.fallDistance = 0.0F;
         this.setHealth(this.getMaxHealth());
         // Restore the *authored* visibility flag — an authored visibility=1
         // NPC must stay invisible after the hide/respawn cycle.
@@ -810,6 +857,8 @@ public class StoryNpcEntity extends PathfinderMob {
         this.setInvisible(authoredInvisible);
         this.setInvulnerable(false);
         this.noPhysics = false;
+        getDefinition().map(d -> d.getAi())
+                .ifPresent(ai -> applyAnimationStance(ai.getAnimationStance()));
         var mod = StoryNpcsAccess.mod(this);
         if (mod != null && mod.getEventPublisher() != null) {
             NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())

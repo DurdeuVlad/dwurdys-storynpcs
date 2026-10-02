@@ -60,6 +60,11 @@ public class NpcMeleeAttackGoal extends Goal {
             candidate = npc.level().getPlayerByUUID(targetUuid);
         }
 
+        if (candidate instanceof com.storynpcs.entity.StoryNpcEntity sn && sn.isHiddenDefeat()) {
+            // A resolved defeat statue is not attackable — drop the threat.
+            npc.getThreatManager().forgive(targetUuid);
+            return false;
+        }
         if (candidate != null && candidate.isAlive() && !candidate.isRemoved()) {
             if (candidate instanceof Player p && (p.isCreative() || p.isSpectator())) {
                 npc.getThreatManager().forgive(targetUuid);
@@ -83,6 +88,7 @@ public class NpcMeleeAttackGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         if (target == null || !target.isAlive() || target.isRemoved()) return false;
+        if (target instanceof com.storynpcs.entity.StoryNpcEntity sn && sn.isHiddenDefeat()) return false;
         if (target instanceof Player p && (p.isCreative() || p.isSpectator())) return false;
         // Combat leash: drop aggro if target escapes beyond 32 blocks (VULN-18)
         if (npc.distanceToSqr(target) > 32.0 * 32.0) {
