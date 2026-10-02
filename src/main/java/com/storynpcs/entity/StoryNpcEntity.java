@@ -53,6 +53,11 @@ public class StoryNpcEntity extends PathfinderMob {
     private final StoryNpcState state = new StoryNpcState();
     private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
     private BlockPos startPosition;
+    /**
+     * HIDE-defeat state: {@code >0} counts down to reappearance,
+     * {@code <0} means hidden indefinitely, {@code 0} means not hidden.
+     */
+    private int hiddenDefeatTicksLeft = 0;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
 
@@ -131,6 +136,19 @@ public class StoryNpcEntity extends PathfinderMob {
 
     @Override
     public void aiStep() {
+        // Hidden-defeat statues freeze: no super tick, no goals, no drift —
+        // only the respawn countdown advances (negative = hidden indefinitely).
+        if (!this.level().isClientSide && hiddenDefeatTicksLeft != 0) {
+            this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+            this.getNavigation().stop();
+            if (hiddenDefeatTicksLeft > 0) {
+                hiddenDefeatTicksLeft--;
+                if (hiddenDefeatTicksLeft == 0) {
+                    reappearFromHiddenDefeat();
+                }
+            }
+            return;
+        }
         super.aiStep();
         if (this.level().isClientSide) {
             return;
@@ -677,13 +695,16 @@ public class StoryNpcEntity extends PathfinderMob {
         }
     }
 
-    /** Defeat resolution emits the authored mode/respawn contract as a lifecycle event. */
+    /** Defeat resolution honors the authored mode contract (P3-2, issue #59). */
     @Override
     public void die(net.minecraft.world.damagesource.DamageSource source) {
+        com.storynpcs.domain.npc.DefeatResolution.Decision decision = null;
         if (!this.level().isClientSide && !this.isRemoved()) {
             var mod = StoryNpcsAccess.mod(this);
             if (mod != null && mod.getEventPublisher() != null) {
-                state.getStats(mod.getRegistry()).ifPresent(stats -> {
+                var statsOpt = state.getStats(mod.getRegistry());
+                if (statsOpt.isPresent()) {
+                    var stats = statsOpt.get();
                     NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
                             .map(NpcDefinition::getId).orElse(null);
                     var defeat = stats.getDefeat();
@@ -691,10 +712,76 @@ public class StoryNpcEntity extends PathfinderMob {
                             definitionId, this.getUUID(),
                             defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
                             stats.getRespawnTimeSeconds(), stats.getXpReward()));
-                });
+                    decision = com.storynpcs.domain.npc.DefeatResolution.resolve(stats);
+                }
             }
         }
+        // DIE (and unresolved stats) take the normal death path; HIDE/FLEE
+        // suppress it — no corpse, drops, XP orbs, or removal.
+        if (decision != null && !decision.performsDeath()) {
+            switch (decision.mode()) {
+                case HIDE -> enterHiddenDefeat(decision.hiddenTicks());
+                case FLEE -> fleeDefeat(decision);
+                default -> { }
+            }
+            return;
+        }
         super.die(source);
+    }
+
+    /**
+     * HIDE defeat: the projection becomes an invisible, invulnerable,
+     * non-physical statue and reappears at its start position once the
+     * authored respawn timer elapses. {@code ticks < 0} stays hidden until
+     * removal (authored respawn time <= 0).
+     */
+    private void enterHiddenDefeat(int ticks) {
+        this.hiddenDefeatTicksLeft = ticks;
+        this.setHealth(Math.min(1.0f, this.getMaxHealth()));
+        this.threatManager.clearAll();
+        this.setTarget(null);
+        this.getNavigation().stop();
+        this.setInvisible(true);
+        this.setInvulnerable(true);
+        this.noPhysics = true;
+        if (bossBar != null) {
+            bossBar.removeAllPlayers();
+            bossBar = null;
+        }
+    }
+
+    /** FLEE defeat: survive at the authored threshold, disengage, path home. */
+    private void fleeDefeat(com.storynpcs.domain.npc.DefeatResolution.Decision decision) {
+        this.setHealth(Math.max(1.0f, this.getMaxHealth() * decision.healthAfterFraction()));
+        this.threatManager.clearAll();
+        this.setTarget(null);
+        this.getNavigation().stop();
+        net.minecraft.core.BlockPos home = getStartPosition();
+        if (home != null) {
+            this.getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 1.2);
+        }
+    }
+
+    /**
+     * Ends the hidden window: teleport home, restore to full health, and
+     * re-activate physics/visibility. Emits {@link com.storynpcs.api.event.NpcRespawnedEvent}.
+     */
+    private void reappearFromHiddenDefeat() {
+        net.minecraft.core.BlockPos home = getStartPosition();
+        if (home != null) {
+            this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
+        }
+        this.setHealth(this.getMaxHealth());
+        this.setInvisible(false);
+        this.setInvulnerable(false);
+        this.noPhysics = false;
+        var mod = StoryNpcsAccess.mod(this);
+        if (mod != null && mod.getEventPublisher() != null) {
+            NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                    .map(NpcDefinition::getId).orElse(null);
+            mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcRespawnedEvent(
+                    definitionId, this.getUUID()));
+        }
     }
 
     public FollowerRole getFollowerRole() {
@@ -708,6 +795,11 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
         if (hand != InteractionHand.MAIN_HAND) {
+            return InteractionResult.PASS;
+        }
+
+        // A hidden-defeat statue is not interactable.
+        if (hiddenDefeatTicksLeft != 0) {
             return InteractionResult.PASS;
         }
 
@@ -1127,6 +1219,9 @@ public class StoryNpcEntity extends PathfinderMob {
             companionTag.putBoolean("Paused", companionPaused);
             compound.put("Companion", companionTag);
         }
+        if (hiddenDefeatTicksLeft != 0) {
+            compound.putInt("HiddenDefeatTicksLeft", hiddenDefeatTicksLeft);
+        }
     }
 
     @Override
@@ -1178,6 +1273,16 @@ public class StoryNpcEntity extends PathfinderMob {
                 this.companionWageLedger.setLastChargedPeriod(
                         companionTag.getLong("LastChargedWagePeriod"));
                 this.companionPaused = companionTag.getBoolean("Paused");
+            }
+            if (compound.contains("HiddenDefeatTicksLeft")) {
+                this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
+                if (this.hiddenDefeatTicksLeft != 0) {
+                    // Restore the full hidden-defeat posture — the countdown
+                    // surviving a world save must restore invisibility too.
+                    this.setInvisible(true);
+                    this.setInvulnerable(true);
+                    this.noPhysics = true;
+                }
             }
         } finally {
             loadingSavedData = false;

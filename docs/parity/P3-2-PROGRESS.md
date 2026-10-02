@@ -16,11 +16,20 @@ Status: `IN-PROGRESS`
 - `NpcStatsTest`: 8 fixtures — per-field bounds, clamp channels, six immunity toggles, defeat modes, null-section rejection, full JSON round-trip through `NpcDefinitionSerde` (covers YAML which flows through the same serde).
 - Full suite: `BUILD SUCCESSFUL` — 57 suites, 503 tests, 0 failures. No live MC testing.
 
+## Defeat runtime pass
+
+- `DefeatResolution` (headless, domain package) maps the authored `Defeat` contract to an executable decision; `die()` now honors all three modes:
+  - `DIE` — unchanged vanilla removal path (drops/XP/corpse all vanilla).
+  - `HIDE` — the projection becomes an invisible, invulnerable, non-physical, non-interactable statue; threat table cleared, navigation stopped, boss bar dropped. `respawnTimeSeconds > 0` → countdown in `aiStep` restores the NPC at its start position at full health and emits `NpcRespawnedEvent`; `<= 0` → stays hidden until removal. The countdown is persisted in entity NBT so a world save mid-hide restores the hidden posture on reload.
+  - `FLEE` — survives the fatal hit at `max(1%, fleeHealthPercent)` of max health, clears the threat table + target, and paths back to `startPosition`. (No invulnerability; re-engagement follows normal aggression rules — targeting-policy depth is P3-3 scope.)
+- `NpcRespawnedEvent` added to the public event surface (`api.event`).
+- `DefeatResolutionTest`: 6 fixtures — each mode, HIDE timer edge (non-positive → indefinite), FLEE threshold clamp, null-stats default-death.
+
 ## Explicit limits
 
 - Ranged contract is domain-authoritative; no projectile entity/goal executes it yet (P3-3 combat runtime or later).
-- Defeat HIDE/FLEE modes emit the event contract; runtime hide/flee/respawn scheduling is not implemented.
 - `dropsProfileId` is a reference hook; drops profiles themselves belong to P3-4.
-- Health/combat regen fields are authoritative data; the regen tick loop is not wired.
 - `areaDamage`, `trail`, sounds, and particles are schema-authoritative but unrendered.
-- Live entity/damage verification deferred — no live MC testing.
+- Hidden-defeat tick gating currently freezes `aiStep` wholesale (statue semantics) — effects/fire/breath bookkeeping also pause; acceptable for the authored "vanish" behavior.
+- FLEE re-engagement semantics are P3-3 targeting-policy scope.
+- Live entity/damage verification deferred — no live MC testing (entity `die()`/`aiStep` paths are runtime-only; the decision layer is JUnit-pinned).
