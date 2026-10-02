@@ -26,7 +26,7 @@ class PerformanceContractTest {
     private static BenchmarkReport report(String scenario, Metrics m) {
         return new BenchmarkReport(ENV, new Workload(scenario, 500, 0, "test"), m,
                 new WorkFingerprint(0, 0, 0, 0, 0),
-                new PerformanceContract.PhaseBreakdown(0, 0, 0, 0));
+                new PerformanceContract.PhaseBreakdown(0, 0, 0, 0, 0, 0));
     }
 
     @Test

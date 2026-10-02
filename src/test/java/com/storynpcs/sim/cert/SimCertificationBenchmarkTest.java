@@ -63,9 +63,17 @@ class SimCertificationBenchmarkTest {
             assertThat(artifact.get("timing_repeatability_observed_pct").isNumber())
                     .as("the observed p95 spread is recorded as evidence even though it is not gated")
                     .isTrue();
-            assertThat(artifact.get("runs").get(0).get("phase_ms").isObject())
-                    .as("per-phase attribution must be recorded for %s", spec.scenario())
-                    .isTrue();
+            for (int i = 0; i < runs.size(); i++) {
+                var breakdown = artifact.get("runs").get(i).get("phase_breakdown");
+                assertThat(breakdown.isObject())
+                        .as("per-phase attribution must be recorded for %s run %d",
+                                spec.scenario(), i)
+                        .isTrue();
+                assertThat(breakdown.get("unattributed_ms").isNumber())
+                        .as("the uninstrumented remainder is disclosed for %s run %d",
+                                spec.scenario(), i)
+                        .isTrue();
+            }
         }
     }
 
@@ -113,15 +121,24 @@ class SimCertificationBenchmarkTest {
             json.append("        \"duplicated_events\": ").append(m.duplicatedEvents()).append("\n");
             json.append("      },\n");
             var ph = r.phases();
-            double totalPhase = Math.max(1.0, ph.evaluateNanos() + ph.sensingNanos()
-                    + ph.pathNanos() + ph.squadNanos());
-            json.append("      \"phase_ms\": {\n");
-            json.append("        \"evaluate\": ").append(ph.evaluateNanos() / 1_000_000.0).append(",\n");
-            json.append("        \"sensing\": ").append(ph.sensingNanos() / 1_000_000.0).append(",\n");
-            json.append("        \"path\": ").append(ph.pathNanos() / 1_000_000.0).append(",\n");
-            json.append("        \"squad\": ").append(ph.squadNanos() / 1_000_000.0).append(",\n");
+            double instrumented = ph.evaluateNanos() + ph.sensingNanos()
+                    + ph.pathNanos() + ph.combatNanos() + ph.squadNanos();
+            double totalPhase = Math.max(1.0, instrumented);
+            double totalTick = Math.max(1.0, instrumented + ph.unattributedNanos());
+            json.append("      \"phase_breakdown\": {\n");
+            json.append("        \"scope\": \"cumulative ms over all measured ticks; *_share are fractions of instrumented phase time\",\n");
+            json.append("        \"evaluate_ms\": ").append(ph.evaluateNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"sensing_ms\": ").append(ph.sensingNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"path_ms\": ").append(ph.pathNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"combat_ms\": ").append(ph.combatNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"squad_ms\": ").append(ph.squadNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"unattributed_ms\": ").append(ph.unattributedNanos() / 1_000_000.0).append(",\n");
             json.append("        \"evaluate_share\": ").append(ph.evaluateNanos() / totalPhase).append(",\n");
-            json.append("        \"squad_share\": ").append(ph.squadNanos() / totalPhase).append("\n");
+            json.append("        \"sensing_share\": ").append(ph.sensingNanos() / totalPhase).append(",\n");
+            json.append("        \"path_share\": ").append(ph.pathNanos() / totalPhase).append(",\n");
+            json.append("        \"combat_share\": ").append(ph.combatNanos() / totalPhase).append(",\n");
+            json.append("        \"squad_share\": ").append(ph.squadNanos() / totalPhase).append(",\n");
+            json.append("        \"instrumented_share_of_tick\": ").append(instrumented / totalTick).append("\n");
             json.append("      },\n");
             json.append("      \"threshold_results\": [\n");
             for (int j = 0; j < c.checks().size(); j++) {
@@ -142,7 +159,9 @@ class SimCertificationBenchmarkTest {
         // assertion failing builds for environment noise.
         List<Double> p95s = runs.stream()
                 .map(r -> r.metrics().msptP95()).sorted().toList();
-        double median = p95s.get(p95s.size() / 2);
+        // Index size/2 is the upper median for even-sized series — consistent
+        // with PerformanceContract.repeatable's convention.
+        double median = p95s.isEmpty() ? -1.0 : p95s.get(p95s.size() / 2);
         double observedPct = median <= 0 ? -1.0
                 : p95s.stream().mapToDouble(v -> Math.abs(v - median) / median * 100.0)
                         .max().orElse(0);

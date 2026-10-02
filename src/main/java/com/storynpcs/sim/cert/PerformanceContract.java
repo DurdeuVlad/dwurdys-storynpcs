@@ -102,12 +102,17 @@ public final class PerformanceContract {
                                   long pathSubmissions, long squadCoordinations) {}
 
     /**
-     * Per-phase wall-time attribution (nanos) — the artifact's own profiler
-     * split so a regression names where the time went. Not threshold-checked;
-     * it explains metrics, it does not gate them.
+     * Per-phase wall-time attribution (cumulative nanos across all measured
+     * ticks) — the artifact's own profiler split so a regression names where
+     * the time went. {@code unattributedNanos} is the measured tick time that
+     * falls outside every instrumented phase (loop bookkeeping, timer gaps),
+     * so the buckets are honestly non-exhaustive rather than implying the
+     * named phases sum to the whole tick. Not threshold-checked; it explains
+     * metrics, it does not gate them.
      */
     public record PhaseBreakdown(long evaluateNanos, long sensingNanos,
-                                 long pathNanos, long squadNanos) {}
+                                 long pathNanos, long combatNanos,
+                                 long squadNanos, long unattributedNanos) {}
 
     public record BenchmarkReport(
             Environment environment,

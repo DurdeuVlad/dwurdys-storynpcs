@@ -142,6 +142,25 @@ class ReleaseGateTest(unittest.TestCase):
         forward = report["checks"]["dependency_graph"]["detail"]["forward_references"]
         self.assertEqual(forward, sorted(forward))
 
+    def test_benchmark_artifacts_carry_repeatability_floor_and_phase_attribution(self):
+        report = release_gate.run_gate(ROOT)
+        check = report["checks"]["benchmark_artifacts"]
+        self.assertTrue(check["pass"], check["findings"])
+        for scenario, detail in check["detail"].items():
+            self.assertGreaterEqual(detail["runs"], 3, scenario)
+            self.assertIsInstance(detail["timing_repeatability_observed_pct"],
+                                  (int, float), scenario)
+            artifact = json.loads(
+                (PARITY / "reports" / f"benchmark-{scenario}.json")
+                .read_text(encoding="utf-8"))
+            for run in artifact["runs"]:
+                breakdown = run["phase_breakdown"]
+                self.assertIsInstance(breakdown, dict, scenario)
+                for key in ("evaluate_ms", "sensing_ms", "path_ms",
+                            "combat_ms", "squad_ms", "unattributed_ms"):
+                    self.assertIsInstance(breakdown.get(key), (int, float),
+                                          f"{scenario}: {key}")
+
     def test_issue_statuses_cover_all_issues(self):
         register = release_gate.parse_register(
             ROOT / "docs" / "CUSTOMNPCS_PARITY_ISSUE_REGISTER.md")

@@ -9,10 +9,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.075488,
-        "tick_p95_ms": 0.140492,
-        "tick_p99_ms": 0.241136,
-        "heap_after_gc_bytes": 38384120,
+        "tick_p50_ms": 0.068736,
+        "tick_p95_ms": 0.100148,
+        "tick_p99_ms": 0.245668,
+        "heap_after_gc_bytes": 38493792,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -20,17 +20,24 @@
         "lost_events": 0,
         "duplicated_events": 0
       },
-      "phase_ms": {
-        "evaluate": 36.5861,
-        "sensing": 3.1639,
-        "path": 21.213,
-        "squad": 44.5532,
-        "evaluate_share": 0.3467344350914836,
-        "squad_share": 0.42224037635927
+      "phase_breakdown": {
+        "scope": "cumulative ms over all measured ticks; *_share are fractions of instrumented phase time",
+        "evaluate_ms": 34.4044,
+        "sensing_ms": 2.373,
+        "path_ms": 20.9437,
+        "combat_ms": 9.5456,
+        "squad_ms": 40.5461,
+        "unattributed_ms": 0.2211,
+        "evaluate_share": 0.31911238739741477,
+        "sensing_share": 0.0220103735363519,
+        "path_share": 0.1942598652479112,
+        "combat_share": 0.08853865218230117,
+        "squad_share": 0.37607872163602096,
+        "instrumented_share_of_tick": 0.9979534201764446
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.140492, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.241136, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.100148, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.245668, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -44,10 +51,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.073876,
-        "tick_p95_ms": 0.125336,
-        "tick_p99_ms": 0.343472,
-        "heap_after_gc_bytes": 38406384,
+        "tick_p50_ms": 0.07116,
+        "tick_p95_ms": 0.162936,
+        "tick_p99_ms": 0.207396,
+        "heap_after_gc_bytes": 38506672,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -55,17 +62,24 @@
         "lost_events": 0,
         "duplicated_events": 0
       },
-      "phase_ms": {
-        "evaluate": 32.9729,
-        "sensing": 3.0538,
-        "path": 22.6814,
-        "squad": 45.4897,
-        "evaluate_share": 0.31644526084044,
-        "squad_share": 0.436570637767784
+      "phase_breakdown": {
+        "scope": "cumulative ms over all measured ticks; *_share are fractions of instrumented phase time",
+        "evaluate_ms": 34.088,
+        "sensing_ms": 2.3327,
+        "path_ms": 21.6571,
+        "combat_ms": 9.7998,
+        "squad_ms": 47.3373,
+        "unattributed_ms": 0.2198,
+        "evaluate_share": 0.2958645105797948,
+        "sensing_share": 0.02024651325479604,
+        "path_share": 0.187971347455928,
+        "combat_share": 0.08505670707521336,
+        "squad_share": 0.4108609216342678,
+        "instrumented_share_of_tick": 0.9980958931759687
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.125336, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.343472, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.162936, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.207396, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -79,10 +93,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.080564,
-        "tick_p95_ms": 0.1492,
-        "tick_p99_ms": 0.247796,
-        "heap_after_gc_bytes": 38391320,
+        "tick_p50_ms": 0.072812,
+        "tick_p95_ms": 0.133776,
+        "tick_p99_ms": 0.17952,
+        "heap_after_gc_bytes": 38495544,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -90,17 +104,24 @@
         "lost_events": 0,
         "duplicated_events": 0
       },
-      "phase_ms": {
-        "evaluate": 40.6881,
-        "sensing": 3.2111,
-        "path": 24.3774,
-        "squad": 46.7513,
-        "evaluate_share": 0.35372374876008345,
-        "squad_share": 0.4064344389491593
+      "phase_breakdown": {
+        "scope": "cumulative ms over all measured ticks; *_share are fractions of instrumented phase time",
+        "evaluate_ms": 36.7591,
+        "sensing_ms": 2.4536,
+        "path_ms": 24.2694,
+        "combat_ms": 9.7096,
+        "squad_ms": 42.9131,
+        "unattributed_ms": 0.2247,
+        "evaluate_share": 0.31660275888679884,
+        "sensing_share": 0.021132631898078288,
+        "path_share": 0.20903011761787627,
+        "combat_share": 0.08362789479849239,
+        "squad_share": 0.36960659679875424,
+        "instrumented_share_of_tick": 0.9980684177272316
       },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.1492, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.247796, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.133776, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.17952, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤9223372036854775807", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -111,7 +132,7 @@
     }
   ],
   "timing_repeatable_within_10pct": null,
-  "timing_repeatability_observed_pct": 10.787802864220028,
+  "timing_repeatability_observed_pct": 25.13754335605789,
   "timing_repeatability_note": "Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately. timing_repeatability_observed_pct records the measured max deviation from the series median as evidence only.",
   "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED"
 }

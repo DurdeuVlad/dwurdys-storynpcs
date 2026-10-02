@@ -87,17 +87,25 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
   `SCENARIO_THRESHOLDS` for population/siege/stress matching `CUSTOMNPCS_PARITY_CERTIFICATION.md`
   (p95≤35/p99≤45 @500 & 25v25; p95≤45/p99≤50 @2,500; dormant ≤32KiB; queue ≤1,024; zero correctness failures),
   `validate` produces per-metric `Check`s + overall pass/fail, `repeatable` requires ≥3 runs within 10%.
-- `PhaseBreakdown` (this slice) records per-phase nanos — evaluate/sensing/path/squad — on every
-  `BenchmarkReport`, and each artifact run emits `phase_ms` + `evaluate_share`/`squad_share` so a
-  regression names where the time went (the artifact's own profiler split; JFR on a headless JVM
-  adds nothing these counters don't).
+- `PhaseBreakdown` (this slice) records per-phase nanos — evaluate/sensing/path/combat/squad —
+  plus an explicit `unattributedNanos` remainder, on every `BenchmarkReport`. Timing uses one
+  `nanoTime` pair per phase *per tick* (≈6 calls/tick), not per-actor boundaries, so the
+  instrumentation can't dominate the cheap buckets it measures. Each artifact run emits a
+  `phase_breakdown` object (per-phase totals, `*_share` of instrumented time,
+  `unattributed_ms`, `instrumented_share_of_tick`, and a scope note) so a regression names
+  where the time went. JFR/async-profiler would still be worth adding for a *live-server*
+  certification (#126) — on the headless harness these counters cover the same surfaces
+  without adding an agent dependency, but they can't attribute the live tick's
+  uninstrumented remainder (entity AI, chunk IO) the way a real profiler can.
 - Artifacts now record `timing_repeatability_observed_pct` — the measured max deviation of the
   3-seed p95 series from its median — as *evidence*; `timing_repeatable_within_10pct` stays `null`
   (wall-clock repeatability remains deliberately unasserted on shared machines; workload
   determinism is asserted via identical `workFingerprint`s per seed).
-- The release gate hardens `benchmark_artifacts`: ≥3 runs required per scenario and every run must
-  carry `phase_ms` attribution, in addition to all threshold checks passing and the
-  `HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED` state.
+- The release gate hardens `benchmark_artifacts`: ≥3 runs required per scenario, every run must
+  carry a well-formed `phase_breakdown` (dict with numeric evaluate/sensing/path/combat/squad/
+  unattributed `_ms` keys), and `timing_repeatability_observed_pct` must be recorded — in
+  addition to all threshold checks passing and the `HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED`
+  state.
 - 5 fixtures covering threshold constants, pass, per-threshold failure, failure reporting, repeatability.
 
 ## Explicit limits
