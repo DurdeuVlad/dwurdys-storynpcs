@@ -127,6 +127,51 @@ class ThreatManagerTest {
     }
 
     @Test
+    @DisplayName("Skipped sensing pulses consume the whole elapsed span — the authored window does not stretch")
+    void testSkippedPulseElapsedAccounting() {
+        UUID player = UUID.randomUUID();
+        threatManager.setAggroDurationTicks(100);
+        threatManager.addThreat(player, 1);
+
+        // One deferred pulse covering 100 elapsed ticks expires the window
+        // outright — the budget can't stretch authored time.
+        threatManager.tick(5, 100);
+        assertTrue(threatManager.getCurrentTarget().isEmpty(),
+                "A single pulse spanning the whole window must end the engagement");
+    }
+
+    @Test
+    @DisplayName("Non-positive elapsed ticks floor to one — the timer can never stall")
+    void testElapsedFloor() {
+        UUID player = UUID.randomUUID();
+        threatManager.setAggroDurationTicks(40);
+        threatManager.addThreat(player, 1);
+
+        // 39 ticks floored to 1 each: 39 elapsed — window still open.
+        for (int i = 0; i < 39; i++) {
+            threatManager.tick(5, 0);
+        }
+        assertTrue(threatManager.getCurrentTarget().isPresent());
+        threatManager.tick(5, -7); // floors to 1 — 40th tick ends the window
+        assertTrue(threatManager.getCurrentTarget().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Shortening the authored duration clamps a running timer")
+    void testSetAggroDurationClampsRunningTimer() {
+        UUID player = UUID.randomUUID();
+        threatManager.setAggroDurationTicks(400);
+        threatManager.addThreat(player, 1);
+
+        threatManager.setAggroDurationTicks(60); // running 400-window clamps to 60
+        for (int i = 0; i < 3; i++) {
+            threatManager.tick(5, 20); // 60 elapsed — window expires exactly
+        }
+        assertTrue(threatManager.getCurrentTarget().isEmpty(),
+                "Clamped window must expire at the new shorter duration");
+    }
+
+    @Test
     @DisplayName("Aggro duration setter floors at 40 ticks like the authored clamp")
     void testAggroDurationFloor() {
         threatManager.setAggroDurationTicks(0);

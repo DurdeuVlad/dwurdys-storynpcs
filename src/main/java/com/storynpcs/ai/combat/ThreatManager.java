@@ -90,8 +90,9 @@ public class ThreatManager {
     /**
      * Sets the authored calm-down duration (game ticks) — a hit keeps the NPC
      * hostile for at least this long after the last threat write. A shorter
-     * authored duration also clamps a running timer, so a definition refresh
-     * applies to in-flight engagements too.
+     * authored duration clamps a running timer (to a fresh window of the new
+     * duration, not elapsed-since-write); a longer one leaves the current
+     * window untouched until the next threat write re-arms it.
      */
     public void setAggroDurationTicks(int ticks) {
         this.aggroDurationTicks = Math.max(40, ticks);

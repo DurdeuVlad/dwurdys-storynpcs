@@ -138,7 +138,9 @@ public class NpcAi {
     public void setToleranceWindowTicks(int toleranceWindowTicks) { this.toleranceWindowTicks = Math.max(20, toleranceWindowTicks); }
 
     public int getWitnessRadius() { return witnessRadius; }
-    public void setWitnessRadius(int witnessRadius) { this.witnessRadius = Math.max(0, witnessRadius); }
+    public void setWitnessRadius(int witnessRadius) {
+        this.witnessRadius = Math.max(0, Math.min(64, witnessRadius));
+    }
 
     public boolean isDefendAllies() { return defendAllies; }
     public void setDefendAllies(boolean defendAllies) { this.defendAllies = defendAllies; }
