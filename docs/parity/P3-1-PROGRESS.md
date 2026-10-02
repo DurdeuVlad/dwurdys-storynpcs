@@ -37,8 +37,8 @@ Status: `IN-PROGRESS`
 ## Third pass — display editor coverage
 
 - Added `NpcDisplayScreenModel` (headless editor state) + `NpcDisplayScreen`, reachable from the main editor's new "Display & Render" button. Covers the full `NpcDisplay` contract the main panel did not fit: skin source (`texture`/`player`/`url`), skin texture/URL/player, cloak/glow textures, overlay-glow and show-layers toggles, visibility, model type/id/size, scale XYZ, tint, show-name + name-mode, living-animation, hitbox state, boss-bar mode/color, and the `NpcAi` animation stance.
-- `apply()` pushes state through the domain setters only, so out-of-range/invalid input is rejected with an inline error before the save payload is built — server-side `saveNpc` validation remains the single authority.
+- `apply()` validates into a detached `NpcDisplay` and swaps it in only after every setter succeeds — atomic commit, so invalid input can never leave a half-written display. Server-side `saveNpc` validation remains the single authority.
 - The skin-source picker is applied last so an explicit selection wins over stale URL/player values (the domain's own auto-flip precedence is preserved for command/YAML paths).
-- Save routes through the existing `ServerboundNpcSavePayload` whole-definition JSON; `StoryNpcsClient` now dispatches save results to the display screen the same as the rules screen.
+- Back navigation applies the staged edits and preserves the expected save revision; save results route through `StoryNpcsClient` to the display screen (and the previously-orphaned `TraderBankerAdminScreen`) with payload-bound request IDs.
 - `NpcDisplayScreenModelTest`: 8 tests — full-field load, apply→JSON→restore round-trip, picker-over-stale-URL precedence, URL source selection, validation error blocking, tint forms, missing-block creation, cycle wrap.
 - Remaining honest gap: animation timelines/playback beyond the stance flag, availability-rule evaluation beyond the stored mode, and live in-client render smoke remain unproven — this slice is editor coverage only.

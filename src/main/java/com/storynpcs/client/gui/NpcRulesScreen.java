@@ -124,7 +124,7 @@ public class NpcRulesScreen extends Screen {
         }).bounds(12, this.height - 22, 90, 16).build());
 
         addRenderableWidget(Button.builder(Component.literal("Back"), b ->
-                minecraft.setScreen(new NpcEditorScreen(model.getNpc())))
+                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)))
                 .bounds(this.width - 56, 4, 46, 14).build());
     }
 

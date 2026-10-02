@@ -72,8 +72,12 @@ class NpcDisplayScreenModelTest {
         assertEquals(2, m.getNameModeIdx());
         assertEquals(1, m.getHitboxIdx());
         assertEquals(1, m.getBossBarModeIdx());
-        assertEquals(NpcDisplay.BossBarColor.GREEN.ordinal(), m.getBossBarColorIdx());
-        assertEquals(NpcAi.AnimationStance.SITTING.ordinal(), m.getStanceIdx());
+        // Name-keyed load: the index must address "green"/"sitting" by name,
+        // not merely by ordinal position.
+        assertEquals(java.util.Arrays.asList(NpcDisplayScreenModel.BOSS_BAR_COLORS).indexOf("green"),
+                m.getBossBarColorIdx());
+        assertEquals(java.util.Arrays.asList(NpcDisplayScreenModel.ANIMATION_STANCES).indexOf("sitting"),
+                m.getStanceIdx());
         assertTrue(m.isOverlayGlowing());
         assertFalse(m.isShowLayers());
         assertFalse(m.isShowName());
@@ -183,19 +187,26 @@ class NpcDisplayScreenModelTest {
     }
 
     @Test
-    @DisplayName("invalid scale/modelSize/tint produce error strings and leave domain untouched")
+    @DisplayName("invalid input fails the whole apply atomically — domain keeps every prior value")
     void testValidationErrorsBlockApply() {
         NpcDisplayScreenModel m = newModel();
+        // Set fields that would commit BEFORE the failing one — atomic staging
+        // means none of them reach the domain on failure.
+        m.setModelSize("25");
+        m.setModelId("storynpcs:should_not_commit");
         m.setScaleX("12"); // above the 0.1..8.0 bound
         String err = m.apply();
         assertNotNull(err);
         assertTrue(m.isStatusError());
-        // modelSize never reached — display must keep defaults
-        assertEquals(5, m.getNpc().getDisplay().getModelSize());
+        NpcDisplay d = m.getNpc().getDisplay();
+        assertEquals(5, d.getModelSize());
+        assertEquals("", d.getModelId());
+        assertEquals(1.0f, d.getScaleX());
 
         m = newModel();
         m.setModelSize("abc");
         assertNotNull(m.apply());
+        assertEquals(5, m.getNpc().getDisplay().getModelSize());
 
         m = newModel();
         m.setTint("not-a-color");
@@ -227,6 +238,28 @@ class NpcDisplayScreenModelTest {
         assertNull(m.apply());
         assertNotNull(npc.getDisplay());
         assertNotNull(npc.getAi());
+    }
+
+    @Test
+    @DisplayName("picker arrays stay in lockstep with the domain enums by name")
+    void testPickerEnumLockstep() {
+        // The screen maps index -> valueOf(name) — a reordered enum must be
+        // caught by name, not silently pass via ordinals.
+        assertEquals(NpcDisplay.SkinSource.values().length, NpcDisplayScreenModel.SKIN_SOURCES.length);
+        for (int i = 0; i < NpcDisplayScreenModel.SKIN_SOURCES.length; i++) {
+            assertEquals(NpcDisplay.SkinSource.values()[i].name(),
+                    NpcDisplayScreenModel.SKIN_SOURCES[i].toUpperCase(java.util.Locale.ROOT));
+        }
+        assertEquals(NpcDisplay.BossBarColor.values().length, NpcDisplayScreenModel.BOSS_BAR_COLORS.length);
+        for (int i = 0; i < NpcDisplayScreenModel.BOSS_BAR_COLORS.length; i++) {
+            assertEquals(NpcDisplay.BossBarColor.values()[i].name(),
+                    NpcDisplayScreenModel.BOSS_BAR_COLORS[i].toUpperCase(java.util.Locale.ROOT));
+        }
+        assertEquals(NpcAi.AnimationStance.values().length, NpcDisplayScreenModel.ANIMATION_STANCES.length);
+        for (int i = 0; i < NpcDisplayScreenModel.ANIMATION_STANCES.length; i++) {
+            assertEquals(NpcAi.AnimationStance.values()[i].name(),
+                    NpcDisplayScreenModel.ANIMATION_STANCES[i].toUpperCase(java.util.Locale.ROOT));
+        }
     }
 
     @Test

@@ -29,7 +29,6 @@ public class NpcDisplayScreen extends Screen {
     private static final int FIELD_W = 160;
     private static final int COLOR_OK = 0xFF4ADE80;
     private static final int COLOR_ERR = 0xFFF87171;
-    private static final int COLOR_LABEL = 0xFFA1A1AA;
 
     private final NpcDisplayScreenModel model;
     private long expectedRevision;
@@ -71,7 +70,7 @@ public class NpcDisplayScreen extends Screen {
                 b -> model.cycleSkinSource(1)));
         y += ROW_H; field(colL, y, "Skin Texture", model.getSkinTexture(), model::setSkinTexture);
         y += ROW_H; field(colL, y, "Skin URL", model.getSkinUrl(), model::setSkinUrl);
-        y += ROW_H; field(colL, y, "Skin Player", model.getSkinPlayer(), model::setSkinPlayer);
+        y += ROW_H; field(colL, y, "Skin Player", model.getSkinPlayer(), model::setSkinPlayer, 64);
         y += ROW_H; field(colL, y, "Cloak Texture", model.getCloakTexture(), model::setCloakTexture);
         y += ROW_H; field(colL, y, "Glow Texture", model.getGlowTexture(), model::setGlowTexture);
         y += ROW_H; addRenderableWidget(toggleButton(colL, y, "Overlay Glow", model.isOverlayGlowing(),
@@ -85,13 +84,13 @@ public class NpcDisplayScreen extends Screen {
         addRenderableWidget(cycleButton(colM, y, "Visibility",
                 NpcDisplayScreenModel.VISIBILITIES[model.getVisibilityIdx()],
                 b -> model.cycleVisibility(1)));
-        y += ROW_H; field(colM, y, "Model Type", model.getModelType(), model::setModelType);
-        y += ROW_H; field(colM, y, "Model ID", model.getModelId(), model::setModelId);
-        y += ROW_H; field(colM, y, "Model Size (1-30)", model.getModelSize(), model::setModelSize);
-        y += ROW_H; field(colM, y, "Scale X", model.getScaleX(), model::setScaleX);
-        y += ROW_H; field(colM, y, "Scale Y", model.getScaleY(), model::setScaleY);
-        y += ROW_H; field(colM, y, "Scale Z", model.getScaleZ(), model::setScaleZ);
-        y += ROW_H; field(colM, y, "Tint (hex)", model.getTint(), model::setTint);
+        y += ROW_H; field(colM, y, "Model Type", model.getModelType(), model::setModelType, 64);
+        y += ROW_H; field(colM, y, "Model ID", model.getModelId(), model::setModelId, 256);
+        y += ROW_H; field(colM, y, "Model Size (1-30)", model.getModelSize(), model::setModelSize, 8);
+        y += ROW_H; field(colM, y, "Scale X", model.getScaleX(), model::setScaleX, 10);
+        y += ROW_H; field(colM, y, "Scale Y", model.getScaleY(), model::setScaleY, 10);
+        y += ROW_H; field(colM, y, "Scale Z", model.getScaleZ(), model::setScaleZ, 10);
+        y += ROW_H; field(colM, y, "Tint (hex)", model.getTint(), model::setTint, 7);
         y += ROW_H; addRenderableWidget(toggleButton(colM, y, "Living Animation", model.isLivingAnimation(),
                 b -> model.toggleLivingAnimation()));
 
@@ -118,33 +117,42 @@ public class NpcDisplayScreen extends Screen {
 
         // ── Bottom: actions ─────────────────────────────────────────────────
         addRenderableWidget(Button.builder(Component.literal("Save"), b -> {
-            String error = model.apply();
-            if (error != null) {
-                return; // status already set by apply()
+            if (model.apply() != null) {
+                return; // error status already set by apply()
             }
-            sendSave("Saved display definition.");
+            sendSave("Saving display definition...");
         }).bounds(this.width - 130, this.height - 22, 56, 16).build());
 
         addRenderableWidget(Button.builder(Component.literal("Back"), b -> {
-            // Preserve in-memory edits so returning to the editor does not lose
-            // work — the model state lives on the shared NpcDefinition only
-            // after apply(), so validate-then-mutate before navigating.
-            model.apply();
-            minecraft.setScreen(new NpcEditorScreen(model.getNpc()));
+            // apply() is atomic — a validation failure commits nothing, so on
+            // error we stay and surface it instead of silently losing edits.
+            if (model.apply() != null) {
+                return;
+            }
+            minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision));
         }).bounds(this.width - 66, this.height - 22, 56, 16).build());
     }
 
     // ── Widget helpers ──────────────────────────────────────────────────────
 
     private Button section(int x, int y, String label) {
-        return Button.builder(Component.literal(label), b -> {})
+        Button b = Button.builder(Component.literal(label), btn -> {})
                 .bounds(x, y, FIELD_W, 10).build();
+        b.active = false;
+        return b;
     }
 
     private void field(int x, int y, String label, String value,
                        java.util.function.Consumer<String> responder) {
+        field(x, y, label, value, responder, 512);
+    }
+
+    private void field(int x, int y, String label, String value,
+                       java.util.function.Consumer<String> responder, int maxLength) {
         EditBox box = new EditBox(this.font, x, y, FIELD_W, 14, Component.literal(label));
-        box.setMaxLength(256);
+        // Match the domain's boundedText bounds so the widget never visually
+        // accepts what the model would later truncate or reject.
+        box.setMaxLength(maxLength);
         box.setValue(value != null ? value : "");
         box.setHint(Component.literal(label));
         // Live-sync into the model so a cycle/toggle rebuild never loses
@@ -190,7 +198,8 @@ public class NpcDisplayScreen extends Screen {
                 "§6Display — §e" + (npc.getId() != null ? npc.getId() : "?"), this.width - 176),
                 12, 8, 0xFFFFFFFF);
         if (!model.getStatusMessage().isEmpty()) {
-            g.drawString(this.font, model.getStatusMessage(), 12, this.height - 18,
+            g.drawString(this.font, this.font.plainSubstrByWidth(
+                    model.getStatusMessage(), this.width - 150), 12, this.height - 18,
                     model.isStatusError() ? COLOR_ERR : COLOR_OK);
         }
         super.render(g, mouseX, mouseY, partial);

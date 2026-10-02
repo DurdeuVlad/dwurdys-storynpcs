@@ -10,8 +10,8 @@ import com.storynpcs.domain.npc.NpcDisplay;
  * {@link NpcDisplay} contract exactly: every picker maps 1:1 to a bounded
  * field, and {@link #apply()} pushes state through the domain setters so
  * server-side validation on the save path stays the single source of truth.
- * The main editor owns name/title/skinTexture; this model owns everything
- * else so the two forms cannot clobber each other.
+ * The main editor owns name/title (carried forward untouched on apply); this
+ * model owns every other display field including skinTexture.
  */
 public final class NpcDisplayScreenModel {
 
@@ -78,13 +78,14 @@ public final class NpcDisplayScreenModel {
         this.nameModeIdx = display.getShowNameMode();
         this.hitboxIdx = display.getHitboxState();
         this.bossBarModeIdx = display.getBossBarMode();
-        this.bossBarColorIdx = display.getBossBarColor().ordinal();
+        this.bossBarColorIdx = indexByName(BOSS_BAR_COLORS, display.getBossBarColor().name());
         this.overlayGlowing = display.isOverlayGlowing();
         this.showLayers = display.isShowLayers();
         this.showName = display.isShowName();
         this.livingAnimation = display.hasLivingAnimation();
         NpcAi ai = npc.getAi();
-        this.stanceIdx = ai != null ? ai.getAnimationStance().ordinal() : 0;
+        this.stanceIdx = ai != null
+                ? indexByName(ANIMATION_STANCES, ai.getAnimationStance().name()) : 0;
     }
 
     public NpcDefinition getNpc() { return npc; }
@@ -148,45 +149,54 @@ public final class NpcDisplayScreenModel {
     }
 
     /**
-     * Pushes all widget state into the NPC's display/ai blocks through the
-     * domain setters. Returns an error string on the first invalid field, or
-     * null on success — the caller aborts the save on a non-null result so an
-     * invalid value can never leave the editor.
+     * Validates all widget state and commits it atomically: fields are applied
+     * to a detached {@link NpcDisplay} that only replaces the NPC's instance
+     * after every setter has succeeded, so an invalid value can never leave a
+     * half-written display on the definition. Returns the error string on
+     * failure (domain untouched), or null on success.
      */
     public String apply() {
         try {
-            if (npc.getDisplay() == null) npc.setDisplay(new NpcDisplay());
-            if (npc.getAi() == null) npc.setAi(new NpcAi());
-            NpcDisplay display = npc.getDisplay();
-
-            display.setSkinTexture(blankToDefault(skinTexture, "storynpcs:textures/entity/default.png"));
+            NpcDisplay staged = new NpcDisplay();
+            // name/title are owned by the main editor — carry them forward.
+            if (npc.getDisplay() != null) {
+                staged.setName(npc.getDisplay().getName());
+                staged.setTitle(npc.getDisplay().getTitle());
+            }
+            staged.setSkinTexture(skinTexture);
             // The URL/player setters auto-flip skinSource on non-blank input —
             // apply the picker last so an explicit source selection always wins
             // over stale values left in the other fields.
-            display.setSkinUrl(skinUrl);
-            display.setSkinPlayer(skinPlayer);
-            display.setSkinSource(NpcDisplay.SkinSource.valueOf(SKIN_SOURCES[skinSourceIdx].toUpperCase()));
-            display.setCloakTexture(cloakTexture);
-            display.setGlowTexture(glowTexture);
-            display.setOverlayGlowing(overlayGlowing);
-            display.setShowLayers(showLayers);
-            display.setVisibility(visibilityIdx);
-            display.setModelType(modelType);
-            display.setModelId(modelId);
-            display.setModelSize(parseInt(modelSize, "model size", 1, 30));
-            display.setScaleX(parseScale(scaleX, "scale X"));
-            display.setScaleY(parseScale(scaleY, "scale Y"));
-            display.setScaleZ(parseScale(scaleZ, "scale Z"));
-            display.setShowName(showName);
-            display.setShowNameMode(nameModeIdx);
-            display.setTint(parseTint(tint));
-            display.setLivingAnimation(livingAnimation);
-            display.setHitboxState(hitboxIdx);
-            display.setBossBarMode(bossBarModeIdx);
-            display.setBossBarColor(NpcDisplay.BossBarColor.valueOf(
-                    BOSS_BAR_COLORS[bossBarColorIdx].toUpperCase()));
-            npc.getAi().setAnimationStance(NpcAi.AnimationStance.valueOf(
-                    ANIMATION_STANCES[stanceIdx].toUpperCase()));
+            staged.setSkinUrl(skinUrl);
+            staged.setSkinPlayer(skinPlayer);
+            staged.setSkinSource(NpcDisplay.SkinSource.valueOf(
+                    SKIN_SOURCES[skinSourceIdx].toUpperCase(java.util.Locale.ROOT)));
+            staged.setCloakTexture(cloakTexture);
+            staged.setGlowTexture(glowTexture);
+            staged.setOverlayGlowing(overlayGlowing);
+            staged.setShowLayers(showLayers);
+            staged.setVisibility(visibilityIdx);
+            staged.setModelType(modelType);
+            staged.setModelId(modelId);
+            staged.setModelSize(parseInt(modelSize, "model size", 1, 30));
+            staged.setScaleX(parseScale(scaleX, "scale X"));
+            staged.setScaleY(parseScale(scaleY, "scale Y"));
+            staged.setScaleZ(parseScale(scaleZ, "scale Z"));
+            staged.setShowName(showName);
+            staged.setShowNameMode(nameModeIdx);
+            staged.setTint(parseTint(tint));
+            staged.setLivingAnimation(livingAnimation);
+            staged.setHitboxState(hitboxIdx);
+            staged.setBossBarMode(bossBarModeIdx);
+            staged.setBossBarColor(NpcDisplay.BossBarColor.valueOf(
+                    BOSS_BAR_COLORS[bossBarColorIdx].toUpperCase(java.util.Locale.ROOT)));
+            NpcAi.AnimationStance stance = NpcAi.AnimationStance.valueOf(
+                    ANIMATION_STANCES[stanceIdx].toUpperCase(java.util.Locale.ROOT));
+
+            // Commit phase — nothing below can fail.
+            npc.setDisplay(staged);
+            if (npc.getAi() == null) npc.setAi(new NpcAi());
+            npc.getAi().setAnimationStance(stance);
             return null;
         } catch (IllegalArgumentException e) {
             setStatus(e.getMessage(), true);
@@ -194,8 +204,12 @@ public final class NpcDisplayScreenModel {
         }
     }
 
-    private static String blankToDefault(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
+    /** Positional index of {@code name} inside {@code options} (case-insensitive). */
+    private static int indexByName(String[] options, String name) {
+        for (int i = 0; i < options.length; i++) {
+            if (options[i].equalsIgnoreCase(name)) return i;
+        }
+        return 0;
     }
 
     private static String trimFloat(float value) {
