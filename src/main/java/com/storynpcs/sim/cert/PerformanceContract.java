@@ -101,9 +101,18 @@ public final class PerformanceContract {
     public record WorkFingerprint(long tierEvaluations, long emittedEvents, long deliveredEvents,
                                   long pathSubmissions, long squadCoordinations) {}
 
+    /**
+     * Per-phase wall-time attribution (nanos) — the artifact's own profiler
+     * split so a regression names where the time went. Not threshold-checked;
+     * it explains metrics, it does not gate them.
+     */
+    public record PhaseBreakdown(long evaluateNanos, long sensingNanos,
+                                 long pathNanos, long squadNanos) {}
+
     public record BenchmarkReport(
             Environment environment,
             Workload workload,
             Metrics metrics,
-            WorkFingerprint workFingerprint) {}
+            WorkFingerprint workFingerprint,
+            PhaseBreakdown phases) {}
 }

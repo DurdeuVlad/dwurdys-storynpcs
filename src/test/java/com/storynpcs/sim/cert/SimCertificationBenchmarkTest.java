@@ -60,6 +60,12 @@ class SimCertificationBenchmarkTest {
                     .isTrue();
             assertThat(artifact.get("timing_repeatability_note").asText())
                     .contains("not asserted");
+            assertThat(artifact.get("timing_repeatability_observed_pct").isNumber())
+                    .as("the observed p95 spread is recorded as evidence even though it is not gated")
+                    .isTrue();
+            assertThat(artifact.get("runs").get(0).get("phase_ms").isObject())
+                    .as("per-phase attribution must be recorded for %s", spec.scenario())
+                    .isTrue();
         }
     }
 
@@ -106,6 +112,17 @@ class SimCertificationBenchmarkTest {
             json.append("        \"lost_events\": ").append(m.lostEvents()).append(",\n");
             json.append("        \"duplicated_events\": ").append(m.duplicatedEvents()).append("\n");
             json.append("      },\n");
+            var ph = r.phases();
+            double totalPhase = Math.max(1.0, ph.evaluateNanos() + ph.sensingNanos()
+                    + ph.pathNanos() + ph.squadNanos());
+            json.append("      \"phase_ms\": {\n");
+            json.append("        \"evaluate\": ").append(ph.evaluateNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"sensing\": ").append(ph.sensingNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"path\": ").append(ph.pathNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"squad\": ").append(ph.squadNanos() / 1_000_000.0).append(",\n");
+            json.append("        \"evaluate_share\": ").append(ph.evaluateNanos() / totalPhase).append(",\n");
+            json.append("        \"squad_share\": ").append(ph.squadNanos() / totalPhase).append("\n");
+            json.append("      },\n");
             json.append("      \"threshold_results\": [\n");
             for (int j = 0; j < c.checks().size(); j++) {
                 var check = c.checks().get(j);
@@ -120,8 +137,18 @@ class SimCertificationBenchmarkTest {
             json.append("    }").append(i + 1 < runs.size() ? ",\n" : "\n");
         }
         json.append("  ],\n");
+        // The observed spread is evidence, not a gate: reviewers see how far
+        // the run series actually drifted without a shared-machine timing
+        // assertion failing builds for environment noise.
+        List<Double> p95s = runs.stream()
+                .map(r -> r.metrics().msptP95()).sorted().toList();
+        double median = p95s.get(p95s.size() / 2);
+        double observedPct = median <= 0 ? -1.0
+                : p95s.stream().mapToDouble(v -> Math.abs(v - median) / median * 100.0)
+                        .max().orElse(0);
         json.append("  \"timing_repeatable_within_10pct\": null,\n");
-        json.append("  \"timing_repeatability_note\": \"Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately.\",\n");
+        json.append("  \"timing_repeatability_observed_pct\": ").append(observedPct).append(",\n");
+        json.append("  \"timing_repeatability_note\": \"Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately. timing_repeatability_observed_pct records the measured max deviation from the series median as evidence only.\",\n");
         json.append("  \"certification_state\": \"HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED\"\n");
         json.append("}\n");
         Files.writeString(REPORT_DIR.resolve("benchmark-" + scenario + ".json"), json.toString());

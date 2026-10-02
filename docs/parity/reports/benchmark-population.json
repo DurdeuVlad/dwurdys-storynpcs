@@ -9,10 +9,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.332912,
-        "tick_p95_ms": 0.477556,
-        "tick_p99_ms": 0.544032,
-        "heap_after_gc_bytes": 27658184,
+        "tick_p50_ms": 0.450776,
+        "tick_p95_ms": 0.565712,
+        "tick_p99_ms": 0.785716,
+        "heap_after_gc_bytes": 27835304,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -20,9 +20,17 @@
         "lost_events": 0,
         "duplicated_events": 0
       },
+      "phase_ms": {
+        "evaluate": 621.7421,
+        "sensing": 32.8298,
+        "path": 16.1846,
+        "squad": 0.0611,
+        "evaluate_share": 0.9268422593563437,
+        "squad_share": 9.108288154633987E-5
+      },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.477556, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.544032, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.565712, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.785716, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -36,10 +44,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.319624,
-        "tick_p95_ms": 0.400284,
-        "tick_p99_ms": 0.432552,
-        "heap_after_gc_bytes": 27658840,
+        "tick_p50_ms": 0.401876,
+        "tick_p95_ms": 0.448772,
+        "tick_p99_ms": 0.564224,
+        "heap_after_gc_bytes": 27836040,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -47,9 +55,17 @@
         "lost_events": 0,
         "duplicated_events": 0
       },
+      "phase_ms": {
+        "evaluate": 519.8913,
+        "sensing": 31.2721,
+        "path": 14.4899,
+        "squad": 0.0851,
+        "evaluate_share": 0.9189606008713568,
+        "squad_share": 1.5042288096406395E-4
+      },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.400284, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.432552, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.448772, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.564224, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -63,10 +79,10 @@
       "hardware_profile": "headless-jvm-simulation (no Minecraft runtime; not live MSPT)",
       "ticks": 1500,
       "metrics": {
-        "tick_p50_ms": 0.267528,
-        "tick_p95_ms": 0.351604,
-        "tick_p99_ms": 0.366628,
-        "heap_after_gc_bytes": 27659192,
+        "tick_p50_ms": 0.394944,
+        "tick_p95_ms": 0.43926,
+        "tick_p99_ms": 0.482436,
+        "heap_after_gc_bytes": 27836440,
         "dormant_incremental_bytes": 1,
         "path_queue_max_depth": 0,
         "path_queue_dropped": 0,
@@ -74,9 +90,17 @@
         "lost_events": 0,
         "duplicated_events": 0
       },
+      "phase_ms": {
+        "evaluate": 507.6472,
+        "sensing": 30.9161,
+        "path": 14.437,
+        "squad": 0.0781,
+        "evaluate_share": 0.9178575767920063,
+        "squad_share": 1.4120963682544825E-4
+      },
       "threshold_results": [
-        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.351604, "pass": true},
-        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.366628, "pass": true},
+        {"metric": "msptP95", "limit": "≤35.0", "actual": 0.43926, "pass": true},
+        {"metric": "msptP99", "limit": "≤45.0", "actual": 0.482436, "pass": true},
         {"metric": "dormantIncremental", "limit": "≤32768", "actual": 1.0, "pass": true},
         {"metric": "pathQueueMaxDepth", "limit": "≤1024", "actual": 0.0, "pass": true},
         {"metric": "correctnessFailures", "limit": "≤0", "actual": 0.0, "pass": true},
@@ -87,6 +111,7 @@
     }
   ],
   "timing_repeatable_within_10pct": null,
-  "timing_repeatability_note": "Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately.",
+  "timing_repeatability_observed_pct": 26.0577754405355,
+  "timing_repeatability_note": "Wall-clock repeatability is not asserted: shared-machine timing noise makes a ±10% result environment-dependent. Null means unasserted; workload determinism (identical seeds → identical work counters) is asserted separately. timing_repeatability_observed_pct records the measured max deviation from the series median as evidence only.",
   "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED"
 }

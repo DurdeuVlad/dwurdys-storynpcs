@@ -65,8 +65,8 @@
    "detail": {
     "BLOCKED": 1,
     "DONE-LOCAL": 8,
-    "IN-PROGRESS": 15,
-    "IN-REVIEW": 23
+    "IN-PROGRESS": 14,
+    "IN-REVIEW": 24
    },
    "findings": [
     "P1-1: IN-REVIEW",
@@ -84,7 +84,7 @@
     "P3-3: IN-PROGRESS",
     "P3-4: IN-REVIEW",
     "P4-1: IN-REVIEW",
-    "P4-2: IN-PROGRESS",
+    "P4-2: IN-REVIEW",
     "P4-3: IN-PROGRESS",
     "P5-1: IN-PROGRESS",
     "P5-2: IN-REVIEW",

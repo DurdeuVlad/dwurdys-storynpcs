@@ -422,6 +422,13 @@ def run_gate(root: Path) -> dict[str, Any]:
         runs = artifact.get("runs", [])
         if not runs:
             bench_findings.append(f"{scenario}: no recorded runs")
+        elif len(runs) < 3:
+            bench_findings.append(
+                f"{scenario}: only {len(runs)} run(s) — repeatability requires >=3")
+        for run in runs:
+            if "phase_ms" not in run:
+                bench_findings.append(
+                    f"{scenario}: run seed={run.get('seed')} missing phase_ms attribution")
         failed = [c for run in runs for c in run.get("threshold_results", [])
                   if not c.get("pass")]
         if failed:

@@ -98,6 +98,14 @@ public final class HeadlessBenchmark {
         int maxDepth = 0;
         long requestSeq = 0;
 
+        // Per-phase attribution: a regression report names WHERE time went
+        // (the artifact's own profiler split — JFR on a headless JVM adds no
+        // information these counters don't).
+        long phaseEvaluateNanos = 0;
+        long phaseSensingNanos = 0;
+        long phasePathNanos = 0;
+        long phaseSquadNanos = 0;
+
         // Unmeasured warmup: let the JIT reach steady state so cross-seed
         // repeatability measures the workload, not compilation noise.
         long warmupTicks = Math.max(250, spec.ticks() / 2);
@@ -107,14 +115,20 @@ public final class HeadlessBenchmark {
 
         for (long tick = 0; tick < spec.ticks(); tick++) {
             long start = System.nanoTime();
+            long phaseStart = start;
             scheduler.evaluate(actors);
+            phaseEvaluateNanos += System.nanoTime() - phaseStart;
             tierEvaluations++;
 
             // Capability-gated work per actor at this tick.
             for (SimulationScheduler.ActorInput a : actors) {
+                phaseStart = System.nanoTime();
                 if (scheduler.shouldRun(a.actorId(), SimulationScheduler.Capability.SENSING, tick)) {
                     a.distanceBlocks(); // observable input read — the sensing unit of work
                 }
+                phaseSensingNanos += System.nanoTime() - phaseStart;
+
+                phaseStart = System.nanoTime();
                 if (a.inCombat() && scheduler.shouldRun(a.actorId(),
                         SimulationScheduler.Capability.PATHING, tick)) {
                     pathSubmissions++;
@@ -127,6 +141,8 @@ public final class HeadlessBenchmark {
                         paths.poll();
                     }
                 }
+                phasePathNanos += System.nanoTime() - phaseStart;
+
                 if (a.inCombat() && scheduler.shouldRun(a.actorId(),
                         SimulationScheduler.Capability.COMBAT, tick)) {
                     long eventId = ++eventSeq;
@@ -134,10 +150,13 @@ public final class HeadlessBenchmark {
                     if (!delivered.add(eventId)) duplicated++;
                 }
             }
+            phaseStart = System.nanoTime();
             if (!squad.isEmpty()) {
                 squads.coordinate(squad, enemies, actor -> rng.nextDouble());
                 squadCoordinations++;
             }
+            phaseSquadNanos += System.nanoTime() - phaseStart;
+
             maxDepth = Math.max(maxDepth, paths.depth());
             windowNanos += System.nanoTime() - start;
             if ((tick + 1) % window == 0 || tick + 1 == spec.ticks()) {
@@ -181,7 +200,9 @@ public final class HeadlessBenchmark {
                         + " far actors, " + spec.ticks() + " ticks, seed " + seed);
         WorkFingerprint fingerprint = new WorkFingerprint(tierEvaluations, emitted.size(),
                 delivered.size(), pathSubmissions, squadCoordinations);
-        return new BenchmarkReport(env, workload, metrics, fingerprint);
+        return new BenchmarkReport(env, workload, metrics, fingerprint,
+                new PerformanceContract.PhaseBreakdown(
+                        phaseEvaluateNanos, phaseSensingNanos, phasePathNanos, phaseSquadNanos));
     }
 
     /**
