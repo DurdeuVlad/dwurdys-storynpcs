@@ -268,6 +268,8 @@ Status: `IN-REVIEW` — PR #144 (`eb8ca18`) delivered the wiring slice: `StoryNp
 - **Dependencies and open decisions:** P4-1, P4-2; thresholds are proposed baseline and may only change through a recorded decision.
 - **Verification:** Clean-checkout repeated runs, profiler artifact review, correctness checks under load, threshold report.
 
+Status: `IN-REVIEW` — PR #145 (`3756cb0`) hardened the headless evidence surface: `PhaseBreakdown` (evaluate/sensing/path/combat/squad + disclosed `unattributedNanos`) is recorded on every `BenchmarkReport` via per-tick timer pairs that cannot dominate the cheap buckets they measure; artifacts emit a scoped `phase_breakdown` (per-phase totals, shares of instrumented time, `instrumented_share_of_tick`) and `timing_repeatability_observed_pct` as evidence while `timing_repeatable_within_10pct` stays deliberately unasserted on shared machines; the release gate now requires ≥3 runs per scenario, well-formed attribution, and recorded observed spread. All numbers remain `headless-jvm-simulation` — live dedicated-server MSPT certification (real NeoForge runtime, profiler export, packet metrics) is still unmet and tracked as the separate live-evidence requirement (#126).
+
 ## M5 — Dialogue and quest parity
 
 ### P5-1 — Complete the authoritative dialogue runtime
