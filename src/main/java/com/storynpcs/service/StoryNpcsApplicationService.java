@@ -868,7 +868,7 @@ public class StoryNpcsApplicationService {
         // tokens are revoked and a DialogueClosedEvent fires (P3 — previously
         // the old session was overwritten silently, orphaning its tokens).
         DialogueSession existing = activeSessions.get(playerUuid);
-        if (existing != null && existing.isActive()) {
+        if (existing != null) {
             endSession(playerUuid, existing, DialogueClosedEvent.Reason.SERVER_CLOSE);
         }
 
@@ -988,11 +988,8 @@ public class StoryNpcsApplicationService {
                 "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
                 UUID.randomUUID(), -1), session.getDialogueId(), toNodeId, progression);
 
-        DialogueView view = buildDialogueView(session, progression);
-        if (view.isTerminal()) {
-            endSession(playerUuid, session, DialogueClosedEvent.Reason.GRAPH_END);
-        }
-        return view;
+        // buildDialogueView tears down terminal sessions itself (GRAPH_END).
+        return buildDialogueView(session, progression);
     }
 
     private static DialogueChoiceProtocol.ChoiceToken parseChoiceToken(String text) {
@@ -1104,6 +1101,11 @@ public class StoryNpcsApplicationService {
         DialogueGraph fresh = registry.getDialogue(dialogueId).orElse(null);
         int closed = 0;
         for (DialogueSession session : sessions) {
+            // The snapshot was taken before any ClosedEvent listeners ran — a
+            // synchronous listener may already have ended this session.
+            if (!session.isActive()) {
+                continue;
+            }
             try {
                 PlayerProgression progression = progressionRepository.getOrCreate(session.getPlayerUuid());
                 boolean keep = fresh != null
@@ -2288,9 +2290,10 @@ public class StoryNpcsApplicationService {
         String speaker = speakerLabel(session);
         DialogueNode node = session.getCurrentNode();
         if (node == null || node.isTerminal()) {
-            session.close();
-            activeSessions.remove(session.getPlayerUuid());
-            choiceProtocol.revokeSession(session.getSessionId());
+            // Centralized teardown: every terminal close fires DialogueClosedEvent
+            // (GRAPH_END) — including a terminal entry node on open — and the
+            // identity-remove cannot evict a different session for this player.
+            endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.GRAPH_END);
             return new DialogueView(session.getDialogueId(), node != null ? node.getId() : "",
                     node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true,
                     speaker, List.of(), List.of());
