@@ -37,6 +37,33 @@ public final class DialogueGraphValidator {
                     "dialogue graph " + graph.getId() + " entry node '" + entryId + "' does not exist");
         }
 
+        // Localization keys — optional; when present they must be valid
+        // namespace:path identifiers (Minecraft translation-key charset).
+        checkLocalizationKey(result, "titleKey", graph.getTitleKey());
+        for (DialogueNode node : graph.getNodes().values()) {
+            checkLocalizationKey(result, "node '" + node.getId() + "' textKey", node.getTextKey());
+            if (node.getOptions() != null) {
+                for (DialogueEdge edge : node.getOptions()) {
+                    checkLocalizationKey(result,
+                            "node '" + node.getId() + "' option textKey", edge.getTextKey());
+                }
+            }
+        }
+
+        // Graph-level availability conditions — the target's Dialog.availability.
+        // Edge-level conditions are historically lenient; the new graph-level
+        // surface is strict from introduction: typed target required.
+        if (graph.getAvailability() != null) {
+            for (DialogueCondition condition : graph.getAvailability()) {
+                if (condition == null || condition.getType() == null
+                        || condition.getTarget() == null || condition.getTarget().isBlank()) {
+                    result.addError("DIALOGUE_BAD_AVAILABILITY_CONDITION",
+                            "dialogue graph " + graph.getId()
+                                    + " has an availability condition without type/target");
+                }
+            }
+        }
+
         // Dangling edge targets — every edge must name a node that exists.
         for (DialogueNode node : graph.getNodes().values()) {
             if (node.getOptions() == null) {
@@ -68,6 +95,17 @@ public final class DialogueGraphValidator {
             }
         }
         return result;
+    }
+
+    /** Minecraft translation-key charset: namespace:path, lowercase. */
+    private static final java.util.regex.Pattern LOCALIZATION_KEY =
+            java.util.regex.Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
+
+    private static void checkLocalizationKey(ValidationResult result, String field, String key) {
+        if (key != null && !key.isBlank() && !LOCALIZATION_KEY.matcher(key).matches()) {
+            result.addError("DIALOGUE_BAD_LOCALIZATION_KEY",
+                    field + " '" + key + "' is not a valid namespace:path localization key");
+        }
     }
 
     private static Set<String> reachableFrom(DialogueGraph graph, String start) {

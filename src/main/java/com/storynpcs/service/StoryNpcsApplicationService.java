@@ -853,11 +853,29 @@ public class StoryNpcsApplicationService {
         DialogueGraph graph = registry.getDialogue(dialogueId)
                 .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + dialogueId));
 
+        // Progression record is materialized before the availability gate —
+        // denied opens still cache it (it is needed to evaluate FACTION_* /
+        // QUEST_* conditions either way, and persists at the next saveAll).
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        // Graph-level availability (the target's Dialog.availability) gates the
+        // open itself — fail closed, deny is observable, no session is created.
+        if (!evalConditions(graph.getAvailability(), progression, null)) {
+            eventPublisher.publish(new DialogueOpenDeniedEvent(playerUuid, dialogueId, "AVAILABILITY"));
+            return DialogueView.closed(dialogueId);
+        }
+
+        // A new open supersedes any prior session: tear it down first so its
+        // tokens are revoked and a DialogueClosedEvent fires (P3 — previously
+        // the old session was overwritten silently, orphaning its tokens).
+        DialogueSession existing = activeSessions.get(playerUuid);
+        if (existing != null) {
+            endSession(playerUuid, existing, DialogueClosedEvent.Reason.SERVER_CLOSE);
+        }
+
         DialogueSession session = new DialogueSession(playerUuid, graph, npcEntityUuid, dimensionId, originX, originY, originZ);
         session.setNpcDisplayName(resolveNpcDisplayName(npcEntityUuid));
         activeSessions.put(playerUuid, session);
 
-        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
         // Self-scoped "dialogue" request is always allowed; the visit record is
         // session bookkeeping and its result is intentionally not consulted.
         recordDialogueVisitChecked(new PlayerProgressionActionRequest(
@@ -970,11 +988,8 @@ public class StoryNpcsApplicationService {
                 "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
                 UUID.randomUUID(), -1), session.getDialogueId(), toNodeId, progression);
 
-        DialogueView view = buildDialogueView(session, progression);
-        if (view.isTerminal()) {
-            endSession(playerUuid, session, DialogueClosedEvent.Reason.GRAPH_END);
-        }
-        return view;
+        // buildDialogueView tears down terminal sessions itself (GRAPH_END).
+        return buildDialogueView(session, progression);
     }
 
     private static DialogueChoiceProtocol.ChoiceToken parseChoiceToken(String text) {
@@ -1062,10 +1077,76 @@ public class StoryNpcsApplicationService {
     /** Session teardown: close, remove, revoke outstanding choice tokens, notify. */
     private void endSession(UUID playerUuid, DialogueSession session, DialogueClosedEvent.Reason reason) {
         session.close();
-        activeSessions.remove(playerUuid);
+        // Identity remove: a stale handle must not evict a newer session that
+        // replaced this one in the map.
+        activeSessions.remove(playerUuid, session);
         choiceProtocol.revokeSession(session.getSessionId());
         eventPublisher.publish(new DialogueClosedEvent(
                 playerUuid, session.getDialogueId(), session.getCurrentNodeId(), reason));
+    }
+
+    /**
+     * Re-evaluates every live session pinned to a dialogue whose definition
+     * just changed (canonical mutate/replace/delete) or was reloaded
+     * (definitions reload). Sessions whose dialogue vanished, lost their
+     * current node, or now fail graph-level availability are closed with
+     * {@code SERVER_CLOSE}; surviving sessions rebind to the new graph
+     * instance so they never walk a superseded definition. Emits
+     * {@link DialogueReloadedEvent} with the affected/closed counts.
+     */
+    private void notifyDialogueReloaded(NamespacedId dialogueId) {
+        List<DialogueSession> sessions = activeSessions.values().stream()
+                .filter(s -> s.isActive() && dialogueId.equals(s.getDialogueId()))
+                .toList();
+        DialogueGraph fresh = registry.getDialogue(dialogueId).orElse(null);
+        int closed = 0;
+        for (DialogueSession session : sessions) {
+            // The snapshot was taken before any ClosedEvent listeners ran — a
+            // synchronous listener may already have ended this session.
+            if (!session.isActive()) {
+                continue;
+            }
+            try {
+                PlayerProgression progression = progressionRepository.getOrCreate(session.getPlayerUuid());
+                boolean keep = fresh != null
+                        && fresh.getNodes().containsKey(session.getCurrentNodeId())
+                        && evalConditions(fresh.getAvailability(), progression, session);
+                if (keep) {
+                    session.rebindGraph(fresh);
+                } else {
+                    endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+                    closed++;
+                }
+            } catch (RuntimeException e) {
+                // Fail closed per session: a corrupt progression record or a
+                // rebind fault must not abort re-evaluation of the remaining
+                // sessions or suppress the reload event — the mutation already
+                // committed, so half-processed is the worst honest state.
+                if (session.isActive()) {
+                    endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+                }
+                closed++;
+            }
+        }
+        eventPublisher.publish(new DialogueReloadedEvent(dialogueId, sessions.size(), closed));
+    }
+
+    /**
+     * Definitions-reload hook (e.g. {@code /storynpcs reload}): the staging
+     * registry was swapped wholesale, so every dialogue with a live session is
+     * re-evaluated — the swap carries no per-definition diff. The revision of
+     * each touched dialogue is bumped first so choice tokens issued against a
+     * pre-swap definition become STALE_REVISION and fail closed instead of
+     * re-resolving against the new graph's edge list.
+     */
+    public void notifyDialogueDefinitionsReloaded() {
+        Set<NamespacedId> ids = activeSessions.values().stream()
+                .map(DialogueSession::getDialogueId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        for (NamespacedId id : ids) {
+            definitionRevisions.merge(revisionKey("dialogue", id), 1L, Long::sum);
+            notifyDialogueReloaded(id);
+        }
     }
 
     /** Test seam: bind the choice-token clock (e.g., a controlled tick counter). */
@@ -1170,21 +1251,25 @@ public class StoryNpcsApplicationService {
     public CanonicalMutationResult mutateDialogue(MutationRequest request, Consumer<DialogueGraph> mutation) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(mutation, "mutation");
-        return executeCanonicalMutation(request, "dialogue", "mutate", () -> {
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "mutate", () -> {
             DialogueGraph current = registry.getDialogue(request.targetId())
                     .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + request.targetId()));
             DialogueGraph working = DialogueGraphSerde.fromJson(DialogueGraphSerde.toJson(current))
                     .orElseThrow(() -> new IllegalStateException("Unable to copy dialogue for mutation: " + request.targetId()));
             mutation.accept(working);
             if (!request.targetId().equals(working.getId())) {
-                ValidationResult result = ValidationResult.valid();
-                result.addError("TARGET_ID_MISMATCH", "Dialogue mutation cannot change the request target ID");
-                return result;
+                ValidationResult validation = ValidationResult.valid();
+                validation.addError("TARGET_ID_MISMATCH", "Dialogue mutation cannot change the request target ID");
+                return validation;
             }
             DialogueGraph committed = DialogueGraphSerde.fromJson(DialogueGraphSerde.toJson(working))
                     .orElseThrow(() -> new IllegalStateException("Unable to detach dialogue mutation result: " + request.targetId()));
             return saveDialogue(request.targetId(), committed);
         });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /** Canonical full-graph replacement used by packet adapters after decoding detached input. */
@@ -1193,15 +1278,19 @@ public class StoryNpcsApplicationService {
         String payloadJson = DialogueGraphSerde.toJson(replacement);
         DialogueGraph payload = DialogueGraphSerde.fromJson(payloadJson)
                 .orElseThrow(() -> new IllegalArgumentException("Unable to snapshot dialogue replacement payload"));
-        return executeCanonicalMutation(request, "dialogue", "replace",
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "replace",
                 MutationPayloadFingerprint.ofJson("dialogue.replace", payloadJson), () -> {
                     if (!request.targetId().equals(payload.getId())) {
-                        ValidationResult result = ValidationResult.valid();
-                        result.addError("TARGET_ID_MISMATCH", "Replacement ID does not match request target");
-                        return result;
+                        ValidationResult validation = ValidationResult.valid();
+                        validation.addError("TARGET_ID_MISMATCH", "Replacement ID does not match request target");
+                        return validation;
                     }
                     return saveDialogue(request.targetId(), payload);
                 });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /**
@@ -2025,12 +2114,12 @@ public class StoryNpcsApplicationService {
 
     /** Replay-safe, revision-checked dialogue deletion for command/network adapters. */
     public CanonicalMutationResult deleteDialogue(MutationRequest request) {
-        return executeCanonicalMutation(request, "dialogue", "delete",
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "delete",
                 MutationPayloadFingerprint.of("dialogue.delete", request.targetId().toString()), () -> {
             if (registry.getDialogue(request.targetId()).isEmpty()) {
-                ValidationResult result = ValidationResult.valid();
-                result.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
-                return result;
+                ValidationResult missing = ValidationResult.valid();
+                missing.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
+                return missing;
             }
             if (!deleteDialogue(request.targetId())) {
                 ValidationResult failure = ValidationResult.valid();
@@ -2041,6 +2130,10 @@ public class StoryNpcsApplicationService {
             }
             return ValidationResult.valid();
         });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /**
@@ -2050,30 +2143,34 @@ public class StoryNpcsApplicationService {
      */
     public CanonicalMutationResult deleteUnreferencedDialogue(MutationRequest request) {
         Objects.requireNonNull(request, "request");
-        return executeCanonicalMutation(request, "dialogue", "delete",
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "delete",
                 MutationPayloadFingerprint.of("dialogue.delete.unreferenced", request.targetId().toString()), () -> {
             synchronized (this) {
                 if (registry.getDialogue(request.targetId()).isEmpty()) {
-                    ValidationResult result = ValidationResult.valid();
-                    result.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
-                    return result;
+                    ValidationResult missing = ValidationResult.valid();
+                    missing.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
+                    return missing;
                 }
                 List<NamespacedId> references = findNpcsReferencingDialogue(request.targetId());
                 if (!references.isEmpty()) {
-                    ValidationResult result = ValidationResult.valid();
-                    result.addError("DIALOGUE_REFERENCED",
+                    ValidationResult referenced = ValidationResult.valid();
+                    referenced.addError("DIALOGUE_REFERENCED",
                             "Dialogue '" + request.targetId() + "' is still referenced by NPCs: " + references);
-                    return result;
+                    return referenced;
                 }
                 if (!deleteDialogue(request.targetId())) {
-                    ValidationResult result = ValidationResult.valid();
-                    result.addError("DEFINITION_DELETE_FAILED",
+                    ValidationResult failure = ValidationResult.valid();
+                    failure.addError("DEFINITION_DELETE_FAILED",
                             "Unreferenced dialogue '" + request.targetId() + "' could not be removed");
-                    return result;
+                    return failure;
                 }
             }
             return ValidationResult.valid();
         });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /**
@@ -2193,9 +2290,10 @@ public class StoryNpcsApplicationService {
         String speaker = speakerLabel(session);
         DialogueNode node = session.getCurrentNode();
         if (node == null || node.isTerminal()) {
-            session.close();
-            activeSessions.remove(session.getPlayerUuid());
-            choiceProtocol.revokeSession(session.getSessionId());
+            // Centralized teardown: every terminal close fires DialogueClosedEvent
+            // (GRAPH_END) — including a terminal entry node on open — and the
+            // identity-remove cannot evict a different session for this player.
+            endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.GRAPH_END);
             return new DialogueView(session.getDialogueId(), node != null ? node.getId() : "",
                     node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true,
                     speaker, List.of(), List.of());
