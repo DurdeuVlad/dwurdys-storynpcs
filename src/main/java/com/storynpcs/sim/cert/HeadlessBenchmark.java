@@ -99,9 +99,10 @@ public final class HeadlessBenchmark {
         long requestSeq = 0;
 
         // Per-phase attribution: a regression report names WHERE time went.
-        // One timer pair per phase per tick (≈6 calls/tick) — per-actor
-        // boundaries would put ~4·npcCount nanoTime() calls inside the gated
-        // window and dominate the cheap buckets with measurement overhead.
+        // One timer pair per phase per tick (5 pairs + the tick pair ≈ 11
+        // nanoTime calls/tick) — per-actor boundaries would put ~4·npcCount
+        // nanoTime() calls inside the gated window and dominate the cheap
+        // buckets with measurement overhead.
         long phaseEvaluateNanos = 0;
         long phaseSensingNanos = 0;
         long phasePathNanos = 0;

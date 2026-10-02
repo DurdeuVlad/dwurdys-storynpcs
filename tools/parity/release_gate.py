@@ -426,6 +426,9 @@ def run_gate(root: Path) -> dict[str, Any]:
             bench_findings.append(
                 f"{scenario}: only {len(runs)} run(s) — repeatability requires >=3")
         for run in runs:
+            if not isinstance(run, dict):
+                bench_findings.append(f"{scenario}: malformed run entry")
+                continue
             breakdown = run.get("phase_breakdown")
             required_keys = ("evaluate_ms", "sensing_ms", "path_ms",
                              "combat_ms", "squad_ms", "unattributed_ms")

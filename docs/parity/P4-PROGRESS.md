@@ -89,7 +89,7 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
   `validate` produces per-metric `Check`s + overall pass/fail, `repeatable` requires ≥3 runs within 10%.
 - `PhaseBreakdown` (this slice) records per-phase nanos — evaluate/sensing/path/combat/squad —
   plus an explicit `unattributedNanos` remainder, on every `BenchmarkReport`. Timing uses one
-  `nanoTime` pair per phase *per tick* (≈6 calls/tick), not per-actor boundaries, so the
+  `nanoTime` pair per phase *per tick* (≈11 calls/tick), not per-actor boundaries, so the
   instrumentation can't dominate the cheap buckets it measures. Each artifact run emits a
   `phase_breakdown` object (per-phase totals, `*_share` of instrumented time,
   `unattributed_ms`, `instrumented_share_of_tick`, and a scope note) so a regression names
