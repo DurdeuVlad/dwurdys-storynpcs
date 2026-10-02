@@ -242,6 +242,8 @@ Status: `IN-REVIEW` — `NpcInventory` models the target contract (4 armor + rig
 - **Dependencies and open decisions:** P3-2, P3-3; use explicit conservative per-tier defaults recorded in the simulation-tier schema. The thresholds already defined in `CUSTOMNPCS_PARITY_CERTIFICATION.md` are the initial benchmark baseline; P4-3 implements and reports the later benchmark gate and is not a prerequisite for P4-1.
 - **Verification:** Tier transition, reference-retention, active-combat, memory and deterministic population tests.
 
+Status: `IN-REVIEW` — `SimulationTier`/`SimulationTierPolicy`/`SimulationScheduler`/`TierBudgets`/`ActorMemoryReport` landed earlier with deterministic sorted-id evaluation, observable `TierTransition`s, combat clamped to DISTANT, and archetype/per-actor memory separation. PR #143 (`1794122`) delivered goal-layer consumption: `capabilityPeriod` exposes effective per-capability periods (-1 disabled/UNLOADED, 1 unevaluated → full fidelity) and every path-issuing goal now honors it — sight scans on SENSING, melee repath/attack on PATHING/COMBAT, ranged LOS/volley on SENSING/COMBAT, patrol/return/follow/stroll refuse and halt when PATHING is disabled. DORMANT NPCs do no scans, path finds, or attacks — bookkeeping plus persistence cadence. A live GameTest proves the scheduler→entity→capability wiring. Open residuals: `SquadCoordinator`/`PathScheduler` not yet wired into navigation (P4-2), budgets are constructor-injectable with no runtime config surface, non-goal periodic work (wages/social/regen/jobs) is unbudgeted at DORMANT, and live-server certification remains P4-3/#126.
+
 ### P4-2 — Implement bounded path scheduling and squad coordination
 
 - **Intent:** Prevent N-squared scans and unbounded path work in large battles.
