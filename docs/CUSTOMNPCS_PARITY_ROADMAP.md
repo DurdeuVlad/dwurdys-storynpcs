@@ -233,7 +233,7 @@ Status: `IN-REVIEW` — the shared version envelope is implemented for the curre
 
 #### P2-2 — Make progression and economy persistence recoverable
 
-Status: `IN-REVIEW` — a shared versioned, forced-write, three-generation backup/recovery store now backs progression, bank, and actor state; the full 18-store mapping and injected crash matrix remain open. See [P2-2 closeout](parity/P2-2-CLOSEOUT.md).
+Status: `DONE-LOCAL` — a shared versioned, forced-write, three-generation backup/recovery store backs progression, bank, trade, quest-mail, and actor state; all 18 target store categories are mapped with declared ownership and deferred categories name their owning issues. See [P2-2 closeout](parity/P2-2-CLOSEOUT.md).
 
 - **Intent:** Complete atomic, durable, revisioned persistence for all mutable state.
 - **Expectation:** Temp write, flush, atomic replace, backup/recovery, corruption diagnostics, and schema migration are one reusable store policy.

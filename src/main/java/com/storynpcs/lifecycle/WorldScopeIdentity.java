@@ -114,7 +114,14 @@ public final class WorldScopeIdentity {
             Files.move(temporary, file,
                     StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException fallback) {
+            System.err.println("[StoryNPCs] world scope identity: filesystem does not support "
+                    + "atomic moves for " + file.getParent() + "; using non-atomic replace");
             Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+        }
+        try (FileChannel channel = FileChannel.open(file.getParent(), StandardOpenOption.READ)) {
+            channel.force(true);
+        } catch (IOException | RuntimeException ignored) {
+            // Best-effort directory flush; not all filesystems expose a handle.
         }
     }
 }

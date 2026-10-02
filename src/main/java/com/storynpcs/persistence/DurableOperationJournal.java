@@ -181,22 +181,44 @@ public final class DurableOperationJournal {
         return readExisting(recordPath(operationId));
     }
 
-    /** Returns pending operations in deterministic ID order for recovery services. */
-    public synchronized List<OperationRecord> pending() throws IOException {
+    /** Pending recovery scan: readable PREPARED records plus per-record diagnostics. */
+    public record PendingScan(List<OperationRecord> records, List<String> diagnostics) {
+        public PendingScan {
+            records = records == null ? List.of() : List.copyOf(records);
+            diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
+        }
+    }
+
+    /**
+     * Returns pending operations in deterministic filename order for recovery
+     * services. A record that cannot be decoded or fails field validation is
+     * quarantined (preserved as {@code .corrupted.*} evidence) and reported
+     * through {@link PendingScan#diagnostics()} — one invalid record must not
+     * block recovery of every other pending operation.
+     */
+    public synchronized PendingScan pending() throws IOException {
         return pendingForSubject(null);
     }
 
     /** Returns only pending operations owned by one subject, or all when subject is null. */
-    public synchronized List<OperationRecord> pendingForSubject(String subject) throws IOException {
+    public synchronized PendingScan pendingForSubject(String subject) throws IOException {
         if (subject != null) validateRequiredText(subject, "subject", MAX_SUBJECT_LENGTH);
-        if (!Files.exists(storageDirectory)) return List.of();
+        List<String> diagnostics = new ArrayList<>();
+        if (!Files.exists(storageDirectory)) return new PendingScan(List.of(), diagnostics);
         List<OperationRecord> pending = new ArrayList<>();
         try (var paths = Files.list(storageDirectory)) {
             for (Path path : paths
                     .filter(candidate -> candidate.getFileName().toString().endsWith(".json"))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString()))
                     .toList()) {
-                OperationRecord record = readExisting(path);
+                OperationRecord record;
+                try {
+                    record = readExisting(path);
+                } catch (IOException | RuntimeException invalid) {
+                    diagnostics.add("Skipped invalid journal record " + path + ": " + invalid.getMessage());
+                    DurableJsonStore.quarantine(path, diagnostics);
+                    continue;
+                }
                 if (record != null && record.state() == State.PREPARED
                         && (subject == null || subject.equals(record.subject()))) pending.add(record);
                 if (pending.size() > MAX_PENDING_RECORDS) {
@@ -205,7 +227,7 @@ public final class DurableOperationJournal {
                 }
             }
         }
-        return List.copyOf(pending);
+        return new PendingScan(List.copyOf(pending), List.copyOf(diagnostics));
     }
 
     /**

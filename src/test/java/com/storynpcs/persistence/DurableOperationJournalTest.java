@@ -27,16 +27,16 @@ class DurableOperationJournalTest {
         assertEquals(DurableOperationJournal.BeginStatus.PENDING,
                 journal.begin(operationId, "bank.deposit", "player:test").status());
         assertEquals("tab=0;slot=3;item=minecraft:diamond;count=2", started.record().detail());
-        assertEquals(1, journal.pending().size());
-        assertEquals(1, journal.pendingForSubject("player:test").size());
-        assertTrue(journal.pendingForSubject("player:other").isEmpty());
+        assertEquals(1, journal.pending().records().size());
+        assertEquals(1, journal.pendingForSubject("player:test").records().size());
+        assertTrue(journal.pendingForSubject("player:other").records().isEmpty());
 
         var committed = journal.commit(operationId, "APPLIED", "slot=3");
         assertEquals(DurableOperationJournal.State.COMMITTED, committed.state());
         assertEquals("tab=0;slot=3;item=minecraft:diamond;count=2", committed.preparedIntent());
         assertEquals(DurableOperationJournal.BeginStatus.COMMITTED,
                 journal.begin(operationId, "bank.deposit", "player:test").status());
-        assertTrue(journal.pending().isEmpty());
+        assertTrue(journal.pending().records().isEmpty());
         assertEquals(committed, journal.commit(operationId, "different", "ignored"),
                 "A replay cannot rewrite a committed outcome");
 
@@ -135,7 +135,7 @@ class DurableOperationJournalTest {
         assertEquals(1, countFiles(journalDir, ".json"), "Only the prepared record remains");
         assertEquals(1, countFiles(journalDir, ".json.lock"), "Terminal lock files are removed");
         assertEquals(0, countFiles(journalDir, ".bak.1"), "Backup generations are removed too");
-        assertEquals(1, journal.pending().size());
+        assertEquals(1, journal.pending().records().size());
         assertNull(journal.read(committed));
         assertNull(journal.read(aborted));
     }
@@ -191,5 +191,44 @@ class DurableOperationJournalTest {
         journal.pruneTerminalRecords(0, 0);
         assertTrue(Files.exists(corrupt) || countFilesContaining(journalDir, ".corrupted.") > 0,
                 "Corrupt files stay on disk for manual recovery");
+    }
+
+    @Test
+    @DisplayName("Pending scan quarantines invalid records instead of blocking all recovery")
+    void pendingScanToleratesInvalidRecords(@TempDir Path tempDir) throws IOException {
+        Path journalDir = tempDir.resolve("journal");
+        DurableOperationJournal journal = new DurableOperationJournal(journalDir);
+        UUID valid = UUID.randomUUID();
+        journal.begin(valid, "bank.withdraw", "player:test");
+
+        // Decodable but semantically invalid (blank subject) — validation
+        // failure must not poison recovery of every other pending operation.
+        UUID semanticallyInvalid = UUID.randomUUID();
+        Path invalidPath = journalDir.resolve(semanticallyInvalid + ".json");
+        Files.writeString(invalidPath, "{\"schemaVersion\":1,\"data\":{"
+                + "\"operationId\":\"" + semanticallyInvalid + "\","
+                + "\"operationType\":\"bank.withdraw\",\"subject\":\" \","
+                + "\"state\":\"PREPARED\",\"outcomeCode\":null,\"detail\":null,"
+                + "\"createdAtEpochMillis\":0,\"updatedAtEpochMillis\":0,"
+                + "\"preparedIntent\":null}}");
+
+        // Undecodable bytes land in the same bucket through store quarantine.
+        UUID undecodable = UUID.randomUUID();
+        Files.writeString(journalDir.resolve(undecodable + ".json"), "not json {{{");
+
+        var scan = journal.pending();
+        assertEquals(1, scan.records().size());
+        assertEquals(valid, scan.records().get(0).operationId());
+        assertTrue(scan.diagnostics().toString().contains(semanticallyInvalid + ".json"));
+        assertTrue(scan.diagnostics().toString().contains(undecodable + ".json"));
+        assertFalse(Files.exists(invalidPath), "Invalid record is quarantined, not re-scanned forever");
+        assertTrue(countFilesContaining(journalDir, ".corrupted.") >= 2);
+
+        // Once quarantined, subsequent scans are clean and direct access to a
+        // poisoned operation ID stays fail-closed.
+        assertEquals(1, journal.pending().records().size());
+        assertTrue(journal.pending().diagnostics().isEmpty());
+        assertThrows(IOException.class,
+                () -> journal.begin(semanticallyInvalid, "bank.withdraw", "player:test"));
     }
 }
