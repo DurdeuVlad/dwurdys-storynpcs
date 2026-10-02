@@ -58,6 +58,8 @@ public class StoryNpcEntity extends PathfinderMob {
      * {@code <0} means hidden indefinitely, {@code 0} means not hidden.
      */
     private int hiddenDefeatTicksLeft = 0;
+    /** Whether the entity was already invulnerable before entering hidden defeat. */
+    private boolean wasInvulnerableBeforeHide = false;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
 
@@ -140,6 +142,11 @@ public class StoryNpcEntity extends PathfinderMob {
         // no portal progress — only the respawn countdown advances
         // (negative = hidden indefinitely).
         if (!this.level().isClientSide && hiddenDefeatTicksLeft != 0) {
+            if (this.getHealth() <= 0.0F) {
+                // tickDeath() runs in tick(), outside this freeze — a statue
+                // left at 0 HP (data merge, corrupt load) would corpse-remove.
+                this.setHealth(Math.min(1.0f, this.getMaxHealth()));
+            }
             this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
             this.getNavigation().stop();
             if (hiddenDefeatTicksLeft > 0) {
@@ -425,7 +432,13 @@ public class StoryNpcEntity extends PathfinderMob {
 
     public BlockPos getStartPosition() {
         if (startPosition == null) {
-            startPosition = this.blockPosition();
+            // Never pin a below-world position — a lazy snapshot taken while
+            // the entity falls out of the world would make every future
+            // return-to-start unreachable.
+            BlockPos here = this.blockPosition();
+            if (here.getY() >= this.level().dimensionType().minY()) {
+                startPosition = here;
+            }
         }
         return startPosition;
     }
@@ -532,14 +545,20 @@ public class StoryNpcEntity extends PathfinderMob {
                     groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
                 }
                 this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
-                applyAnimationStance(def.getAi().getAnimationStance());
+                if (!isHiddenDefeat()) {
+                    // A hidden statue re-asserts its own posture — a definition
+                    // refresh must not visibly resurface it mid-countdown.
+                    applyAnimationStance(def.getAi().getAnimationStance());
+                }
             }
             var display = def.getDisplay();
             if (display != null) {
                 // Display flags are authoritative entity state: glowing outline
                 // and hidden visibility come from the projection contract.
                 this.setGlowingTag(display.isOverlayGlowing());
-                this.setInvisible(display.getVisibility() == 1);
+                if (!isHiddenDefeat()) {
+                    this.setInvisible(display.getVisibility() == 1);
+                }
             }
 
             // P6 bindings: scheduled job instance + social/companion profiles.
@@ -734,29 +753,40 @@ public class StoryNpcEntity extends PathfinderMob {
                 if (statsOpt.isPresent()) {
                     var stats = statsOpt.get();
                     var decision = com.storynpcs.domain.npc.DefeatResolution.resolve(stats);
-                    if (mod.getEventPublisher() != null) {
-                        NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
-                                .map(NpcDefinition::getId).orElse(null);
-                        var defeat = stats.getDefeat();
-                        mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
-                                definitionId, this.getUUID(),
-                                defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
-                                stats.getRespawnTimeSeconds(), stats.getXpReward()));
-                    }
                     // DIE (and unresolved stats) take the normal death path;
                     // HIDE/FLEE suppress it — no corpse, drops, XP, or removal.
+                    // The event publishes AFTER the mode dispatch so
+                    // subscribers observe post-dispatch state (a HIDE
+                    // subscriber sees isHiddenDefeat()==true, a FLEE
+                    // subscriber sees the threshold-restored health).
                     if (!decision.performsDeath()) {
                         switch (decision.mode()) {
                             case HIDE -> enterHiddenDefeat(decision.hiddenTicks());
                             case FLEE -> fleeDefeat(decision, source);
                             default -> { }
                         }
+                        publishDefeatedEvent(mod, stats);
                         return;
                     }
+                    publishDefeatedEvent(mod, stats);
                 }
             }
         }
         super.die(source);
+    }
+
+    private void publishDefeatedEvent(StoryNpcs mod,
+                                      com.storynpcs.domain.npc.NpcStats stats) {
+        if (mod.getEventPublisher() == null) {
+            return;
+        }
+        NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                .map(NpcDefinition::getId).orElse(null);
+        var defeat = stats.getDefeat();
+        mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
+                definitionId, this.getUUID(),
+                defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
+                stats.getRespawnTimeSeconds(), stats.getXpReward()));
     }
 
     /**
@@ -799,7 +829,10 @@ public class StoryNpcEntity extends PathfinderMob {
         // mid-action (e.g. still sleeping or drawing a bow).
         this.setPose(net.minecraft.world.entity.Pose.STANDING);
         this.stopUsingItem();
+        this.stopRiding();
+        this.ejectPassengers();
         this.setInvisible(true);
+        this.wasInvulnerableBeforeHide = this.isInvulnerable();
         this.setInvulnerable(true);
         this.noPhysics = true;
         if (bossBar != null) {
@@ -823,7 +856,7 @@ public class StoryNpcEntity extends PathfinderMob {
         if (decision.returnsHome()) {
             net.minecraft.core.BlockPos home = getStartPosition();
             this.fallDistance = 0.0F; // banked fall damage must not kill on arrival
-            if (home.getY() < this.level().dimensionType().minY()) {
+            if (home == null || home.getY() < this.level().dimensionType().minY()) {
                 // A lazy-snapshotted or corrupted home below the world floor
                 // can never resolve — flee in place instead.
                 return;
@@ -844,7 +877,7 @@ public class StoryNpcEntity extends PathfinderMob {
         net.minecraft.core.BlockPos home = getStartPosition();
         // A home below the world floor (lazy snapshot, corrupt NBT) resolves
         // in place — never teleport into the void.
-        if (home.getY() >= this.level().dimensionType().minY()) {
+        if (home != null && home.getY() >= this.level().dimensionType().minY()) {
             this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
         }
         this.fallDistance = 0.0F;
@@ -855,7 +888,7 @@ public class StoryNpcEntity extends PathfinderMob {
                 .map(d -> d.getDisplay() != null && d.getDisplay().getVisibility() == 1)
                 .orElse(false);
         this.setInvisible(authoredInvisible);
-        this.setInvulnerable(false);
+        this.setInvulnerable(wasInvulnerableBeforeHide);
         this.noPhysics = false;
         getDefinition().map(d -> d.getAi())
                 .ifPresent(ai -> applyAnimationStance(ai.getAnimationStance()));
@@ -883,9 +916,9 @@ public class StoryNpcEntity extends PathfinderMob {
      * dimension.
      */
     @Override
-    public boolean canChangeDimensions(net.minecraft.world.level.Level to,
-                                       net.minecraft.world.level.Level from) {
-        return hiddenDefeatTicksLeft == 0 && super.canChangeDimensions(to, from);
+    public boolean canChangeDimensions(net.minecraft.world.level.Level newLevel,
+                                       net.minecraft.world.level.Level oldLevel) {
+        return hiddenDefeatTicksLeft == 0 && super.canChangeDimensions(newLevel, oldLevel);
     }
 
     public FollowerRole getFollowerRole() {
@@ -1167,7 +1200,9 @@ public class StoryNpcEntity extends PathfinderMob {
         if (isInvulnerableTo(source)) {
             return false;
         }
-        if (!this.level().isClientSide && source.getEntity() instanceof LivingEntity attacker) {
+        // A hidden statue absorbs hits but never provokes — no threat writes.
+        if (!this.level().isClientSide && hiddenDefeatTicksLeft == 0
+                && source.getEntity() instanceof LivingEntity attacker) {
             // Prevent self-targeting loop (VULN-19)
             if (attacker != this && !attacker.getUUID().equals(this.getUUID())) {
                 boolean sameFaction = false;
@@ -1325,6 +1360,7 @@ public class StoryNpcEntity extends PathfinderMob {
         }
         if (hiddenDefeatTicksLeft != 0) {
             compound.putInt("HiddenDefeatTicksLeft", hiddenDefeatTicksLeft);
+            compound.putBoolean("HiddenDefeatWasInvulnerable", wasInvulnerableBeforeHide);
         }
     }
 
@@ -1380,6 +1416,7 @@ public class StoryNpcEntity extends PathfinderMob {
             }
             if (compound.contains("HiddenDefeatTicksLeft")) {
                 this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
+                this.wasInvulnerableBeforeHide = compound.getBoolean("HiddenDefeatWasInvulnerable");
                 if (this.hiddenDefeatTicksLeft != 0) {
                     // Restore the full hidden-defeat posture — the countdown
                     // surviving a world save must restore invisibility too.
