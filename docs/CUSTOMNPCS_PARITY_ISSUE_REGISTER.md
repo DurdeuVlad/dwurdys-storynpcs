@@ -255,6 +255,8 @@ Status: `IN-REVIEW` — `SimulationTier`/`SimulationTierPolicy`/`SimulationSched
 - **Dependencies and open decisions:** P3-3, P4-1; default queue cap is 1,024 requests and must be visible in metrics.
 - **Verification:** Queue cap/cancel, thread-safety, 25v25 correctness, unload, overflow and profiler tests.
 
+Status: `IN-REVIEW` — PR #144 (`eb8ca18`) delivered the wiring slice: `StoryNpcPathNavigator` intercepts path-computing `moveTo` overloads onto the bounded `PathScheduler` (cap 1,024, priority+tick ordering, explicit `QUEUE_FULL` drop with no synchronous fallback, combat priority 10), a server-tick drain executes ≤64 requests or ≤4 ms per tick on the server thread (no async world access), superseded requests are purged on re-submit, and `stop()`/`remove()` cancel. `NpcAttackOnSightGoal` coordinates same-faction squads through the shared `(dimension|faction)` `SquadCoordinator` — policy eligibility gates membership, ally-engaged targets are excluded and pinned via `engagedClaims`, assignments are unique/deterministic, and removal releases claims. Live `runGameTestServer` fixtures prove the drain materializes real paths and two same-faction attackers claim distinct targets (9/9 GameTests green; a latent `updateInvisibilityStatus` hidden-defeat leak was fixed drive-by). Residuals: no async compute (drain is bounded count + best-effort wall time), `poll()` is O(n), queue metrics are programmatic-only, no 25v25 live benchmark evidence — live-server certification remains P4-3/#126.
+
 ### P4-3 — Establish the performance certification contract
 
 - **Intent:** Replace unsupported performance claims with reproducible pass/fail evidence.
