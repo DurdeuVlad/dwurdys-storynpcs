@@ -134,6 +134,12 @@ public class StoryNpcEntity extends PathfinderMob {
 
         @Override
         public boolean canUse() {
+            // P4-1: pathing-disabled tiers never start a stroll — dormant
+            // wanderers stand still instead of spending path finds.
+            if (npc.simulationCapabilityPeriod(
+                    com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+                return false;
+            }
             var defOpt = npc.getDefinition();
             if (defOpt.isEmpty()) return false;
             var ai = defOpt.get().getAi();
@@ -141,6 +147,19 @@ public class StoryNpcEntity extends PathfinderMob {
                 return false;
             }
             return super.canUse();
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return npc.simulationCapabilityPeriod(
+                    com.storynpcs.sim.SimulationScheduler.Capability.PATHING) >= 0
+                    && super.canContinueToUse();
+        }
+
+        @Override
+        public void stop() {
+            npc.getNavigation().stop();
+            super.stop();
         }
     }
 

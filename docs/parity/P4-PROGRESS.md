@@ -23,11 +23,13 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
     in-flight path finishes rather than snapping to a halt); COMBAT widens the authored
     attack cooldown (never faster than authored; disabled → no attacks).
   - `NpcRangedAttackGoal` — SENSING gates the LOS raycast in `canUse`/`canContinueToUse`
-    via an elapsed-throttle + cached result; COMBAT widens volley cadence (disabled →
-    no fire).
-  - `NpcPatrolGoal`/`NpcReturnToStartGoal`/`NpcFollowFormationGoal` — PATHING disabled
-    means dormant NPCs stop navigating entirely (patrol/return/follow all stand still);
-    follow-formation's 10-tick recalc widens to the tier period.
+    via an elapsed-throttle + cached result keyed on the candidate UUID (a mid-window
+    threat flip re-raycasts rather than inheriting the previous target's verdict);
+    COMBAT widens volley cadence (disabled → no fire).
+  - `NpcPatrolGoal`/`NpcReturnToStartGoal`/`NpcFollowFormationGoal`/`NpcWanderingStrollGoal`
+    — PATHING disabled means dormant NPCs stop navigating entirely; a tier downgrade
+    mid-navigation halts the in-flight path uniformly (`stop()` → navigation stop);
+    patrol/follow recalc cadences widen to the tier period.
   - Net dormant behavior: no sight scans, no path finds, no attacks — the NPC is
     bookkeeping plus its persistence cadence, matching the DORMANT budget contract.
 - A `runGameTestServer` fixture injects DORMANT/ACTIVE evaluations against the live
@@ -61,6 +63,12 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
   PERSISTENCE is budgeted but nothing consumes it (entity save is chunk-driven).
 - `TierBudgets`/`SimulationTierPolicy` are injectable but have no runtime config
   surface — "configurable" is constructor-level only.
+- Non-goal periodic work is unbudgeted: companion wages, social-role scans,
+  authored regen, and `NpcJobRuntime` all tick at every tier including DORMANT.
+  If dormant CPU bounds become load-bearing, those need capability gates too.
+- Tier evaluation cadence is nominally once per second of overworld game time but
+  `gameTime` advances once per dimension tick — multiple loaded dimensions shorten
+  the interval (evaluation is idempotent, so this is harmless).
 - `HeadlessBenchmark` + `SimCertificationBenchmarkTest` produce the `benchmark-*`
   reports in a plain JVM — explicitly labeled `headless-jvm-simulation`, not live
   MSPT; live-server certification evidence remains P4-3 scope (issue #126).

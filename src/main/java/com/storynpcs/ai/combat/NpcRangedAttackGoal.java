@@ -28,9 +28,12 @@ public class NpcRangedAttackGoal extends Goal {
     private long windupUntilTick = Long.MIN_VALUE;
     private long nextVolleyTick = Long.MIN_VALUE;
     // P4-1: LOS raycasts run on the sensing budget — elapsed-tick throttle
-    // with a cached result so deferred windows keep the last sighting.
+    // with a cached result so deferred windows keep the last sighting. The
+    // cache is keyed on the candidate: a mid-window threat-target flip always
+    // re-raycasts rather than inheriting the previous target's verdict.
     private long lastLosTick = Long.MIN_VALUE;
     private boolean cachedLos = false;
+    private java.util.UUID cachedLosTarget = null;
 
     public NpcRangedAttackGoal(StoryNpcEntity npc) {
         this.npc = npc;
@@ -112,8 +115,10 @@ public class NpcRangedAttackGoal extends Goal {
         }
         long now = npc.level().getGameTime();
         if (lastLosTick == Long.MIN_VALUE
-                || now - lastLosTick >= Math.max(1, sensingPeriod)) {
+                || now - lastLosTick >= Math.max(1, sensingPeriod)
+                || !candidate.getUUID().equals(cachedLosTarget)) {
             lastLosTick = now;
+            cachedLosTarget = candidate.getUUID();
             cachedLos = npc.getSensing().hasLineOfSight(candidate);
         }
         return cachedLos;
@@ -126,6 +131,7 @@ public class NpcRangedAttackGoal extends Goal {
         this.windupUntilTick = npc.level().getGameTime() + (ranged != null ? ranged.getDelayTicks() : 0);
         this.nextVolleyTick = Long.MIN_VALUE;
         this.cachedLos = true; // canUse just raycast-verified sight
+        this.cachedLosTarget = this.target != null ? this.target.getUUID() : null;
     }
 
     @Override
@@ -135,6 +141,7 @@ public class NpcRangedAttackGoal extends Goal {
         this.nextVolleyTick = Long.MIN_VALUE;
         this.lastLosTick = Long.MIN_VALUE;
         this.cachedLos = false;
+        this.cachedLosTarget = null;
     }
 
     @Override

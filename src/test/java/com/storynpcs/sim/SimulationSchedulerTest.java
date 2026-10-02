@@ -135,7 +135,7 @@ class SimulationSchedulerTest {
     }
 
     @Test
-    void capabilityPeriodReadsNegativeAfterDespawn() {
+    void capabilityPeriodFallsBackToFullFidelityAfterDespawn() {
         UUID actorId = UUID.nameUUIDFromBytes("p-despawn".getBytes());
         scheduler.evaluate(List.of(new ActorInput(actorId, 10, false)));
         assertThat(scheduler.capabilityPeriod(actorId, Capability.SENSING)).isEqualTo(1);

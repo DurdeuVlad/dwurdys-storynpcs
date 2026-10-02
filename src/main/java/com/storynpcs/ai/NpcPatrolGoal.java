@@ -69,6 +69,13 @@ public class NpcPatrolGoal extends Goal {
     }
 
     @Override
+    public void stop() {
+        // Tier downgrade to a pathing-disabled tier halts the patrol outright —
+        // a dormant NPC stands its post rather than finishing the in-flight leg.
+        npc.getNavigation().stop();
+    }
+
+    @Override
     public void tick() {
         if (waitTicksRemaining > 0) {
             waitTicksRemaining--;

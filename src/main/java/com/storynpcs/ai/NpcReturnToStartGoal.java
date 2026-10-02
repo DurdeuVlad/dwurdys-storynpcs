@@ -53,6 +53,12 @@ public class NpcReturnToStartGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        // A dormant-transition mid-return ends the goal — dormant NPCs stand
+        // still instead of completing the walk home.
+        if (npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+            return false;
+        }
         BlockPos start = npc.getStartPosition();
         if (start == null) return false;
         return !npc.getNavigation().isDone() && npc.distanceToSqr(start.getX(), start.getY(), start.getZ()) > 4.0;
@@ -76,5 +82,6 @@ public class NpcReturnToStartGoal extends Goal {
     @Override
     public void stop() {
         this.repathDelay = 40;
+        npc.getNavigation().stop();
     }
 }
