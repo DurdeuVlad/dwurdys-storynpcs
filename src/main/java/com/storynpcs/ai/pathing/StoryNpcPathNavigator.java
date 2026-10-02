@@ -30,6 +30,7 @@ public class StoryNpcPathNavigator extends GroundPathNavigation {
     private record PendingPath(java.util.UUID requestId, double x, double y, double z, double speed) {}
 
     private PendingPath pendingPath;
+    private long navRevision;
 
     public StoryNpcPathNavigator(Mob mob, Level level) {
         super(mob, level);
@@ -83,12 +84,17 @@ public class StoryNpcPathNavigator extends GroundPathNavigation {
         var pending = new PendingPath(requestId, x, y, z, speed);
         // Combat actors jump ambient traffic — deterministic priority order.
         int priority = npc.getThreatManager().getCurrentTarget().isPresent() ? 10 : 0;
+        // Deterministic pseudo-key for the level so PathTarget stays honest;
+        // the monotonic revision lets cancelStale drop superseded generations.
+        var levelKey = java.util.UUID.nameUUIDFromBytes(
+                this.level.dimension().location().toString()
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         var outcome = scheduler.submit(new com.storynpcs.sim.PathScheduler.PathRequest(
                 requestId, npc.getUUID(),
                 new com.storynpcs.sim.PathScheduler.PathTarget(
                         net.minecraft.util.Mth.floor(x), net.minecraft.util.Mth.floor(y),
-                        net.minecraft.util.Mth.floor(z), null),
-                priority, 0L, this.level.getGameTime()));
+                        net.minecraft.util.Mth.floor(z), levelKey),
+                priority, ++this.navRevision, this.level.getGameTime()));
         if (outcome == com.storynpcs.sim.PathScheduler.SubmitOutcome.QUEUE_FULL) {
             return false; // explicit degrade — the bound is real
         }
@@ -108,6 +114,19 @@ public class StoryNpcPathNavigator extends GroundPathNavigation {
         }
         this.pendingPath = null;
         return super.moveTo(pending.x(), pending.y(), pending.z(), pending.speed());
+    }
+
+    @Override
+    public void tick() {
+        // A queued request reports not-done but holds no live Path — vanilla's
+        // tick tail would dereference path.getNextEntityPos unconditionally.
+        // Skip the tick while the pending window covers an absent/finished
+        // path; a still-live in-flight path keeps ticking normally until the
+        // drain swaps it.
+        if (this.pendingPath != null && (this.path == null || this.path.isDone())) {
+            return;
+        }
+        super.tick();
     }
 
     @Override

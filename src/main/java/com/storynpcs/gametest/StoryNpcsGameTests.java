@@ -299,14 +299,29 @@ public final class StoryNpcsGameTests {
      */
     @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
     public static void moveToQueuesThenMaterializesPath(GameTestHelper helper) {
+        // Ground pathfinding needs walkable ground — the empty template is
+        // pure air, so lay a floor under the whole structure first.
+        for (int x = 0; x <= 2; x++) {
+            for (int z = 0; z <= 2; z++) {
+                helper.setBlock(new BlockPos(x, 0, z), net.minecraft.world.level.block.Blocks.STONE);
+            }
+        }
         BlockPos spawnAt = new BlockPos(1, 1, 1);
         StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
         StoryNpcs mod = StoryNpcsAccess.mod(npc);
         helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
         helper.assertTrue(mod.getPathScheduler() != null, "PathScheduler must be wired to the mod");
 
-        BlockPos target = spawnAt.east(2);
-        npc.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, 1.0D);
+        // moveTo takes absolute coordinates — structure-relative positions
+        // must convert through absolutePos (the structure sits millions of
+        // blocks from the world origin). Issue after a landing delay:
+        // GroundPathNavigation.canUpdatePath() requires onGround, so a
+        // moveTo drained mid-fall computes null — real goals recover via
+        // their repath throttle, a one-shot test call cannot.
+        helper.runAfterDelay(10, () -> {
+            BlockPos target = helper.absolutePos(spawnAt.east());
+            npc.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, 1.0D);
+        });
 
         helper.succeedWhen(() -> {
             helper.assertTrue(npc.getNavigation().getPath() != null,
@@ -346,17 +361,35 @@ public final class StoryNpcsGameTests {
             atkDef.setFactionId(allyFaction);
             atkDef.getAi().setAttackOnSight(true);
             atkDef.getAi().setTargetFactionIds(java.util.Set.of(enemyFaction));
+            // Outlast the acquisition window — a kill mid-test would force a
+            // re-scan onto the surviving enemy and falsely fail distinctness.
+            atkDef.getStats().setMaxHealth(1000);
             mod.getApplicationService().createNpc(atkDef);
             attackers.get(i).setDefinitionId(atkId.toString());
 
             NamespacedId enId = NamespacedId.of("storynpcs:test/gametest_squad_enemy_" + i);
             NpcDefinition enDef = new NpcDefinition(enId, "Squad Enemy " + i);
             enDef.setFactionId(enemyFaction);
+            enDef.getStats().setMaxHealth(1000);
             mod.getApplicationService().createNpc(enDef);
             enemies.get(i).setDefinitionId(enId.toString());
         }
 
+        final StoryNpcs capturedMod = mod;
         helper.succeedWhen(() -> {
+            // Playerless worlds evaluate every NPC DORMANT (nearest-player
+            // distance saturates the range) — a periodic eval landing before
+            // the first scan would disable sensing permanently. The test
+            // ticker runs after ServerTickEvent.Post each tick, so re-pinning
+            // ACTIVE here holds through the following entity ticks.
+            var scheduler = capturedMod.getSimulationScheduler();
+            var inputs = new java.util.ArrayList<com.storynpcs.sim.SimulationScheduler.ActorInput>();
+            attackers.forEach(a -> inputs.add(
+                    new com.storynpcs.sim.SimulationScheduler.ActorInput(a.getUUID(), 10.0, false)));
+            enemies.forEach(e -> inputs.add(
+                    new com.storynpcs.sim.SimulationScheduler.ActorInput(e.getUUID(), 10.0, false)));
+            scheduler.evaluate(inputs);
+
             var t0 = attackers.get(0).getThreatManager().getCurrentTarget();
             var t1 = attackers.get(1).getThreatManager().getCurrentTarget();
             helper.assertTrue(t0.isPresent() && t1.isPresent(),

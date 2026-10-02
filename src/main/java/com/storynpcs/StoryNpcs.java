@@ -193,6 +193,11 @@ public class StoryNpcs {
      * access stays on the server thread; requests carry immutable coordinate
      * snapshots, and stale requests (entity gone, superseded submission) are
      * dropped explicitly.
+     *
+     * <p>The time bound is checked <em>between</em> requests: a single
+     * {@code createPath} may exceed the budget on its own, so the guarantee
+     * is bounded <em>count</em> plus best-effort wall time, not a hard
+     * per-request latency cap.
      */
     private void drainPathRequests(MinecraftServer server) {
         long deadline = System.nanoTime() + PATH_DRAIN_MAX_NANOS;

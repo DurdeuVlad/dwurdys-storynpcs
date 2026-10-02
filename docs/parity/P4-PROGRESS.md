@@ -55,16 +55,30 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
     explicitly (counted, never a synchronous fallback that would defeat the bound). Combat
     actors get priority 10 over ambient traffic. Precomputed `moveTo(Path)` calls stay
     synchronous — no pathfinding work to bound. Client-side calls bypass the queue.
+    The `tick()` override skips vanilla's `followThePath`/move-control tail while a pending
+    request covers an absent or finished `path` — reporting not-done with no live `Path`
+    would otherwise dereference null in `path.getNextEntityPos`. A still-live path keeps
+    ticking normally until the drain swaps it. Requests carry a monotonic per-navigator
+    `revision` and a deterministic `levelKey` (name-UUID of the dimension location), so
+    `cancelStale`/`PathTarget` stay honest fields rather than dead payload.
   - `NpcAttackOnSightGoal` coordinates same-faction squads: ally engagement info is collected
     inside the scan the goal already performs (no extra world query); targets engaged by
-    allies or already claimed in the shared `(dimension|faction)` coordinator are excluded;
-    idle squadmates allocate distinct eligible targets via `SquadCoordinator.coordinate` —
+    allies are excluded and their actor→target claims are **pinned** through
+    `coordinate(..., engagedClaims)` so a third scanner can never steal a claim held by an
+    ally outside its own scan box; idle squadmates allocate distinct eligible targets —
     policy eligibility still gates membership, so the coordinator can never assign a target
     the authored rules reject. Held assignments are reused (no scan-to-scan churn), stale
     claims are pruned via `unassigned`, and removal releases them via
     `releaseSquadAssignment`.
-  - `runGameTestServer` fixtures: queued `moveTo` materializes a real path via the drain;
-    two same-faction attackers facing two enemies claim distinct targets.
+  - `runGameTestServer` fixtures: queued `moveTo` materializes a real path via the drain
+    (absolute-pos target, issued after the spawn landing — `canUpdatePath` requires
+    `onGround`, and the drain executes same-tick); two same-faction attackers facing two
+    enemies claim distinct targets, with the tier pinned ACTIVE inside `succeedWhen` — a
+    playerless GameTest evaluates every NPC DORMANT at the saturated 512-block boundary.
+  - Drive-by fix exposed by the new fixtures: `LivingEntity.updateInvisibilityStatus`
+    recomputes invisibility from `activeEffects` whenever `effectsDirty` fires, which
+    resurfaced hidden-defeat statues — `StoryNpcEntity` now re-pins posture invisibility
+    while hidden (latent P3-2 leak the fixtures had never actually run to catch).
 - 9 fixtures covering cap, ordering, cancel paths, determinism, bounds, stale-target detection.
 
 ## P4-3 — Certification contract
@@ -77,10 +91,13 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
 
 ## Explicit limits
 
-- `SimulationScheduler` produces per-actor tier states every 20 server ticks and the
-  combat/patrol/follow/sight goals now consume them; `SquadCoordinator` and the
-  `PathScheduler` queue are still not wired into entity navigation (P4-2 scope), and
-  PERSISTENCE is budgeted but nothing consumes it (entity save is chunk-driven).
+- `SimulationScheduler` produces per-actor tier states every 20 server ticks, the
+  combat/patrol/follow/sight goals consume them, and the `PathScheduler`/`SquadCoordinator`
+  are now production-wired (navigator interception + sight-goal allocation). The drain's
+  wall-time bound is checked *between* requests — it guarantees bounded request count plus
+  best-effort 4 ms; a single pathfind can exceed the deadline, and `poll()` is O(n) per
+  request (≤64×1024 comparisons worst case, inside the deadline guard). PERSISTENCE is
+  budgeted but nothing consumes it (entity save is chunk-driven).
 - `TierBudgets`/`SimulationTierPolicy` are injectable but have no runtime config
   surface — "configurable" is constructor-level only.
 - Non-goal periodic work is unbudgeted: companion wages, social-role scans,

@@ -1213,6 +1213,21 @@ public class StoryNpcEntity extends PathfinderMob {
      * change dimensions (a portal transfer mid-countdown would restore it at
      * start coordinates in the wrong dimension).
      */
+    /**
+     * Hidden-defeat invisibility is posture, not effect-derived. Vanilla
+     * recomputes the flag from {@code activeEffects} whenever
+     * {@code effectsDirty} fires — any effect add/update/remove on a statue
+     * clears it, resurfacing the NPC mid-countdown. Re-pin it here.
+     */
+    @Override
+    protected void updateInvisibilityStatus() {
+        if (isHiddenDefeat()) {
+            this.setInvisible(true);
+            return;
+        }
+        super.updateInvisibilityStatus();
+    }
+
     public boolean isHiddenDefeat() {
         return hiddenDefeatTicksLeft != 0;
     }

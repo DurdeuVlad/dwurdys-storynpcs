@@ -150,6 +150,7 @@ public class NpcAttackOnSightGoal extends Goal {
         // round so simultaneous scans cannot claim the same target twice.
         var idleSquadmates = new LinkedHashSet<UUID>();
         var allyEngagedTargets = new LinkedHashSet<UUID>();
+        var engagedAllies = new java.util.LinkedHashMap<UUID, UUID>();
         for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class,
                 npc.getBoundingBox().inflate(range),
                 // A HIDE-resolved defeat statue is not a valid hostile target.
@@ -168,8 +169,10 @@ public class NpcAttackOnSightGoal extends Goal {
                         .getFactionId(registry).orElse(null);
                 if (ownFactionId != null && ownFactionId.equals(candidateFaction)) {
                     otherNpc.getThreatManager().getCurrentTarget()
-                            .ifPresentOrElse(allyEngagedTargets::add,
-                                    () -> idleSquadmates.add(otherNpc.getUUID()));
+                            .ifPresentOrElse(t -> {
+                                        allyEngagedTargets.add(t);
+                                        engagedAllies.put(otherNpc.getUUID(), t);
+                                    }, () -> idleSquadmates.add(otherNpc.getUUID()));
                 }
                 candidates.add(new TargetingPolicy.Candidate(
                         entity.getUUID(), candidateFaction, distSq,
@@ -200,9 +203,9 @@ public class NpcAttackOnSightGoal extends Goal {
             var eligible = candidates.stream()
                     .filter(c -> TargetingPolicy.isEligible(
                             ai, ownFactionId, false, relationships(), c))
-                    .toList();
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
             return acquireSquadTarget(mod, level, ai, eligible,
-                    idleSquadmates, allyEngagedTargets);
+                    idleSquadmates, allyEngagedTargets, engagedAllies);
         }
 
         boolean ownPassive = false; // preconditions already excluded a passive own faction
@@ -226,7 +229,8 @@ public class NpcAttackOnSightGoal extends Goal {
      */
     private boolean acquireSquadTarget(StoryNpcs mod, ServerLevel level, NpcAi ai,
                                        java.util.List<TargetingPolicy.Candidate> candidates,
-                                       Set<UUID> idleSquadmates, Set<UUID> allyEngagedTargets) {
+                                       Set<UUID> idleSquadmates, Set<UUID> allyEngagedTargets,
+                                       java.util.Map<UUID, UUID> engagedAllies) {
         NamespacedId ownFactionId = ownFactionId();
         if (ownFactionId == null) {
             return false;
@@ -273,7 +277,8 @@ public class NpcAttackOnSightGoal extends Goal {
         var candidateIds = candidates.stream()
                 .map(TargetingPolicy.Candidate::id)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        var assignments = coordinator.coordinate(squad, candidateIds, this::threatOf);
+        var assignments = coordinator.coordinate(squad, candidateIds,
+                this::threatOf, engagedAllies);
         return assignments.stream()
                 .filter(a -> a.actorId().equals(npc.getUUID()))
                 .findFirst()
