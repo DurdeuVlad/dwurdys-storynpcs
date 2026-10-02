@@ -1467,6 +1467,7 @@ public class StoryNpcEntity extends PathfinderMob {
                 this.noPhysics = true;
                 this.setGlowingTag(false);
                 this.setCustomNameVisible(false);
+                this.setCustomName(null);
             }
         } finally {
             loadingSavedData = false;
