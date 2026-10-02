@@ -11,7 +11,8 @@ public class DialogueSession {
     private final UUID sessionId = UUID.randomUUID();
     private final UUID playerUuid;
     private final NamespacedId dialogueId;
-    private final DialogueGraph graph;
+    /** Rebindable on definition reload so sessions never walk a superseded graph instance. */
+    private DialogueGraph graph;
     private String currentNodeId;
     private final Set<String> visitedNodes = new HashSet<>();
     private final Set<String> selectedOptionKeys = new HashSet<>();
@@ -73,6 +74,18 @@ public class DialogueSession {
         DialogueNode node = getCurrentNode();
         if (node == null || node.isTerminal()) {
             this.active = false;
+        }
+    }
+
+    /**
+     * Rebinds the session to a freshly loaded definition of the same dialogue.
+     * Callers must verify the current node still exists in the new graph first.
+     */
+    public void rebindGraph(DialogueGraph graph) {
+        this.graph = Objects.requireNonNull(graph, "graph");
+        if (!this.dialogueId.equals(graph.getId())) {
+            throw new IllegalArgumentException(
+                    "rebind target is a different dialogue: " + graph.getId());
         }
     }
 

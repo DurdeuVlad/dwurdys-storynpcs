@@ -23,6 +23,10 @@ public class DialogueNode {
     @JsonProperty
     private String speaker = "";
 
+    /** Optional localization key for the line — blank means the literal {@link #text} is authoritative. */
+    @JsonProperty
+    private String textKey = "";
+
     @JsonProperty
     private List<DialogueEdge> options = new ArrayList<>();
 
@@ -44,6 +48,9 @@ public class DialogueNode {
 
     public String getSpeaker() { return speaker; }
     public void setSpeaker(String speaker) { this.speaker = speaker; }
+
+    public String getTextKey() { return textKey; }
+    public void setTextKey(String textKey) { this.textKey = textKey; }
 
     public List<DialogueEdge> getOptions() { return options; }
     public void setOptions(List<DialogueEdge> options) { this.options = options; }

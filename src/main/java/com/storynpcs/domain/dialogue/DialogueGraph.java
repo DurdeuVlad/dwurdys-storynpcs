@@ -17,11 +17,23 @@ public class DialogueGraph {
     @JsonProperty(required = true)
     private String title;
 
+    /** Optional localization key for the title — blank means the literal {@link #title} is authoritative. */
+    @JsonProperty
+    private String titleKey = "";
+
     @JsonProperty(required = true)
     private String entryNodeId;
 
     @JsonProperty(required = true)
     private Map<String, DialogueNode> nodes = new LinkedHashMap<>();
+
+    /**
+     * Graph-level availability gate (the target's Dialog.availability): conditions evaluated
+     * before a session opens and again when the definition reloads under a live session.
+     * Empty means always available.
+     */
+    @JsonProperty
+    private List<DialogueCondition> availability = new ArrayList<>();
 
     public DialogueGraph() {}
 
@@ -36,6 +48,12 @@ public class DialogueGraph {
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+
+    public String getTitleKey() { return titleKey; }
+    public void setTitleKey(String titleKey) { this.titleKey = titleKey; }
+
+    public List<DialogueCondition> getAvailability() { return availability; }
+    public void setAvailability(List<DialogueCondition> availability) { this.availability = availability; }
 
     public String getEntryNodeId() { return entryNodeId; }
     public void setEntryNodeId(String entryNodeId) { this.entryNodeId = entryNodeId; }

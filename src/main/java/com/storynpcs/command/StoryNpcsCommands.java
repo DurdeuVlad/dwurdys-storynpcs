@@ -874,6 +874,9 @@ public final class StoryNpcsCommands {
 
             if (result.isValid()) {
                 mod.getRegistry().copyFrom(staging);
+                // Sessions pinned to reloaded dialogue definitions are re-evaluated:
+                // vanished/broken/now-unavailable dialogues close; survivors rebind.
+                mod.getApplicationService().notifyDialogueDefinitionsReloaded();
                 // Surface diagnostics to online ops too — a reload run by one admin shouldn't
                 // leave the others blind to warnings.
                 mod.setLastLoadDiagnostics(result);

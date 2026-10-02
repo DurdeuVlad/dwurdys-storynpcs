@@ -15,6 +15,10 @@ public class DialogueEdge {
     @JsonProperty(required = true)
     private String targetNodeId;
 
+    /** Optional localization key for the option label — blank means the literal {@link #text} is authoritative. */
+    @JsonProperty
+    private String textKey = "";
+
     @JsonProperty
     private boolean onceOnly = false;
 
@@ -36,6 +40,9 @@ public class DialogueEdge {
 
     public String getTargetNodeId() { return targetNodeId; }
     public void setTargetNodeId(String targetNodeId) { this.targetNodeId = targetNodeId; }
+
+    public String getTextKey() { return textKey; }
+    public void setTextKey(String textKey) { this.textKey = textKey; }
 
     public boolean isOnceOnly() { return onceOnly; }
     public void setOnceOnly(boolean onceOnly) { this.onceOnly = onceOnly; }
