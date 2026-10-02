@@ -111,6 +111,17 @@ public final class StoryNpcsGameTests {
                     "Void damage must not remove the hidden statue");
         });
 
+        // A mid-window definition refresh (editor save, command reload) must
+        // not resurface the statue — the applyDefinition projections are
+        // hidden-guarded, including the synced custom name.
+        helper.runAfterDelay(10, () -> {
+            npc.applyDefinition();
+            helper.assertTrue(npc.isHiddenDefeat(), "Refresh must not end hidden defeat");
+            helper.assertTrue(npc.isInvisible(), "Refresh must not unhide the statue");
+            helper.assertFalse(npc.isCurrentlyGlowing(), "Refresh must not re-arm the glow outline");
+            helper.assertFalse(npc.hasCustomName(), "Refresh must not re-arm the pick nameplate");
+        });
+
         helper.succeedWhen(() -> {
             helper.assertFalse(npc.isHiddenDefeat(),
                     "NPC should have reappeared once the authored respawn time elapsed");

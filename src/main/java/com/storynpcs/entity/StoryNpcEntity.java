@@ -509,12 +509,16 @@ public class StoryNpcEntity extends PathfinderMob {
         var mod = StoryNpcsAccess.mod(this);
         if (mod == null) return;
 
-        state.getDisplayName(mod.getRegistry()).ifPresent(name -> {
-            this.setCustomName(Component.literal(name));
-            if (!isHiddenDefeat()) {
+        // The whole nameplate projection is hidden-guarded: re-writing
+        // customName while hidden would re-arm the crosshair-pick plate
+        // (shouldShowName renders hasCustomName on invisible entities).
+        // Reappearance re-applies the authored name.
+        if (!isHiddenDefeat()) {
+            state.getDisplayName(mod.getRegistry()).ifPresent(name -> {
+                this.setCustomName(Component.literal(name));
                 this.setCustomNameVisible(true);
-            }
-        });
+            });
+        }
 
         state.getStats(mod.getRegistry()).ifPresent(stats -> {
             var maxHealthAttr = this.getAttribute(Attributes.MAX_HEALTH);
