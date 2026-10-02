@@ -51,9 +51,11 @@ class NpcAiPolicyTest {
         assertThat(ai.isLeapAtTarget()).isTrue();
         assertThat(ai.getAllyDefenseRadius()).isEqualTo(24);
 
-        // Ally-defense and tactical radii are hard-bounded — no unbounded world scans.
+        // Ally-defense, witness, and tactical radii are hard-bounded — no unbounded world scans.
         ai.setAllyDefenseRadius(999);
         assertThat(ai.getAllyDefenseRadius()).isEqualTo(64);
+        ai.setWitnessRadius(999);
+        assertThat(ai.getWitnessRadius()).isEqualTo(64);
         ai.setTacticalRadius(0);
         assertThat(ai.getTacticalRadius()).isEqualTo(1);
     }
