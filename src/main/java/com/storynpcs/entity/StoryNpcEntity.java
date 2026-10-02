@@ -60,6 +60,8 @@ public class StoryNpcEntity extends PathfinderMob {
     private int hiddenDefeatTicksLeft = 0;
     /** Game time of the last threat-manager tick pulse (for real elapsed accounting). */
     private long lastThreatTickTime = Long.MIN_VALUE;
+    /** Equipment items already warned as unresolvable — dedups refresh spam. */
+    private final java.util.Set<String> unresolvableEquipmentItems = new java.util.HashSet<>();
     /** Whether the entity was already invulnerable before entering hidden defeat. */
     private boolean wasInvulnerableBeforeHide = false;
     /** Whether the entity already had noPhysics before entering hidden defeat. */
@@ -589,6 +591,14 @@ public class StoryNpcEntity extends PathfinderMob {
                 }
             }
 
+            // P3-4: authored equipment projects onto the live equipment slots —
+            // armor renders/protects and hand items are visible. Drop chances
+            // are pinned to 0 so vanilla never double-dips the authored drop
+            // table; drops are exclusively the authored contract.
+            if (def.getInventory() != null) {
+                applyEquipmentProjection(def.getInventory());
+            }
+
             // P6 bindings: scheduled job instance + social/companion profiles.
             var previousJob = this.jobInstance;
             this.jobInstance = null;
@@ -642,6 +652,59 @@ public class StoryNpcEntity extends PathfinderMob {
                 }
             }
         });
+    }
+
+    /**
+     * Projects authored equipment onto the live entity slots: armor and hand
+     * items render for clients and feed vanilla combat/attribute behavior.
+     * Slots absent from the authored map are cleared so a definition refresh
+     * that removes an item strips it. The PROJECTILE slot is authored intent
+     * for the ranged contract only — it has no live equipment position.
+     */
+    private void applyEquipmentProjection(com.storynpcs.domain.npc.NpcInventory inventory) {
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.HEAD,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.HELMET);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.CHEST,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.CHESTPLATE);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.LEGS,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.LEGGINGS);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.FEET,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.BOOTS);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.RIGHT_HAND);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.OFFHAND,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.LEFT_HAND);
+    }
+
+    private void applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot slot,
+                                    com.storynpcs.domain.npc.NpcInventory inventory,
+                                    com.storynpcs.domain.npc.NpcInventory.ItemSlot authored) {
+        // Authored drops are the only drop contract — pin the vanilla drop
+        // chance to 0 so equipped gear can never double-dip the drop table.
+        this.setDropChance(slot, 0.0F);
+        var authoredStack = inventory.getEquipment().get(authored);
+        if (authoredStack == null) {
+            this.setItemSlot(slot, net.minecraft.world.item.ItemStack.EMPTY);
+            return;
+        }
+        var itemRl = net.minecraft.resources.ResourceLocation.tryParse(
+                authoredStack.itemId().toString());
+        var item = itemRl != null
+                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElse(null)
+                : null;
+        if (item == null || item == net.minecraft.world.item.Items.AIR) {
+            if (unresolvableEquipmentItems.add(authored + "=" + authoredStack.itemId())) {
+                com.storynpcs.StoryNpcs.LOGGER.warn(
+                        "NPC {} equipment {}: unknown item '{}' — slot cleared",
+                        this.getUUID(), authored, authoredStack.itemId());
+            }
+            this.setItemSlot(slot, net.minecraft.world.item.ItemStack.EMPTY);
+            return;
+        }
+        // components is a server-authored opaque payload — no canonical
+        // DataComponentPatch format is defined yet, so count+item apply and
+        // the payload stays stored-but-unapplied (documented P3-4 residual).
+        this.setItemSlot(slot, new net.minecraft.world.item.ItemStack(item, authoredStack.count()));
     }
 
     /**
@@ -815,6 +878,108 @@ public class StoryNpcEntity extends PathfinderMob {
                 definitionId, this.getUUID(),
                 defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
                 stats.getRespawnTimeSeconds(), stats.getXpReward()));
+    }
+
+    /**
+     * Authored drop contract (P3-4, VERIFIED_TARGET_SOURCE): on a real death
+     * each occupied drop entry rolls independently against its authored
+     * chance, winning stacks spawn as world items at the NPC's eye position
+     * (40-tick pickup delay, small random scatter), and the authored
+     * {@code minExp}..{@code maxExp} range rolls into experience orbs.
+     * {@code AUTO_PICKUP} delivers to the killer player's inventory instead
+     * (leftovers stay in the world; orbs spawn at the killer); {@code NOTHING}
+     * suppresses the table entirely. HIDE/FLEE never reach this — they skip
+     * {@code super.die}. Equipment itself never drops: its vanilla drop
+     * chances are pinned to 0 in {@link #applyEquipmentProjection}.
+     */
+    @Override
+    protected void dropAllDeathLoot(net.minecraft.server.level.ServerLevel level,
+                                    DamageSource source) {
+        super.dropAllDeathLoot(level, source);
+        var mod = StoryNpcsAccess.mod(this);
+        var inventory = mod != null
+                ? state.resolveDefinition(mod.getRegistry())
+                        .map(NpcDefinition::getInventory).orElse(null)
+                : null;
+        if (inventory == null
+                || inventory.getLootMode() == com.storynpcs.domain.npc.NpcInventory.LootMode.NOTHING) {
+            return;
+        }
+        // Seeded off the world RNG — the roller itself stays headless and
+        // fixed-seed fixtures exercise identical semantics in JUnit.
+        var roll = com.storynpcs.domain.npc.NpcDropRoll.roll(inventory,
+                new java.util.Random(this.getRandom().nextLong()));
+        net.minecraft.world.entity.Entity killer = source.getEntity();
+        boolean autoPickup = inventory.getLootMode()
+                == com.storynpcs.domain.npc.NpcInventory.LootMode.AUTO_PICKUP
+                && killer instanceof Player;
+
+        java.util.List<com.storynpcs.domain.npc.NpcItemStack> dropped =
+                new java.util.ArrayList<>(roll.drops().size());
+        for (var rolled : roll.drops()) {
+            dropped.add(rolled.item());
+            var stack = resolveDropStack(rolled.item());
+            if (stack == null) continue;
+            if (autoPickup && killer instanceof Player player) {
+                // Faithful port: absorb into the killer's inventory first;
+                // only the refused remainder becomes a world drop.
+                player.getInventory().add(stack);
+                player.take(this, stack.getCount());
+                if (stack.isEmpty()) {
+                    level.playSound(null, player.getX(), player.getY(), player.getZ(),
+                            net.minecraft.sounds.SoundEvents.ITEM_PICKUP,
+                            net.minecraft.sounds.SoundSource.PLAYERS, 0.2F,
+                            ((this.getRandom().nextFloat() - this.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
+                    continue;
+                }
+            }
+            spawnWorldDrop(stack);
+        }
+        int exp = roll.experience();
+        while (exp > 0) {
+            int value = net.minecraft.world.entity.ExperienceOrb.getExperienceValue(exp);
+            exp -= value;
+            var orbPos = autoPickup ? killer : this;
+            level.addFreshEntity(new net.minecraft.world.entity.ExperienceOrb(
+                    level, orbPos.getX(), orbPos.getY(), orbPos.getZ(), value));
+        }
+        if (mod != null && mod.getEventPublisher() != null
+                && (!dropped.isEmpty() || roll.experience() > 0)) {
+            NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                    .map(NpcDefinition::getId).orElse(null);
+            mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcLootDroppedEvent(
+                    definitionId, this.getUUID(),
+                    killer != null ? killer.getUUID() : null,
+                    dropped, roll.experience()));
+        }
+    }
+
+    /** Resolves an authored stack to a live {@code ItemStack}, or null when the item is unknown. */
+    private net.minecraft.world.item.ItemStack resolveDropStack(
+            com.storynpcs.domain.npc.NpcItemStack authored) {
+        var rl = net.minecraft.resources.ResourceLocation.tryParse(authored.itemId().toString());
+        var item = rl != null
+                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl).orElse(null)
+                : null;
+        if (item == null || item == net.minecraft.world.item.Items.AIR) {
+            com.storynpcs.StoryNpcs.LOGGER.warn("NPC {} drop '{}' is an unknown item — skipped",
+                    this.getUUID(), authored.itemId());
+            return null;
+        }
+        return new net.minecraft.world.item.ItemStack(item, authored.count());
+    }
+
+    /** World-drop spawn — VERIFIED_TARGET_SOURCE geometry: eye-level, 40-tick delay, random scatter. */
+    private void spawnWorldDrop(net.minecraft.world.item.ItemStack stack) {
+        var entity = new net.minecraft.world.entity.item.ItemEntity(
+                this.level(), this.getX(), this.getY() - 0.3F + this.getEyeHeight(), this.getZ(), stack);
+        entity.setPickUpDelay(40);
+        float spread = this.getRandom().nextFloat() * 0.5F;
+        float angle = this.getRandom().nextFloat() * (float) Math.PI * 2.0F;
+        entity.setDeltaMovement(
+                -net.minecraft.util.Mth.sin(angle) * spread, 0.2F,
+                net.minecraft.util.Mth.cos(angle) * spread);
+        this.level().addFreshEntity(entity);
     }
 
     /**

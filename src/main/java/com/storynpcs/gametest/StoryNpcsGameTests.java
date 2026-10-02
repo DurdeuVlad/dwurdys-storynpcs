@@ -166,4 +166,82 @@ public final class StoryNpcsGameTests {
 
         helper.succeed();
     }
+
+    /**
+     * P3-4 drops runtime: a DIE-mode NPC with authored drops spawns them as
+     * world item entities on death, and the authored experience range becomes
+     * real orbs — the authored table is the drop contract, not decoration.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
+    public static void dieNpcRollsAuthoredDropsIntoTheWorld(GameTestHelper helper) {
+        NamespacedId definitionId = NamespacedId.of("storynpcs:test/gametest_drops_npc");
+        NpcDefinition definition = new NpcDefinition(definitionId, "Drops NPC");
+        definition.getInventory().setDrop(0,
+                com.storynpcs.domain.npc.NpcItemStack.single(
+                        NamespacedId.of("minecraft:diamond")), 100);
+        definition.getInventory().setMinExp(5);
+        definition.getInventory().setMaxExp(5);
+
+        BlockPos spawnAt = new BlockPos(1, 1, 1);
+        StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
+        StoryNpcs mod = StoryNpcsAccess.mod(npc);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        mod.getApplicationService().createNpc(definition);
+        npc.setDefinitionId(definitionId.toString());
+
+        npc.hurt(npc.damageSources().generic(), Float.MAX_VALUE);
+        helper.assertFalse(npc.isAlive(), "DIE-mode NPC should resolve fatal damage");
+
+        helper.succeedWhen(() -> {
+            var bounds = helper.getBounds().inflate(3);
+            var items = helper.getLevel().getEntitiesOfClass(
+                    net.minecraft.world.entity.item.ItemEntity.class, bounds);
+            helper.assertTrue(items.stream().anyMatch(e -> e.getItem().is(
+                            net.minecraft.world.item.Items.DIAMOND)),
+                    "Authored 100%-chance diamond drop should exist as a world item entity");
+            var orbs = helper.getLevel().getEntitiesOfClass(
+                    net.minecraft.world.entity.ExperienceOrb.class, bounds);
+            int totalXp = orbs.stream().mapToInt(orb -> orb.value).sum();
+            helper.assertTrue(totalXp == 5,
+                    "Authored minExp=maxExp=5 should award exactly 5 XP, got: " + totalXp);
+        });
+    }
+
+    /**
+     * P3-4 equipment projection: authored armor/hand items land on the real
+     * entity equipment slots (visible to clients) while unmentioned slots
+     * stay empty — and authored equipment never feeds the drop table.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
+    public static void authoredEquipmentProjectsOntoEntitySlots(GameTestHelper helper) {
+        NamespacedId definitionId = NamespacedId.of("storynpcs:test/gametest_equip_npc");
+        NpcDefinition definition = new NpcDefinition(definitionId, "Equip NPC");
+        definition.getInventory().equip(
+                com.storynpcs.domain.npc.NpcInventory.ItemSlot.HELMET,
+                com.storynpcs.domain.npc.NpcItemStack.single(
+                        NamespacedId.of("minecraft:iron_helmet")));
+        definition.getInventory().equip(
+                com.storynpcs.domain.npc.NpcInventory.ItemSlot.RIGHT_HAND,
+                com.storynpcs.domain.npc.NpcItemStack.single(
+                        NamespacedId.of("minecraft:iron_sword")));
+
+        BlockPos spawnAt = new BlockPos(1, 1, 1);
+        StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
+        StoryNpcs mod = StoryNpcsAccess.mod(npc);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        mod.getApplicationService().createNpc(definition);
+        npc.setDefinitionId(definitionId.toString());
+
+        helper.assertTrue(npc.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.HEAD)
+                        .is(net.minecraft.world.item.Items.IRON_HELMET),
+                "Authored HELMET should project onto the entity HEAD slot");
+        helper.assertTrue(npc.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND)
+                        .is(net.minecraft.world.item.Items.IRON_SWORD),
+                "Authored RIGHT_HAND should project onto the entity MAINHAND slot");
+        helper.assertTrue(npc.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.FEET)
+                        .isEmpty(),
+                "Un-authored slots should stay empty");
+
+        helper.succeed();
+    }
 }

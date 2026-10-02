@@ -90,10 +90,23 @@ class NpcInventoryTest {
     void lootModeDefaultsToNormalAndRoundTrips() {
         NpcInventory inv = new NpcInventory();
         assertThat(inv.getLootMode()).isEqualTo(NpcInventory.LootMode.NORMAL);
-        inv.setLootMode(NpcInventory.LootMode.NPC_ONLY);
-        assertThat(inv.getLootMode()).isEqualTo(NpcInventory.LootMode.NPC_ONLY);
+        inv.setLootMode(NpcInventory.LootMode.AUTO_PICKUP);
+        assertThat(inv.getLootMode()).isEqualTo(NpcInventory.LootMode.AUTO_PICKUP);
         inv.setLootMode(null);
         assertThat(inv.getLootMode()).isEqualTo(NpcInventory.LootMode.NORMAL);
+    }
+
+    @Test
+    void experienceRangeDefaultsZeroAndRejectsNegatives() {
+        NpcInventory inv = new NpcInventory();
+        assertThat(inv.getMinExp()).isZero();
+        assertThat(inv.getMaxExp()).isZero();
+        assertThatThrownBy(() -> inv.setMinExp(-1));
+        assertThatThrownBy(() -> inv.setMaxExp(-1));
+        inv.setMinExp(10);
+        inv.setMaxExp(40);
+        assertThat(inv.getMinExp()).isEqualTo(10);
+        assertThat(inv.getMaxExp()).isEqualTo(40);
     }
 
     @Test
