@@ -3324,6 +3324,12 @@ public final class StoryNpcsCommands {
                 importDir.toString());
         var plan = importer.plan(source, policy, documents, sink);
         var report = dryRun ? importer.dryRun(plan) : importer.apply(plan, sink);
+        if (!dryRun) {
+            // Import applies/rollbacks go through non-canonical sink ops — re-evaluate
+            // live dialogue sessions against the post-apply registry (P5-1 reload
+            // invalidation parity with canonical mutations).
+            service.notifyDialogueDefinitionsReloaded();
+        }
         final boolean wasDryRun = report.dryRun();
         long applied = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.APPLIED);
         long wouldApply = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.WOULD_APPLY);

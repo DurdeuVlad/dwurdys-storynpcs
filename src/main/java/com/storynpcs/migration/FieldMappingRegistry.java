@@ -47,7 +47,7 @@ public final class FieldMappingRegistry {
                     // NPC-attached role sections loadable since P6/P8 slices —
                     // importer must not quarantine valid NPC docs carrying them.
                     "job", "companion", "bard", "healer", "postman", "transporter"),
-            "dialogue", Set.of("id", "title", "entryNodeId", "nodes"),
+            "dialogue", Set.of("id", "title", "titleKey", "availability", "entryNodeId", "nodes"),
             "quest", Set.of("id", "title", "description", "category", "repeatType",
                     "prerequisites", "objectives", "rewards"),
             "faction", Set.of("id", "name", "defaultPoints", "hostileThreshold",

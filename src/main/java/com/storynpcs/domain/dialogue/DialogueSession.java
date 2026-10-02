@@ -82,11 +82,12 @@ public class DialogueSession {
      * Callers must verify the current node still exists in the new graph first.
      */
     public void rebindGraph(DialogueGraph graph) {
-        this.graph = Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(graph, "graph");
         if (!this.dialogueId.equals(graph.getId())) {
             throw new IllegalArgumentException(
                     "rebind target is a different dialogue: " + graph.getId());
         }
+        this.graph = graph;
     }
 
     public void recordOptionSelection(String optionKey) {

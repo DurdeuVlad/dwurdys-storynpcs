@@ -37,7 +37,7 @@ Status: `CURRENT` — maps every supported dialogue field to its surfaces; `N/A`
 | Field | YAML | Service | Player UI | Editor UI | API | Script | Event | Persistence |
 |---|---|---|---|---|---|---|---|---|
 | titleKey (localization) | ✔ | ✔ validated | N/A (P5-3) | ✔ | ✔ | ✔ | N/A | read-only def |
-| availability | ✔ | ✔ gates `startDialogue` | ✔ deny → closed view | ✔ | ✔ | ✔ | open-denied/reload | read-only def |
+| availability | ✔ | ✔ gates `startDialogue` | ✔ deny → closed view (empty panel — P5-3 residual) | ✔ round-trip preserved | ✔ | ✔ | open-denied/reload | read-only def |
 | nodes[].textKey | ✔ | ✔ validated | N/A (P5-3) | ✔ | ✔ | ✔ | N/A | read-only def |
 
 ## Target surface mapping (VERIFIED_TARGET_SOURCE)
@@ -89,7 +89,7 @@ Decompiled `noppes.npcs.controllers.data.Dialog` / `DialogOption` / `Availabilit
 | open denied by availability | `DialogueOpenDeniedEvent` (this slice) |
 | choice accept | `DialogueOptionSelectEvent` (carries from/to node + index) |
 | choice reject | `DialogueChoiceRejectedEvent` (reason) |
-| definition reload | `DialogueReloadedEvent` — emitted by canonical dialogue mutate/replace/delete and `/storynpcs reload`; live sessions on the dialogue are re-evaluated (missing graph/node or failing availability → `SERVER_CLOSE`; survivors rebind to the new instance) with affected/closed counts (this slice) |
+| definition reload | `DialogueReloadedEvent` — emitted by canonical dialogue mutate/replace/delete, `/storynpcs reload`, and import apply; live sessions on the dialogue are re-evaluated (missing graph/node or failing availability → `SERVER_CLOSE`; survivors rebind to the new instance) with affected/closed counts (this slice). Every reload path bumps the definition revision, so tokens issued against a superseded definition reject `STALE_REVISION` and fail closed — they never re-resolve against a swapped edge list (this slice) |
 | choice identity | `DialogueChoiceProtocol` opaque tokens — see P5-2 |
 
 ## Diagnostics
@@ -103,7 +103,13 @@ fields are still lenient (not validated) — documented residual.
 ## Explicit gaps
 
 - Localization keys are typed/validated but not yet resolved client-side (P5-3 UI scope);
-  target itself uses literal text — keys are a StoryNPCs extension.
+  target itself uses literal text — keys are a StoryNPCs extension. The required format
+  is namespaced `ns:path` (lowercase), matching every other StoryNPCs ID rather than
+  vanilla's untyped dotted lang-key convention.
+- A denied `startDialogue` returns `DialogueView.closed` — the client shows an empty
+  panel rather than a denial message (P5-3 UI residual). Survivors of a reload rebind
+  keep session state but hold only stale tokens, so their next choice rejects and
+  closes — no fresh view is pushed mid-session (P5-3 UI residual).
 - `DAY_TIME`/`SCOREBOARD`/`minPlayerLevel` availability kinds from the target are not
   implemented — deferred as condition-registry extensions, tracked above as N/A rows.
 - Dialog categories and dialog-attached mail are unimplemented target surfaces.

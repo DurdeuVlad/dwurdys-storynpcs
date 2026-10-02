@@ -1,5 +1,6 @@
 package com.storynpcs.service;
 
+import com.storynpcs.api.event.DialogueChoiceRejectedEvent;
 import com.storynpcs.api.event.DialogueClosedEvent;
 import com.storynpcs.api.event.DialogueOpenDeniedEvent;
 import com.storynpcs.api.event.DialogueReloadedEvent;
@@ -242,6 +243,53 @@ class DialogueAvailabilityReloadTest {
                     assertThat(e.dialogueId()).isEqualTo(removed);
                     assertThat(e.closedSessions()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void definitionsReloadInvalidatesPreReloadChoiceTokens() {
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:reloadswap");
+        registry.registerDialogue(twoNodeGraph(dialogueId));
+
+        UUID player = UUID.randomUUID();
+        service.startDialogue(player, dialogueId);
+        String preReloadToken = service.getActiveSession(player).get()
+                .getIssuedTokens().get(0).value().toString();
+
+        // Wholesale registry swap (the /storynpcs reload shape): same node ids,
+        // different graph instance — the definition revision must bump so the
+        // outstanding token cannot re-resolve against the new edge list.
+        DefinitionRegistry staging = new DefinitionRegistry();
+        staging.registerDialogue(twoNodeGraph(dialogueId));
+        registry.copyFrom(staging);
+        service.notifyDialogueDefinitionsReloaded();
+
+        DialogueView view = service.chooseDialogueOption(player, preReloadToken);
+
+        assertThat(view.isTerminal()).isTrue();
+        assertThat(service.getActiveSession(player)).isEmpty();
+        assertThat(eventsOf(DialogueChoiceRejectedEvent.class))
+                .singleElement()
+                .satisfies(e -> assertThat(e.reason()).isEqualTo("STALE_REVISION"));
+    }
+
+    @Test
+    void reopeningDialogueSupersedesPriorSession() {
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:reopen");
+        registry.registerDialogue(twoNodeGraph(dialogueId));
+
+        UUID player = UUID.randomUUID();
+        service.startDialogue(player, dialogueId);
+        var firstSessionId = service.getActiveSession(player).get().getSessionId();
+
+        service.startDialogue(player, dialogueId);
+
+        var session = service.getActiveSession(player);
+        assertThat(session).isPresent();
+        assertThat(session.get().getSessionId()).isNotEqualTo(firstSessionId);
+        assertThat(eventsOf(DialogueClosedEvent.class))
+                .singleElement()
+                .satisfies(e -> assertThat(e.reason())
+                        .isEqualTo(DialogueClosedEvent.Reason.SERVER_CLOSE));
     }
 
     @Test

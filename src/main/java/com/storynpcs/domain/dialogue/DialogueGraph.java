@@ -53,7 +53,11 @@ public class DialogueGraph {
     public void setTitleKey(String titleKey) { this.titleKey = titleKey; }
 
     public List<DialogueCondition> getAvailability() { return availability; }
-    public void setAvailability(List<DialogueCondition> availability) { this.availability = availability; }
+    public void setAvailability(List<DialogueCondition> availability) {
+        // Coalesce explicit YAML null to the always-available empty list so
+        // canonical mutations can append without an NPE.
+        this.availability = availability != null ? availability : new ArrayList<>();
+    }
 
     public String getEntryNodeId() { return entryNodeId; }
     public void setEntryNodeId(String entryNodeId) { this.entryNodeId = entryNodeId; }

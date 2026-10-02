@@ -853,12 +853,23 @@ public class StoryNpcsApplicationService {
         DialogueGraph graph = registry.getDialogue(dialogueId)
                 .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + dialogueId));
 
+        // Progression record is materialized before the availability gate —
+        // denied opens still cache it (it is needed to evaluate FACTION_* /
+        // QUEST_* conditions either way, and persists at the next saveAll).
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
         // Graph-level availability (the target's Dialog.availability) gates the
         // open itself — fail closed, deny is observable, no session is created.
         if (!evalConditions(graph.getAvailability(), progression, null)) {
             eventPublisher.publish(new DialogueOpenDeniedEvent(playerUuid, dialogueId, "AVAILABILITY"));
             return DialogueView.closed(dialogueId);
+        }
+
+        // A new open supersedes any prior session: tear it down first so its
+        // tokens are revoked and a DialogueClosedEvent fires (P3 — previously
+        // the old session was overwritten silently, orphaning its tokens).
+        DialogueSession existing = activeSessions.get(playerUuid);
+        if (existing != null && existing.isActive()) {
+            endSession(playerUuid, existing, DialogueClosedEvent.Reason.SERVER_CLOSE);
         }
 
         DialogueSession session = new DialogueSession(playerUuid, graph, npcEntityUuid, dimensionId, originX, originY, originZ);
@@ -1069,7 +1080,9 @@ public class StoryNpcsApplicationService {
     /** Session teardown: close, remove, revoke outstanding choice tokens, notify. */
     private void endSession(UUID playerUuid, DialogueSession session, DialogueClosedEvent.Reason reason) {
         session.close();
-        activeSessions.remove(playerUuid);
+        // Identity remove: a stale handle must not evict a newer session that
+        // replaced this one in the map.
+        activeSessions.remove(playerUuid, session);
         choiceProtocol.revokeSession(session.getSessionId());
         eventPublisher.publish(new DialogueClosedEvent(
                 playerUuid, session.getDialogueId(), session.getCurrentNodeId(), reason));
@@ -1091,14 +1104,25 @@ public class StoryNpcsApplicationService {
         DialogueGraph fresh = registry.getDialogue(dialogueId).orElse(null);
         int closed = 0;
         for (DialogueSession session : sessions) {
-            PlayerProgression progression = progressionRepository.getOrCreate(session.getPlayerUuid());
-            boolean keep = fresh != null
-                    && fresh.getNodes().containsKey(session.getCurrentNodeId())
-                    && evalConditions(fresh.getAvailability(), progression, session);
-            if (keep) {
-                session.rebindGraph(fresh);
-            } else {
-                endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+            try {
+                PlayerProgression progression = progressionRepository.getOrCreate(session.getPlayerUuid());
+                boolean keep = fresh != null
+                        && fresh.getNodes().containsKey(session.getCurrentNodeId())
+                        && evalConditions(fresh.getAvailability(), progression, session);
+                if (keep) {
+                    session.rebindGraph(fresh);
+                } else {
+                    endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+                    closed++;
+                }
+            } catch (RuntimeException e) {
+                // Fail closed per session: a corrupt progression record or a
+                // rebind fault must not abort re-evaluation of the remaining
+                // sessions or suppress the reload event — the mutation already
+                // committed, so half-processed is the worst honest state.
+                if (session.isActive()) {
+                    endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+                }
                 closed++;
             }
         }
@@ -1108,13 +1132,17 @@ public class StoryNpcsApplicationService {
     /**
      * Definitions-reload hook (e.g. {@code /storynpcs reload}): the staging
      * registry was swapped wholesale, so every dialogue with a live session is
-     * re-evaluated — the swap carries no per-definition diff.
+     * re-evaluated — the swap carries no per-definition diff. The revision of
+     * each touched dialogue is bumped first so choice tokens issued against a
+     * pre-swap definition become STALE_REVISION and fail closed instead of
+     * re-resolving against the new graph's edge list.
      */
     public void notifyDialogueDefinitionsReloaded() {
         Set<NamespacedId> ids = activeSessions.values().stream()
                 .map(DialogueSession::getDialogueId)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
         for (NamespacedId id : ids) {
+            definitionRevisions.merge(revisionKey("dialogue", id), 1L, Long::sum);
             notifyDialogueReloaded(id);
         }
     }

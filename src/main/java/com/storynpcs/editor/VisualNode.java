@@ -5,6 +5,7 @@ public class VisualNode {
     private String text;
     private String sound = "";
     private String speaker = "";
+    private String textKey = "";
     private double x;
     private double y;
     private double width = 160;
@@ -28,6 +29,9 @@ public class VisualNode {
 
     public String getSpeaker() { return speaker; }
     public void setSpeaker(String speaker) { this.speaker = speaker != null ? speaker : ""; }
+
+    public String getTextKey() { return textKey; }
+    public void setTextKey(String textKey) { this.textKey = textKey != null ? textKey : ""; }
 
     public String getText() { return text; }
     public void setText(String text) { this.text = text; }
