@@ -98,7 +98,11 @@ public final class IndexedRecordStore {
         requireOpened();
         requireId(id);
         Objects.requireNonNull(value, "value");
-        recordStore(id).write(new StoredRecord(id, mapper.valueToTree(value)));
+        JsonNode tree = mapper.valueToTree(value);
+        if (tree == null || tree.isNull() || tree.isMissingNode()) {
+            throw new IllegalArgumentException("record value must serialize to non-null JSON");
+        }
+        recordStore(id).write(new StoredRecord(id, tree));
         failureInjector.before(DurableJsonStore.FailurePoint.INDEX_UPDATE);
         files.put(id, fileNameOf(id));
         indexStore.write(new IndexSnapshot(++indexGeneration, Map.copyOf(files)));

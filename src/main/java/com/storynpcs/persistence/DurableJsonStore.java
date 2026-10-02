@@ -72,7 +72,7 @@ public final class DurableJsonStore {
         if (parent != null) Files.createDirectories(parent);
 
         JsonNode payload = mapper.valueToTree(value);
-        if (payload == null || payload.isNull()) {
+        if (payload == null || payload.isNull() || payload.isMissingNode()) {
             throw new IllegalArgumentException("value must serialize to a non-null JSON payload");
         }
         ObjectNode envelope = mapper.createObjectNode();
