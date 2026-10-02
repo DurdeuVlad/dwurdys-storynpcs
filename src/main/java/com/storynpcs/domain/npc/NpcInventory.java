@@ -34,10 +34,17 @@ public class NpcInventory {
         PROJECTILE
     }
 
+    /**
+     * VERIFIED_TARGET_SOURCE: the target's {@code lootMode} is an int —
+     * {@code 0} drops items as world entities at the NPC position, {@code 1}
+     * (GUI "inv.auto") transfers drops into the killer player's inventory with
+     * leftovers staying in the world. {@link #NOTHING} is a StoryNPCs
+     * extension that suppresses the authored drop table and inventory XP.
+     */
     public enum LootMode {
         NORMAL,
         NOTHING,
-        NPC_ONLY
+        AUTO_PICKUP
     }
 
     public enum EquipOutcome {
@@ -99,6 +106,17 @@ public class NpcInventory {
     @JsonProperty
     private LootMode lootMode = LootMode.NORMAL;
 
+    /**
+     * Authored experience-drop range — mirrors the target's {@code MinExp} /
+     * {@code MaxExp} NBT fields. A kill awards {@code minExp} plus a uniform
+     * roll in {@code [0, maxExp - minExp)} when {@code maxExp > minExp}.
+     */
+    @JsonProperty
+    private int minExp = 0;
+
+    @JsonProperty
+    private int maxExp = 0;
+
     public NpcInventory() {}
 
     private static List<DropEntry> freshDropList() {
@@ -139,6 +157,18 @@ public class NpcInventory {
     public LootMode getLootMode() { return lootMode; }
     public void setLootMode(LootMode lootMode) {
         this.lootMode = lootMode != null ? lootMode : LootMode.NORMAL;
+    }
+
+    public int getMinExp() { return minExp; }
+    public void setMinExp(int minExp) {
+        if (minExp < 0) throw new IllegalArgumentException("minExp cannot be negative");
+        this.minExp = minExp;
+    }
+
+    public int getMaxExp() { return maxExp; }
+    public void setMaxExp(int maxExp) {
+        if (maxExp < 0) throw new IllegalArgumentException("maxExp cannot be negative");
+        this.maxExp = maxExp;
     }
 
     /** Equips a stack into a slot, returning the displaced stack when any. */
@@ -218,7 +248,8 @@ public class NpcInventory {
             // with field-path diagnostics instead of being silently dropped.
             for (Iterator<String> it = node.fieldNames(); it.hasNext();) {
                 String key = it.next();
-                if (!key.equals("equipment") && !key.equals("drops") && !key.equals("lootMode")) {
+                if (!key.equals("equipment") && !key.equals("drops") && !key.equals("lootMode")
+                        && !key.equals("minExp") && !key.equals("maxExp")) {
                     throw new IllegalArgumentException("inventory." + key + ": unknown field");
                 }
             }
@@ -280,6 +311,10 @@ public class NpcInventory {
                             "inventory.lootMode: unknown value '" + lootMode.asText() + "'");
                 }
             }
+            inventory.setMinExp(requireBoundedInt(node.get("minExp"),
+                    "inventory.minExp", 0, Integer.MAX_VALUE, 0));
+            inventory.setMaxExp(requireBoundedInt(node.get("maxExp"),
+                    "inventory.maxExp", 0, Integer.MAX_VALUE, 0));
             return inventory;
         }
         throw new IllegalArgumentException("inventory must be an object or legacy item-id array");

@@ -558,7 +558,7 @@ class YamlDefinitionLoaderTest {
                 schemaVersion: 1
                 id: "storynpcs:bad_inv_key"
                 inventory:
-                  lootmode: NPC_ONLY
+                  lootmode: AUTO_PICKUP
                 """, "bad_inv_key.yaml", keyResult)).isNull();
         assertThat(keyResult.hasErrors()).isTrue();
 
@@ -594,6 +594,16 @@ class YamlDefinitionLoaderTest {
                 """, "bad_loot.yaml", lootResult)).isNull();
         assertThat(lootResult.hasErrors()).isTrue();
         assertThat(lootResult.formatReport()).contains("lootMode");
+
+        ValidationResult expResult = ValidationResult.valid();
+        assertThat(loader.loadNpc("""
+                schemaVersion: 1
+                id: "storynpcs:bad_exp"
+                inventory:
+                  minExp: -5
+                """, "bad_exp.yaml", expResult)).isNull();
+        assertThat(expResult.hasErrors()).isTrue();
+        assertThat(expResult.formatReport()).contains("minExp");
 
         assertThat(registry.getAllNpcs()).isEmpty();
     }
