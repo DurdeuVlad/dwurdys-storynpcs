@@ -63,6 +63,20 @@ public class PlayerProgression {
 
     private static final int MAX_APPLIED_ACTION_REQUESTS = 512;
 
+    /**
+     * Durable companion-wage backstop (issue #57 — P2-3): companion entity UUID
+     * string -> last charged wage period. The entity-owned {@code WageLedger}
+     * only persists on periodic entity NBT saves, so a crash between the
+     * emerald deduction and that save loses the period marker and the next
+     * period boundary would double-charge. This map is force-saved on each
+     * successful charge, narrowing the uncovered window to the deduction-to-
+     * save gap itself. Bounded FIFO — dismissed companions' entries evict.
+     */
+    @JsonProperty
+    private LinkedHashMap<String, Long> companionWagePeriods = new LinkedHashMap<>();
+
+    private static final int MAX_COMPANION_WAGE_PERIODS = 256;
+
 
     public PlayerProgression() {}
 
@@ -178,6 +192,47 @@ public class PlayerProgression {
         appliedActionRequests.put(key, fingerprint + "\n" + outcome);
     }
 
+    /**
+     * Durable companion-wage backstop — raw map for serde only; mutate via
+     * {@link #recordCompanionWagePeriod}.
+     */
+    public Map<String, Long> getCompanionWagePeriods() { return companionWagePeriods; }
+    public void setCompanionWagePeriods(Map<String, Long> periods) {
+        this.companionWagePeriods = new LinkedHashMap<>();
+        if (periods == null) return;
+        periods.forEach((companionId, period) -> {
+            if (companionId == null || companionId.isBlank() || period == null || period < 0) {
+                throw new IllegalArgumentException("companion wage periods require non-blank ids and non-negative periods");
+            }
+            this.companionWagePeriods.put(companionId, period);
+        });
+        while (this.companionWagePeriods.size() > MAX_COMPANION_WAGE_PERIODS) {
+            this.companionWagePeriods.remove(this.companionWagePeriods.keySet().iterator().next());
+        }
+    }
+
+    /**
+     * Records a charged wage period for one companion. Call inside the same
+     * critical section as the deduction it keys so the marker and the charge
+     * land in one durable save.
+     */
+    public void recordCompanionWagePeriod(UUID companionId, long period) {
+        if (companionId == null) throw new IllegalArgumentException("companionId cannot be null");
+        if (period < 0) throw new IllegalArgumentException("period cannot be negative");
+        String key = companionId.toString();
+        if (companionWagePeriods.size() >= MAX_COMPANION_WAGE_PERIODS
+                && !companionWagePeriods.containsKey(key)) {
+            companionWagePeriods.remove(companionWagePeriods.keySet().iterator().next());
+        }
+        companionWagePeriods.put(key, period);
+    }
+
+    /** Last durably-recorded charged wage period for one companion, or {@code -1}. */
+    public long chargedWagePeriod(UUID companionId) {
+        Long recorded = companionId == null ? null : companionWagePeriods.get(companionId.toString());
+        return recorded == null ? -1L : recorded;
+    }
+
     /** Durable mailbox — newest-last. */
     public List<MailMessage> getMailbox() { return mailbox; }
     public void setMailbox(List<MailMessage> mailbox) {
@@ -207,6 +262,7 @@ public class PlayerProgression {
         for (MailMessage m : mailbox) copy.mailbox.add(m.copy());
         copy.unlockedTransportLocations = new HashSet<>(unlockedTransportLocations);
         copy.appliedActionRequests = new LinkedHashMap<>(appliedActionRequests);
+        copy.companionWagePeriods = new LinkedHashMap<>(companionWagePeriods);
         return copy;
     }
 
@@ -228,6 +284,7 @@ public class PlayerProgression {
         for (MailMessage m : snapshot.mailbox) mailbox.add(m.copy());
         unlockedTransportLocations = new HashSet<>(snapshot.unlockedTransportLocations);
         appliedActionRequests = new LinkedHashMap<>(snapshot.appliedActionRequests);
+        companionWagePeriods = new LinkedHashMap<>(snapshot.companionWagePeriods);
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {

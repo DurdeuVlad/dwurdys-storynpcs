@@ -1,6 +1,8 @@
 package com.storynpcs;
 
 import com.storynpcs.domain.common.NamespacedId;
+import com.storynpcs.domain.companion.CompanionProfile;
+import com.storynpcs.domain.companion.WageLedger;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.domain.progression.PlayerProgression;
 import com.storynpcs.domain.transport.TransportLocation;
@@ -248,5 +250,64 @@ class P23ExactlyOnceTest {
 
         assertThat(result.approved()).isFalse();
         assertThat(result.detail()).isEqualTo("RECOVERY_REQUIRED");
+    }
+
+    // ── companion wages (issue #57 — durable period backstop) ──────────────
+
+    private static CompanionProfile wageProfile() {
+        var profile = new CompanionProfile();
+        profile.setWageAmount(5);
+        profile.setWageIntervalTicks(100);
+        return profile;
+    }
+
+    @Test
+    void companionWageDurableBackstopSuppressesRechargeAfterMarkerLoss()
+            throws IOException {
+        UUID owner = UUID.randomUUID();
+        UUID companion = UUID.randomUUID();
+
+        // Simulate restart: the entity NBT marker is gone (fresh ledger), but
+        // the owner progression durably recorded period 2 as charged.
+        PlayerProgression ownerProgression = repository.getOrCreate(owner);
+        ownerProgression.recordCompanionWagePeriod(companion, 2);
+        repository.save(owner, ownerProgression);
+
+        var ledger = new WageLedger(); // entity-side marker lost
+        var outcome = service.chargeCompanionWage(owner, companion, wageProfile(), ledger, 0, 250);
+        assertThat(outcome).isEqualTo(
+                StoryNpcsApplicationService.CompanionWageOutcome.ALREADY_CHARGED);
+        // The durable backstop heals the entity ledger forward.
+        assertThat(ledger.getLastChargedPeriod()).isEqualTo(2);
+
+        // The marker survives a real reload — a restarted service suppresses
+        // the same period without touching the payer.
+        var reloaded = new ProgressionRepository(tempDir).getOrCreate(owner);
+        assertThat(reloaded.chargedWagePeriod(companion)).isEqualTo(2);
+        assertThat(restartedService().chargeCompanionWage(
+                owner, companion, wageProfile(), new WageLedger(), 0, 250))
+                .isEqualTo(StoryNpcsApplicationService.CompanionWageOutcome.ALREADY_CHARGED);
+
+        // A later period is not suppressed by the stale marker — falls
+        // through to the offline-owner policy path (no server in tests).
+        assertThat(service.chargeCompanionWage(owner, companion, wageProfile(), ledger, 0, 350))
+                .isEqualTo(StoryNpcsApplicationService.CompanionWageOutcome.OWNER_OFFLINE_PAUSED);
+    }
+
+    @Test
+    void companionWageQuarantinedOwnerRecordFailsClosed() throws IOException {
+        UUID owner = UUID.randomUUID();
+        UUID companion = UUID.randomUUID();
+
+        // Poison the owner's durable record — loadFromDisk quarantines it and
+        // blocks the id. The wage must not charge while the period cannot be
+        // durably verified.
+        java.nio.file.Files.writeString(
+                tempDir.resolve(owner + ".json"), "{ not json !!!");
+
+        var outcome = service.chargeCompanionWage(
+                owner, companion, wageProfile(), new WageLedger(), 0, 250);
+        assertThat(outcome).isEqualTo(
+                StoryNpcsApplicationService.CompanionWageOutcome.PROGRESSION_UNAVAILABLE);
     }
 }

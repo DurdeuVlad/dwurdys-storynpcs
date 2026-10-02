@@ -250,7 +250,9 @@ public class StoryNpcEntity extends PathfinderMob {
                 companionPaused = false;
                 this.discard();
             }
-            case OWNER_OFFLINE_PAUSED -> companionPaused = true;
+            case OWNER_OFFLINE_PAUSED,
+                 com.storynpcs.service.StoryNpcsApplicationService
+                         .CompanionWageOutcome.PROGRESSION_UNAVAILABLE -> companionPaused = true;
             default -> { }
         }
     }
