@@ -5739,7 +5739,9 @@ public class StoryNpcsApplicationService {
         /** Owner could not pay; DISMISS policy — caller releases ownership. */
         INSUFFICIENT_DISMISSED,
         /** Owner could not pay; KEEP_ANYWAY policy — period consumed, service continues. */
-        INSUFFICIENT_KEPT
+        INSUFFICIENT_KEPT,
+        /** The owner's durable progression record is unreadable (quarantined/corrupt) — fail closed rather than risk an unverifiable charge; caller pauses companion behavior. */
+        PROGRESSION_UNAVAILABLE
     }
 
     /**
@@ -5753,12 +5755,37 @@ public class StoryNpcsApplicationService {
             com.storynpcs.domain.companion.CompanionProfile profile,
             com.storynpcs.domain.companion.WageLedger ledger,
             long hireTick, long nowTick) {
-        if (profile == null || ledger == null || ownerUuid == null || hireTick < 0) {
+        if (profile == null || ledger == null || ownerUuid == null || companionId == null
+                || hireTick < 0) {
             return CompanionWageOutcome.NOT_DUE;
         }
         int interval = Math.max(20, profile.getWageIntervalTicks());
         long period = com.storynpcs.domain.companion.WageLedger.periodFor(hireTick, nowTick, interval);
         if (period <= ledger.getLastChargedPeriod()) {
+            return CompanionWageOutcome.ALREADY_CHARGED;
+        }
+        // Durable backstop (issue #57): the entity ledger only persists on
+        // periodic NBT saves, so a crash between a deduction and that save
+        // loses the marker. The owner-progression record is force-written on
+        // every successful charge — consult it before re-charging the period.
+        // isUnavailable short-circuits first: a blocked record must not redo
+        // the quarantine scan + diagnostic on every wage tick.
+        if (progressionRepository.isUnavailable(ownerUuid)) {
+            return CompanionWageOutcome.PROGRESSION_UNAVAILABLE;
+        }
+        PlayerProgression ownerProgression;
+        try {
+            ownerProgression = progressionRepository.getOrCreate(ownerUuid);
+        } catch (RuntimeException unreadable) {
+            // Quarantined/corrupt owner data: the wage period cannot be
+            // verified or durably marked, so the charge must not run.
+            System.err.println("[StoryNPCs] companion wage for " + companionId
+                    + " blocked — owner progression unreadable: " + unreadable.getMessage());
+            return CompanionWageOutcome.PROGRESSION_UNAVAILABLE;
+        }
+        long durablePeriod = ownerProgression.chargedWagePeriod(companionId);
+        if (durablePeriod >= period) {
+            ledger.setLastChargedPeriod(Math.max(ledger.getLastChargedPeriod(), durablePeriod));
             return CompanionWageOutcome.ALREADY_CHARGED;
         }
         var player = minecraftServer != null ? minecraftServer.getPlayerList().getPlayer(ownerUuid) : null;
@@ -5776,16 +5803,49 @@ public class StoryNpcsApplicationService {
                     return true;
                 }, companionId);
         switch (outcome) {
-            case CHARGED -> { return CompanionWageOutcome.CHARGED; }
+            case CHARGED -> {
+                // The deduction already ran inside ledger.charge — persist the
+                // consumed period in owner progression immediately so a crash
+                // before the next entity NBT save cannot re-charge it. Free
+                // periods (wageAmount <= 0) move no value, so they skip the
+                // forced save — re-firing one after a restart is harmless.
+                if (profile.getWageAmount() > 0) {
+                    ownerProgression.recordCompanionWagePeriod(companionId, period);
+                    try {
+                        progressionRepository.save(ownerUuid, ownerProgression);
+                    } catch (Exception saveFailure) {
+                        // The entity ledger still carries the in-memory marker;
+                        // only a crash before BOTH this save and the next entity
+                        // save can double-charge — a documented residual window.
+                        System.err.println("[StoryNPCs] companion wage period " + period
+                                + " for " + companionId + " could not be durably marked: "
+                                + saveFailure.getMessage());
+                    }
+                }
+                return CompanionWageOutcome.CHARGED;
+            }
             case ALREADY_CHARGED -> { return CompanionWageOutcome.ALREADY_CHARGED; }
             default -> {
                 return switch (profile.getInsufficientFundsPolicy()) {
                     case PAUSE_SERVICE -> CompanionWageOutcome.INSUFFICIENT_PAUSED;
                     case DISMISS -> CompanionWageOutcome.INSUFFICIENT_DISMISSED;
                     case KEEP_ANYWAY -> {
-                        // Policy keeps the companion but the period is still
-                        // consumed — a free period can never be retried into a charge.
+                        // Policy keeps the companion and consumes the period —
+                        // it must never be retried into a charge, so the
+                        // consumption is durable (entity NBT alone could lose
+                        // it across a crash and re-charge the "free" period
+                        // once the owner is funded again).
                         ledger.setLastChargedPeriod(period);
+                        if (profile.getWageAmount() > 0) {
+                            ownerProgression.recordCompanionWagePeriod(companionId, period);
+                            try {
+                                progressionRepository.save(ownerUuid, ownerProgression);
+                            } catch (Exception saveFailure) {
+                                System.err.println("[StoryNPCs] companion wage period " + period
+                                        + " for " + companionId + " could not be durably marked: "
+                                        + saveFailure.getMessage());
+                            }
+                        }
                         yield CompanionWageOutcome.INSUFFICIENT_KEPT;
                     }
                 };
