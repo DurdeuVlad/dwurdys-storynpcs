@@ -93,6 +93,44 @@ class ThreatManagerTest {
     }
 
     @Test
+    @DisplayName("Authored aggro duration drives calm-down; default stays 400 ticks")
+    void testAuthoredAggroDuration() {
+        UUID player = UUID.randomUUID();
+
+        // Default: threat does not decay before the full 400-tick window.
+        threatManager.addThreat(player, 20);
+        for (int i = 0; i < 100; i++) {
+            threatManager.tick(5);
+        }
+        assertTrue(threatManager.getCurrentTarget().isPresent(),
+                "Default aggro window (400 ticks) must still hold after 100 ticks");
+
+        // Authored 40-tick window: decay starts once the window expires.
+        threatManager.clearAll();
+        threatManager.setAggroDurationTicks(40);
+        threatManager.addThreat(player, 20);
+        for (int i = 0; i < 39; i++) {
+            threatManager.tick(5); // timer still running — no decay yet
+        }
+        assertTrue(threatManager.getCurrentTarget().isPresent(),
+                "Threat must not decay before the authored window expires");
+        for (int i = 0; i < 10; i++) {
+            threatManager.tick(5); // window expired: 20 threat decays away
+        }
+        assertTrue(threatManager.getCurrentTarget().isEmpty(),
+                "Threat should decay and clear once the authored window expires");
+    }
+
+    @Test
+    @DisplayName("Aggro duration setter floors at 40 ticks like the authored clamp")
+    void testAggroDurationFloor() {
+        threatManager.setAggroDurationTicks(0);
+        assertEquals(40, threatManager.getAggroDurationTicks());
+        threatManager.setAggroDurationTicks(600);
+        assertEquals(600, threatManager.getAggroDurationTicks());
+    }
+
+    @Test
     @DisplayName("Adding massive threat clamps at 100,000 without integer overflow")
     void testThreatOverflowClamping() {
         UUID player = UUID.randomUUID();

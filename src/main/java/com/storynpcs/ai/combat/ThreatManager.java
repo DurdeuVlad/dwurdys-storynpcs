@@ -28,6 +28,9 @@ public class ThreatManager {
     private final Map<UUID, Integer> threatTable = new ConcurrentHashMap<>();
     private UUID currentTarget = null;
     private int aggroTimer = 0;
+    // Authored calm-down window (NpcAi.aggroDurationTicks); the entity applies
+    // it per definition refresh. Floor matches NpcAi's own lower bound.
+    private int aggroDurationTicks = 400;
     private volatile AggroEventSink aggroEventSink;
 
     /** Optional sink for target-change reasons; a null sink keeps prior silent behavior. */
@@ -84,10 +87,22 @@ public class ThreatManager {
         }
     }
 
+    /**
+     * Sets the authored calm-down duration (ticks) — a hit keeps the NPC
+     * hostile for at least this long after the last threat write.
+     */
+    public void setAggroDurationTicks(int ticks) {
+        this.aggroDurationTicks = Math.max(40, ticks);
+    }
+
+    public int getAggroDurationTicks() {
+        return aggroDurationTicks;
+    }
+
     public void addThreat(UUID targetUuid, int amount) {
         if (targetUuid == null || amount <= 0) return;
         threatTable.merge(targetUuid, amount, (a, b) -> (int) Math.min(100_000, (long) a + b));
-        this.aggroTimer = Math.max(this.aggroTimer, 400); // 20s minimum
+        this.aggroTimer = Math.max(this.aggroTimer, aggroDurationTicks);
         recalculateTarget();
     }
 

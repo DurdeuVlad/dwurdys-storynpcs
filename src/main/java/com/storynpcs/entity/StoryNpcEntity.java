@@ -553,6 +553,7 @@ public class StoryNpcEntity extends PathfinderMob {
                     groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
                 }
                 this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
+                this.threatManager.setAggroDurationTicks(def.getAi().getAggroDurationTicks());
                 if (!isHiddenDefeat()) {
                     // A hidden statue re-asserts its own posture — a definition
                     // refresh must not visibly resurface it mid-countdown.
