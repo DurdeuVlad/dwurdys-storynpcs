@@ -1740,7 +1740,7 @@ class StoryNpcsApplicationServiceTest {
         // mutation is never re-attempted on replay.
         var replayed = service.requestTransport(new PlayerProgressionActionRequest(
                 "transport.request", "system", player, player, requestId, -1), locationId);
-        assertThat(replayed).isSameAs(first);
+        assertThat(replayed).isEqualTo(first);
 
         // A replayed request id carrying a different operation label or target
         // is denied — the journal cannot be served under a mislabeled envelope.

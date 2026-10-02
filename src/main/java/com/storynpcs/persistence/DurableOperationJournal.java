@@ -425,12 +425,23 @@ public final class DurableOperationJournal {
         validateRequiredText(subject, "subject", MAX_SUBJECT_LENGTH);
     }
 
+    /**
+     * Thrown when an operation ID is reused with a different operation type or
+     * subject — a request-identity conflict, distinct from storage failures.
+     */
+    public static final class OperationIdentityMismatchException extends IOException {
+        public OperationIdentityMismatchException(String message) {
+            super(message);
+        }
+    }
+
     private static void verifyIdentity(OperationRecord existing, UUID operationId,
                                        String operationType, String subject) throws IOException {
         if (!operationId.equals(existing.operationId())
                 || !operationType.equals(existing.operationType())
                 || !subject.equals(existing.subject())) {
-            throw new IOException("operation ID is already bound to a different operation identity: " + operationId);
+            throw new OperationIdentityMismatchException(
+                    "operation ID is already bound to a different operation identity: " + operationId);
         }
     }
 

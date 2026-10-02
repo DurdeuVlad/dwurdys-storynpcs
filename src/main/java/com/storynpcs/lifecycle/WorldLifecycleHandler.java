@@ -532,6 +532,15 @@ public class WorldLifecycleHandler {
                 LOGGER.error("StoryNPCs trade recovery failed for {}: {}", uuid, failure.getMessage());
             }
             try {
+                int unresolvedTransports = mod.getApplicationService().recoverTransportOperations(uuid);
+                if (unresolvedTransports > 0) {
+                    LOGGER.warn("{} StoryNPCs transport request(s) still require recovery for player {}",
+                            unresolvedTransports, uuid);
+                }
+            } catch (RuntimeException failure) {
+                LOGGER.error("StoryNPCs transport recovery failed for {}: {}", uuid, failure.getMessage());
+            }
+            try {
                 int unresolvedCompletions = mod.getApplicationService().recoverQuestCompletions(uuid);
                 if (unresolvedCompletions > 0) {
                     LOGGER.warn("{} StoryNPCs quest completion(s) still require recovery for player {}",

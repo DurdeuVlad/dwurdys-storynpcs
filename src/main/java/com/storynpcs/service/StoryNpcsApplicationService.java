@@ -56,8 +56,8 @@ public class StoryNpcsApplicationService {
     /** Recent progression-action receipts; replays return the recorded outcome instead of re-applying. */
     private final BoundedReplayCache<UUID, CompletedProgressionAction> completedProgressionActions =
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
-    private final BoundedReplayCache<UUID, CompletedTransportRequest> completedTransportRequests =
-            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    /** Durable request journal for transport — survives restart, unlike a replay cache. */
+    private final com.storynpcs.persistence.DurableOperationJournal transportOperationJournal;
     private final Object[] progressionActionLocks = createMutationLocks();
 
     /**
@@ -194,6 +194,8 @@ public class StoryNpcsApplicationService {
         this.minecraftServer = minecraftServer; // nullable — degrades gracefully
         this.tradeOperationJournal = new com.storynpcs.persistence.DurableOperationJournal(
                 progressionRepository.storageDirectory().resolve("trade-operations"));
+        this.transportOperationJournal = new com.storynpcs.persistence.DurableOperationJournal(
+                progressionRepository.storageDirectory().resolve("transport-operations"));
     }
 
     // ==========================================
@@ -523,7 +525,7 @@ public class StoryNpcsApplicationService {
 
     private record CompletedProgressionAction(String fingerprint, AuthorizedActionResult result) {}
 
-    private record CompletedTransportRequest(String fingerprint, TransportResult result) {}
+
 
     private record CompletedFollowerMutation(
             String payloadFingerprint, CanonicalMutationResult result) {}
@@ -2511,6 +2513,26 @@ public class StoryNpcsApplicationService {
                     prior.diagnostics(), prior.events(), prior.recoveryOutcome());
         }
 
+        // Durable replay check (issue #57 — P2-3): the in-memory cache dies
+        // with the process; the progression ledger survives restart. A recorded
+        // marker means the mutation already committed in the same save, so a
+        // replayed request id must return that outcome, never re-apply a
+        // non-idempotent ADJUST.
+        String durableOutcome = progression.appliedActionOutcome(request.requestId());
+        if (durableOutcome != null) {
+            String[] parts = durableOutcome.split("\n", -1);
+            if (!parts[0].equals(fingerprint)) {
+                return factionMutationFailure(progression.getFactionRevision(),
+                        "REQUEST_PAYLOAD_MISMATCH", "Request ID is already bound to a different faction mutation payload");
+            }
+            long recordedRevision = parts.length > 1 ? Long.parseLong(parts[1]) : progression.getFactionRevision();
+            String recoveryOutcome = parts.length > 2 ? parts[2] : "COMMITTED";
+            List<String> events = parts.length > 3 && !parts[3].isEmpty()
+                    ? List.of(parts[3].split(";")) : List.of();
+            return new CanonicalMutationResult(true, true, recordedRevision,
+                    ValidationResult.valid(), events, recoveryOutcome);
+        }
+
         long currentRevision = progression.getFactionRevision();
         if (currentRevision != request.expectedRevision()) {
             CanonicalMutationResult stale = factionMutationFailure(currentRevision, "STALE_REVISION",
@@ -2539,6 +2561,10 @@ public class StoryNpcsApplicationService {
             }
             newPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
             progression.setFactionRevision(Math.addExact(currentRevision, 1L));
+            // The replay marker commits inside the same save as the mutation —
+            // a failed save rolls the marker back with it via restoreFrom.
+            progression.recordAppliedActionRequest(request.requestId(), fingerprint,
+                    progression.getFactionRevision() + "\nCOMMITTED\nFactionReputationChangeEvent");
             progressionRepository.save(request.playerUuid(), progression);
         } catch (Exception failure) {
             progression.restoreFrom(snapshot);
@@ -2728,7 +2754,39 @@ public class StoryNpcsApplicationService {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(locationId, "locationId");
         return runProgressionAction(request, "transport.unlock", locationId.toString(), locationId,
-                () -> AuthorizedActionResult.of(unlockTransportLocation(request.playerUuid(), locationId)));
+                () -> applyTransportUnlock(request, locationId));
+    }
+
+    /**
+     * Transport unlock with durable replay classification (issue #57 — P2-3):
+     * the request id and its outcome are recorded in the same progression save
+     * that grants the unlock, so a replay after restart returns the recorded
+     * outcome instead of re-executing and re-auditing the mutation.
+     */
+    private AuthorizedActionResult applyTransportUnlock(
+            PlayerProgressionActionRequest request, NamespacedId locationId) {
+        String fingerprint = request.playerUuid() + "|transport.unlock|" + locationId;
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            String recorded = progression.appliedActionOutcome(request.requestId());
+            if (recorded != null) {
+                String[] parts = recorded.split("\n", 2);
+                if (!parts[0].equals(fingerprint)) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "REQUEST_PAYLOAD_MISMATCH",
+                            "Request ID is already bound to a different progression action"));
+                }
+                boolean applied = parts.length > 1 && Boolean.parseBoolean(parts[1]);
+                return AuthorizedActionResult.replayOf(AuthorizedActionResult.of(applied));
+            }
+            if (registry.getTransportLocation(locationId).isEmpty()) {
+                return AuthorizedActionResult.of(false);
+            }
+            progression.getUnlockedTransportLocations().add(locationId);
+            progression.recordAppliedActionRequest(request.requestId(), fingerprint, "true");
+            saveProgression(request.playerUuid(), progression);
+            return AuthorizedActionResult.of(true);
+        }
     }
 
     // ==========================================
@@ -5714,51 +5772,180 @@ public class StoryNpcsApplicationService {
             PlayerProgressionActionRequest request, NamespacedId locationId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(locationId, "locationId");
-        String fingerprint = request.playerUuid() + "|transport.request|" + locationId;
         Object requestLock = progressionActionLocks[request.requestId().hashCode()
                 & (progressionActionLocks.length - 1)];
-        TransportResult result;
-        String outcome;
+        TransportResult result = null;
+        String outcome = null;
         synchronized (requestLock) {
-            CompletedTransportRequest prior = completedTransportRequests.get(request.requestId());
-            if (prior != null) {
+            // Durable record first: a replayed request id is classified from the
+            // journal without re-evaluating authorization (privilege changes only
+            // affect new request ids — denied attempts are never journaled).
+            com.storynpcs.persistence.DurableOperationJournal.OperationRecord existing = null;
+            boolean journalFailed = false;
+            try {
+                existing = transportOperationJournal.read(request.requestId());
+            } catch (IOException | RuntimeException journalFailure) {
+                journalFailed = true;
+            }
+            if (journalFailed) {
+                // A transport request without a readable record cannot be
+                // replay-classified — refuse rather than risk a duplicate fee.
+                result = new TransportResult(false, null, 0, "JOURNAL_UNAVAILABLE");
+                outcome = "JOURNAL_UNAVAILABLE";
+            } else if (existing != null) {
                 if (!"transport.request".equals(request.operation())) {
                     result = new TransportResult(false, null, 0,
                             "OPERATION_MISMATCH: Request operation '" + request.operation()
                                     + "' does not match transport.request");
                     outcome = "OPERATION_MISMATCH";
-                } else if (!prior.fingerprint().equals(fingerprint)) {
+                } else if (!isTransportSubject(existing, request.playerUuid(), locationId)) {
                     result = new TransportResult(false, null, 0,
                             "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
                     outcome = "REQUEST_PAYLOAD_MISMATCH";
+                } else if (existing.state()
+                        == com.storynpcs.persistence.DurableOperationJournal.State.PREPARED) {
+                    // A durable PREPARED means the fee/teleport leg may or may
+                    // not have run before a crash — never re-execute live side
+                    // effects on a guess.
+                    result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                    outcome = "RECOVERY_REQUIRED";
                 } else {
-                    result = prior.result();
+                    result = decodeTransportResult(existing);
                     outcome = "REPLAYED";
                 }
             } else {
                 AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
                 if (decision.allowed() && !"transport.request".equals(request.operation())) {
                     decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
-                            "Request operation '" + request.operation() + "' does not match transport.request");
+                            "Request operation '" + request.operation()
+                                    + "' does not match transport.request");
                 }
-                result = decision.allowed()
-                        ? requestTransport(request.playerUuid(), locationId)
-                        : new TransportResult(false, null, 0, decision.code() + ": " + decision.message());
-                if (decision.allowed()) {
-                    completedTransportRequests.put(request.requestId(),
-                            new CompletedTransportRequest(fingerprint, result));
-                    outcome = result.approved() ? "COMMITTED"
-                            : result.detail() == null ? "REJECTED_NO_SIDE_EFFECTS"
-                            : result.detail().split(":", 2)[0];
-                } else {
+                if (!decision.allowed()) {
+                    result = new TransportResult(false, null, 0,
+                            decision.code() + ": " + decision.message());
                     outcome = decision.code();
+                } else {
+                    try {
+                        var began = transportOperationJournal.begin(request.requestId(),
+                                "transport.request", request.playerUuid() + "|" + locationId);
+                        switch (began.status()) {
+                            case STARTED -> {
+                                result = requestTransport(request.playerUuid(), locationId);
+                                outcome = result.approved() ? "COMMITTED"
+                                        : result.detail() == null ? "REJECTED_NO_SIDE_EFFECTS"
+                                        : result.detail().split(":", 2)[0];
+                                finalizeTransportRequest(request.requestId(), result);
+                            }
+                            case PENDING -> {
+                                result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                                outcome = "RECOVERY_REQUIRED";
+                            }
+                            default -> {
+                                result = decodeTransportResult(began.record());
+                                outcome = "REPLAYED";
+                            }
+                        }
+                    } catch (com.storynpcs.persistence.DurableOperationJournal
+                                     .OperationIdentityMismatchException mismatch) {
+                        result = new TransportResult(false, null, 0,
+                                "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
+                        outcome = "REQUEST_PAYLOAD_MISMATCH";
+                    } catch (IOException journalFailure) {
+                        result = new TransportResult(false, null, 0,
+                                "JOURNAL_UNAVAILABLE: " + journalFailure.getMessage());
+                        outcome = "JOURNAL_UNAVAILABLE";
+                    }
                 }
             }
+        }
+        if (result == null || outcome == null) {
+            throw new IllegalStateException("transport request produced no outcome");
         }
         dispatchQuestEvents(request.playerUuid(), List.of(new CanonicalMutationEvent(
                 request.operation(), request.actorType(), locationId, request.requestId(),
                 result.approved(), 0L, outcome, request.actorId(), request.playerUuid())));
         return result;
+    }
+
+    /**
+     * Terminals the durable transport record: approved requests commit so a
+     * post-restart replay returns the stored result; every rejected or
+     * compensated outcome aborts the record (no durable effect persists). If
+     * the journal write itself fails the record stays PREPARED and a later
+     * replay fails closed with {@code RECOVERY_REQUIRED} rather than
+     * re-executing live side effects.
+     */
+    private void finalizeTransportRequest(UUID requestId, TransportResult result) {
+        String encoded = encodeTransportResult(result);
+        try {
+            if (result.approved()) {
+                transportOperationJournal.commit(requestId, "APPLIED", encoded);
+            } else {
+                transportOperationJournal.abort(requestId,
+                        result.detail() == null ? "REJECTED" : result.detail().split(":", 2)[0], encoded);
+            }
+        } catch (IOException terminalFailure) {
+            System.err.println("[StoryNPCs] transport request " + requestId
+                    + " could not be terminally journaled; it will recover fail-closed: "
+                    + terminalFailure.getMessage());
+        }
+    }
+
+    private static boolean isTransportSubject(
+            com.storynpcs.persistence.DurableOperationJournal.OperationRecord record,
+            UUID playerUuid, NamespacedId locationId) {
+        return (playerUuid + "|" + locationId).equals(record.subject());
+    }
+
+    private static String encodeTransportResult(TransportResult result) {
+        return result.approved() + "\n"
+                + (result.destinationName() == null ? "" : result.destinationName()) + "\n"
+                + result.feeCharged() + "\n"
+                + (result.detail() == null ? "" : result.detail());
+    }
+
+    private static TransportResult decodeTransportResult(
+            com.storynpcs.persistence.DurableOperationJournal.OperationRecord record) {
+        String detail = record.detail();
+        if (detail == null) return new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+        String[] parts = detail.split("\n", -1);
+        int fee = parts.length > 2 ? Integer.parseInt(parts[2]) : 0;
+        return new TransportResult(
+                Boolean.parseBoolean(parts[0]),
+                parts.length > 1 && !parts[1].isEmpty() ? parts[1] : null,
+                fee,
+                parts.length > 3 && !parts[3].isEmpty() ? parts[3] : null);
+    }
+
+    /**
+     * Login recovery for transport requests (issue #57 — P2-3): reports
+     * operations still PREPARED — the fee/teleport leg cannot be proven either
+     * way after a crash, so they are never auto-resolved.
+     *
+     * @return the number of unresolved prepared transport requests
+     */
+    public int recoverTransportOperations(UUID playerUuid) {
+        if (playerUuid == null) return 0;
+        com.storynpcs.persistence.DurableOperationJournal.PendingScan scan;
+        try {
+            scan = transportOperationJournal.pending();
+        } catch (IOException | RuntimeException failure) {
+            System.err.println("[StoryNPCs] transport operation journal recovery failed for "
+                    + playerUuid + ": " + failure.getMessage());
+            return 1;
+        }
+        for (String diagnostic : scan.diagnostics()) {
+            System.err.println("[StoryNPCs] transport operation journal recovery for "
+                    + playerUuid + ": " + diagnostic);
+        }
+        int unresolved = 0;
+        String subjectPrefix = playerUuid + "|";
+        for (var record : scan.records()) {
+            if (record.subject() != null && record.subject().startsWith(subjectPrefix)) {
+                unresolved++;
+            }
+        }
+        return unresolved;
     }
 
     /**

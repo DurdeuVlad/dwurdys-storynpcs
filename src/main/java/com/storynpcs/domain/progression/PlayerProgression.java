@@ -49,6 +49,20 @@ public class PlayerProgression {
     @JsonProperty
     private Set<NamespacedId> unlockedTransportLocations = new HashSet<>();
 
+    /**
+     * Durable idempotency ledger for request-id-keyed mutations whose effect
+     * commits in the same save as this record (issue #57 — P2-3). Value is
+     * {@code fingerprint\n<outcome payload>} — the fingerprint blocks a reused
+     * request id bound to different input, and the payload lets a replay after
+     * restart return the recorded outcome instead of re-executing (which would
+     * double-apply non-idempotent mutations like faction ADJUST). Bounded FIFO
+     * so the ledger cannot grow without limit.
+     */
+    @JsonProperty
+    private LinkedHashMap<String, String> appliedActionRequests = new LinkedHashMap<>();
+
+    private static final int MAX_APPLIED_ACTION_REQUESTS = 512;
+
 
     public PlayerProgression() {}
 
@@ -116,6 +130,46 @@ public class PlayerProgression {
         this.unlockedTransportLocations = unlocked == null ? new HashSet<>() : new HashSet<>(unlocked);
     }
 
+    /**
+     * Durable request ledger — raw map for serde only; mutate via
+     * {@link #recordAppliedActionRequest}.
+     */
+    public Map<String, String> getAppliedActionRequests() { return appliedActionRequests; }
+    public void setAppliedActionRequests(Map<String, String> applied) {
+        this.appliedActionRequests = new LinkedHashMap<>();
+        if (applied == null) return;
+        applied.forEach((id, value) -> {
+            if (id == null || id.isBlank() || value == null) {
+                throw new IllegalArgumentException("applied action requests require non-blank ids and non-null values");
+            }
+            this.appliedActionRequests.put(id, value);
+        });
+    }
+
+    /** Recorded outcome for a request id, or {@code null} when this request never committed. */
+    public String appliedActionOutcome(UUID requestId) {
+        return requestId == null ? null : appliedActionRequests.get(requestId.toString());
+    }
+
+    /**
+     * Records a committed request outcome. Must be called inside the same
+     * mutation critical section so the marker and the effect land in one
+     * durable save — that atomicity is what makes replay dedup crash-safe.
+     */
+    public void recordAppliedActionRequest(UUID requestId, String fingerprint, String outcome) {
+        if (requestId == null) throw new IllegalArgumentException("requestId cannot be null");
+        if (fingerprint == null || fingerprint.isBlank()) {
+            throw new IllegalArgumentException("fingerprint cannot be blank");
+        }
+        if (outcome == null) throw new IllegalArgumentException("outcome cannot be null");
+        String key = requestId.toString();
+        if (appliedActionRequests.size() >= MAX_APPLIED_ACTION_REQUESTS
+                && !appliedActionRequests.containsKey(key)) {
+            appliedActionRequests.remove(appliedActionRequests.keySet().iterator().next());
+        }
+        appliedActionRequests.put(key, fingerprint + "\n" + outcome);
+    }
+
     /** Durable mailbox — newest-last. */
     public List<MailMessage> getMailbox() { return mailbox; }
     public void setMailbox(List<MailMessage> mailbox) {
@@ -144,6 +198,7 @@ public class PlayerProgression {
         copy.mailbox = new ArrayList<>();
         for (MailMessage m : mailbox) copy.mailbox.add(m.copy());
         copy.unlockedTransportLocations = new HashSet<>(unlockedTransportLocations);
+        copy.appliedActionRequests = new LinkedHashMap<>(appliedActionRequests);
         return copy;
     }
 
@@ -164,6 +219,7 @@ public class PlayerProgression {
         mailbox = new ArrayList<>();
         for (MailMessage m : snapshot.mailbox) mailbox.add(m.copy());
         unlockedTransportLocations = new HashSet<>(snapshot.unlockedTransportLocations);
+        appliedActionRequests = new LinkedHashMap<>(snapshot.appliedActionRequests);
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {
