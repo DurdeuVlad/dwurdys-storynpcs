@@ -175,7 +175,15 @@ public final class DurableOperationJournal {
         return transition(operationId, State.ABORTED, outcomeCode, detail);
     }
 
-    /** Reads one operation record without changing it. */
+    /**
+     * Reads one operation record without changing it.
+     *
+     * <p>Fail-closed note: when no live record exists but a quarantined
+     * {@code .corrupted.} artifact does, this throws — that operation id stays
+     * poisoned until an operator inspects and removes the artifact (or restores
+     * a valid record file) under the journal directory. There is intentionally
+     * no automated un-quarantine path.
+     */
     public synchronized OperationRecord read(UUID operationId) throws IOException {
         if (operationId == null) throw new IllegalArgumentException("operationId cannot be null");
         return readExisting(recordPath(operationId));
@@ -425,12 +433,23 @@ public final class DurableOperationJournal {
         validateRequiredText(subject, "subject", MAX_SUBJECT_LENGTH);
     }
 
+    /**
+     * Thrown when an operation ID is reused with a different operation type or
+     * subject — a request-identity conflict, distinct from storage failures.
+     */
+    public static final class OperationIdentityMismatchException extends IOException {
+        public OperationIdentityMismatchException(String message) {
+            super(message);
+        }
+    }
+
     private static void verifyIdentity(OperationRecord existing, UUID operationId,
                                        String operationType, String subject) throws IOException {
         if (!operationId.equals(existing.operationId())
                 || !operationType.equals(existing.operationType())
                 || !subject.equals(existing.subject())) {
-            throw new IOException("operation ID is already bound to a different operation identity: " + operationId);
+            throw new OperationIdentityMismatchException(
+                    "operation ID is already bound to a different operation identity: " + operationId);
         }
     }
 
