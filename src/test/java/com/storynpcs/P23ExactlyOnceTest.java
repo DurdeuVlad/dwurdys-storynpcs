@@ -310,4 +310,52 @@ class P23ExactlyOnceTest {
         assertThat(outcome).isEqualTo(
                 StoryNpcsApplicationService.CompanionWageOutcome.PROGRESSION_UNAVAILABLE);
     }
+
+    @Test
+    void companionWageBlockedRecordShortCircuitsWithoutRescanningDisk() throws IOException {
+        UUID owner = UUID.randomUUID();
+        UUID companion = UUID.randomUUID();
+        java.nio.file.Files.writeString(tempDir.resolve(owner + ".json"), "{ not json !!!");
+
+        int[] loads = {0};
+        var countingRepository = new ProgressionRepository(tempDir) {
+            @Override
+            public PlayerProgression getOrCreate(UUID playerUuid) {
+                loads[0]++;
+                return super.getOrCreate(playerUuid);
+            }
+        };
+        var countingService = new StoryNpcsApplicationService(registry, countingRepository, events);
+
+        // First call quarantines the corrupt record and blocks the id.
+        assertThat(countingService.chargeCompanionWage(
+                owner, companion, wageProfile(), new WageLedger(), 0, 250))
+                .isEqualTo(StoryNpcsApplicationService.CompanionWageOutcome.PROGRESSION_UNAVAILABLE);
+        assertThat(loads[0]).isEqualTo(1);
+
+        // Blocked ticks short-circuit on isUnavailable — no further disk
+        // reads or quarantine scans per wage tick.
+        countingService.chargeCompanionWage(owner, companion, wageProfile(), new WageLedger(), 0, 250);
+        countingService.chargeCompanionWage(owner, companion, wageProfile(), new WageLedger(), 0, 250);
+        assertThat(loads[0]).isEqualTo(1);
+    }
+
+    @Test
+    void companionWageMarkerEvictionPrefersStaleCompanions() {
+        PlayerProgression progression = repository.getOrCreate(UUID.randomUUID());
+        UUID live = UUID.randomUUID();
+        progression.recordCompanionWagePeriod(live, 0);
+        // Fill the ledger beyond capacity with distinct dormant companions.
+        for (int i = 0; i < 300; i++) {
+            progression.recordCompanionWagePeriod(UUID.randomUUID(), i);
+        }
+        // Re-recording the live companion refreshes its position — it must
+        // survive further evictions while dormant entries age out first.
+        progression.recordCompanionWagePeriod(live, 42);
+        for (int i = 0; i < 50; i++) {
+            progression.recordCompanionWagePeriod(UUID.randomUUID(), 300 + i);
+        }
+        assertThat(progression.chargedWagePeriod(live)).isEqualTo(42);
+        assertThat(progression.getCompanionWagePeriods()).hasSize(256);
+    }
 }
