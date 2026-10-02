@@ -5755,7 +5755,8 @@ public class StoryNpcsApplicationService {
             com.storynpcs.domain.companion.CompanionProfile profile,
             com.storynpcs.domain.companion.WageLedger ledger,
             long hireTick, long nowTick) {
-        if (profile == null || ledger == null || ownerUuid == null || hireTick < 0) {
+        if (profile == null || ledger == null || ownerUuid == null || companionId == null
+                || hireTick < 0) {
             return CompanionWageOutcome.NOT_DUE;
         }
         int interval = Math.max(20, profile.getWageIntervalTicks());
@@ -5767,6 +5768,11 @@ public class StoryNpcsApplicationService {
         // periodic NBT saves, so a crash between a deduction and that save
         // loses the marker. The owner-progression record is force-written on
         // every successful charge — consult it before re-charging the period.
+        // isUnavailable short-circuits first: a blocked record must not redo
+        // the quarantine scan + diagnostic on every wage tick.
+        if (progressionRepository.isUnavailable(ownerUuid)) {
+            return CompanionWageOutcome.PROGRESSION_UNAVAILABLE;
+        }
         PlayerProgression ownerProgression;
         try {
             ownerProgression = progressionRepository.getOrCreate(ownerUuid);
@@ -5800,17 +5806,21 @@ public class StoryNpcsApplicationService {
             case CHARGED -> {
                 // The deduction already ran inside ledger.charge — persist the
                 // consumed period in owner progression immediately so a crash
-                // before the next entity NBT save cannot re-charge it.
-                ownerProgression.recordCompanionWagePeriod(companionId, period);
-                try {
-                    progressionRepository.save(ownerUuid, ownerProgression);
-                } catch (Exception saveFailure) {
-                    // The entity ledger still carries the in-memory marker; only
-                    // a crash before BOTH this save and the next entity save can
-                    // double-charge — a documented residual window.
-                    System.err.println("[StoryNPCs] companion wage period " + period
-                            + " for " + companionId + " could not be durably marked: "
-                            + saveFailure.getMessage());
+                // before the next entity NBT save cannot re-charge it. Free
+                // periods (wageAmount <= 0) move no value, so they skip the
+                // forced save — re-firing one after a restart is harmless.
+                if (profile.getWageAmount() > 0) {
+                    ownerProgression.recordCompanionWagePeriod(companionId, period);
+                    try {
+                        progressionRepository.save(ownerUuid, ownerProgression);
+                    } catch (Exception saveFailure) {
+                        // The entity ledger still carries the in-memory marker;
+                        // only a crash before BOTH this save and the next entity
+                        // save can double-charge — a documented residual window.
+                        System.err.println("[StoryNPCs] companion wage period " + period
+                                + " for " + companionId + " could not be durably marked: "
+                                + saveFailure.getMessage());
+                    }
                 }
                 return CompanionWageOutcome.CHARGED;
             }
@@ -5820,9 +5830,22 @@ public class StoryNpcsApplicationService {
                     case PAUSE_SERVICE -> CompanionWageOutcome.INSUFFICIENT_PAUSED;
                     case DISMISS -> CompanionWageOutcome.INSUFFICIENT_DISMISSED;
                     case KEEP_ANYWAY -> {
-                        // Policy keeps the companion but the period is still
-                        // consumed — a free period can never be retried into a charge.
+                        // Policy keeps the companion and consumes the period —
+                        // it must never be retried into a charge, so the
+                        // consumption is durable (entity NBT alone could lose
+                        // it across a crash and re-charge the "free" period
+                        // once the owner is funded again).
                         ledger.setLastChargedPeriod(period);
+                        if (profile.getWageAmount() > 0) {
+                            ownerProgression.recordCompanionWagePeriod(companionId, period);
+                            try {
+                                progressionRepository.save(ownerUuid, ownerProgression);
+                            } catch (Exception saveFailure) {
+                                System.err.println("[StoryNPCs] companion wage period " + period
+                                        + " for " + companionId + " could not be durably marked: "
+                                        + saveFailure.getMessage());
+                            }
+                        }
                         yield CompanionWageOutcome.INSUFFICIENT_KEPT;
                     }
                 };

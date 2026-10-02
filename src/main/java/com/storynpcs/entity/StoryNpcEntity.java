@@ -250,9 +250,14 @@ public class StoryNpcEntity extends PathfinderMob {
                 companionPaused = false;
                 this.discard();
             }
-            case OWNER_OFFLINE_PAUSED,
-                 com.storynpcs.service.StoryNpcsApplicationService
-                         .CompanionWageOutcome.PROGRESSION_UNAVAILABLE -> companionPaused = true;
+            case OWNER_OFFLINE_PAUSED -> companionPaused = true;
+            case PROGRESSION_UNAVAILABLE -> {
+                companionPaused = true;
+                if (owner != null) {
+                    owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§c" + getName().getString() + " paused service — your progression data is unreadable."), true);
+                }
+            }
             default -> { }
         }
     }

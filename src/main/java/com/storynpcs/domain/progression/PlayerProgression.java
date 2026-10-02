@@ -214,14 +214,16 @@ public class PlayerProgression {
     /**
      * Records a charged wage period for one companion. Call inside the same
      * critical section as the deduction it keys so the marker and the charge
-     * land in one durable save.
+     * land in one durable save. Re-recording refreshes eviction recency —
+     * actively charging companions are never evicted while dormant ones
+     * (typically dismissed) age out first.
      */
     public void recordCompanionWagePeriod(UUID companionId, long period) {
         if (companionId == null) throw new IllegalArgumentException("companionId cannot be null");
         if (period < 0) throw new IllegalArgumentException("period cannot be negative");
         String key = companionId.toString();
-        if (companionWagePeriods.size() >= MAX_COMPANION_WAGE_PERIODS
-                && !companionWagePeriods.containsKey(key)) {
+        companionWagePeriods.remove(key); // LinkedHashMap.put does not refresh position
+        if (companionWagePeriods.size() >= MAX_COMPANION_WAGE_PERIODS) {
             companionWagePeriods.remove(companionWagePeriods.keySet().iterator().next());
         }
         companionWagePeriods.put(key, period);
