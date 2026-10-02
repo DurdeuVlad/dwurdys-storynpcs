@@ -33,6 +33,8 @@ public class NpcAttackOnSightGoal extends Goal {
 
     /** Ticks between world scans — bounded, never per-tick. */
     private static final int SCAN_INTERVAL_TICKS = 10;
+    /** Re-check the sensing budget at this cadence while the tier disables it. */
+    private static final int TIER_RECHECK_TICKS = 20;
     /** Threat written for a sight-acquired target — enough to engage, decaying if it escapes. */
     private static final int SIGHT_THREAT = 200;
 
@@ -51,7 +53,16 @@ public class NpcAttackOnSightGoal extends Goal {
         if (--scanDelay > 0) {
             return false;
         }
-        scanDelay = SCAN_INTERVAL_TICKS;
+        // P4-1: the sensing budget owns sight-scan cadence. Disabled tiers
+        // (DORMANT) never scan — re-check on a fixed cadence so a tier upgrade
+        // re-arms acquisition; degraded tiers widen the interval.
+        int sensingPeriod = npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.SENSING);
+        if (sensingPeriod < 0) {
+            scanDelay = TIER_RECHECK_TICKS;
+            return false;
+        }
+        scanDelay = Math.max(SCAN_INTERVAL_TICKS, sensingPeriod);
         if (!sensePreconditions()) {
             return false;
         }

@@ -244,4 +244,51 @@ public final class StoryNpcsGameTests {
 
         helper.succeed();
     }
+
+    /**
+     * P4-1 tier consumption: the live scheduler-to-entity wiring — a DORMANT
+     * evaluation disables sensing/pathing/combat and leaves only persistence
+     * cadence, and an ACTIVE re-evaluation restores full capability. The
+     * evaluation is injected synchronously so assertions are deterministic
+     * regardless of where the periodic server-tick eval lands.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
+    public static void dormantTierDisablesGoalCapabilitiesOnLiveEntity(GameTestHelper helper) {
+        BlockPos spawnAt = new BlockPos(1, 1, 1);
+        StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
+        StoryNpcs mod = StoryNpcsAccess.mod(npc);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+
+        var scheduler = mod.getSimulationScheduler();
+        helper.assertTrue(scheduler != null, "SimulationScheduler must be wired to the mod");
+
+        var dormantInput = new com.storynpcs.sim.SimulationScheduler.ActorInput(
+                npc.getUUID(), 400.0, false);
+        scheduler.evaluate(java.util.List.of(dormantInput));
+        helper.assertTrue(
+                scheduler.stateOf(npc.getUUID()).tier() == com.storynpcs.sim.SimulationTier.DORMANT,
+                "Actor at 400 blocks should be DORMANT");
+
+        helper.assertTrue(npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.SENSING) < 0,
+                "DORMANT sensing must be disabled — no sight scans");
+        helper.assertTrue(npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0,
+                "DORMANT pathing must be disabled — dormant NPCs stand still");
+        helper.assertTrue(npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.COMBAT) < 0,
+                "DORMANT combat must be disabled");
+        helper.assertTrue(npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.PERSISTENCE) > 0,
+                "DORMANT keeps only its persistence cadence");
+
+        scheduler.evaluate(java.util.List.of(
+                new com.storynpcs.sim.SimulationScheduler.ActorInput(
+                        npc.getUUID(), 10.0, false)));
+        helper.assertTrue(npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.SENSING) > 0,
+                "ACTIVE re-evaluation must restore sensing");
+
+        helper.succeed();
+    }
 }

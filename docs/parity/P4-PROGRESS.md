@@ -1,6 +1,6 @@
 # P4 — Performance foundations progress (P4-1, P4-2, P4-3)
 
-Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationScheduler` is driven from the `StoryNpcs` server tick — per-entity goal/navigation consumption still open).
+Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationScheduler` is driven from the `StoryNpcs` server tick and goals now consume tier budgets — squad/navigation-request consumption still open).
 
 ## P4-1 — Archetypes, simulation tiers, LOD
 
@@ -11,7 +11,30 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
   (SPAWNED/DISTANCE/COMBAT_ENGAGE/DESPAWNED), `shouldRun` capability gating, `tierCounts` telemetry.
 - `ActorMemoryReport` — separates shared archetype bytes from per-actor incremental bytes
   (the ≤32KiB dormant bound).
-- 6 fixtures covering bands, transitions, combat clamp, gating, memory separation, aggregation.
+- Goal consumption of tier budgets (this slice): `SimulationScheduler.capabilityPeriod`
+  returns the effective per-capability period (`-1` disabled/UNLOADED, `1` unevaluated →
+  full fidelity, else the tier's budgeted period); `StoryNpcEntity.simulationCapabilityPeriod`
+  is the null-safe accessor. Consumers throttle on elapsed game ticks — never AND a
+  per-entity countdown with the global `shouldRun` grid, or phases can starve in the
+  gap between the two periods (the P3-3 threat-pulse dead-zone pattern).
+  - `NpcAttackOnSightGoal` — SENSING: dormant tiers never sight-scan; degraded tiers
+    widen the 10-tick scan interval.
+  - `NpcMeleeAttackGoal` — PATHING widens repath cadence (disabled → no new paths; the
+    in-flight path finishes rather than snapping to a halt); COMBAT widens the authored
+    attack cooldown (never faster than authored; disabled → no attacks).
+  - `NpcRangedAttackGoal` — SENSING gates the LOS raycast in `canUse`/`canContinueToUse`
+    via an elapsed-throttle + cached result; COMBAT widens volley cadence (disabled →
+    no fire).
+  - `NpcPatrolGoal`/`NpcReturnToStartGoal`/`NpcFollowFormationGoal` — PATHING disabled
+    means dormant NPCs stop navigating entirely (patrol/return/follow all stand still);
+    follow-formation's 10-tick recalc widens to the tier period.
+  - Net dormant behavior: no sight scans, no path finds, no attacks — the NPC is
+    bookkeeping plus its persistence cadence, matching the DORMANT budget contract.
+- A `runGameTestServer` fixture injects DORMANT/ACTIVE evaluations against the live
+  scheduler and asserts `simulationCapabilityPeriod` disables and restores the goal
+  capabilities on a real entity.
+- 8 fixtures covering bands, transitions, combat clamp, gating, capabilityPeriod
+  semantics, memory separation, aggregation.
 
 ## P4-2 — Bounded path scheduling, squad coordination
 
@@ -32,12 +55,18 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
 
 ## Explicit limits
 
-- `SimulationScheduler` is driven from the `StoryNpcs` server tick and produces
-  per-actor tier states; `SquadCoordinator` and per-entity goal/navigation
-  consumption of those tiers remain open.
-- No runnable benchmark harness or scenario worlds exist yet; the contract defines the
-  pass/fail gate but the measurement environment is not implemented.
+- `SimulationScheduler` produces per-actor tier states every 20 server ticks and the
+  combat/patrol/follow/sight goals now consume them; `SquadCoordinator` and the
+  `PathScheduler` queue are still not wired into entity navigation (P4-2 scope), and
+  PERSISTENCE is budgeted but nothing consumes it (entity save is chunk-driven).
+- `TierBudgets`/`SimulationTierPolicy` are injectable but have no runtime config
+  surface — "configurable" is constructor-level only.
+- `HeadlessBenchmark` + `SimCertificationBenchmarkTest` produce the `benchmark-*`
+  reports in a plain JVM — explicitly labeled `headless-jvm-simulation`, not live
+  MSPT; live-server certification evidence remains P4-3 scope (issue #126).
 
 ## Verification
 
-`./gradlew test`: 63 suites, 537 tests, 0 failures. `git diff --check` clean. No live MC testing.
+`./gradlew cleanTest test --rerun-tasks`: all suites green; dormant-tier GameTest
+proves live scheduler→entity→capability wiring. No target-runtime parity claim —
+CustomNPCs target runtime evidence remains BLOCKED.

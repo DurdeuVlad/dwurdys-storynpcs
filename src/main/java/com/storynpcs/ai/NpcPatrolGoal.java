@@ -38,6 +38,12 @@ public class NpcPatrolGoal extends Goal {
     @Override
     public boolean canUse() {
         if (!npc.isAlive()) return false;
+        // P4-1: a tier whose pathing budget is disabled patrols never — the
+        // dormant NPC stands its post instead of spending path finds.
+        if (npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+            return false;
+        }
         var defOpt = npc.getDefinition();
         if (defOpt.isEmpty()) return false;
 
@@ -93,7 +99,10 @@ public class NpcPatrolGoal extends Goal {
             moveToCurrentWaypoint();
         } else if (npc.getNavigation().isDone()) {
             if (--this.repathDelay <= 0) {
-                this.repathDelay = 20; // Throttle to at most 1 repath attempt per second
+                // At most one repath per second, widened to the tier's
+                // pathing period when the budget degrades it further.
+                this.repathDelay = Math.max(20, npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.PATHING));
                 moveToCurrentWaypoint();
             }
         }

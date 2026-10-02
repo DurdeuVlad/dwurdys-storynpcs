@@ -26,6 +26,11 @@ public class NpcReturnToStartGoal extends Goal {
             return false;
         }
         if (!npc.isAlive()) return false;
+        // P4-1: pathing-disabled tiers never start a return path.
+        if (npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+            return false;
+        }
         if (npc.getFollowerRole() != null && npc.getFollowerRole().getState() == com.storynpcs.domain.role.follower.FollowerRole.State.FOLLOWING) {
             return false;
         }

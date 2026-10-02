@@ -148,6 +148,21 @@ public class StoryNpcEntity extends PathfinderMob {
         return threatManager;
     }
 
+    /**
+     * P4-1 goal-facing accessor for the simulation-tier budget: the effective
+     * period in ticks for {@code capability} at this entity's current tier,
+     * {@code -1} when the capability is disabled, {@code 1} when the scheduler
+     * is absent or the entity is unevaluated (full fidelity). Consumers must
+     * throttle on elapsed game ticks — see
+     * {@link com.storynpcs.sim.SimulationScheduler#capabilityPeriod}.
+     */
+    public int simulationCapabilityPeriod(
+            com.storynpcs.sim.SimulationScheduler.Capability capability) {
+        var mod = com.storynpcs.StoryNpcsAccess.mod(this);
+        var sim = mod != null ? mod.getSimulationScheduler() : null;
+        return sim == null ? 1 : sim.capabilityPeriod(getUUID(), capability);
+    }
+
     @Override
     public void aiStep() {
         // Hidden-defeat statues freeze: no super tick, no goals, no drift,

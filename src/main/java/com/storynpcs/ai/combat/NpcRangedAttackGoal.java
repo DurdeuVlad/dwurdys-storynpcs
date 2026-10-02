@@ -27,6 +27,10 @@ public class NpcRangedAttackGoal extends Goal {
     private LivingEntity target;
     private long windupUntilTick = Long.MIN_VALUE;
     private long nextVolleyTick = Long.MIN_VALUE;
+    // P4-1: LOS raycasts run on the sensing budget — elapsed-tick throttle
+    // with a cached result so deferred windows keep the last sighting.
+    private long lastLosTick = Long.MIN_VALUE;
+    private boolean cachedLos = false;
 
     public NpcRangedAttackGoal(StoryNpcEntity npc) {
         this.npc = npc;
@@ -63,7 +67,7 @@ public class NpcRangedAttackGoal extends Goal {
         if (npc.distanceToSqr(living) > rangeSq) {
             return false;
         }
-        if (!npc.getSensing().hasLineOfSight(living)) {
+        if (!hasBudgetedLineOfSight(living)) {
             return false;
         }
         this.target = living;
@@ -91,7 +95,28 @@ public class NpcRangedAttackGoal extends Goal {
         // engagement/drop decisions stay with the melee goal's 32-block leash.
         double driftSq = Math.max(ranged.getRange() * ranged.getRange(), 32.0 * 32.0);
         return npc.distanceToSqr(target) <= driftSq
-                && npc.getSensing().hasLineOfSight(target);
+                && hasBudgetedLineOfSight(target);
+    }
+
+    /**
+     * Sensing-budget-gated line of sight: disabled tiers never sight; degraded
+     * tiers re-raycast at most once per tier period and reuse the cached
+     * result in between.
+     */
+    private boolean hasBudgetedLineOfSight(LivingEntity candidate) {
+        int sensingPeriod = npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.SENSING);
+        if (sensingPeriod < 0) {
+            cachedLos = false;
+            return false;
+        }
+        long now = npc.level().getGameTime();
+        if (lastLosTick == Long.MIN_VALUE
+                || now - lastLosTick >= Math.max(1, sensingPeriod)) {
+            lastLosTick = now;
+            cachedLos = npc.getSensing().hasLineOfSight(candidate);
+        }
+        return cachedLos;
     }
 
     @Override
@@ -100,6 +125,7 @@ public class NpcRangedAttackGoal extends Goal {
         // delayTicks is the authored aim windup before the first volley.
         this.windupUntilTick = npc.level().getGameTime() + (ranged != null ? ranged.getDelayTicks() : 0);
         this.nextVolleyTick = Long.MIN_VALUE;
+        this.cachedLos = true; // canUse just raycast-verified sight
     }
 
     @Override
@@ -107,6 +133,8 @@ public class NpcRangedAttackGoal extends Goal {
         this.target = null;
         this.windupUntilTick = Long.MIN_VALUE;
         this.nextVolleyTick = Long.MIN_VALUE;
+        this.lastLosTick = Long.MIN_VALUE;
+        this.cachedLos = false;
     }
 
     @Override
@@ -128,7 +156,14 @@ public class NpcRangedAttackGoal extends Goal {
         if (now < windupUntilTick || now < nextVolleyTick) {
             return;
         }
-        nextVolleyTick = now + ranged.getFireRateTicks();
+        // P4-1: volley cadence honors the combat budget — never faster than
+        // authored, never firing at all where combat eval is disabled.
+        int combatPeriod = npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.COMBAT);
+        if (combatPeriod < 0) {
+            return;
+        }
+        nextVolleyTick = now + Math.max(ranged.getFireRateTicks(), combatPeriod);
         fireVolley(serverLevel, target, ranged);
     }
 

@@ -65,8 +65,8 @@
    "detail": {
     "BLOCKED": 1,
     "DONE-LOCAL": 8,
-    "IN-PROGRESS": 17,
-    "IN-REVIEW": 21
+    "IN-PROGRESS": 16,
+    "IN-REVIEW": 22
    },
    "findings": [
     "P1-1: IN-REVIEW",
@@ -82,7 +82,7 @@
     "P3-1: IN-REVIEW",
     "P3-2: IN-REVIEW",
     "P3-3: IN-PROGRESS",
-    "P3-4: IN-PROGRESS",
+    "P3-4: IN-REVIEW",
     "P4-1: IN-PROGRESS",
     "P4-2: IN-PROGRESS",
     "P4-3: IN-PROGRESS",
@@ -121,7 +121,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 1042,
+    "junit_test_case_count": 1044,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,

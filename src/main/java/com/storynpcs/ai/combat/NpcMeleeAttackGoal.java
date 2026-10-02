@@ -137,6 +137,15 @@ public class NpcMeleeAttackGoal extends Goal {
         int tacticalRadius = ai != null ? ai.getTacticalRadius() : 8;
         double healthFraction = npc.getMaxHealth() > 0 ? npc.getHealth() / npc.getMaxHealth() : 1.0;
 
+        // P4-1: tier budgets degrade the two expensive capabilities — PATHING
+        // widens repath cadence, COMBAT widens attack cadence. Disabled
+        // periods mean no new paths and no attacks; the last issued path is
+        // allowed to finish rather than being snapped to a halt.
+        int pathingPeriod = npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.PATHING);
+        int combatPeriod = npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.COMBAT);
+
         var decision = TacticalManeuver.decide(behavior, healthFraction, distSq, reachSq,
                 tacticalRadius, retreatLatched, now < hitRunUntilTick, now < stalkUntilTick);
         retreatLatched = decision.retreatLatched();
@@ -145,14 +154,18 @@ public class NpcMeleeAttackGoal extends Goal {
             case HOLD -> this.npc.getNavigation().stop();
             case RETREAT -> {
                 if (--this.repathDelay <= 0) {
-                    this.repathDelay = 10;
-                    moveAwayFromTarget(tacticalRadius);
+                    this.repathDelay = pathingPeriod > 0 ? Math.max(10, pathingPeriod) : 20;
+                    if (pathingPeriod > 0) {
+                        moveAwayFromTarget(tacticalRadius);
+                    }
                 }
             }
             case APPROACH_TO_RADIUS -> {
                 if (--this.repathDelay <= 0) {
-                    this.repathDelay = 10;
-                    this.npc.getNavigation().moveTo(target, this.speedModifier * 0.75);
+                    this.repathDelay = pathingPeriod > 0 ? Math.max(10, pathingPeriod) : 20;
+                    if (pathingPeriod > 0) {
+                        this.npc.getNavigation().moveTo(target, this.speedModifier * 0.75);
+                    }
                 }
             }
             case ORBIT -> {
@@ -165,9 +178,11 @@ public class NpcMeleeAttackGoal extends Goal {
             }
             case ENGAGE -> {
                 if (--this.repathDelay <= 0) {
-                    this.repathDelay = 10;
-                    this.npc.getNavigation().moveTo(target, this.speedModifier);
-                    tryLeap(target, distSq, reachSq, now, ai);
+                    this.repathDelay = pathingPeriod > 0 ? Math.max(10, pathingPeriod) : 20;
+                    if (pathingPeriod > 0) {
+                        this.npc.getNavigation().moveTo(target, this.speedModifier);
+                        tryLeap(target, distSq, reachSq, now, ai);
+                    }
                 }
             }
         }
@@ -176,8 +191,9 @@ public class NpcMeleeAttackGoal extends Goal {
             attackCooldown--;
         }
 
-        if (decision.attackAllowed() && distSq <= reachSq && attackCooldown <= 0) {
-            attackCooldown = authoredAttackDelayTicks();
+        if (decision.attackAllowed() && distSq <= reachSq && attackCooldown <= 0
+                && combatPeriod > 0) {
+            attackCooldown = Math.max(authoredAttackDelayTicks(), combatPeriod);
             this.npc.swing(InteractionHand.MAIN_HAND);
             this.npc.doHurtTarget(target);
             applyAuthoredOnHitEffect(target);

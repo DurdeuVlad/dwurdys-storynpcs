@@ -47,6 +47,12 @@ public class NpcFollowFormationGoal extends Goal {
     @Override
     public boolean canUse() {
         if (!npc.isAlive()) return false;
+        // P4-1: pathing-disabled tiers (DORMANT) freeze followers in place —
+        // no formation math, no repaths, no catch-up teleports.
+        if (npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+            return false;
+        }
 
         FollowerRole role = npc.getFollowerRole();
         if (role == null || role.getState() != FollowerRole.State.FOLLOWING) {
@@ -73,7 +79,11 @@ public class NpcFollowFormationGoal extends Goal {
         }
 
         FollowerRole role = npc.getFollowerRole();
-        return role != null && role.getState() == FollowerRole.State.FOLLOWING;
+        if (role == null || role.getState() != FollowerRole.State.FOLLOWING) {
+            return false;
+        }
+        return npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.PATHING) >= 0;
     }
 
     @Override
@@ -158,8 +168,13 @@ public class NpcFollowFormationGoal extends Goal {
             double currentSpeed = (distToTargetSq > 36.0 || leader.isSprinting()) ? catchUpSpeed : baseSpeed;
 
             if (--timeToRecalcPath <= 0) {
-                timeToRecalcPath = 10;
-                npc.getNavigation().moveTo(targetX, targetY, targetZ, currentSpeed);
+                // P4-1: recalc cadence widens to the tier's pathing period.
+                int pathingPeriod = npc.simulationCapabilityPeriod(
+                        com.storynpcs.sim.SimulationScheduler.Capability.PATHING);
+                timeToRecalcPath = Math.max(10, pathingPeriod);
+                if (pathingPeriod > 0) {
+                    npc.getNavigation().moveTo(targetX, targetY, targetZ, currentSpeed);
+                }
             }
 
             if (npc.getNavigation().isStuck()) {

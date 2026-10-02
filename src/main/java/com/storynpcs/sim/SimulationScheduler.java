@@ -104,6 +104,27 @@ public final class SimulationScheduler {
         };
     }
 
+    /**
+     * Effective capability period for an actor in ticks: {@code -1} when the
+     * capability is disabled at the actor's tier or the actor is UNLOADED;
+     * {@code 1} when the actor is unevaluated (full fidelity, matching the
+     * entity-side {@code shouldRun} convention); otherwise the tier's budgeted
+     * period. Consumers should throttle on elapsed game ticks
+     * ({@code now - lastRun >= period}) — never AND a per-entity countdown or
+     * phase with the global {@link #shouldRun} grid, or a consumer whose phase
+     * never coincides with the window is starved permanently.
+     */
+    public int capabilityPeriod(UUID actorId, Capability capability) {
+        ActorSimulationState state = states.get(actorId);
+        if (state == null) {
+            return 1;
+        }
+        if (state.tier() == SimulationTier.UNLOADED) {
+            return -1;
+        }
+        return period(state.tier(), capability);
+    }
+
     public ActorSimulationState stateOf(UUID actorId) {
         return states.get(actorId);
     }
