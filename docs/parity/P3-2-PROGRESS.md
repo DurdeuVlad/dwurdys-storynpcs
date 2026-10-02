@@ -20,8 +20,9 @@ Status: `IN-PROGRESS`
 
 - `DefeatResolution` (headless, domain package) maps the authored `Defeat` contract to an executable decision; `die()` now honors all three modes:
   - `DIE` — unchanged vanilla removal path (drops/XP/corpse all vanilla).
-  - `HIDE` — the projection becomes an invisible, invulnerable, non-physical, non-interactable statue; threat table cleared, navigation stopped, boss bar dropped. `respawnTimeSeconds > 0` → countdown in `aiStep` restores the NPC at its start position at full health and emits `NpcRespawnedEvent`; `<= 0` → stays hidden until removal. The countdown is persisted in entity NBT so a world save mid-hide restores the hidden posture on reload.
-  - `FLEE` — survives the fatal hit at `max(1%, fleeHealthPercent)` of max health, clears the threat table + target, and paths back to `startPosition`. (No invulnerability; re-engagement follows normal aggression rules — targeting-policy depth is P3-3 scope.)
+  - `HIDE` — the projection becomes an invisible, invulnerable, non-physical, non-interactable statue; threat table cleared, navigation stopped, boss bar dropped, pose/use state reset, goals and portal transfer suppressed, and hidden NPCs excluded from other NPCs' attack-on-sight scans. `respawnTimeSeconds > 0` → countdown in `aiStep` restores the NPC at its start position at full health — restoring the *authored* visibility flag, not forcing visible — and emits `NpcRespawnedEvent`; `<= 0` → stays hidden until `discard()`/despawn. The countdown is persisted in entity NBT so a world save mid-hide restores the hidden posture on reload. `die()` is re-entry safe while hidden — bypass-invulnerability damage (void, `/kill`) cannot reset the countdown or republish the event.
+  - `FLEE` — survives the fatal hit at `max(1%, fleeHealthPercent)` of max health, clears the threat table + target, and returns to `startPosition` — pathing normally, teleporting on bypass-invulnerability sources (void, `/kill`) where pathing cannot reach. FLEE is an authored escape guarantee: the NPC cannot be killed by damage while the mode is authored; removal is via despawn/`discard()`, not `/kill`.
+  - Fail-safe: an entity forced to 0 HP without resolving `die()` (external `setHealth`, corrupt NBT) resolves through the defeat contract on the next `aiStep` instead of becoming an unkillable husk.
 - `NpcRespawnedEvent` added to the public event surface (`api.event`).
 - `DefeatResolutionTest`: 6 fixtures — each mode, HIDE timer edge (non-positive → indefinite), FLEE threshold clamp, null-stats default-death.
 
@@ -31,5 +32,6 @@ Status: `IN-PROGRESS`
 - `dropsProfileId` is a reference hook; drops profiles themselves belong to P3-4.
 - `areaDamage`, `trail`, sounds, and particles are schema-authoritative but unrendered.
 - Hidden-defeat tick gating currently freezes `aiStep` wholesale (statue semantics) — effects/fire/breath bookkeeping also pause; acceptable for the authored "vanish" behavior.
-- FLEE re-engagement semantics are P3-3 targeting-policy scope.
-- Live entity/damage verification deferred — no live MC testing (entity `die()`/`aiStep` paths are runtime-only; the decision layer is JUnit-pinned).
+- FLEE NPCs can re-aggro on continued attack (normal aggression rules apply after the flee) — deeper disengage/retreat policy is P3-3 targeting scope.
+- Totem-of-undying holders bypass the defeat contract via vanilla `checkTotemDeathProtection` (intercepted before `die()`); `LivingDeathEvent` does not fire for HIDE/FLEE (consistent with no-corpse intent).
+- Live entity/damage verification deferred — no live MC testing (entity `die()`/`aiStep` paths are runtime-only; the decision layer is JUnit-pinned). A headless GameTest for die→hide→reappear is feasible once the P4/infra harness lands.

@@ -135,7 +135,10 @@ public class NpcAttackOnSightGoal extends Goal {
         var candidates = new ArrayList<TargetingPolicy.Candidate>();
         for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class,
                 npc.getBoundingBox().inflate(range),
-                e -> e != npc && e.isAlive() && !e.isRemoved())) {
+                // A HIDE-resolved defeat statue is not a valid hostile target.
+                e -> e != npc && e.isAlive() && !e.isRemoved()
+                        && !(e instanceof com.storynpcs.entity.StoryNpcEntity sn
+                        && sn.isHiddenDefeat()))) {
             double distSq = npc.distanceToSqr(entity);
             if (distSq > rangeSq || !npc.hasLineOfSight(entity)) {
                 continue;

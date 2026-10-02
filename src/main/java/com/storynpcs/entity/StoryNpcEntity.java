@@ -136,8 +136,9 @@ public class StoryNpcEntity extends PathfinderMob {
 
     @Override
     public void aiStep() {
-        // Hidden-defeat statues freeze: no super tick, no goals, no drift —
-        // only the respawn countdown advances (negative = hidden indefinitely).
+        // Hidden-defeat statues freeze: no super tick, no goals, no drift,
+        // no portal progress — only the respawn countdown advances
+        // (negative = hidden indefinitely).
         if (!this.level().isClientSide && hiddenDefeatTicksLeft != 0) {
             this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
             this.getNavigation().stop();
@@ -147,6 +148,14 @@ public class StoryNpcEntity extends PathfinderMob {
                     reappearFromHiddenDefeat();
                 }
             }
+            return;
+        }
+        // Fail-safe for entities forced to 0 HP without resolving die()
+        // (external setHealth / corrupt NBT): isAlive() is false only after
+        // dead=true, so this cannot re-fire for an entity already dying.
+        if (!this.level().isClientSide && this.isAlive()
+                && this.getHealth() <= 0.0F && !this.isRemoved()) {
+            die(this.damageSources().generic());
             return;
         }
         super.aiStep();
@@ -698,33 +707,42 @@ public class StoryNpcEntity extends PathfinderMob {
     /** Defeat resolution honors the authored mode contract (P3-2, issue #59). */
     @Override
     public void die(net.minecraft.world.damagesource.DamageSource source) {
-        com.storynpcs.domain.npc.DefeatResolution.Decision decision = null;
+        // A resolved defeat never re-resolves: bypass-invulnerability sources
+        // (void, /kill) hitting a hidden statue must not reset the respawn
+        // countdown or republish the defeat event.
+        if (hiddenDefeatTicksLeft != 0) {
+            return;
+        }
         if (!this.level().isClientSide && !this.isRemoved()) {
             var mod = StoryNpcsAccess.mod(this);
-            if (mod != null && mod.getEventPublisher() != null) {
+            if (mod != null && mod.getRegistry() != null) {
+                // Resolve unconditionally — authored defeat semantics are not
+                // coupled to the event bus being reachable.
                 var statsOpt = state.getStats(mod.getRegistry());
                 if (statsOpt.isPresent()) {
                     var stats = statsOpt.get();
-                    NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
-                            .map(NpcDefinition::getId).orElse(null);
-                    var defeat = stats.getDefeat();
-                    mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
-                            definitionId, this.getUUID(),
-                            defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
-                            stats.getRespawnTimeSeconds(), stats.getXpReward()));
-                    decision = com.storynpcs.domain.npc.DefeatResolution.resolve(stats);
+                    var decision = com.storynpcs.domain.npc.DefeatResolution.resolve(stats);
+                    if (mod.getEventPublisher() != null) {
+                        NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                                .map(NpcDefinition::getId).orElse(null);
+                        var defeat = stats.getDefeat();
+                        mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
+                                definitionId, this.getUUID(),
+                                defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
+                                stats.getRespawnTimeSeconds(), stats.getXpReward()));
+                    }
+                    // DIE (and unresolved stats) take the normal death path;
+                    // HIDE/FLEE suppress it — no corpse, drops, XP, or removal.
+                    if (!decision.performsDeath()) {
+                        switch (decision.mode()) {
+                            case HIDE -> enterHiddenDefeat(decision.hiddenTicks());
+                            case FLEE -> fleeDefeat(decision, source);
+                            default -> { }
+                        }
+                        return;
+                    }
                 }
             }
-        }
-        // DIE (and unresolved stats) take the normal death path; HIDE/FLEE
-        // suppress it — no corpse, drops, XP orbs, or removal.
-        if (decision != null && !decision.performsDeath()) {
-            switch (decision.mode()) {
-                case HIDE -> enterHiddenDefeat(decision.hiddenTicks());
-                case FLEE -> fleeDefeat(decision);
-                default -> { }
-            }
-            return;
         }
         super.die(source);
     }
@@ -741,6 +759,10 @@ public class StoryNpcEntity extends PathfinderMob {
         this.threatManager.clearAll();
         this.setTarget(null);
         this.getNavigation().stop();
+        // Clear transient pose/use state so the statue never reappears
+        // mid-action (e.g. still sleeping or drawing a bow).
+        this.setPose(net.minecraft.world.entity.Pose.STANDING);
+        this.stopUsingItem();
         this.setInvisible(true);
         this.setInvulnerable(true);
         this.noPhysics = true;
@@ -750,15 +772,25 @@ public class StoryNpcEntity extends PathfinderMob {
         }
     }
 
-    /** FLEE defeat: survive at the authored threshold, disengage, path home. */
-    private void fleeDefeat(com.storynpcs.domain.npc.DefeatResolution.Decision decision) {
+    /**
+     * FLEE defeat: survive at the authored threshold, disengage, return home.
+     * Bypass-invulnerability sources (void, /kill) teleport home directly —
+     * pathfinding cannot resolve a position below the world floor, so
+     * navigation would leave the NPC in an endless void-flee treadmill.
+     */
+    private void fleeDefeat(com.storynpcs.domain.npc.DefeatResolution.Decision decision,
+                            net.minecraft.world.damagesource.DamageSource source) {
         this.setHealth(Math.max(1.0f, this.getMaxHealth() * decision.healthAfterFraction()));
         this.threatManager.clearAll();
         this.setTarget(null);
         this.getNavigation().stop();
-        net.minecraft.core.BlockPos home = getStartPosition();
-        if (home != null) {
-            this.getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 1.2);
+        if (decision.returnsHome()) {
+            net.minecraft.core.BlockPos home = getStartPosition();
+            if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+                this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
+            } else {
+                this.getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 1.2);
+            }
         }
     }
 
@@ -768,11 +800,14 @@ public class StoryNpcEntity extends PathfinderMob {
      */
     private void reappearFromHiddenDefeat() {
         net.minecraft.core.BlockPos home = getStartPosition();
-        if (home != null) {
-            this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
-        }
+        this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
         this.setHealth(this.getMaxHealth());
-        this.setInvisible(false);
+        // Restore the *authored* visibility flag — an authored visibility=1
+        // NPC must stay invisible after the hide/respawn cycle.
+        boolean authoredInvisible = getDefinition()
+                .map(d -> d.getDisplay() != null && d.getDisplay().getVisibility() == 1)
+                .orElse(false);
+        this.setInvisible(authoredInvisible);
         this.setInvulnerable(false);
         this.noPhysics = false;
         var mod = StoryNpcsAccess.mod(this);
@@ -782,6 +817,26 @@ public class StoryNpcEntity extends PathfinderMob {
             mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcRespawnedEvent(
                     definitionId, this.getUUID()));
         }
+    }
+
+    /**
+     * A HIDE-resolved statue is not a valid hostile target and must not
+     * change dimensions (a portal transfer mid-countdown would restore it at
+     * start coordinates in the wrong dimension).
+     */
+    public boolean isHiddenDefeat() {
+        return hiddenDefeatTicksLeft != 0;
+    }
+
+    /**
+     * A hidden-defeat statue must not dimension-transfer mid-countdown — the
+     * restored entity would reappear at start coordinates in the wrong
+     * dimension.
+     */
+    @Override
+    public boolean canChangeDimensions(net.minecraft.world.level.Level to,
+                                       net.minecraft.world.level.Level from) {
+        return hiddenDefeatTicksLeft == 0 && super.canChangeDimensions(to, from);
     }
 
     public FollowerRole getFollowerRole() {
