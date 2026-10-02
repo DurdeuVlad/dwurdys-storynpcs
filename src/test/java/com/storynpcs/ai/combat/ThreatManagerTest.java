@@ -71,9 +71,9 @@ class ThreatManagerTest {
 
         assertTrue(threatManager.getCurrentTarget().isPresent());
 
-        // Fast-forward decay
+        // Fast-forward decay — one game tick of elapsed time per call.
         for (int i = 0; i < 500; i++) {
-            threatManager.tick(10);
+            threatManager.tick(10, 1);
         }
 
         assertTrue(threatManager.getCurrentTarget().isEmpty(), "Target should clear after threat decay");
@@ -97,25 +97,30 @@ class ThreatManagerTest {
     void testAuthoredAggroDuration() {
         UUID player = UUID.randomUUID();
 
-        // Default: threat does not decay before the full 400-tick window.
+        // Default: threat does not decay before the full 400-tick window —
+        // tick() consumes REAL elapsed game ticks, matching the entity's
+        // ~20-tick sensing cadence.
         threatManager.addThreat(player, 20);
-        for (int i = 0; i < 100; i++) {
-            threatManager.tick(5);
+        for (int i = 0; i < 19; i++) {
+            threatManager.tick(5, 20); // 380 elapsed — window still open
         }
         assertTrue(threatManager.getCurrentTarget().isPresent(),
-                "Default aggro window (400 ticks) must still hold after 100 ticks");
+                "Default aggro window (400 game ticks) must hold at 380 elapsed ticks");
 
-        // Authored 40-tick window: decay starts once the window expires.
+        // Authored 100-tick window on a ~20-tick call cadence: decay starts
+        // once the window expires, never before.
         threatManager.clearAll();
-        threatManager.setAggroDurationTicks(40);
+        threatManager.setAggroDurationTicks(100);
         threatManager.addThreat(player, 20);
-        for (int i = 0; i < 39; i++) {
-            threatManager.tick(5); // timer still running — no decay yet
-        }
+        threatManager.tick(5, 20); // 80 left
+        threatManager.tick(5, 20); // 60
+        threatManager.tick(5, 20); // 40
+        threatManager.tick(5, 20); // 20 — still inside the window
         assertTrue(threatManager.getCurrentTarget().isPresent(),
                 "Threat must not decay before the authored window expires");
+        threatManager.tick(5, 20); // window expires — first decay pulse
         for (int i = 0; i < 10; i++) {
-            threatManager.tick(5); // window expired: 20 threat decays away
+            threatManager.tick(5, 20); // remaining threat decays away
         }
         assertTrue(threatManager.getCurrentTarget().isEmpty(),
                 "Threat should decay and clear once the authored window expires");

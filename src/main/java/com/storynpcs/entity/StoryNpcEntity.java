@@ -58,6 +58,8 @@ public class StoryNpcEntity extends PathfinderMob {
      * {@code <0} means hidden indefinitely, {@code 0} means not hidden.
      */
     private int hiddenDefeatTicksLeft = 0;
+    /** Game time of the last threat-manager tick pulse (for real elapsed accounting). */
+    private long lastThreatTickTime = Long.MIN_VALUE;
     /** Whether the entity was already invulnerable before entering hidden defeat. */
     private boolean wasInvulnerableBeforeHide = false;
     /** Whether the entity already had noPhysics before entering hidden defeat. */
@@ -190,7 +192,14 @@ public class StoryNpcEntity extends PathfinderMob {
 
         if (this.tickCount % 20 == 0) {
             if (sensingDue) {
-                this.threatManager.tick(5);
+                // The sensing budget can skip pulses — pass the real elapsed
+                // ticks so the authored calm-down duration stays in game
+                // ticks instead of stretching with the call cadence.
+                long gameTime = this.level().getGameTime();
+                int elapsed = lastThreatTickTime == Long.MIN_VALUE
+                        ? 20 : (int) Math.min(20_000, gameTime - lastThreatTickTime);
+                lastThreatTickTime = gameTime;
+                this.threatManager.tick(5, elapsed);
             }
             if (animationDue) {
                 updateBossBar();

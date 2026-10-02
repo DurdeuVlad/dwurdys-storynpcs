@@ -88,11 +88,14 @@ public class ThreatManager {
     }
 
     /**
-     * Sets the authored calm-down duration (ticks) — a hit keeps the NPC
-     * hostile for at least this long after the last threat write.
+     * Sets the authored calm-down duration (game ticks) — a hit keeps the NPC
+     * hostile for at least this long after the last threat write. A shorter
+     * authored duration also clamps a running timer, so a definition refresh
+     * applies to in-flight engagements too.
      */
     public void setAggroDurationTicks(int ticks) {
         this.aggroDurationTicks = Math.max(40, ticks);
+        this.aggroTimer = Math.min(this.aggroTimer, this.aggroDurationTicks);
     }
 
     public int getAggroDurationTicks() {
@@ -126,7 +129,14 @@ public class ThreatManager {
         setCurrentTarget(highest, reason);
     }
 
-    public void tick(int decayRate) {
+    /**
+     * Advances the calm-down clock. {@code elapsedTicks} is the number of real
+     * game ticks since the previous call — the entity drives this on a
+     * seconds-cadence sensing schedule, so decrementing by one per invocation
+     * would stretch the authored duration ~20x. Decay still applies once per
+     * call after the window expires (by design — decay is a coarse pulse).
+     */
+    public void tick(int decayRate, int elapsedTicks) {
         if (threatTable.isEmpty()) {
             setCurrentTarget(null, "THREAT_CLEARED");
             this.aggroTimer = 0;
@@ -134,7 +144,7 @@ public class ThreatManager {
         }
 
         if (aggroTimer > 0) {
-            aggroTimer--;
+            aggroTimer = Math.max(0, aggroTimer - Math.max(1, elapsedTicks));
         }
 
         if (aggroTimer == 0) {

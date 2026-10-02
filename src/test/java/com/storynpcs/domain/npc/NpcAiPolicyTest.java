@@ -126,7 +126,7 @@ class NpcAiPolicyTest {
         // The aggro timer (400 ticks) must expire before decay drains the table.
         threat.addThreat(attacker, 100);
         int before = events.size();
-        for (int i = 0; i < 500; i++) threat.tick(10);
+        for (int i = 0; i < 500; i++) threat.tick(10, 1);
         assertThat(threat.getThreatTable()).isEmpty();
         assertThat(events.size()).isEqualTo(before + 1);
         assertThat(events.get(events.size() - 1)).startsWith("-");
