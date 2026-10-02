@@ -62,6 +62,12 @@ public class StoryNpcEntity extends PathfinderMob {
     private long lastThreatTickTime = Long.MIN_VALUE;
     /** Equipment items already warned as unresolvable — dedups refresh spam. */
     private final java.util.Set<String> unresolvableEquipmentItems = new java.util.HashSet<>();
+    /**
+     * Set once the authored drop table rolled on a real death and persisted in
+     * NBT — a corpse reloaded mid-window re-resolves defeat for cleanup only;
+     * authored drops and events must never fire twice (duplication exploit).
+     */
+    private boolean deathDropsResolved = false;
     /** Whether the entity was already invulnerable before entering hidden defeat. */
     private boolean wasInvulnerableBeforeHide = false;
     /** Whether the entity already had noPhysics before entering hidden defeat. */
@@ -704,7 +710,8 @@ public class StoryNpcEntity extends PathfinderMob {
         // components is a server-authored opaque payload — no canonical
         // DataComponentPatch format is defined yet, so count+item apply and
         // the payload stays stored-but-unapplied (documented P3-4 residual).
-        this.setItemSlot(slot, new net.minecraft.world.item.ItemStack(item, authoredStack.count()));
+        this.setItemSlot(slot, new net.minecraft.world.item.ItemStack(item,
+                Math.min(authoredStack.count(), item.getDefaultMaxStackSize())));
     }
 
     /**
@@ -826,6 +833,13 @@ public class StoryNpcEntity extends PathfinderMob {
         if (this.dead) {
             return;
         }
+        if (this.deathDropsResolved) {
+            // Reloaded corpse-husk: the defeat contract already resolved and
+            // authored drops already rolled before unload — run only the
+            // vanilla corpse path so the body cleans up normally.
+            super.die(source);
+            return;
+        }
         // A resolved defeat never re-resolves: bypass-invulnerability sources
         // (void, /kill) hitting a hidden statue must not reset the respawn
         // countdown or republish the defeat event. The forced health is
@@ -895,6 +909,11 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     protected void dropAllDeathLoot(net.minecraft.server.level.ServerLevel level,
                                     DamageSource source) {
+        if (this.deathDropsResolved) {
+            // A resolved corpse reloading mid-window never re-rolls.
+            return;
+        }
+        this.deathDropsResolved = true;
         super.dropAllDeathLoot(level, source);
         var mod = StoryNpcsAccess.mod(this);
         var inventory = mod != null
@@ -909,7 +928,14 @@ public class StoryNpcEntity extends PathfinderMob {
         // fixed-seed fixtures exercise identical semantics in JUnit.
         var roll = com.storynpcs.domain.npc.NpcDropRoll.roll(inventory,
                 new java.util.Random(this.getRandom().nextLong()));
+        // VERIFIED_TARGET_SOURCE: the target resolves tameable/pet kills to
+        // the owner (NoppesUtilServer.GetDamageSourcee) — a wolf kill is the
+        // owner's kill for AUTO_PICKUP delivery.
         net.minecraft.world.entity.Entity killer = source.getEntity();
+        if (killer instanceof net.minecraft.world.entity.OwnableEntity ownable
+                && ownable.getOwner() != null) {
+            killer = ownable.getOwner();
+        }
         boolean autoPickup = inventory.getLootMode()
                 == com.storynpcs.domain.npc.NpcInventory.LootMode.AUTO_PICKUP
                 && killer instanceof Player;
@@ -917,19 +943,24 @@ public class StoryNpcEntity extends PathfinderMob {
         java.util.List<com.storynpcs.domain.npc.NpcItemStack> dropped =
                 new java.util.ArrayList<>(roll.drops().size());
         for (var rolled : roll.drops()) {
-            dropped.add(rolled.item());
             var stack = resolveDropStack(rolled.item());
             if (stack == null) continue;
+            dropped.add(rolled.item());
             if (autoPickup && killer instanceof Player player) {
                 // Faithful port: absorb into the killer's inventory first;
-                // only the refused remainder becomes a world drop.
+                // only the refused remainder becomes a world drop. take()
+                // records the absorbed quantity — never the leftover.
+                int before = stack.getCount();
                 player.getInventory().add(stack);
-                player.take(this, stack.getCount());
-                if (stack.isEmpty()) {
+                int absorbed = before - stack.getCount();
+                if (absorbed > 0) {
+                    player.take(this, absorbed);
                     level.playSound(null, player.getX(), player.getY(), player.getZ(),
                             net.minecraft.sounds.SoundEvents.ITEM_PICKUP,
                             net.minecraft.sounds.SoundSource.PLAYERS, 0.2F,
                             ((this.getRandom().nextFloat() - this.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
+                }
+                if (stack.isEmpty()) {
                     continue;
                 }
             }
@@ -950,7 +981,7 @@ public class StoryNpcEntity extends PathfinderMob {
             mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcLootDroppedEvent(
                     definitionId, this.getUUID(),
                     killer != null ? killer.getUUID() : null,
-                    dropped, roll.experience()));
+                    java.util.List.copyOf(dropped), roll.experience()));
         }
     }
 
@@ -962,11 +993,14 @@ public class StoryNpcEntity extends PathfinderMob {
                 ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl).orElse(null)
                 : null;
         if (item == null || item == net.minecraft.world.item.Items.AIR) {
-            com.storynpcs.StoryNpcs.LOGGER.warn("NPC {} drop '{}' is an unknown item — skipped",
-                    this.getUUID(), authored.itemId());
+            if (unresolvableEquipmentItems.add("drop=" + authored.itemId())) {
+                com.storynpcs.StoryNpcs.LOGGER.warn("NPC {} drop '{}' is an unknown item — skipped",
+                        this.getUUID(), authored.itemId());
+            }
             return null;
         }
-        return new net.minecraft.world.item.ItemStack(item, authored.count());
+        return new net.minecraft.world.item.ItemStack(item,
+                Math.min(authored.count(), item.getDefaultMaxStackSize()));
     }
 
     /** World-drop spawn — VERIFIED_TARGET_SOURCE geometry: eye-level, 40-tick delay, random scatter. */
@@ -1581,6 +1615,9 @@ public class StoryNpcEntity extends PathfinderMob {
             compound.putBoolean("HiddenDefeatWasInvulnerable", wasInvulnerableBeforeHide);
             compound.putBoolean("HiddenDefeatWasNoPhysics", wasNoPhysicsBeforeHide);
         }
+        if (deathDropsResolved) {
+            compound.putBoolean("StoryNpcDeathResolved", true);
+        }
     }
 
     @Override
@@ -1599,6 +1636,9 @@ public class StoryNpcEntity extends PathfinderMob {
             if (compound.contains("HiddenDefeatTicksLeft")) {
                 this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
             }
+            // Resolved-corpse flag: a husk reloading mid-corpse-window runs
+            // die() for cleanup only — authored drops/events never re-fire.
+            this.deathDropsResolved = compound.getBoolean("StoryNpcDeathResolved");
             if (compound.contains("StoryNpcDefinitionId")) {
                 setDefinitionId(compound.getString("StoryNpcDefinitionId"));
             }
