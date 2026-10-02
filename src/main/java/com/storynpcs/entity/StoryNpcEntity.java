@@ -963,11 +963,14 @@ public class StoryNpcEntity extends PathfinderMob {
                         this.getZ(), stack);
                 entity.setPickUpDelay(2);
                 level.addFreshEntity(entity);
+                net.minecraft.world.item.Item pickedItem = stack.getItem();
                 int before = stack.getCount();
                 player.getInventory().add(stack);
                 int absorbed = before - stack.getCount();
                 if (absorbed > 0) {
                     player.take(entity, absorbed);
+                    player.awardStat(net.minecraft.stats.Stats.ITEM_PICKED_UP.get(pickedItem), absorbed);
+                    player.onItemPickup(entity);
                     level.playSound(null, player.getX(), player.getY(), player.getZ(),
                             net.minecraft.sounds.SoundEvents.ITEM_PICKUP,
                             net.minecraft.sounds.SoundSource.PLAYERS, 0.2F,
