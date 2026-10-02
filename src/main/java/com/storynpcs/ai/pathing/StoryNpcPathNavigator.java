@@ -21,8 +21,119 @@ public class StoryNpcPathNavigator extends GroundPathNavigation {
     private final NpcStuckDetector stuckDetector = new NpcStuckDetector(20, 0.04);
     private int unstuckAttemptCooldown = 0;
 
+    /**
+     * P4-2: an outstanding queued path request, if any. While set, the
+     * navigator reports itself in-progress so goals do not re-issue
+     * overlapping requests. Execution payload — coordinates snapshot plus
+     * speed — lives here; the scheduler queue only orders request ids.
+     */
+    private record PendingPath(java.util.UUID requestId, double x, double y, double z, double speed) {}
+
+    private PendingPath pendingPath;
+
     public StoryNpcPathNavigator(Mob mob, Level level) {
         super(mob, level);
+    }
+
+    /**
+     * Enqueue the path computation on the mod's bounded scheduler instead of
+     * computing synchronously (P4-2). Returns {@code true} when the request
+     * was accepted; on {@code QUEUE_FULL} the request is dropped explicitly
+     * (counted in {@code droppedRequests}) and the issuing goal re-issues on
+     * its own repath throttle — degraded, never an unbounded synchronous
+     * compute. Client-side calls compute synchronously (no queue).
+     */
+    @Override
+    public boolean moveTo(double x, double y, double z, double speed) {
+        if (shouldBypassQueue()) {
+            return super.moveTo(x, y, z, speed);
+        }
+        return enqueue(x, y, z, speed);
+    }
+
+    @Override
+    public boolean moveTo(net.minecraft.world.entity.Entity entity, double speed) {
+        if (shouldBypassQueue()) {
+            return super.moveTo(entity, speed);
+        }
+        // Snapshot the entity's current position — the queue contract carries
+        // immutable targets, never live world references.
+        return enqueue(entity.getX(), entity.getY(), entity.getZ(), speed);
+    }
+
+    private boolean shouldBypassQueue() {
+        if (this.level.isClientSide
+                || !(this.mob instanceof com.storynpcs.entity.StoryNpcEntity npc)) {
+            return true;
+        }
+        var mod = com.storynpcs.StoryNpcsAccess.mod(npc);
+        return mod == null || mod.getPathScheduler() == null;
+    }
+
+    /**
+     * @return {@code true} when the request was queued (the deferred compute
+     *         runs on the server-tick drain); {@code false} when the bounded
+     *         queue rejected it — callers treat both as "handled" (no
+     *         synchronous fallback), the goal's repath throttle retries.
+     */
+    private boolean enqueue(double x, double y, double z, double speed) {
+        var npc = (com.storynpcs.entity.StoryNpcEntity) this.mob;
+        var scheduler = com.storynpcs.StoryNpcsAccess.mod(npc).getPathScheduler();
+        var requestId = java.util.UUID.randomUUID();
+        var pending = new PendingPath(requestId, x, y, z, speed);
+        // Combat actors jump ambient traffic — deterministic priority order.
+        int priority = npc.getThreatManager().getCurrentTarget().isPresent() ? 10 : 0;
+        var outcome = scheduler.submit(new com.storynpcs.sim.PathScheduler.PathRequest(
+                requestId, npc.getUUID(),
+                new com.storynpcs.sim.PathScheduler.PathTarget(
+                        net.minecraft.util.Mth.floor(x), net.minecraft.util.Mth.floor(y),
+                        net.minecraft.util.Mth.floor(z), null),
+                priority, 0L, this.level.getGameTime()));
+        if (outcome == com.storynpcs.sim.PathScheduler.SubmitOutcome.QUEUE_FULL) {
+            return false; // explicit degrade — the bound is real
+        }
+        this.pendingPath = pending;
+        return true;
+    }
+
+    /**
+     * Server-tick drain entry: executes the queued request if it is still the
+     * navigator's live pending entry (a newer submission supersedes; a
+     * cancelled/removed actor's request resolves to nothing).
+     */
+    public boolean executePending(java.util.UUID requestId) {
+        var pending = this.pendingPath;
+        if (pending == null || !pending.requestId().equals(requestId)) {
+            return false; // superseded or cancelled — drop explicitly
+        }
+        this.pendingPath = null;
+        return super.moveTo(pending.x(), pending.y(), pending.z(), pending.speed());
+    }
+
+    @Override
+    public boolean isDone() {
+        // A queued request is in-progress navigation: report not-done so
+        // goals keep their repath throttle instead of re-issuing.
+        return this.pendingPath == null && super.isDone();
+    }
+
+    @Override
+    public boolean isInProgress() {
+        return this.pendingPath != null || super.isInProgress();
+    }
+
+    @Override
+    public void stop() {
+        if (this.pendingPath != null) {
+            this.pendingPath = null;
+            if (this.mob instanceof com.storynpcs.entity.StoryNpcEntity npc) {
+                var mod = com.storynpcs.StoryNpcsAccess.mod(npc);
+                if (mod != null) {
+                    mod.getPathScheduler().cancelActor(npc.getUUID());
+                }
+            }
+        }
+        super.stop();
     }
 
     @Override

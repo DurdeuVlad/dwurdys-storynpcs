@@ -1600,6 +1600,10 @@ public class StoryNpcEntity extends PathfinderMob {
                 jobInstance.onActorUnload();
             }
             releaseJobForcedChunks();
+            // P4-2: drop any squad target claim so the slot is reclaimable.
+            if (mod != null) {
+                mod.releaseSquadAssignment(this.getUUID());
+            }
         }
         if (bossBar != null) {
             bossBar.removeAllPlayers();

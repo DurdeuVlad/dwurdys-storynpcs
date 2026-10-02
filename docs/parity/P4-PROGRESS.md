@@ -45,6 +45,26 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
   `droppedRequests` metric. Requests carry immutable `PathTarget` snapshots — no live world refs.
 - `SquadCoordinator` — deterministic unique-target allocation (no duplicate targets), bounded
   squad (32) and candidate (64) lists, `release`/`unassigned` for retarget cycles.
+- Production wiring (this slice):
+  - `StoryNpcPathNavigator` intercepts the path-computing `moveTo` overloads and enqueues an
+    immutable coordinate snapshot + speed on `mod.getPathScheduler()`; the server-tick drain
+    (`PATH_DRAIN_MAX_PER_TICK=64` requests **and** ≤4 ms wall time, whichever hits first)
+    executes them on the server thread — no async world access. A queued request reports
+    `isDone()==false`/`isInProgress()` so goals never re-issue overlapping requests; a newer
+    submission supersedes by request-id; `stop()`/`remove()` cancel; `QUEUE_FULL` drops
+    explicitly (counted, never a synchronous fallback that would defeat the bound). Combat
+    actors get priority 10 over ambient traffic. Precomputed `moveTo(Path)` calls stay
+    synchronous — no pathfinding work to bound. Client-side calls bypass the queue.
+  - `NpcAttackOnSightGoal` coordinates same-faction squads: ally engagement info is collected
+    inside the scan the goal already performs (no extra world query); targets engaged by
+    allies or already claimed in the shared `(dimension|faction)` coordinator are excluded;
+    idle squadmates allocate distinct eligible targets via `SquadCoordinator.coordinate` —
+    policy eligibility still gates membership, so the coordinator can never assign a target
+    the authored rules reject. Held assignments are reused (no scan-to-scan churn), stale
+    claims are pruned via `unassigned`, and removal releases them via
+    `releaseSquadAssignment`.
+  - `runGameTestServer` fixtures: queued `moveTo` materializes a real path via the drain;
+    two same-faction attackers facing two enemies claim distinct targets.
 - 9 fixtures covering cap, ordering, cancel paths, determinism, bounds, stale-target detection.
 
 ## P4-3 — Certification contract
