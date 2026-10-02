@@ -49,6 +49,32 @@ class WitnessProtectionManagerTest {
     }
 
     @Test
+    @DisplayName("Guard witness radius honors the tighter authored bound")
+    void guardWitnessRadiusBounds() {
+        var ai = new com.storynpcs.domain.npc.NpcAi();
+        // Defaults: allyDefenseRadius=16, witnessRadius=16 -> 16
+        org.junit.jupiter.api.Assertions.assertEquals(16.0,
+                WitnessProtectionManager.guardWitnessRadius(ai));
+
+        // A tighter authored witness radius wins over a wide defense radius.
+        ai.setWitnessRadius(6);
+        ai.setAllyDefenseRadius(32);
+        org.junit.jupiter.api.Assertions.assertEquals(6.0,
+                WitnessProtectionManager.guardWitnessRadius(ai),
+                "A guard must not detect assaults beyond its authored witness radius");
+
+        // Either bound at zero disables the response entirely.
+        ai.setWitnessRadius(0);
+        ai.setAllyDefenseRadius(16);
+        org.junit.jupiter.api.Assertions.assertEquals(0.0,
+                WitnessProtectionManager.guardWitnessRadius(ai));
+
+        // Null AI defends nothing.
+        org.junit.jupiter.api.Assertions.assertEquals(0.0,
+                WitnessProtectionManager.guardWitnessRadius(null));
+    }
+
+    @Test
     @DisplayName("Decorative and null victims do not trigger guard response")
     void nonCreatureVictimsRejected() {
         assertFalse(WitnessProtectionManager.isInnocentVictimClass(ArmorStand.class),

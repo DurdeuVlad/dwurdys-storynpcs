@@ -232,8 +232,11 @@ public class WitnessProtectionManager {
                                     ? com.storynpcs.StoryNpcsAccess.mod(attacker).getRegistry() : null);
                     if (stance == null) stance = ai.getTacticalStance();
                     if (stance != TacticalStance.GUARD && stance != TacticalStance.DEFENSIVE) return false;
-                    // Honor the authored bounded radius — never the scan bound itself.
-                    double radius = ai.getAllyDefenseRadius();
+                    // Honor the authored bounded radius — never the scan bound
+                    // itself. Both authored bounds apply: the assault must fall
+                    // inside the guard's witness detection radius AND inside its
+                    // ally-defense radius (0 in either disables the response).
+                    double radius = guardWitnessRadius(ai);
                     return radius > 0 && npc.distanceToSqr(victim) <= radius * radius;
                 }
         );
@@ -298,6 +301,17 @@ public class WitnessProtectionManager {
                 }
             }
         }
+    }
+
+    /**
+     * Effective guard↔victim distance for an assault response: the tighter of
+     * the authored witness radius (assault detection range) and the authored
+     * ally-defense radius (defense engagement range). Either bound at 0
+     * disables the response entirely.
+     */
+    static double guardWitnessRadius(NpcAi ai) {
+        if (ai == null) return 0;
+        return Math.min(ai.getAllyDefenseRadius(), ai.getWitnessRadius());
     }
 
     @SubscribeEvent

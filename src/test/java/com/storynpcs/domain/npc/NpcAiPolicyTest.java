@@ -51,9 +51,11 @@ class NpcAiPolicyTest {
         assertThat(ai.isLeapAtTarget()).isTrue();
         assertThat(ai.getAllyDefenseRadius()).isEqualTo(24);
 
-        // Ally-defense and tactical radii are hard-bounded — no unbounded world scans.
+        // Ally-defense, witness, and tactical radii are hard-bounded — no unbounded world scans.
         ai.setAllyDefenseRadius(999);
         assertThat(ai.getAllyDefenseRadius()).isEqualTo(64);
+        ai.setWitnessRadius(999);
+        assertThat(ai.getWitnessRadius()).isEqualTo(64);
         ai.setTacticalRadius(0);
         assertThat(ai.getTacticalRadius()).isEqualTo(1);
     }
@@ -126,7 +128,7 @@ class NpcAiPolicyTest {
         // The aggro timer (400 ticks) must expire before decay drains the table.
         threat.addThreat(attacker, 100);
         int before = events.size();
-        for (int i = 0; i < 500; i++) threat.tick(10);
+        for (int i = 0; i < 500; i++) threat.tick(10, 1);
         assertThat(threat.getThreatTable()).isEmpty();
         assertThat(events.size()).isEqualTo(before + 1);
         assertThat(events.get(events.size() - 1)).startsWith("-");

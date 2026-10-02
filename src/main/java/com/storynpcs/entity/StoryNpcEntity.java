@@ -58,6 +58,8 @@ public class StoryNpcEntity extends PathfinderMob {
      * {@code <0} means hidden indefinitely, {@code 0} means not hidden.
      */
     private int hiddenDefeatTicksLeft = 0;
+    /** Game time of the last threat-manager tick pulse (for real elapsed accounting). */
+    private long lastThreatTickTime = Long.MIN_VALUE;
     /** Whether the entity was already invulnerable before entering hidden defeat. */
     private boolean wasInvulnerableBeforeHide = false;
     /** Whether the entity already had noPhysics before entering hidden defeat. */
@@ -188,10 +190,24 @@ public class StoryNpcEntity extends PathfinderMob {
                 || sim.shouldRun(this.getUUID(),
                         com.storynpcs.sim.SimulationScheduler.Capability.ANIMATION, now);
 
+        // Threat calm-down runs on the sensing grid, throttled to ~20 game
+        // ticks per pulse by the elapsed-time marker itself. Gating on
+        // tickCount % 20 instead would intersect a per-entity phase with the
+        // scheduler's global-grid sensing window — for NEARBY/DISTANT tiers
+        // most phases never coincide, so the timer would stall forever
+        // (self-locking aggro: in-combat actors can never leave DISTANT).
+        if (sensingDue && (lastThreatTickTime == Long.MIN_VALUE
+                || now - lastThreatTickTime >= 20)) {
+            // The sensing budget can defer pulses — pass the real elapsed
+            // ticks so the authored calm-down duration stays in game ticks
+            // instead of stretching with the call cadence.
+            int elapsed = lastThreatTickTime == Long.MIN_VALUE
+                    ? 20 : (int) Math.min(20_000, now - lastThreatTickTime);
+            lastThreatTickTime = now;
+            this.threatManager.tick(5, elapsed);
+        }
+
         if (this.tickCount % 20 == 0) {
-            if (sensingDue) {
-                this.threatManager.tick(5);
-            }
             if (animationDue) {
                 updateBossBar();
             }
@@ -553,6 +569,7 @@ public class StoryNpcEntity extends PathfinderMob {
                     groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
                 }
                 this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
+                this.threatManager.setAggroDurationTicks(def.getAi().getAggroDurationTicks());
                 if (!isHiddenDefeat()) {
                     // A hidden statue re-asserts its own posture — a definition
                     // refresh must not visibly resurface it mid-countdown.
