@@ -49,6 +49,10 @@ public class NpcRangedAttackGoal extends Goal {
             return false;
         }
         var entity = serverLevel.getEntity(targetUuidOpt.get());
+        if (entity instanceof com.storynpcs.entity.StoryNpcEntity sn && sn.isHiddenDefeat()) {
+            npc.getThreatManager().forgive(targetUuidOpt.get());
+            return false;
+        }
         if (!(entity instanceof LivingEntity living) || !living.isAlive() || living.isRemoved()) {
             return false;
         }
@@ -68,7 +72,8 @@ public class NpcRangedAttackGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        if (target == null || !target.isAlive() || target.isRemoved()) {
+        if (target == null || !target.isAlive() || target.isRemoved()
+                || (target instanceof com.storynpcs.entity.StoryNpcEntity sn && sn.isHiddenDefeat())) {
             return false;
         }
         if (target instanceof Player p && (p.isCreative() || p.isSpectator())) {

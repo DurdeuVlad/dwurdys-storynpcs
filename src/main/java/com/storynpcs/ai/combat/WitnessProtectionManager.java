@@ -82,6 +82,12 @@ public class WitnessProtectionManager {
     }
 
     public static void handleDirectNpcHit(StoryNpcEntity npc, ServerPlayer attacker, long gameTime) {
+        // A hidden-defeat statue is not provocable — bypass-invulnerability
+        // hits reach this handler below the hurt() threat guard, so strikes,
+        // rules, and threat bookkeeping must all be suppressed here too.
+        if (npc.isHiddenDefeat()) {
+            return;
+        }
         var defOpt = npc.getDefinition();
         NpcAi ai = defOpt.map(d -> d.getAi()).orElse(null);
         if (ai == null || ai.getTacticalStance() == TacticalStance.PASSIVE) {
@@ -134,7 +140,7 @@ public class WitnessProtectionManager {
                     npc.level().getEntitiesOfClass(
                             StoryNpcEntity.class,
                             npc.getBoundingBox().inflate(safeRadius),
-                            other -> other != npc
+                            other -> other != npc && !other.isHiddenDefeat()
                     ).forEach(other -> other.getThreatManager().addThreat(attacker.getUUID(), 100));
                     npc.level().players().forEach(p -> {
                         if (p.distanceToSqr(npc) <= safeRadius * safeRadius) {
@@ -216,6 +222,7 @@ public class WitnessProtectionManager {
                 StoryNpcEntity.class,
                 victim.getBoundingBox().inflate(maxScanRadius),
                 npc -> {
+                    if (!npc.isAlive() || npc.isHiddenDefeat()) return false;
                     var def = npc.getDefinition();
                     if (def.isEmpty() || def.get().getAi() == null) return false;
                     var ai = def.get().getAi();
