@@ -649,13 +649,25 @@ public class StoryNpcsApplicationService {
                             "Request operation '" + request.operation()
                                     + "' does not match " + expectedOperation);
                 }
-                result = decision.allowed()
-                        ? action.get()
-                        : AuthorizedActionResult.denied(decision);
-                // A commit failure is not a terminal outcome — memoizing it
-                // would replay the phantom failure to in-process retries. The
-                // durable marker rolled back, so a retry must re-execute.
-                if (decision.allowed() && !isProgressionCommitFailure(result)) {
+                if (decision.allowed()) {
+                    try {
+                        result = action.get();
+                    } catch (RuntimeException unavailable) {
+                        // A quarantined/unreadable progression record throws out
+                        // of the store — convert it to a typed denial so the
+                        // boundary still returns a result and emits its audit
+                        // event instead of escaping the adapter.
+                        result = AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                                "PROGRESSION_UNAVAILABLE",
+                                "Player progression data is unavailable: " + unavailable.getMessage()));
+                    }
+                } else {
+                    result = AuthorizedActionResult.denied(decision);
+                }
+                // Infrastructure failures are not terminal outcomes — memoizing
+                // them would replay the phantom failure to in-process retries.
+                // The durable marker rolled back, so a retry must re-execute.
+                if (decision.allowed() && !isNonTerminalOutcome(result)) {
                     completedProgressionActions.put(request.requestId(),
                             new CompletedProgressionAction(fingerprint, result));
                 }
@@ -665,9 +677,11 @@ public class StoryNpcsApplicationService {
         return result;
     }
 
-    private static boolean isProgressionCommitFailure(AuthorizedActionResult result) {
+    /** Infrastructure failures (commit write, unreadable record) must not be memoized — they are not business outcomes and a retry must re-evaluate. */
+    private static boolean isNonTerminalOutcome(AuthorizedActionResult result) {
         return !result.applied() && result.decision() != null && !result.decision().allowed()
-                && "PROGRESSION_COMMIT_FAILED".equals(result.decision().code());
+                && ("PROGRESSION_COMMIT_FAILED".equals(result.decision().code())
+                        || "PROGRESSION_UNAVAILABLE".equals(result.decision().code()));
     }
 
     private void publishProgressionActionEvent(PlayerProgressionActionRequest request,
@@ -2533,7 +2547,17 @@ public class StoryNpcsApplicationService {
                 return factionMutationFailure(progression.getFactionRevision(),
                         "REQUEST_PAYLOAD_MISMATCH", "Request ID is already bound to a different faction mutation payload");
             }
-            long recordedRevision = parts.length > 1 ? Long.parseLong(parts[1]) : progression.getFactionRevision();
+            long recordedRevision;
+            try {
+                recordedRevision = parts.length > 1
+                        ? Long.parseLong(parts[1]) : progression.getFactionRevision();
+            } catch (NumberFormatException corruptMarker) {
+                // Fingerprint matched but the recorded revision is mangled —
+                // the ledger entry cannot be trusted, so fail closed rather
+                // than re-apply or report a fabricated revision.
+                return factionMutationFailure(progression.getFactionRevision(),
+                        "LEDGER_CORRUPT", "Recorded outcome for this request ID is malformed");
+            }
             String recoveryOutcome = parts.length > 2 ? parts[2] : "COMMITTED";
             List<String> events = parts.length > 3 && !parts[3].isEmpty()
                     ? List.of(parts[3].split(";")) : List.of();
@@ -5817,6 +5841,11 @@ public class StoryNpcsApplicationService {
                             "OPERATION_MISMATCH: Request operation '" + request.operation()
                                     + "' does not match transport.request");
                     outcome = "OPERATION_MISMATCH";
+                } else if (!"transport.request".equals(existing.operationType())) {
+                    result = new TransportResult(false, null, 0,
+                            "REQUEST_PAYLOAD_MISMATCH: Request ID is bound to operation '"
+                                    + existing.operationType() + "'");
+                    outcome = "REQUEST_PAYLOAD_MISMATCH";
                 } else if (!isTransportSubject(existing, request.playerUuid(), locationId)) {
                     result = new TransportResult(false, null, 0,
                             "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");

@@ -189,30 +189,44 @@ class P23ExactlyOnceTest {
         var request = new PlayerProgressionActionRequest(
                 "transport.unlock", "player", player, player, requestId, -1);
 
-        ProgressionRepository failingRepository = new ProgressionRepository(tempDir) {
+        // Fail once, then succeed: if the commit failure were memoized, the
+        // in-process retry would replay the denial instead of re-executing.
+        var failedOnce = new java.util.concurrent.atomic.AtomicBoolean(false);
+        ProgressionRepository flakyRepository = new ProgressionRepository(tempDir) {
             @Override
             protected void writeProgression(UUID playerUuid, PlayerProgression progression)
                     throws IOException {
-                throw new IOException("injected persistence failure");
+                if (failedOnce.compareAndSet(false, true)) {
+                    throw new IOException("injected first-save failure");
+                }
+                super.writeProgression(playerUuid, progression);
             }
         };
-        var failingService = new StoryNpcsApplicationService(registry, failingRepository, events);
+        var flakyService = new StoryNpcsApplicationService(registry, flakyRepository, events);
 
-        var failed = failingService.unlockTransportLocation(request, LOCATION_ID);
+        var failed = flakyService.unlockTransportLocation(request, LOCATION_ID);
         assertThat(failed.applied()).isFalse();
         assertThat(failed.decision().code()).isEqualTo("PROGRESSION_COMMIT_FAILED");
+        // The rolled-back save must have removed the marker with the grant.
+        assertThat(flakyRepository.getOrCreate(player).appliedActionOutcome(requestId)).isNull();
 
-        // The rolled-back marker must not suppress retries — in-process or
-        // across restart the same request id re-executes rather than
-        // replaying a phantom applied outcome.
-        assertThat(failingService.unlockTransportLocation(request, LOCATION_ID)
+        var retried = flakyService.unlockTransportLocation(request, LOCATION_ID);
+        assertThat(retried.applied()).isTrue();
+        assertThat(retried.duplicate()).isFalse()
+                .as("commit failures are not memoized — the retry must re-execute");
+
+        // A permanently failing store keeps denying and never poisons the id.
+        ProgressionRepository deadRepository = new ProgressionRepository(tempDir.resolve("dead")) {
+            @Override
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression)
+                    throws IOException {
+                throw new IOException("injected persistent failure");
+            }
+        };
+        var deadService = new StoryNpcsApplicationService(registry, deadRepository, events);
+        assertThat(deadService.unlockTransportLocation(request, LOCATION_ID)
                 .decision().code()).isEqualTo("PROGRESSION_COMMIT_FAILED");
-        assertThat(failingRepository.getOrCreate(player).appliedActionOutcome(requestId)).isNull();
-
-        var recovered = restartedService();
-        var applied = recovered.unlockTransportLocation(request, LOCATION_ID);
-        assertThat(applied.applied()).isTrue();
-        assertThat(applied.duplicate()).isFalse();
+        assertThat(deadRepository.getOrCreate(player).appliedActionOutcome(requestId)).isNull();
     }
 
     @Test
