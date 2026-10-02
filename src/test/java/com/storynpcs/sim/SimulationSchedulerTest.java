@@ -110,6 +110,43 @@ class SimulationSchedulerTest {
     }
 
     @Test
+    void capabilityPeriodReflectsTierBudgets() {
+        UUID unevaluated = UUID.nameUUIDFromBytes("unseen".getBytes());
+        UUID active = UUID.nameUUIDFromBytes("p-active".getBytes());
+        UUID distant = UUID.nameUUIDFromBytes("p-distant".getBytes());
+        UUID dormant = UUID.nameUUIDFromBytes("p-dormant".getBytes());
+        scheduler.evaluate(List.of(
+                new ActorInput(active, 10, false),
+                new ActorInput(distant, 200, false),
+                new ActorInput(dormant, 400, false)));
+
+        // Unevaluated actors keep full fidelity — consumers see period 1.
+        assertThat(scheduler.capabilityPeriod(unevaluated, Capability.SENSING)).isEqualTo(1);
+        // ACTIVE/Nearby-tier budgets pass through unchanged.
+        assertThat(scheduler.capabilityPeriod(active, Capability.PATHING)).isEqualTo(1);
+        assertThat(scheduler.capabilityPeriod(distant, Capability.PATHING)).isEqualTo(20);
+        assertThat(scheduler.capabilityPeriod(distant, Capability.COMBAT)).isEqualTo(20);
+        // Disabled capabilities and UNLOADED actors read as -1.
+        assertThat(scheduler.capabilityPeriod(distant, Capability.ANIMATION)).isEqualTo(-1);
+        assertThat(scheduler.capabilityPeriod(dormant, Capability.SENSING)).isEqualTo(-1);
+        assertThat(scheduler.capabilityPeriod(dormant, Capability.PATHING)).isEqualTo(-1);
+        assertThat(scheduler.capabilityPeriod(dormant, Capability.COMBAT)).isEqualTo(-1);
+        assertThat(scheduler.capabilityPeriod(dormant, Capability.PERSISTENCE)).isEqualTo(1_200);
+    }
+
+    @Test
+    void capabilityPeriodFallsBackToFullFidelityAfterDespawn() {
+        UUID actorId = UUID.nameUUIDFromBytes("p-despawn".getBytes());
+        scheduler.evaluate(List.of(new ActorInput(actorId, 10, false)));
+        assertThat(scheduler.capabilityPeriod(actorId, Capability.SENSING)).isEqualTo(1);
+
+        // Despawned actors are removed from the state map — consumers fall
+        // back to full fidelity rather than reading a stale tier.
+        scheduler.evaluate(List.of());
+        assertThat(scheduler.capabilityPeriod(actorId, Capability.SENSING)).isEqualTo(1);
+    }
+
+    @Test
     void memoryReportSeparatesArchetypeAndIncremental() {
         ActorMemoryReport report = new ActorMemoryReport(500, 4L * 1024 * 1024, 24L * 1024);
         assertThat(report.incrementalTotalBytes()).isEqualTo(500 * 24L * 1024);

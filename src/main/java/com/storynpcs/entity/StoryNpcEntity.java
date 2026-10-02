@@ -134,6 +134,12 @@ public class StoryNpcEntity extends PathfinderMob {
 
         @Override
         public boolean canUse() {
+            // P4-1: pathing-disabled tiers never start a stroll — dormant
+            // wanderers stand still instead of spending path finds.
+            if (npc.simulationCapabilityPeriod(
+                    com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+                return false;
+            }
             var defOpt = npc.getDefinition();
             if (defOpt.isEmpty()) return false;
             var ai = defOpt.get().getAi();
@@ -142,10 +148,38 @@ public class StoryNpcEntity extends PathfinderMob {
             }
             return super.canUse();
         }
+
+        @Override
+        public boolean canContinueToUse() {
+            return npc.simulationCapabilityPeriod(
+                    com.storynpcs.sim.SimulationScheduler.Capability.PATHING) >= 0
+                    && super.canContinueToUse();
+        }
+
+        @Override
+        public void stop() {
+            npc.getNavigation().stop();
+            super.stop();
+        }
     }
 
     public com.storynpcs.ai.combat.ThreatManager getThreatManager() {
         return threatManager;
+    }
+
+    /**
+     * P4-1 goal-facing accessor for the simulation-tier budget: the effective
+     * period in ticks for {@code capability} at this entity's current tier,
+     * {@code -1} when the capability is disabled, {@code 1} when the scheduler
+     * is absent or the entity is unevaluated (full fidelity). Consumers must
+     * throttle on elapsed game ticks — see
+     * {@link com.storynpcs.sim.SimulationScheduler#capabilityPeriod}.
+     */
+    public int simulationCapabilityPeriod(
+            com.storynpcs.sim.SimulationScheduler.Capability capability) {
+        var mod = com.storynpcs.StoryNpcsAccess.mod(this);
+        var sim = mod != null ? mod.getSimulationScheduler() : null;
+        return sim == null ? 1 : sim.capabilityPeriod(getUUID(), capability);
     }
 
     @Override

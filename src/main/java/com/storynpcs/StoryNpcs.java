@@ -135,9 +135,14 @@ public class StoryNpcs {
 
     /**
      * Server tick driver: per-tick script budget window (P9-2) plus the
-     * simulation-tier evaluation pass (P4-1) every 20 ticks. Tier evaluation
-     * runs here — once per driver pass — so per-entity ticks only consult the
-     * resolved capability gates instead of re-scanning the actor set.
+     * simulation-tier evaluation pass (P4-1), nominally once per second of
+     * overworld game time. {@code getGameTime} advances once per dimension
+     * tick, so with multiple loaded dimensions the {@code %20} gate fires
+     * more often than every 20 server ticks — harmless here because
+     * {@code evaluate} is idempotent, but the cadence is not exact. Tier
+     * evaluation runs in this driver — once per pass — so per-entity ticks
+     * only consult the resolved capability gates instead of re-scanning the
+     * actor set.
      */
     private void onServerTick(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
         scriptScheduler.beginTick();
