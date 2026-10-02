@@ -110,6 +110,13 @@ public class NpcEditorScreen extends Screen {
         factionField.setValue(definition.getFactionId() != null ? definition.getFactionId().toString() : "");
         this.addRenderableWidget(factionField);
 
+        // Display/render sub-screen (issue #58) — full NpcDisplay contract
+        this.addRenderableWidget(Button.builder(
+                Component.literal("§bDisplay & Render"), b -> {
+                    saveCurrentState();
+                    Minecraft.getInstance().setScreen(new NpcDisplayScreen(definition, expectedRevision));
+                }).bounds(leftX, startY + 154, colWidth, 14).build());
+
         // Right Column: Stats & AI
         healthField = new EditBox(this.font, rightX, startY + 34, 85, 16, Component.literal("Health"));
         healthField.setValue(String.format("%.1f", definition.getStats() != null ? definition.getStats().getMaxHealth() : 20.0));

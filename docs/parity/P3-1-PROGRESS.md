@@ -16,7 +16,7 @@ Status: `IN-PROGRESS`
 
 ## Explicit limits
 
-- Remote/player skin resolution, cloak/glow rendering, model-entity projection, availability rules, boss-bar rendering, hitbox projection, and editor/network field coverage are not complete.
+- Remote/player skin resolution, cloak/glow rendering, model-entity projection, availability rules, boss-bar rendering, and hitbox projection are not complete at that point in history. (Editor/network field coverage was added in the third pass below; the whole-definition network payload already carried all display fields.)
 - This document records a domain-contract slice; it is not a P3-1 completion claim.
 
 ## Second pass — display projection boundary
@@ -32,4 +32,13 @@ Status: `IN-PROGRESS`
 
 ### Still open
 
-- Remote skin fetch, availability-rule visibility beyond visibility flags, animation playback, editor/network field coverage, and live client render smoke fixtures. Cloak/glow/tint render layers (`NpcRenderLayer`), boss-bar lifecycle, entity glow/invisibility flags, nameplate projection, and display scale are now wired to the projection (see register P3-1 status).
+- Remote skin fetch, availability-rule visibility beyond visibility flags, animation playback beyond stance flags, and live client render smoke fixtures. Cloak/glow/tint render layers (`NpcRenderLayer`), boss-bar lifecycle, entity glow/invisibility flags, nameplate projection, and display scale are now wired to the projection (see register P3-1 status).
+
+## Third pass — display editor coverage
+
+- Added `NpcDisplayScreenModel` (headless editor state) + `NpcDisplayScreen`, reachable from the main editor's new "Display & Render" button. Covers the full `NpcDisplay` contract the main panel did not fit: skin source (`texture`/`player`/`url`), skin texture/URL/player, cloak/glow textures, overlay-glow and show-layers toggles, visibility, model type/id/size, scale XYZ, tint, show-name + name-mode, living-animation, hitbox state, boss-bar mode/color, and the `NpcAi` animation stance.
+- `apply()` pushes state through the domain setters only, so out-of-range/invalid input is rejected with an inline error before the save payload is built — server-side `saveNpc` validation remains the single authority.
+- The skin-source picker is applied last so an explicit selection wins over stale URL/player values (the domain's own auto-flip precedence is preserved for command/YAML paths).
+- Save routes through the existing `ServerboundNpcSavePayload` whole-definition JSON; `StoryNpcsClient` now dispatches save results to the display screen the same as the rules screen.
+- `NpcDisplayScreenModelTest`: 8 tests — full-field load, apply→JSON→restore round-trip, picker-over-stale-URL precedence, URL source selection, validation error blocking, tint forms, missing-block creation, cycle wrap.
+- Remaining honest gap: animation timelines/playback beyond the stance flag, availability-rule evaluation beyond the stored mode, and live in-client render smoke remain unproven — this slice is editor coverage only.
