@@ -175,7 +175,15 @@ public final class DurableOperationJournal {
         return transition(operationId, State.ABORTED, outcomeCode, detail);
     }
 
-    /** Reads one operation record without changing it. */
+    /**
+     * Reads one operation record without changing it.
+     *
+     * <p>Fail-closed note: when no live record exists but a quarantined
+     * {@code .corrupted.} artifact does, this throws — that operation id stays
+     * poisoned until an operator inspects and removes the artifact (or restores
+     * a valid record file) under the journal directory. There is intentionally
+     * no automated un-quarantine path.
+     */
     public synchronized OperationRecord read(UUID operationId) throws IOException {
         if (operationId == null) throw new IllegalArgumentException("operationId cannot be null");
         return readExisting(recordPath(operationId));

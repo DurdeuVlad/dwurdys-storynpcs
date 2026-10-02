@@ -181,4 +181,58 @@ class P23ExactlyOnceTest {
         assertThat(mismatched.approved()).isFalse();
         assertThat(mismatched.detail()).startsWith("REQUEST_PAYLOAD_MISMATCH");
     }
+
+    @Test
+    void transportUnlockCommitFailureRollsBackMarkerAndRetries() {
+        UUID player = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        var request = new PlayerProgressionActionRequest(
+                "transport.unlock", "player", player, player, requestId, -1);
+
+        ProgressionRepository failingRepository = new ProgressionRepository(tempDir) {
+            @Override
+            protected void writeProgression(UUID playerUuid, PlayerProgression progression)
+                    throws IOException {
+                throw new IOException("injected persistence failure");
+            }
+        };
+        var failingService = new StoryNpcsApplicationService(registry, failingRepository, events);
+
+        var failed = failingService.unlockTransportLocation(request, LOCATION_ID);
+        assertThat(failed.applied()).isFalse();
+        assertThat(failed.decision().code()).isEqualTo("PROGRESSION_COMMIT_FAILED");
+
+        // The rolled-back marker must not suppress retries — in-process or
+        // across restart the same request id re-executes rather than
+        // replaying a phantom applied outcome.
+        assertThat(failingService.unlockTransportLocation(request, LOCATION_ID)
+                .decision().code()).isEqualTo("PROGRESSION_COMMIT_FAILED");
+        assertThat(failingRepository.getOrCreate(player).appliedActionOutcome(requestId)).isNull();
+
+        var recovered = restartedService();
+        var applied = recovered.unlockTransportLocation(request, LOCATION_ID);
+        assertThat(applied.applied()).isTrue();
+        assertThat(applied.duplicate()).isFalse();
+    }
+
+    @Test
+    void transportRequestWithCorruptTerminalRecordFailsClosed() throws IOException {
+        UUID player = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+
+        // Plant a terminal record whose detail payload is malformed — e.g. a
+        // multi-line destination name written by an older build corrupts the
+        // flat field layout, and a non-numeric fee token must fail closed
+        // rather than throw out of the request path.
+        var journal = new DurableOperationJournal(tempDir.resolve("transport-operations"));
+        journal.begin(requestId, "transport.request", player + "|" + LOCATION_ID);
+        journal.commit(requestId, "APPLIED", "true\nFerry\nDock\noops");
+
+        var request = new PlayerProgressionActionRequest(
+                "transport.request", "player", player, player, requestId, -1);
+        var result = service.requestTransport(request, LOCATION_ID);
+
+        assertThat(result.approved()).isFalse();
+        assertThat(result.detail()).isEqualTo("RECOVERY_REQUIRED");
+    }
 }

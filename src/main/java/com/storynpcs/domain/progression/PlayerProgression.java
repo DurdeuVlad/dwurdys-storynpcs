@@ -144,6 +144,9 @@ public class PlayerProgression {
             }
             this.appliedActionRequests.put(id, value);
         });
+        while (this.appliedActionRequests.size() > MAX_APPLIED_ACTION_REQUESTS) {
+            this.appliedActionRequests.remove(this.appliedActionRequests.keySet().iterator().next());
+        }
     }
 
     /** Recorded outcome for a request id, or {@code null} when this request never committed. */
@@ -155,6 +158,11 @@ public class PlayerProgression {
      * Records a committed request outcome. Must be called inside the same
      * mutation critical section so the marker and the effect land in one
      * durable save — that atomicity is what makes replay dedup crash-safe.
+     * The ledger is bounded ({@link #MAX_APPLIED_ACTION_REQUESTS}, FIFO);
+     * after a marker is evicted the dedup guarantee degrades to the
+     * operation's natural idempotency — faction replays are bounded by
+     * monotonically increasing revisions and transport unlocks are
+     * idempotent set additions, so eviction cannot double-apply effects.
      */
     public void recordAppliedActionRequest(UUID requestId, String fingerprint, String outcome) {
         if (requestId == null) throw new IllegalArgumentException("requestId cannot be null");

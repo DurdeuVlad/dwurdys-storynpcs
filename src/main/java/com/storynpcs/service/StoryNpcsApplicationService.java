@@ -652,7 +652,10 @@ public class StoryNpcsApplicationService {
                 result = decision.allowed()
                         ? action.get()
                         : AuthorizedActionResult.denied(decision);
-                if (decision.allowed()) {
+                // A commit failure is not a terminal outcome — memoizing it
+                // would replay the phantom failure to in-process retries. The
+                // durable marker rolled back, so a retry must re-execute.
+                if (decision.allowed() && !isProgressionCommitFailure(result)) {
                     completedProgressionActions.put(request.requestId(),
                             new CompletedProgressionAction(fingerprint, result));
                 }
@@ -660,6 +663,11 @@ public class StoryNpcsApplicationService {
         }
         publishProgressionActionEvent(request, eventTarget, result.applied(), result);
         return result;
+    }
+
+    private static boolean isProgressionCommitFailure(AuthorizedActionResult result) {
+        return !result.applied() && result.decision() != null && !result.decision().allowed()
+                && "PROGRESSION_COMMIT_FAILED".equals(result.decision().code());
     }
 
     private void publishProgressionActionEvent(PlayerProgressionActionRequest request,
@@ -2782,9 +2790,20 @@ public class StoryNpcsApplicationService {
             if (registry.getTransportLocation(locationId).isEmpty()) {
                 return AuthorizedActionResult.of(false);
             }
-            progression.getUnlockedTransportLocations().add(locationId);
-            progression.recordAppliedActionRequest(request.requestId(), fingerprint, "true");
-            saveProgression(request.playerUuid(), progression);
+            PlayerProgression snapshot = progression.copy();
+            try {
+                progression.getUnlockedTransportLocations().add(locationId);
+                // The replay marker commits inside the same save as the grant —
+                // a failed save rolls the marker back with it via restoreFrom so
+                // a retry re-executes instead of replaying a phantom success.
+                progression.recordAppliedActionRequest(request.requestId(), fingerprint, "true");
+                progressionRepository.save(request.playerUuid(), progression);
+            } catch (Exception failure) {
+                progression.restoreFrom(snapshot);
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "PROGRESSION_COMMIT_FAILED",
+                        "Could not durably save transport unlock: " + failure.getMessage()));
+            }
             return AuthorizedActionResult.of(true);
         }
     }
@@ -5810,8 +5829,15 @@ public class StoryNpcsApplicationService {
                     result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
                     outcome = "RECOVERY_REQUIRED";
                 } else {
-                    result = decodeTransportResult(existing);
-                    outcome = "REPLAYED";
+                    try {
+                        result = decodeTransportResult(existing);
+                        outcome = "REPLAYED";
+                    } catch (RuntimeException corruptRecord) {
+                        // A readable-but-malformed terminal record is ambiguous —
+                        // never re-execute live side effects on a guess.
+                        result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                        outcome = "RECOVERY_REQUIRED";
+                    }
                 }
             } else {
                 AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
@@ -5841,8 +5867,13 @@ public class StoryNpcsApplicationService {
                                 outcome = "RECOVERY_REQUIRED";
                             }
                             default -> {
-                                result = decodeTransportResult(began.record());
-                                outcome = "REPLAYED";
+                                try {
+                                    result = decodeTransportResult(began.record());
+                                    outcome = "REPLAYED";
+                                } catch (RuntimeException corruptRecord) {
+                                    result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                                    outcome = "RECOVERY_REQUIRED";
+                                }
                             }
                         }
                     } catch (com.storynpcs.persistence.DurableOperationJournal
@@ -5850,7 +5881,7 @@ public class StoryNpcsApplicationService {
                         result = new TransportResult(false, null, 0,
                                 "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
                         outcome = "REQUEST_PAYLOAD_MISMATCH";
-                    } catch (IOException journalFailure) {
+                    } catch (IOException | RuntimeException journalFailure) {
                         result = new TransportResult(false, null, 0,
                                 "JOURNAL_UNAVAILABLE: " + journalFailure.getMessage());
                         outcome = "JOURNAL_UNAVAILABLE";
@@ -5884,7 +5915,7 @@ public class StoryNpcsApplicationService {
                 transportOperationJournal.abort(requestId,
                         result.detail() == null ? "REJECTED" : result.detail().split(":", 2)[0], encoded);
             }
-        } catch (IOException terminalFailure) {
+        } catch (IOException | RuntimeException terminalFailure) {
             System.err.println("[StoryNPCs] transport request " + requestId
                     + " could not be terminally journaled; it will recover fail-closed: "
                     + terminalFailure.getMessage());
@@ -5898,10 +5929,17 @@ public class StoryNpcsApplicationService {
     }
 
     private static String encodeTransportResult(TransportResult result) {
+        // The record detail is a flat 4-field newline-delimited format —
+        // user-authored names/details can carry newlines, which would corrupt
+        // the field boundaries on replay, so they are flattened here.
         return result.approved() + "\n"
-                + (result.destinationName() == null ? "" : result.destinationName()) + "\n"
+                + flattenJournalField(result.destinationName()) + "\n"
                 + result.feeCharged() + "\n"
-                + (result.detail() == null ? "" : result.detail());
+                + flattenJournalField(result.detail());
+    }
+
+    private static String flattenJournalField(String value) {
+        return value == null ? "" : value.replace('\n', ' ').replace('\r', ' ');
     }
 
     private static TransportResult decodeTransportResult(
@@ -5926,6 +5964,14 @@ public class StoryNpcsApplicationService {
      */
     public int recoverTransportOperations(UUID playerUuid) {
         if (playerUuid == null) return 0;
+        try {
+            // Terminal record files cannot accumulate unbounded; pruning bounds
+            // replay dedup to the journal's documented retention window, same
+            // as the bank and trade journals.
+            transportOperationJournal.pruneTerminalRecords();
+        } catch (IOException | RuntimeException ignored) {
+            // Housekeeping must never block recovery.
+        }
         com.storynpcs.persistence.DurableOperationJournal.PendingScan scan;
         try {
             scan = transportOperationJournal.pending();
