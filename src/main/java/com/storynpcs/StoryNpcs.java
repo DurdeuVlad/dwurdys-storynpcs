@@ -57,6 +57,19 @@ public class StoryNpcs {
     private final com.storynpcs.script.ScriptScheduler scriptScheduler;
     /** Actor simulation-tier scheduler (P4-1) — per-instance, never static. */
     private final com.storynpcs.sim.SimulationScheduler simulationScheduler;
+    /**
+     * Bounded path-request queue (P4-2). Navigators submit immutable target
+     * snapshots; {@link #drainPathRequests} executes a bounded count/time
+     * budget per server tick on the server thread — no async world access.
+     */
+    private final com.storynpcs.sim.PathScheduler pathScheduler;
+    /**
+     * Squad target coordinators keyed {@code "dimension|factionId"} (P4-2).
+     * Bounded by live faction count; entries with no live assignments are
+     * reclaimed opportunistically so the map cannot grow unboundedly.
+     */
+    private final java.util.Map<String, com.storynpcs.sim.SquadCoordinator> squadCoordinators
+            = new java.util.LinkedHashMap<>();
     /** Diagnostics from the most recent definitions load — surfaced to ops in-game on login. */
     private com.storynpcs.domain.common.ValidationResult lastLoadDiagnostics;
 
@@ -80,6 +93,7 @@ public class StoryNpcs {
         this.simulationScheduler = new com.storynpcs.sim.SimulationScheduler(
                 com.storynpcs.sim.SimulationTierPolicy.defaults(),
                 com.storynpcs.sim.TierBudgets.defaults());
+        this.pathScheduler = new com.storynpcs.sim.PathScheduler();
     }
 
     public static StoryNpcs createForTesting() {
@@ -104,6 +118,7 @@ public class StoryNpcs {
         this.simulationScheduler = new com.storynpcs.sim.SimulationScheduler(
                 com.storynpcs.sim.SimulationTierPolicy.defaults(),
                 com.storynpcs.sim.TierBudgets.defaults());
+        this.pathScheduler = new com.storynpcs.sim.PathScheduler();
 
         StoryNpcRegistry.register(modEventBus);
         com.storynpcs.item.StoryNpcsItems.register(modEventBus);
@@ -147,6 +162,7 @@ public class StoryNpcs {
     private void onServerTick(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
         scriptScheduler.beginTick();
         MinecraftServer server = event.getServer();
+        drainPathRequests(server);
         if (server.overworld().getGameTime() % 20 != 0) {
             return;
         }
@@ -167,6 +183,41 @@ public class StoryNpcs {
             }
         }
         simulationScheduler.evaluate(inputs);
+    }
+
+    /**
+     * P4-2: drains the bounded path-request queue on the server thread —
+     * at most {@link #PATH_DRAIN_MAX_PER_TICK} requests or
+     * {@link #PATH_DRAIN_MAX_NANOS} per tick, whichever is hit first, so a
+     * burst of repaths amortizes instead of stalling a single tick. World
+     * access stays on the server thread; requests carry immutable coordinate
+     * snapshots, and stale requests (entity gone, superseded submission) are
+     * dropped explicitly.
+     *
+     * <p>The time bound is checked <em>between</em> requests: a single
+     * {@code createPath} may exceed the budget on its own, so the guarantee
+     * is bounded <em>count</em> plus best-effort wall time, not a hard
+     * per-request latency cap.
+     */
+    private void drainPathRequests(MinecraftServer server) {
+        long deadline = System.nanoTime() + PATH_DRAIN_MAX_NANOS;
+        int remaining = PATH_DRAIN_MAX_PER_TICK;
+        while (remaining-- > 0 && System.nanoTime() < deadline) {
+            var opt = pathScheduler.poll();
+            if (opt.isEmpty()) {
+                return;
+            }
+            var request = opt.get();
+            for (var level : server.getAllLevels()) {
+                var entity = level.getEntity(request.actorId());
+                if (entity instanceof com.storynpcs.entity.StoryNpcEntity npc
+                        && npc.getNavigation()
+                                instanceof com.storynpcs.ai.pathing.StoryNpcPathNavigator nav) {
+                    nav.executePending(request.requestId());
+                    break;
+                }
+            }
+        }
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
@@ -245,6 +296,38 @@ public class StoryNpcs {
 
     public com.storynpcs.sim.SimulationScheduler getSimulationScheduler() {
         return simulationScheduler;
+    }
+
+    /** Max path requests executed per server tick — bounds per-tick path work. */
+    private static final int PATH_DRAIN_MAX_PER_TICK = 64;
+    /** Max wall time spent draining path requests per tick (4 ms). */
+    private static final long PATH_DRAIN_MAX_NANOS = 4_000_000L;
+    /** Bound on distinct (dimension, faction) squads — stale empties evict first. */
+    private static final int MAX_SQUAD_COORDINATORS = 64;
+
+    public com.storynpcs.sim.PathScheduler getPathScheduler() {
+        return pathScheduler;
+    }
+
+    /**
+     * Squad coordinator for {@code "dimension|factionId"} — deterministic
+     * unique-target allocation across one faction's NPCs in one dimension.
+     * The map is bounded: empty-assignment entries are reclaimed on growth
+     * past {@link #MAX_SQUAD_COORDINATORS}.
+     */
+    public com.storynpcs.sim.SquadCoordinator squadCoordinator(String dimensionKey,
+            com.storynpcs.domain.common.NamespacedId factionId) {
+        var coordinator = squadCoordinators.computeIfAbsent(
+                dimensionKey + "|" + factionId, k -> new com.storynpcs.sim.SquadCoordinator());
+        if (squadCoordinators.size() > MAX_SQUAD_COORDINATORS) {
+            squadCoordinators.values().removeIf(c -> c.assignments().isEmpty());
+        }
+        return coordinator;
+    }
+
+    /** Drops any squad assignment the actor held (despawn/unload/faction change). */
+    public void releaseSquadAssignment(java.util.UUID actorUuid) {
+        squadCoordinators.values().forEach(c -> c.release(actorUuid));
     }
 
     /**

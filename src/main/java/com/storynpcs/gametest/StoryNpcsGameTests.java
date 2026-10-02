@@ -291,4 +291,112 @@ public final class StoryNpcsGameTests {
 
         helper.succeed();
     }
+
+    /**
+     * P4-2 bounded path queue: a navigator {@code moveTo} is enqueued rather
+     * than computed inline — the request reports in-progress while queued,
+     * then the server-tick drain materializes the real path.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
+    public static void moveToQueuesThenMaterializesPath(GameTestHelper helper) {
+        // Ground pathfinding needs walkable ground — the empty template is
+        // pure air, so lay a floor under the whole structure first.
+        for (int x = 0; x <= 2; x++) {
+            for (int z = 0; z <= 2; z++) {
+                helper.setBlock(new BlockPos(x, 0, z), net.minecraft.world.level.block.Blocks.STONE);
+            }
+        }
+        BlockPos spawnAt = new BlockPos(1, 1, 1);
+        StoryNpcEntity npc = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), spawnAt);
+        StoryNpcs mod = StoryNpcsAccess.mod(npc);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        helper.assertTrue(mod.getPathScheduler() != null, "PathScheduler must be wired to the mod");
+
+        // moveTo takes absolute coordinates — structure-relative positions
+        // must convert through absolutePos (the structure sits millions of
+        // blocks from the world origin). Issue after a landing delay:
+        // GroundPathNavigation.canUpdatePath() requires onGround, so a
+        // moveTo drained mid-fall computes null — real goals recover via
+        // their repath throttle, a one-shot test call cannot.
+        helper.runAfterDelay(10, () -> {
+            BlockPos target = helper.absolutePos(spawnAt.east());
+            npc.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, 1.0D);
+        });
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(npc.getNavigation().getPath() != null,
+                    "Queued path request should materialize into a real path via the drain");
+        });
+    }
+
+    /**
+     * P4-2 squad coordination: two same-faction attack-on-sight NPCs facing
+     * two hostile-faction NPCs must claim distinct targets — the shared
+     * coordinator prevents the classic "everyone piles on the nearest"
+     * duplicate-target pile-up.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 200)
+    public static void sameFactionSquadClaimsDistinctTargets(GameTestHelper helper) {
+        NamespacedId allyFaction = NamespacedId.of("storynpcs:test/gametest_allies");
+        NamespacedId enemyFaction = NamespacedId.of("storynpcs:test/gametest_enemies");
+
+        StoryNpcs mod = null;
+        var attackers = new java.util.ArrayList<StoryNpcEntity>();
+        var enemies = new java.util.ArrayList<StoryNpcEntity>();
+        for (int i = 0; i < 2; i++) {
+            StoryNpcEntity a = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), new BlockPos(0, 1, i * 2));
+            if (mod == null) {
+                mod = StoryNpcsAccess.mod(a);
+            }
+            attackers.add(a);
+            enemies.add(helper.spawn(StoryNpcRegistry.STORY_NPC.get(), new BlockPos(2, 1, i * 2)));
+        }
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        mod.getApplicationService().createFaction(allyFaction, "Allies");
+        mod.getApplicationService().createFaction(enemyFaction, "Enemies");
+
+        for (int i = 0; i < 2; i++) {
+            NamespacedId atkId = NamespacedId.of("storynpcs:test/gametest_squad_atk_" + i);
+            NpcDefinition atkDef = new NpcDefinition(atkId, "Squad Attacker " + i);
+            atkDef.setFactionId(allyFaction);
+            atkDef.getAi().setAttackOnSight(true);
+            atkDef.getAi().setTargetFactionIds(java.util.Set.of(enemyFaction));
+            // Outlast the acquisition window — a kill mid-test would force a
+            // re-scan onto the surviving enemy and falsely fail distinctness.
+            atkDef.getStats().setMaxHealth(1000);
+            mod.getApplicationService().createNpc(atkDef);
+            attackers.get(i).setDefinitionId(atkId.toString());
+
+            NamespacedId enId = NamespacedId.of("storynpcs:test/gametest_squad_enemy_" + i);
+            NpcDefinition enDef = new NpcDefinition(enId, "Squad Enemy " + i);
+            enDef.setFactionId(enemyFaction);
+            enDef.getStats().setMaxHealth(1000);
+            mod.getApplicationService().createNpc(enDef);
+            enemies.get(i).setDefinitionId(enId.toString());
+        }
+
+        final StoryNpcs capturedMod = mod;
+        helper.succeedWhen(() -> {
+            // Playerless worlds evaluate every NPC DORMANT (nearest-player
+            // distance saturates the range) — a periodic eval landing before
+            // the first scan would disable sensing permanently. Re-pinning
+            // ACTIVE every tick bounds the dormant window to a single
+            // entity-tick phase per eval cycle regardless of where the test
+            // ticker sits relative to ServerTickEvent.Post.
+            var scheduler = capturedMod.getSimulationScheduler();
+            var inputs = new java.util.ArrayList<com.storynpcs.sim.SimulationScheduler.ActorInput>();
+            attackers.forEach(a -> inputs.add(
+                    new com.storynpcs.sim.SimulationScheduler.ActorInput(a.getUUID(), 10.0, false)));
+            enemies.forEach(e -> inputs.add(
+                    new com.storynpcs.sim.SimulationScheduler.ActorInput(e.getUUID(), 10.0, false)));
+            scheduler.evaluate(inputs);
+
+            var t0 = attackers.get(0).getThreatManager().getCurrentTarget();
+            var t1 = attackers.get(1).getThreatManager().getCurrentTarget();
+            helper.assertTrue(t0.isPresent() && t1.isPresent(),
+                    "Both squad attackers should hold a threat target");
+            helper.assertFalse(t0.get().equals(t1.get()),
+                    "Squad coordination must allocate distinct targets, got duplicate " + t0.get());
+        });
+    }
 }

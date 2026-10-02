@@ -1213,6 +1213,21 @@ public class StoryNpcEntity extends PathfinderMob {
      * change dimensions (a portal transfer mid-countdown would restore it at
      * start coordinates in the wrong dimension).
      */
+    /**
+     * Hidden-defeat invisibility is posture, not effect-derived. Vanilla
+     * recomputes the flag from {@code activeEffects} whenever
+     * {@code effectsDirty} fires — any effect add/update/remove on a statue
+     * clears it, resurfacing the NPC mid-countdown. Re-pin it here.
+     */
+    @Override
+    protected void updateInvisibilityStatus() {
+        if (isHiddenDefeat()) {
+            this.setInvisible(true);
+            return;
+        }
+        super.updateInvisibilityStatus();
+    }
+
     public boolean isHiddenDefeat() {
         return hiddenDefeatTicksLeft != 0;
     }
@@ -1600,6 +1615,10 @@ public class StoryNpcEntity extends PathfinderMob {
                 jobInstance.onActorUnload();
             }
             releaseJobForcedChunks();
+            // P4-2: drop any squad target claim so the slot is reclaimable.
+            if (mod != null) {
+                mod.releaseSquadAssignment(this.getUUID());
+            }
         }
         if (bossBar != null) {
             bossBar.removeAllPlayers();
