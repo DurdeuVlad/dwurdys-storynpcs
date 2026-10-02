@@ -422,6 +422,26 @@ def run_gate(root: Path) -> dict[str, Any]:
         runs = artifact.get("runs", [])
         if not runs:
             bench_findings.append(f"{scenario}: no recorded runs")
+        elif len(runs) < 3:
+            bench_findings.append(
+                f"{scenario}: only {len(runs)} run(s) — repeatability requires >=3")
+        for run in runs:
+            if not isinstance(run, dict):
+                bench_findings.append(f"{scenario}: malformed run entry")
+                continue
+            breakdown = run.get("phase_breakdown")
+            required_keys = ("evaluate_ms", "sensing_ms", "path_ms",
+                             "combat_ms", "squad_ms", "unattributed_ms")
+            if not isinstance(breakdown, dict) or any(
+                    not isinstance(breakdown.get(k), (int, float))
+                    for k in required_keys):
+                bench_findings.append(
+                    f"{scenario}: run seed={run.get('seed')} missing or malformed "
+                    f"phase_breakdown attribution")
+        observed = artifact.get("timing_repeatability_observed_pct")
+        if not isinstance(observed, (int, float)):
+            bench_findings.append(
+                f"{scenario}: timing_repeatability_observed_pct not recorded")
         failed = [c for run in runs for c in run.get("threshold_results", [])
                   if not c.get("pass")]
         if failed:
@@ -433,6 +453,7 @@ def run_gate(root: Path) -> dict[str, Any]:
             "runs": len(runs),
             "certification_state": artifact.get("certification_state"),
             "timing_repeatable_within_10pct": artifact.get("timing_repeatable_within_10pct"),
+            "timing_repeatability_observed_pct": observed,
         }
     checks["benchmark_artifacts"] = {
         "pass": not bench_findings, "findings": bench_findings, "detail": bench_detail,
