@@ -95,7 +95,7 @@ public class TraderBankerAdminScreen extends Screen {
             rebuildWidgets();
         }).bounds(74, 4, 60, 14).build());
         addRenderableWidget(Button.builder(Component.literal("Back"), b ->
-                minecraft.setScreen(new NpcEditorScreen(model.getNpc())))
+                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)))
                 .bounds(this.width - 56, 4, 46, 14).build());
     }
 

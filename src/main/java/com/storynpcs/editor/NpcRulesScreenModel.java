@@ -192,7 +192,7 @@ public final class NpcRulesScreenModel {
     private BehaviorRule buildRule() {
         TriggerType trigger;
         try {
-            trigger = TriggerType.valueOf(TRIGGERS[triggerIdx].toUpperCase());
+            trigger = TriggerType.valueOf(TRIGGERS[triggerIdx].toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Unknown trigger '" + TRIGGERS[triggerIdx] + "'.");
         }
@@ -215,7 +215,7 @@ public final class NpcRulesScreenModel {
             case "faction_standing": {
                 NamespacedId faction = parseId(condFaction, "condition faction");
                 FactionStandingCondition.Standing standing =
-                        FactionStandingCondition.Standing.valueOf(STANDINGS[standingIdx].toUpperCase());
+                        FactionStandingCondition.Standing.valueOf(STANDINGS[standingIdx].toUpperCase(java.util.Locale.ROOT));
                 return new FactionStandingCondition(faction, standing);
             }
             case "health_percent":
@@ -253,7 +253,7 @@ public final class NpcRulesScreenModel {
                         actFraction.isBlank() ? 0.50 : parseDouble(actFraction, "heal fraction", 0.0, 1.0),
                         actDialogue.isBlank() ? "I yield! Well fought." : actDialogue);
             case "change_stance":
-                return new ChangeStanceAction(TacticalStance.valueOf(STANCES[stanceIdx].toUpperCase()));
+                return new ChangeStanceAction(TacticalStance.valueOf(STANCES[stanceIdx].toUpperCase(java.util.Locale.ROOT)));
             case "adjust_faction": {
                 NamespacedId faction = parseId(actFaction, "action faction");
                 return new AdjustFactionAction(faction, parseInt(actDelta, "faction delta", -100000, 100000));
