@@ -60,6 +60,8 @@ public class StoryNpcEntity extends PathfinderMob {
     private int hiddenDefeatTicksLeft = 0;
     /** Whether the entity was already invulnerable before entering hidden defeat. */
     private boolean wasInvulnerableBeforeHide = false;
+    /** Whether the entity already had noPhysics before entering hidden defeat. */
+    private boolean wasNoPhysicsBeforeHide = false;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
 
@@ -509,7 +511,9 @@ public class StoryNpcEntity extends PathfinderMob {
 
         state.getDisplayName(mod.getRegistry()).ifPresent(name -> {
             this.setCustomName(Component.literal(name));
-            this.setCustomNameVisible(true);
+            if (!isHiddenDefeat()) {
+                this.setCustomNameVisible(true);
+            }
         });
 
         state.getStats(mod.getRegistry()).ifPresent(stats -> {
@@ -555,8 +559,11 @@ public class StoryNpcEntity extends PathfinderMob {
             if (display != null) {
                 // Display flags are authoritative entity state: glowing outline
                 // and hidden visibility come from the projection contract.
-                this.setGlowingTag(display.isOverlayGlowing());
+                // Neither may resurface a hidden-defeat statue mid-countdown —
+                // glowing renders on invisible entities, so both fields are
+                // skipped while hidden (the statue asserts its own posture).
                 if (!isHiddenDefeat()) {
+                    this.setGlowingTag(display.isOverlayGlowing());
                     this.setInvisible(display.getVisibility() == 1);
                 }
             }
@@ -832,7 +839,13 @@ public class StoryNpcEntity extends PathfinderMob {
         this.stopRiding();
         this.ejectPassengers();
         this.setInvisible(true);
+        // Glowing outline renders on invisible entities — suppress it while
+        // hidden and restore the authored flag on reappearance.
+        this.setGlowingTag(false);
+        // Custom nameplates render on invisible entities too.
+        this.setCustomNameVisible(false);
         this.wasInvulnerableBeforeHide = this.isInvulnerable();
+        this.wasNoPhysicsBeforeHide = this.noPhysics;
         this.setInvulnerable(true);
         this.noPhysics = true;
         if (bossBar != null) {
@@ -888,8 +901,24 @@ public class StoryNpcEntity extends PathfinderMob {
                 .map(d -> d.getDisplay() != null && d.getDisplay().getVisibility() == 1)
                 .orElse(false);
         this.setInvisible(authoredInvisible);
+        this.setGlowingTag(getDefinition()
+                .map(d -> d.getDisplay() != null && d.getDisplay().isOverlayGlowing())
+                .orElse(false));
         this.setInvulnerable(wasInvulnerableBeforeHide);
-        this.noPhysics = false;
+        this.noPhysics = wasNoPhysicsBeforeHide;
+        // Re-apply the authored nameplate the same way applyDefinition does.
+        var modForName = StoryNpcsAccess.mod(this);
+        if (modForName != null) {
+            state.getDisplayName(modForName.getRegistry()).ifPresent(name -> {
+                this.setCustomName(net.minecraft.network.chat.Component.literal(name));
+                this.setCustomNameVisible(true);
+            });
+        }
+        // Nothing seeded during the frozen window may survive reappearance —
+        // event-bus threat writes (witness scans, shout alerts) are suppressed
+        // while hidden, and this clears any path that slipped through.
+        this.threatManager.clearAll();
+        this.setTarget(null);
         getDefinition().map(d -> d.getAi())
                 .ifPresent(ai -> applyAnimationStance(ai.getAnimationStance()));
         var mod = StoryNpcsAccess.mod(this);
@@ -916,9 +945,9 @@ public class StoryNpcEntity extends PathfinderMob {
      * dimension.
      */
     @Override
-    public boolean canChangeDimensions(net.minecraft.world.level.Level newLevel,
-                                       net.minecraft.world.level.Level oldLevel) {
-        return hiddenDefeatTicksLeft == 0 && super.canChangeDimensions(newLevel, oldLevel);
+    public boolean canChangeDimensions(net.minecraft.world.level.Level oldLevel,
+                                       net.minecraft.world.level.Level newLevel) {
+        return hiddenDefeatTicksLeft == 0 && super.canChangeDimensions(oldLevel, newLevel);
     }
 
     public FollowerRole getFollowerRole() {
@@ -935,9 +964,10 @@ public class StoryNpcEntity extends PathfinderMob {
             return InteractionResult.PASS;
         }
 
-        // A hidden-defeat statue is not interactable.
+        // A hidden-defeat statue is not interactable — FAIL (not PASS) so the
+        // item-use fallback (name tags, leads) cannot reach it either.
         if (hiddenDefeatTicksLeft != 0) {
-            return InteractionResult.PASS;
+            return InteractionResult.FAIL;
         }
 
         if (this.level().isClientSide) {
@@ -1140,8 +1170,6 @@ public class StoryNpcEntity extends PathfinderMob {
         }
         // VULN-52: OUT_OF_WORLD (void) must NEVER grant invulnerability; otherwise a PASSIVE NPC
         // falling into the void runs the hurt tick forever, causing a CPU-saturating loop.
-        var damageTypes = this.level().registryAccess().registryOrThrow(
-                net.minecraft.core.registries.Registries.DAMAGE_TYPE);
         if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
             return false;
         }
@@ -1361,6 +1389,7 @@ public class StoryNpcEntity extends PathfinderMob {
         if (hiddenDefeatTicksLeft != 0) {
             compound.putInt("HiddenDefeatTicksLeft", hiddenDefeatTicksLeft);
             compound.putBoolean("HiddenDefeatWasInvulnerable", wasInvulnerableBeforeHide);
+            compound.putBoolean("HiddenDefeatWasNoPhysics", wasNoPhysicsBeforeHide);
         }
     }
 
@@ -1416,8 +1445,9 @@ public class StoryNpcEntity extends PathfinderMob {
             }
             if (compound.contains("HiddenDefeatTicksLeft")) {
                 this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
-                this.wasInvulnerableBeforeHide = compound.getBoolean("HiddenDefeatWasInvulnerable");
                 if (this.hiddenDefeatTicksLeft != 0) {
+                    this.wasInvulnerableBeforeHide = compound.getBoolean("HiddenDefeatWasInvulnerable");
+                    this.wasNoPhysicsBeforeHide = compound.getBoolean("HiddenDefeatWasNoPhysics");
                     // Restore the full hidden-defeat posture — the countdown
                     // surviving a world save must restore invisibility too.
                     this.setInvisible(true);

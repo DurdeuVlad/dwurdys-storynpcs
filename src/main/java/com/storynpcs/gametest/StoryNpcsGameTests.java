@@ -91,6 +91,10 @@ public final class StoryNpcsGameTests {
         helper.assertTrue(npc.isHiddenDefeat(),
                 "Lethal damage on a HIDE-mode NPC should enter hidden defeat");
         helper.assertTrue(npc.isInvisible(), "Hidden-defeat statue should be invisible");
+        helper.assertFalse(npc.isCurrentlyGlowing(),
+                "Hidden-defeat statue must suppress its glow outline — it renders through invisibility");
+        helper.assertFalse(npc.isCustomNameVisible(),
+                "Hidden-defeat statue must suppress its nameplate — it renders through invisibility");
         helper.assertFalse(npc.isRemoved(), "Hidden-defeat statue must not be removed");
         helper.assertTrue(npc.getHealth() > 0.0F,
                 "Hidden-defeat statue must never sit at 0 HP (vanilla tickDeath would remove it)");
@@ -110,6 +114,10 @@ public final class StoryNpcsGameTests {
                     "NPC should have reappeared once the authored respawn time elapsed");
             helper.assertFalse(npc.isInvisible(),
                     "Reappeared NPC should restore authored visibility (default: visible)");
+            helper.assertTrue(npc.isCurrentlyGlowing(),
+                    "Reappeared NPC should restore authored overlayGlowing (default: true)");
+            helper.assertTrue(npc.isCustomNameVisible(),
+                    "Reappeared NPC should restore its authored nameplate");
             helper.assertTrue(npc.getHealth() == npc.getMaxHealth(),
                     "Reappeared NPC should be at full health, was: " + npc.getHealth());
         });
