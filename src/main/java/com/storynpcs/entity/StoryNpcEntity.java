@@ -546,9 +546,15 @@ public class StoryNpcEntity extends PathfinderMob {
 
         state.getStats(mod.getRegistry()).ifPresent(stats -> {
             var maxHealthAttr = this.getAttribute(Attributes.MAX_HEALTH);
+            // A resolved-corpse husk reloading mid-window must stay at 0 HP —
+            // restoring health here would resurrect it carrying
+            // deathDropsResolved, silently eating the next real death's
+            // authored drops and events.
             if (maxHealthAttr != null && stats.getMaxHealth() > 0) {
                 maxHealthAttr.setBaseValue(stats.getMaxHealth());
-                this.setHealth((float) stats.getMaxHealth());
+                if (!deathDropsResolved) {
+                    this.setHealth((float) stats.getMaxHealth());
+                }
             }
             var speedAttr = this.getAttribute(Attributes.MOVEMENT_SPEED);
             if (speedAttr != null && stats.getMovementSpeed() > 0) {
@@ -945,26 +951,38 @@ public class StoryNpcEntity extends PathfinderMob {
         for (var rolled : roll.drops()) {
             var stack = resolveDropStack(rolled.item());
             if (stack == null) continue;
-            dropped.add(rolled.item());
             if (autoPickup && killer instanceof Player player) {
-                // Faithful port: absorb into the killer's inventory first;
-                // only the refused remainder becomes a world drop. take()
-                // records the absorbed quantity — never the leftover.
+                // Faithful port of the target's AUTO_PICKUP branch: the item
+                // entity exists in the world with a short pickup delay, the
+                // killer's inventory absorbs what it can (mutating the entity's
+                // stack to the remainder), take() credits that entity so the
+                // pickup packet/statistics fire, and a fully-absorbed entity
+                // discards — leftovers stay in the world.
+                var entity = new net.minecraft.world.entity.item.ItemEntity(
+                        level, this.getX(), this.getY() - 0.3F + this.getEyeHeight(),
+                        this.getZ(), stack);
+                entity.setPickUpDelay(2);
+                level.addFreshEntity(entity);
                 int before = stack.getCount();
                 player.getInventory().add(stack);
                 int absorbed = before - stack.getCount();
                 if (absorbed > 0) {
-                    player.take(this, absorbed);
+                    player.take(entity, absorbed);
                     level.playSound(null, player.getX(), player.getY(), player.getZ(),
                             net.minecraft.sounds.SoundEvents.ITEM_PICKUP,
                             net.minecraft.sounds.SoundSource.PLAYERS, 0.2F,
                             ((this.getRandom().nextFloat() - this.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
                 }
                 if (stack.isEmpty()) {
-                    continue;
+                    entity.remove(net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
                 }
+                dropped.add(com.storynpcs.domain.npc.NpcItemStack.of(
+                        rolled.item().itemId(), before, rolled.item().components()));
+                continue;
             }
             spawnWorldDrop(stack);
+            dropped.add(com.storynpcs.domain.npc.NpcItemStack.of(
+                    rolled.item().itemId(), stack.getCount(), rolled.item().components()));
         }
         int exp = roll.experience();
         while (exp > 0) {
