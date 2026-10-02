@@ -379,9 +379,10 @@ public final class StoryNpcsGameTests {
         helper.succeedWhen(() -> {
             // Playerless worlds evaluate every NPC DORMANT (nearest-player
             // distance saturates the range) — a periodic eval landing before
-            // the first scan would disable sensing permanently. The test
-            // ticker runs after ServerTickEvent.Post each tick, so re-pinning
-            // ACTIVE here holds through the following entity ticks.
+            // the first scan would disable sensing permanently. Re-pinning
+            // ACTIVE every tick bounds the dormant window to a single
+            // entity-tick phase per eval cycle regardless of where the test
+            // ticker sits relative to ServerTickEvent.Post.
             var scheduler = capturedMod.getSimulationScheduler();
             var inputs = new java.util.ArrayList<com.storynpcs.sim.SimulationScheduler.ActorInput>();
             attackers.forEach(a -> inputs.add(

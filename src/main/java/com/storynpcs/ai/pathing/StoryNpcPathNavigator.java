@@ -82,6 +82,9 @@ public class StoryNpcPathNavigator extends GroundPathNavigation {
         var scheduler = com.storynpcs.StoryNpcsAccess.mod(npc).getPathScheduler();
         var requestId = java.util.UUID.randomUUID();
         var pending = new PendingPath(requestId, x, y, z, speed);
+        // A newer moveTo supersedes: drop the actor's still-queued requests so
+        // repath bursts cannot accumulate zombies toward QUEUE_FULL.
+        scheduler.cancelActor(npc.getUUID());
         // Combat actors jump ambient traffic — deterministic priority order.
         int priority = npc.getThreatManager().getCurrentTarget().isPresent() ? 10 : 0;
         // Deterministic pseudo-key for the level so PathTarget stays honest;
@@ -96,6 +99,9 @@ public class StoryNpcPathNavigator extends GroundPathNavigation {
                         net.minecraft.util.Mth.floor(z), levelKey),
                 priority, ++this.navRevision, this.level.getGameTime()));
         if (outcome == com.storynpcs.sim.PathScheduler.SubmitOutcome.QUEUE_FULL) {
+            // The superseded request was already purged by cancelActor — its
+            // pending marker would otherwise pin isDone() false forever.
+            this.pendingPath = null;
             return false; // explicit degrade — the bound is real
         }
         this.pendingPath = pending;
