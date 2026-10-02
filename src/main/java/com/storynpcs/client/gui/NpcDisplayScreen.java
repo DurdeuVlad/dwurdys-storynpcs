@@ -46,6 +46,9 @@ public class NpcDisplayScreen extends Screen {
 
     public NpcDisplayScreenModel getModel() { return model; }
 
+    @Override
+    public boolean isPauseScreen() { return true; }
+
     public void onSaveResult(UUID requestId, boolean success, String message, long revision) {
         if (!saveRequestId.matchesCurrent(requestId)) return;
         model.setStatus(message, !success);
@@ -84,7 +87,7 @@ public class NpcDisplayScreen extends Screen {
         addRenderableWidget(cycleButton(colM, y, "Visibility",
                 NpcDisplayScreenModel.VISIBILITIES[model.getVisibilityIdx()],
                 b -> model.cycleVisibility(1)));
-        y += ROW_H; field(colM, y, "Model Type", model.getModelType(), model::setModelType, 64);
+        y += ROW_H; field(colM, y, "Model Type", model.getModelType(), model::setModelType, 256);
         y += ROW_H; field(colM, y, "Model ID", model.getModelId(), model::setModelId, 256);
         y += ROW_H; field(colM, y, "Model Size (1-30)", model.getModelSize(), model::setModelSize, 8);
         y += ROW_H; field(colM, y, "Scale X", model.getScaleX(), model::setScaleX, 10);
