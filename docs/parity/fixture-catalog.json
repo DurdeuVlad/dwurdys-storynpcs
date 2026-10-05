@@ -578,6 +578,65 @@
     "fault": "rename-failure"
    },
    "expected_result": "migration, atomic commit, rollback, and restart recovery are observable"
+  },
+  {
+   "fixture_id": "P8-2.nbt-book",
+   "issue_ids": [
+    "P8-2"
+   ],
+   "target_symbol": "noppes.npcs.items.ItemNbtBook",
+   "domain": "creator-world-tools",
+   "operation_family": "CONFIG-WORLD-TOOLS",
+   "required_layers": [
+    "server",
+    "client",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "tool": "nbt_book",
+    "target": "fixture_entity"
+   },
+   "expected_result": "read view for holders; edits are permission-gated, session-bound, and allowlisted"
+  },
+  {
+   "fixture_id": "P8-2.chair-mount",
+   "issue_ids": [
+    "P8-2"
+   ],
+   "target_symbol": "noppes.npcs.entity.EntityChairMount",
+   "domain": "creator-world-tools",
+   "operation_family": "CONFIG-WORLD-TOOLS",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "tool": "mounter",
+    "seat": "clicked_block"
+   },
+   "expected_result": "transient seat entity holds a passenger and self-discards when empty/unloaded"
+  },
+  {
+   "fixture_id": "P8-2.fake-living",
+   "issue_ids": [
+    "P8-2"
+   ],
+   "target_symbol": "noppes.npcs.entity.EntityFakeLiving",
+   "domain": "creator-world-tools",
+   "operation_family": "CONFIG-WORLD-TOOLS",
+   "required_layers": [
+    "server",
+    "client",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "command": "npc fake",
+    "entity_type": "minecraft:zombie"
+   },
+   "expected_result": "owner-bound display puppet persists across reload and discards when the owner session ends"
   }
  ],
  "storynpcs_test_map": {
@@ -759,6 +818,16 @@
    "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
    "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
    "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()"
+  ],
+  "P8-2.nbt-book": [
+   "com.storynpcs.domain.support.NbtBookServiceTest#planEditRejectsNonAllowlistedPathsAndBadValues()",
+   "com.storynpcs.domain.support.NbtBookServiceTest#buildViewFlattensNestedTagsToDottedPaths()"
+  ],
+  "P8-2.chair-mount": [
+   "com.storynpcs.domain.support.SupportEntityRulesTest#chairDiscardsOnlyAfterSpawnGraceWithNoPassenger()"
+  ],
+  "P8-2.fake-living": [
+   "com.storynpcs.domain.support.SupportEntityRulesTest#fakeLivingDiscardsWhenOwnerBoundAndOwnerAbsent()"
   ]
  },
  "storynpcs_test_blockers": {},
@@ -862,6 +931,18 @@
   "P0-4.scripting": {
    "observed_scope": "P9-1/P9-2 tests cover the nine-hook matrix, instruction/memory/depth/canonical-op quotas, and aggregate per-tick scheduler budget with quarantine.",
    "uncovered_scope": "No JS/engine runtime inside hooks, live script-triggered world effects, or target-runtime script fixture."
+  },
+  "P8-2.nbt-book": {
+   "observed_scope": "NbtBookServiceTest verifies flattening, the five-key edit allowlist, coercion and rejection, and the payload codec round-trip.",
+   "uncovered_scope": "No live Minecraft NBT inspection or GUI edit fixture against a spawned entity."
+  },
+  "P8-2.chair-mount": {
+   "observed_scope": "SupportEntityRulesTest verifies spawn grace and discard-on-empty lifecycle decisions.",
+   "uncovered_scope": "No live mount/sit fixture against a spawned chair entity."
+  },
+  "P8-2.fake-living": {
+   "observed_scope": "SupportEntityRulesTest verifies owner-bound discard and ownerless persistence decisions.",
+   "uncovered_scope": "No live spawn/reload fixture for the display puppet or its renderer."
   }
  }
 }

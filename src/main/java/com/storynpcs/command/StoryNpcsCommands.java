@@ -187,6 +187,11 @@ public final class StoryNpcsCommands {
                                         .executes(ctx -> spawnNpc(ctx, null))
                                         .then(Commands.argument("pos", Vec3Argument.vec3())
                                                 .executes(ctx -> spawnNpc(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
+                        .then(Commands.literal("fake")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("entity_type", ResourceLocationArgument.id())
+                                        .suggests(net.minecraft.commands.synchronization.SuggestionProviders.SUMMONABLE_ENTITIES)
+                                        .executes(StoryNpcsCommands::spawnFakeLiving)))
                         .then(Commands.literal("despawn")
                                 .requires(source -> source.hasPermission(2))
                                 .executes(ctx -> despawnNpc(ctx, null, 128.0))
@@ -1237,6 +1242,46 @@ public final class StoryNpcsCommands {
         final Vec3 finalPos = spawnPos;
         source.sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Spawned '%s' at (%.1f, %.1f, %.1f)",
                 id, finalPos.x, finalPos.y, finalPos.z)), true);
+        return 1;
+    }
+
+    /**
+     * Spawns an owner-bound fake-living display puppet (#148). The puppet
+     * renders as the chosen entity type, is bound to the executing player's
+     * session, and self-discards once that owner is gone.
+     */
+    private static int spawnFakeLiving(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal(
+                    "[StoryNPCs] A fake-living puppet must be spawned by a player (owner binding)."));
+            return 0;
+        }
+        ResourceLocation typeId = ResourceLocationArgument.getId(ctx, "entity_type");
+        var typeOpt = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getOptional(typeId);
+        if (typeOpt.isEmpty()) {
+            source.sendFailure(Component.literal("[StoryNPCs] Unknown entity type: " + typeId));
+            return 0;
+        }
+        ServerLevel level = source.getLevel();
+        // A "fake living" must render as a living entity — probe the type so
+        // markers/players/other non-living types can't leave invisible,
+        // invulnerable, persistent ghosts behind.
+        var probe = typeOpt.get().create(level);
+        if (!(probe instanceof net.minecraft.world.entity.LivingEntity)) {
+            source.sendFailure(Component.literal(
+                    "[StoryNPCs] " + typeId + " is not a living entity type."));
+            return 0;
+        }
+        var fake = new com.storynpcs.entity.FakeLivingEntity(
+                com.storynpcs.entity.StoryNpcRegistry.NPC_FAKE_LIVING.get(), level);
+        fake.setPos(player.getX() + 1.0, player.getY(), player.getZ() + 1.0);
+        fake.setOwnerUuid(player.getUUID());
+        fake.setDisplayEntityType(typeOpt.get());
+        level.addFreshEntity(fake);
+        source.sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Spawned fake living displaying '%s' (owner-bound; despawns when you leave).",
+                typeId)), true);
         return 1;
     }
 

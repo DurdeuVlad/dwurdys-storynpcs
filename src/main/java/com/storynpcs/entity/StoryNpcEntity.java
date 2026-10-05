@@ -1264,6 +1264,14 @@ public class StoryNpcEntity extends PathfinderMob {
             return InteractionResult.PASS;
         }
 
+        // Creator tools inspect rather than interact — PASS so the fall-through
+        // to Item#interactLivingEntity reaches NbtBookItem (#148). Without
+        // this, every SUCCESS path below would consume the interact first and
+        // the book could never open on a StoryNPC.
+        if (player.getItemInHand(hand).getItem() instanceof com.storynpcs.item.NbtBookItem) {
+            return InteractionResult.PASS;
+        }
+
         if (this.level().isClientSide) {
             return InteractionResult.SUCCESS;
         }

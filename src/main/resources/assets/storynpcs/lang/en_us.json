@@ -13,5 +13,10 @@
   "item.storynpcs.npc_mounter.tooltip.1": "Right-click an entity, then right-click another to mount them",
   "item.storynpcs.npc_mounter.tooltip.2": "Sneak + right-click: dismount",
   "item.storynpcs.npc_dialogue_wand": "NPC Dialogue Wand",
-  "item.storynpcs.npc_dialogue_wand.tooltip.1": "Right-click an NPC: open its dialogue editor (creates one if needed)"
+  "item.storynpcs.npc_dialogue_wand.tooltip.1": "Right-click an NPC: open its dialogue editor (creates one if needed)",
+  "item.storynpcs.nbt_book": "NBT Book",
+  "item.storynpcs.nbt_book.tooltip.1": "Right-click an entity: view its NBT",
+  "item.storynpcs.nbt_book.tooltip.2": "Ops can edit allowlisted fields · everything else is read-only",
+  "entity.storynpcs.npc_chair_mount": "Seat",
+  "entity.storynpcs.npc_fake_living": "Fake Living"
 }
