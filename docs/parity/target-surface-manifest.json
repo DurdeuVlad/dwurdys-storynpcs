@@ -102,10 +102,13 @@
       "quests": [
         "P0-4.quest-completion",
         "P0-4.quest-definition",
-        "P0-4.quest-progression"
+        "P0-4.quest-progression",
+        "P5-4.player-quest-log",
+        "P5-5.player-mail"
       ],
       "factions": [
-        "P0-4.faction"
+        "P0-4.faction",
+        "P6-1.player-faction-panel"
       ],
       "roles": [
         "P0-4.roles"
@@ -114,7 +117,8 @@
         "P0-4.jobs"
       ],
       "transport": [
-        "P0-4.transport"
+        "P0-4.transport",
+        "P6-3.player-transport-panel"
       ],
       "banks": [
         "P0-4.bank"
@@ -146,7 +150,8 @@
         "P0-4.commands"
       ],
       "networking": [
-        "P0-4.networking"
+        "P0-4.networking",
+        "P1-3.player-panel-protocol"
       ],
       "persistence": [
         "P0-4.persistence"
@@ -171,11 +176,13 @@
       ],
       "DIALOG-PLAYER-CHOICE": [
         "P0-4.dialogue-choice",
-        "P0-4.networking"
+        "P0-4.networking",
+        "P1-3.player-panel-protocol"
       ],
       "FACTION-PROGRESSION": [
         "P0-4.faction",
-        "P0-4.targeting"
+        "P0-4.targeting",
+        "P6-1.player-faction-panel"
       ],
       "QUEST-DEFINITION": [
         "P0-4.quest-definition"
@@ -183,7 +190,9 @@
       "QUEST-COMPLETION": [
         "P0-4.persistence",
         "P0-4.quest-completion",
-        "P0-4.quest-progression"
+        "P0-4.quest-progression",
+        "P5-4.player-quest-log",
+        "P5-5.player-mail"
       ],
       "ROLE-JOB": [
         "P0-4.companion",
@@ -200,7 +209,8 @@
         "P0-4.bank"
       ],
       "TRANSPORT": [
-        "P0-4.transport"
+        "P0-4.transport",
+        "P6-3.player-transport-panel"
       ],
       "SPAWN-CLONE": [
         "P0-4.spawner"
@@ -43241,7 +43251,8 @@
         "source": "noppes/npcs/packets/client/PacketAchievement.java",
         "source_sha256": "d04db1a5833b5b037a704ac04c4571fc4ee560145e5e73b667a8ee7a90e6a66c",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43262,7 +43273,8 @@
         "source": "noppes/npcs/packets/client/PacketChat.java",
         "source_sha256": "d4326bf2b10a2abd2bb5b3ce6f0511c91c199218ebcf68ee0411cb0de09e37e3",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43283,7 +43295,8 @@
         "source": "noppes/npcs/packets/client/PacketChatBubble.java",
         "source_sha256": "bdf88a78ef659752aab0e03ce216609849aa7d936e84eac7c7879444054f3b41",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43304,7 +43317,8 @@
         "source": "noppes/npcs/packets/client/PacketConfigFont.java",
         "source_sha256": "7a04a5352763529bee44ace4e6f887728b2c7d0de42e518792d6169370d37067",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43325,7 +43339,8 @@
         "source": "noppes/npcs/packets/client/PacketDialog.java",
         "source_sha256": "dac39040b0ee7746fec267f56fb28ccd06ffcb3f6ded255ceea2bf025f385d1e",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43346,7 +43361,8 @@
         "source": "noppes/npcs/packets/client/PacketDialogDummy.java",
         "source_sha256": "37b92cd63c1d94b5eb750c2ede658fffcfb457c785cdad8805e39bb284089b81",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43367,7 +43383,8 @@
         "source": "noppes/npcs/packets/client/PacketEyeBlink.java",
         "source_sha256": "cc47faadc3175a5692c3bde2312e99219c6c7104586f01855f9e9b99f0b42a38",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43388,7 +43405,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiCloneOpen.java",
         "source_sha256": "59fa59776469ed120fe4427b04975745a293bb426f6c1705df5c865a9894db24",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43409,7 +43427,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiClose.java",
         "source_sha256": "c30a2460e1deb42a2971f6c89c56fe5f45a8171218020ce4bc48350bf5ff6d8b",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43430,7 +43449,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiComponentUpdate.java",
         "source_sha256": "27a29b454f93ea5a5dac82d8e7e53d8cbaedbb2b0dae7e3fcaa6533abdd276cc",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43451,7 +43471,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiData.java",
         "source_sha256": "06897074f6ddb5c488b29c9195f1904245590ddb29840c6bb147b3cb8cfdb576",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43472,7 +43493,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiError.java",
         "source_sha256": "588f2fc3419b532862b158ff4a7b1485f3e3fbf3e932a7a1a5ce09540e2dcfc3",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43493,7 +43515,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiOpen.java",
         "source_sha256": "afeb571d05fae26e6f529a48b76c1f44a36d42e1e45367d8a0d3e0d7eef89de7",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43514,7 +43537,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiParts.java",
         "source_sha256": "477c075acbf6ef9160b0cd5354d57c5bca88dfa9f574932245dedb5e0f4bccf3",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43535,7 +43559,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiScrollData.java",
         "source_sha256": "18bb4eacb8e9030d1ab3d791d2e46b963c073c9325cdff8a6f276f8d63f29e1b",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43556,7 +43581,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiScrollList.java",
         "source_sha256": "90ebec88d54deca44cfaadc3d57b1d737ac052005bebacf6aaa899a21a518077",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43577,7 +43603,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiScrollSelected.java",
         "source_sha256": "c9ccf75b09cb30e3e547264cffbd214d0d93a89274b201c97efb755bb6f87923",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43598,7 +43625,8 @@
         "source": "noppes/npcs/packets/client/PacketGuiUpdate.java",
         "source_sha256": "d9a03cfb689445da6a865937672a3a8bf93d2d0c14b7e7921be5e6958eb6b336",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43619,7 +43647,8 @@
         "source": "noppes/npcs/packets/client/PacketHideAllOverlays.java",
         "source_sha256": "a478e03747a04282044d41e8deca8784276e8e847ba3bc28bb2b2a2fc20d0bea",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43640,7 +43669,8 @@
         "source": "noppes/npcs/packets/client/PacketItemUpdate.java",
         "source_sha256": "4308720215469b39149520a81c1c81f13d8e80342f85fcd5325eb3a39f50a64d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43661,7 +43691,8 @@
         "source": "noppes/npcs/packets/client/PacketMarkData.java",
         "source_sha256": "035855feda82b31557e88be42e97ff212f050d1b7085ce98e02dc4df760aa6ff",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43682,7 +43713,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcDelete.java",
         "source_sha256": "d3dcb266f9fa78944c2c34a7484aad59df8393c85dc4a6ce31693c384b65ef7a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43703,7 +43735,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcEdit.java",
         "source_sha256": "1861aada57007db130e02eaf3800b2139cca31ac9ba90efbd594475af972d69d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43724,7 +43757,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcRole.java",
         "source_sha256": "3cc20b971c50f32b85f357070d9ffff633b5ce0cc79e735dae7841895d010a0a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43745,7 +43779,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcRotationUpdate.java",
         "source_sha256": "f5dd53acf8c703ce478f75c95d0c20b3ae768a78359596ef2af3c455a31f2a38",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43766,7 +43801,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcUpdate.java",
         "source_sha256": "36d5b6786723835708f8dfd1e4b65482eab27e7b040742329589842d075a9f10",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43787,7 +43823,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcVisibleFalse.java",
         "source_sha256": "0ddc5f1a06f110dae00b777ba9c1dd5631050f3ee1db75648f5384da734ef623",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43808,7 +43845,8 @@
         "source": "noppes/npcs/packets/client/PacketNpcVisibleTrue.java",
         "source_sha256": "429efdec4aca6a608512fab0377ae47b7e9909daddc8c95b9ba85b7a06c5f368",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43829,7 +43867,8 @@
         "source": "noppes/npcs/packets/client/PacketOverlayHide.java",
         "source_sha256": "cc28361a5fcba8e3dbd4714bc9db0829584eb0ccc3c675902dc0cfac916f0439",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43850,7 +43889,8 @@
         "source": "noppes/npcs/packets/client/PacketOverlayShow.java",
         "source_sha256": "59194ae3886925e98295262144f5d9e210a29adb20b7e6444ce49a605658eff6",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43871,7 +43911,8 @@
         "source": "noppes/npcs/packets/client/PacketParticle.java",
         "source_sha256": "445d5fdb48386ab0f2c562dcb25b109826209dd69831baefcf1b9f2717e8aabc",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43892,7 +43933,8 @@
         "source": "noppes/npcs/packets/client/PacketPlayMusic.java",
         "source_sha256": "1d28f828910234250f9d9eefc60cdfb0c1d65ca94ec15ffb09d90500951be6b0",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43913,7 +43955,8 @@
         "source": "noppes/npcs/packets/client/PacketPlaySound.java",
         "source_sha256": "bbc8696c582c02c08620b92bf8cd2629651c5d236c9b9d5ac7a375a1452965ea",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43934,7 +43977,8 @@
         "source": "noppes/npcs/packets/client/PacketQuestCompletion.java",
         "source_sha256": "0964a36cda0fc45bb306db590d7f06955a3805e5ff558f85992f362b7cc7ed3b",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43955,7 +43999,8 @@
         "source": "noppes/npcs/packets/client/PacketSoundGUIOpen.java",
         "source_sha256": "9bd7539395a024274bf2c3e3866e4df5fa4c46462edb3419c545c92ab094c329",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43976,7 +44021,8 @@
         "source": "noppes/npcs/packets/client/PacketSync.java",
         "source_sha256": "c2a360e3e488c2b19bd5e5890284a485b1dfcb2535ccc30cad1e26f4102e5674",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -43997,7 +44043,8 @@
         "source": "noppes/npcs/packets/client/PacketSyncRemove.java",
         "source_sha256": "f08d58152ff7b3c64ccff79e59c90a0c84c4c4992ac79ba3e9af39a0f6c1f67c",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44018,7 +44065,8 @@
         "source": "noppes/npcs/packets/client/PacketSyncSkin.java",
         "source_sha256": "e5d210c959f01d430c1c409d1d9bda6ce9b34717a0060775ecafdfe6d175e2f4",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44039,7 +44087,8 @@
         "source": "noppes/npcs/packets/client/PacketSyncUpdate.java",
         "source_sha256": "89193f8f3733075cb1beb7a817737bd4522eda5196b4b78eb6388f5f1d0ea770",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44060,7 +44109,8 @@
         "source": "noppes/npcs/packets/client/PacketUpdatePhysics.java",
         "source_sha256": "756564dff0de291b4a69b2fe251ad268f6004fd8cdf9c3da6e859a64db33f64a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44081,7 +44131,8 @@
         "source": "noppes/npcs/packets/server/SPacketBankGet.java",
         "source_sha256": "43bb4fadd1955153ecb63788b8d83dcad1faf125e241cafd2d4866b873410ce2",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44102,7 +44153,8 @@
         "source": "noppes/npcs/packets/server/SPacketBankRemove.java",
         "source_sha256": "d9da01ad6d017a3f5b2d925a8b238d0b2595c40a385f6f983f5a7906485bfd52",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44123,7 +44175,8 @@
         "source": "noppes/npcs/packets/server/SPacketBankSave.java",
         "source_sha256": "c1fd9ba961fc6b947e35aeee61a4d2e53ca30be5d9eb5958f89d0479bfa78db8",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44144,7 +44197,8 @@
         "source": "noppes/npcs/packets/server/SPacketBankUnlock.java",
         "source_sha256": "bd921cf7b1652ddffa03c224f2f05572a0fb3a54c981e460f9550b2f511c91f2",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44165,7 +44219,8 @@
         "source": "noppes/npcs/packets/server/SPacketBankUpgrade.java",
         "source_sha256": "74a9c17d17cab7978f0771cca15802a2c09aa3c1c230b3446f8ebcbd0979c856",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44186,7 +44241,8 @@
         "source": "noppes/npcs/packets/server/SPacketBanksGet.java",
         "source_sha256": "cbb7bdfb3b9c5d48d113b6198045124c1cee4223ec26f6c823eeee90b6b5b02e",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44207,7 +44263,8 @@
         "source": "noppes/npcs/packets/server/SPacketBanksSlotOpen.java",
         "source_sha256": "6b10acb9daedd8a5777e60786deb965a8558c85edad1db33fe0ce5c987f21e45",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44228,7 +44285,8 @@
         "source": "noppes/npcs/packets/server/SPacketCloneList.java",
         "source_sha256": "22e6a809c4f8e5dd2d6fac3e4a3ceb4be0778d55c5bdd43bc9a03101735981d5",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44249,7 +44307,8 @@
         "source": "noppes/npcs/packets/server/SPacketCloneNameCheck.java",
         "source_sha256": "fb9a7ae9f12d5f98152c12d80ff055d7e8dc1f53e0adee2eff9dde9ee40912db",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44270,7 +44329,8 @@
         "source": "noppes/npcs/packets/server/SPacketCloneRemove.java",
         "source_sha256": "cf741b99e9f150ca05315737209d7bef5cee61d19cffb6c604bac80a0480741b",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44291,7 +44351,8 @@
         "source": "noppes/npcs/packets/server/SPacketCloneSave.java",
         "source_sha256": "ef3b1150b0a2c1297cf957c049b6d562b47fcc9f90150387b43014c043223056",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44312,7 +44373,8 @@
         "source": "noppes/npcs/packets/server/SPacketCompanionOpenInv.java",
         "source_sha256": "91ab013cc447d83d73c37573fb70ab9709f48314569c6aa73109a432d8f33f3f",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44333,7 +44395,8 @@
         "source": "noppes/npcs/packets/server/SPacketCompanionTalentExp.java",
         "source_sha256": "7e32b2ef9fa8ea2e5233e62d32818181b66c906143b6281409e551ffb51dac88",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44354,7 +44417,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiButton.java",
         "source_sha256": "6c47fe635ab2cdcba91861c20d2bc47738355c888f537986e1af6dc59a631089",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44375,7 +44439,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiButtonList.java",
         "source_sha256": "b48982b13070c096b373f26b1f45916f25346b8abdd306b63a76bfdbabd41728",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44396,7 +44461,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiFocusUpdate.java",
         "source_sha256": "eb9c3b8b1437b146c9359c6f29dec18c1f00a88daee7f2ae2249c9d16cbb7d4c",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44417,7 +44483,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiParts.java",
         "source_sha256": "452565362a58a1a0e8eec6ccbf660d970f700f10e696cf63ed2082b3c8a930dc",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44438,7 +44505,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiScrollClick.java",
         "source_sha256": "79963453a9fab6521327da12abf2710bdcefc4f333cf46300f52c18fa5414ea0",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44459,7 +44527,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiSliderUpdate.java",
         "source_sha256": "70ba39f7a8c9ca2c7a34e5ea4bf474ba2b8e6e733caffad4a4a7377f177f575a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44480,7 +44549,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiSubGuiClosed.java",
         "source_sha256": "baadbc9f13c21d301954c1aaf81d6bfbc2dbd78242eeb76e5c2c0d40ddba0319",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44501,7 +44571,8 @@
         "source": "noppes/npcs/packets/server/SPacketCustomGuiTextUpdate.java",
         "source_sha256": "a0ec82f22a55cdedee49e9dcdfacb038aaf6d4ee0c5f17a8a74b6539d48c7c77",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44522,7 +44593,8 @@
         "source": "noppes/npcs/packets/server/SPacketDialogCategoryRemove.java",
         "source_sha256": "04c565e444dd33802ed9d635dc2a7261adb34d119f2bac3c15816b577152b360",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44543,7 +44615,8 @@
         "source": "noppes/npcs/packets/server/SPacketDialogCategorySave.java",
         "source_sha256": "9c43f038b4cc9826f8c78368837f1a8c62860a199df0e538f14417796362f46d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44564,7 +44637,8 @@
         "source": "noppes/npcs/packets/server/SPacketDialogRemove.java",
         "source_sha256": "6b7286177ecc5c403bae2e4149f211a8618ba7213e9219f479111da4646491c8",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44585,7 +44659,8 @@
         "source": "noppes/npcs/packets/server/SPacketDialogSave.java",
         "source_sha256": "fc47921a3a9de2a8df9ddc10417c4ecd514897b34fc9f1861dc42b522368141f",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44606,7 +44681,8 @@
         "source": "noppes/npcs/packets/server/SPacketDialogSelected.java",
         "source_sha256": "dadb3e3754e4500e5328a10dff5252909a85281288bf0c697ef6c0ef9cc08441",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44627,7 +44703,8 @@
         "source": "noppes/npcs/packets/server/SPacketDimensionTeleport.java",
         "source_sha256": "d6a78b4c5173b9412dbe6ecdadf827e235c02071f0b344531b6dd97ccd293cdb",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44648,7 +44725,8 @@
         "source": "noppes/npcs/packets/server/SPacketDimensionsGet.java",
         "source_sha256": "17cdab9fad3c5c3bd2d558804ac3df4f603b4ec6ad04e2274d79ccd66cdd6c95",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44669,7 +44747,8 @@
         "source": "noppes/npcs/packets/server/SPacketFactionGet.java",
         "source_sha256": "5b0bd89317beed0e5966bd07391a9d5b42f29b93cd62702bbefb2a6d91303a13",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44690,7 +44769,8 @@
         "source": "noppes/npcs/packets/server/SPacketFactionRemove.java",
         "source_sha256": "6d6c065b940f26750192b4b0011b79081284482ba8c4952673345b9156434c73",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44711,7 +44791,8 @@
         "source": "noppes/npcs/packets/server/SPacketFactionSave.java",
         "source_sha256": "d4a85be2d872814539e35b3901bc0382b5e08b3fb11265474ce95906e4606f26",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44732,7 +44813,8 @@
         "source": "noppes/npcs/packets/server/SPacketFactionsGet.java",
         "source_sha256": "9428f7997af8a54e2acab7b037d8082902c4da1079b434698c342c354f42a4ce",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44753,7 +44835,8 @@
         "source": "noppes/npcs/packets/server/SPacketFollowerExtend.java",
         "source_sha256": "bd0428dc0bd7a607411ab63bc4e8ef47dda11c7d20738bbfe91abf23bf124d6d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44774,7 +44857,8 @@
         "source": "noppes/npcs/packets/server/SPacketFollowerHire.java",
         "source_sha256": "802d9c65cb7c90afffc3a2ec0863fa53caec44ca408a7f02f55a98ead91b5042",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44795,7 +44879,8 @@
         "source": "noppes/npcs/packets/server/SPacketFollowerState.java",
         "source_sha256": "5645d3f4daebfc6391c224ee18bceff3b8b981de1d98058ce51efcfe209d18e8",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44816,7 +44901,8 @@
         "source": "noppes/npcs/packets/server/SPacketGuiOpen.java",
         "source_sha256": "6b96fc957d6a93e1f8a4ef08d93ff03f76bb94f719588b72d9d82e90785407db",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44837,7 +44923,8 @@
         "source": "noppes/npcs/packets/server/SPacketLinkedAdd.java",
         "source_sha256": "c23cea011e47448a17b5dcfce00ff6fb29c5029e8f2b268e5ba7692283af73dd",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44858,7 +44945,8 @@
         "source": "noppes/npcs/packets/server/SPacketLinkedGet.java",
         "source_sha256": "7f6df5b1e62a5267c953e530cb22b7e5d704638c0fb90743bf920db3c5c7b6e3",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44879,7 +44967,8 @@
         "source": "noppes/npcs/packets/server/SPacketLinkedRemove.java",
         "source_sha256": "338edc6d2e7303edbb9d68330419893c26dcb22542b0340f06603838d10d622f",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44900,7 +44989,8 @@
         "source": "noppes/npcs/packets/server/SPacketLinkedSet.java",
         "source_sha256": "df7e516600b5bf9d70dbc51de50a329d1e842cab92d43b4f5bfe5d8efe1ee864",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44921,7 +45011,8 @@
         "source": "noppes/npcs/packets/server/SPacketMailSetup.java",
         "source_sha256": "89daa8618695b8b6a87bbe27a78921cf0a0b59175ca0e84c0c199c890d9596a4",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44942,7 +45033,8 @@
         "source": "noppes/npcs/packets/server/SPacketMenuClose.java",
         "source_sha256": "3d7998f7aa9f76f31bbba19f3ef5c54a1e4e7622d122d83a8a5d8945c89736a8",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44963,7 +45055,8 @@
         "source": "noppes/npcs/packets/server/SPacketMenuGet.java",
         "source_sha256": "843a6b6b8e886bf66147e5032d78c50ae4f20c156ec80f5320fa2e53b572f321",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -44984,7 +45077,8 @@
         "source": "noppes/npcs/packets/server/SPacketMenuSave.java",
         "source_sha256": "0a288269f03a47863ebbd8272f6cc9cfb0bb43da60f6dd69e4400e0e45534a04",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45005,7 +45099,8 @@
         "source": "noppes/npcs/packets/server/SPacketNaturalSpawnGet.java",
         "source_sha256": "f319cf3498ea09f4b07dba96c62f0f2ade61977045445987e0b2880fd90b9a27",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45026,7 +45121,8 @@
         "source": "noppes/npcs/packets/server/SPacketNaturalSpawnGetAll.java",
         "source_sha256": "a641c25e3cdc7c3019d852fc34f307bba8d95a3f965d2d9725e322a0b20f5d9a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45047,7 +45143,8 @@
         "source": "noppes/npcs/packets/server/SPacketNaturalSpawnRemove.java",
         "source_sha256": "ed07b3455ef0000cdcbbcdc796ccaa74d312c060e7d83391b7c805edf02757ad",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45068,7 +45165,8 @@
         "source": "noppes/npcs/packets/server/SPacketNaturalSpawnSave.java",
         "source_sha256": "e8a3e0449246fda7178dd2a975e8d8e7d755053acca4256a5f66be0ae2075e0e",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45089,7 +45187,8 @@
         "source": "noppes/npcs/packets/server/SPacketNbtBookBlockSave.java",
         "source_sha256": "871cc69d7dc9e8573e133e019e4d2802dc5b2bbe9694c89633d4c34a004ce6f0",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45110,7 +45209,8 @@
         "source": "noppes/npcs/packets/server/SPacketNbtBookEntitySave.java",
         "source_sha256": "700d5b734845ae730273fce44b280474b7d54fe327d405c822e2352b67fd425a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45131,7 +45231,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpRandomNameSet.java",
         "source_sha256": "e1ef7ce8f02c78193cdb5bd8ac21f949033a2d0c2d451241006e9f316121918a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45152,7 +45253,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcDelete.java",
         "source_sha256": "ccc588beccb416a5468e904c44145136510bc2a0ec76f25f8fc3960e941e39ab",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45173,7 +45275,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcDialogRemove.java",
         "source_sha256": "de8c017e66aa55257832818215ab8833f4b3960ec2844a7924e25f3c54324eb6",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45194,7 +45297,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcDialogSet.java",
         "source_sha256": "93abf40b2e68dfddc875e22370532f2496a6287d7260fd891bd6b4fa640b3c58",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45215,7 +45319,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcDialogsGet.java",
         "source_sha256": "47a9addb1a9838f7d27603a5e093cd89992c5816b9ba69003ef382307ffa16f5",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45236,7 +45341,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcFactionSet.java",
         "source_sha256": "2d631d55293767e57b723c77ee92568e81bd39174f145e97d8ce40516d0d2419",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45257,7 +45363,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcJobGet.java",
         "source_sha256": "acbcb40d86db6ebb1594576e148e5c743de213259f1e13d7946335a02fc2a452",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45278,7 +45385,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcJobSave.java",
         "source_sha256": "f3f4cf4bd481e6300c9df46352fc3cbcb0c03c9ccc0804cc88377b60f42f7692",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45299,7 +45407,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcJobSpawnerSet.java",
         "source_sha256": "1ee04d27907568d53abc85c3cfac36ae841a0d14cc274eebb71ab3defa268231",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45320,7 +45429,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcMarketSet.java",
         "source_sha256": "b579e21f60ba440aacf4db4d7d55a0e8452da3c1454566963f0f38138059fc90",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45341,7 +45451,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcRoleCompanionUpdate.java",
         "source_sha256": "7074ae6084d3ec140229407466db5199cf08a5e2759d7c5829ae991e57ebb066",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45362,7 +45473,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcRoleGet.java",
         "source_sha256": "282d93778cd24bf4d00e69705af02deb1a9629c304a7f4ec1dceadff2145f8aa",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45383,7 +45495,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcRoleSave.java",
         "source_sha256": "8029ebd5f60f659e55bc1a3d752b614410064cb0545ccb7bfc49a882d3c5eb8b",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45404,7 +45517,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcTransform.java",
         "source_sha256": "c49a3be8c23ac421f6fabd85ec7ff25334db954dba6d246ec8c83dc9624d55d8",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45425,7 +45539,8 @@
         "source": "noppes/npcs/packets/server/SPacketNpcTransportGet.java",
         "source_sha256": "03a22675aa1c7497798d601192d4d41e4da913b5ba26de86cf3bcb27070feb4f",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45446,7 +45561,8 @@
         "source": "noppes/npcs/packets/server/SPacketOpenParts.java",
         "source_sha256": "fbb7e8ba65eb43f59a46cca662280ff057520aeac672a6923216f4373d04f6a8",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45467,7 +45583,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerCloseContainer.java",
         "source_sha256": "696b7957ea8630a74af5621882e5bc3e3d0f7ba6927f009aee4ed8baa5fb0d2e",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45488,7 +45605,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerDataGet.java",
         "source_sha256": "e101fe5f1e94a861df48df13274806c4a3d96f6540937fd7791decd7fbf22b89",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45509,7 +45627,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerDataRemove.java",
         "source_sha256": "ce11093206257d9f93803b60a77fa6cfd13925dd42f54f87d0f9b38a9fe4a9b5",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45530,7 +45649,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerKeyPressed.java",
         "source_sha256": "ac4f71ef9d8211bc2425267bcd148e5cb59620c910bff098dc72ed58794f830a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45551,7 +45671,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerLeftClicked.java",
         "source_sha256": "b839a221356858d41b0797f27f35f36a091d3b97c7f4c3bcb573f1971d292646",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45572,7 +45693,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerMailDelete.java",
         "source_sha256": "fe9e7c9606d826c54018abe19d0637f9a23621fe3f3a52d22e048510afc596bd",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45593,7 +45715,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerMailGet.java",
         "source_sha256": "0fcccc424db16a24bb9f23c25ffd84645e1b636e2717f3cbe0082b1ebbe32472",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45614,7 +45737,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerMailOpen.java",
         "source_sha256": "6667b2cf7a2415aa4b905aca64159c60b8abdc798b061ac4b69a607c2b0a8882",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45635,7 +45759,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerMailRead.java",
         "source_sha256": "88ff2b4718224fb91ca2f2d428e980b1287e2bc1558dad5b969f52408e070765",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45656,7 +45781,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerMailSend.java",
         "source_sha256": "42b7d09c8f3109dfc479ebdf9dcc63f49a018518277a92141723566110acdbfe",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45677,7 +45803,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerSoundPlays.java",
         "source_sha256": "7393a3d8a72d88a818c3f795bda0ba1eb1c5d8477f9a53d19af28ecf015d12ca",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45698,7 +45825,8 @@
         "source": "noppes/npcs/packets/server/SPacketPlayerTransport.java",
         "source_sha256": "127efd5e96d2b3ecd7470c4844dc17bd03bc220195dff034103f82f0da426e30",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45719,7 +45847,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestCategoryRemove.java",
         "source_sha256": "cac10e42d183e7efc549ae3b293e3b4dd4c7b931a30283eb3851a851e7bb4fee",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45740,7 +45869,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestCategorySave.java",
         "source_sha256": "4d12989fc57beab3dc84b08465c9553abd52dcb17b5688de1194f104d4fdd9c3",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45761,7 +45891,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestCompletionCheck.java",
         "source_sha256": "2570beed75d3fb562087da9c79190083d5c9a5eac40e79151f2433feb1e6c198",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45782,7 +45913,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestCompletionCheckAll.java",
         "source_sha256": "12c5ffd8be4e713f96c484a0608c5acbbdfe254b5225f477fddca5b2292f0b3e",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45803,7 +45935,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestDialogTitles.java",
         "source_sha256": "fc227b4f1c9ff0f858e2d305cf0fa3ad8e310c163b6fb0923efa975ebf547495",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45824,7 +45957,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestOpen.java",
         "source_sha256": "308e5a54673e51f6241c04ed7e731ecafb62c652caccdf5287f0097ba9806127",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45845,7 +45979,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestRemove.java",
         "source_sha256": "fcbdd3935ce6eb4f02ead3b84b0a756d59ca35166e22e33548d87889cb7f855d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45866,7 +46001,8 @@
         "source": "noppes/npcs/packets/server/SPacketQuestSave.java",
         "source_sha256": "9b7978993ef435546c017a385200e8aefb1584bf281d888bce9df2fd68400f42",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45887,7 +46023,8 @@
         "source": "noppes/npcs/packets/server/SPacketRecipeGet.java",
         "source_sha256": "49fe5a84b823ebbf097f15217d59842362372ad4c0d26e46346b9601708c5ce2",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45908,7 +46045,8 @@
         "source": "noppes/npcs/packets/server/SPacketRecipeRemove.java",
         "source_sha256": "2e42d64760507c84d1c93c50673981f90c91da67e062d72b9c3c8c6fb68a1120",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45929,7 +46067,8 @@
         "source": "noppes/npcs/packets/server/SPacketRecipeSave.java",
         "source_sha256": "701d71f7524543c9c0dc992ee892ef761b42c3c7d88a260209052544c9aa7e8d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45950,7 +46089,8 @@
         "source": "noppes/npcs/packets/server/SPacketRecipesGet.java",
         "source_sha256": "20012f0c0c6760fa96a51dff6cead3d0751c1cc90b39a118f836cf08e19e0c63",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45971,7 +46111,8 @@
         "source": "noppes/npcs/packets/server/SPacketRemoteFreeze.java",
         "source_sha256": "21a1f0f5e3794011da15f276f5705fc7a30497a6f47591264850d1e9be6b30da",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -45992,7 +46133,8 @@
         "source": "noppes/npcs/packets/server/SPacketRemoteMenuOpen.java",
         "source_sha256": "eb214c5a768978e83914af18936aed7fc50d69f9262f1fb87637b4c03c7d391c",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46013,7 +46155,8 @@
         "source": "noppes/npcs/packets/server/SPacketRemoteNpcDelete.java",
         "source_sha256": "a83fbd4df6fc1ee0c9f2bd786bc5fd8fc0fe39212fbc3584ce297b61ac676d46",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46034,7 +46177,8 @@
         "source": "noppes/npcs/packets/server/SPacketRemoteNpcReset.java",
         "source_sha256": "e694c1dbd29870fc0fce446eec99f36e71d55bf26fef964e313f3a9fdc89303d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46055,7 +46199,8 @@
         "source": "noppes/npcs/packets/server/SPacketRemoteNpcTp.java",
         "source_sha256": "5be4dbe84a85f5609976cecf032718a0b7f2e513e3aad4d931bd66c6a110ebcc",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46076,7 +46221,8 @@
         "source": "noppes/npcs/packets/server/SPacketRemoteNpcsGet.java",
         "source_sha256": "f39e45afc3e2b685b5a4b5e6545474d32a4af3ecbcb3b8b45d85fbf87ccd98ba",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46097,7 +46243,8 @@
         "source": "noppes/npcs/packets/server/SPacketSceneReset.java",
         "source_sha256": "1f1c19a53f0800d486fd0ae5a7f1243d721ecf22b5abcea738ba0ef4477f6d82",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46118,7 +46265,8 @@
         "source": "noppes/npcs/packets/server/SPacketSceneStart.java",
         "source_sha256": "b4a72d5cce17dfb46999f464d00af69a8c44dc2c0bc74fc503136425d16f63cc",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46139,7 +46287,8 @@
         "source": "noppes/npcs/packets/server/SPacketSchematicsStore.java",
         "source_sha256": "6830fe813b88ff77b895579879b95c9a13153c65375da36dbda302bfd7f40bcc",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46160,7 +46309,8 @@
         "source": "noppes/npcs/packets/server/SPacketSchematicsTileBuild.java",
         "source_sha256": "10058655d813a38483e1e83d14d9c3367dc401181bdb3eaa39a5500238d5087a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46181,7 +46331,8 @@
         "source": "noppes/npcs/packets/server/SPacketSchematicsTileGet.java",
         "source_sha256": "c8f9024967f4d9ba3cac75e861ff3dc8f000732a850389d8b2c77ef2d3017d2e",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46202,7 +46353,8 @@
         "source": "noppes/npcs/packets/server/SPacketSchematicsTileSave.java",
         "source_sha256": "e5fbc90084c4ab8099188983b05bb8cbd927f1a766aecf8fdab25c73eea88c6c",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46223,7 +46375,8 @@
         "source": "noppes/npcs/packets/server/SPacketSchematicsTileSet.java",
         "source_sha256": "3c89151eb8b2f0ae21f29894fdbf519408a26b1e2e86eb310e2e19e9cba4b1e4",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46244,7 +46397,8 @@
         "source": "noppes/npcs/packets/server/SPacketScriptGet.java",
         "source_sha256": "34fe20a9565207b91b458c8fd93a6e471ea49ad3081044d389b3e40a636c5fff",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46265,7 +46419,8 @@
         "source": "noppes/npcs/packets/server/SPacketScriptSave.java",
         "source_sha256": "6a1082ed488b53f127555aab43f3d371b7ebc88bdcd547369f63459ca6d455c6",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46286,7 +46441,8 @@
         "source": "noppes/npcs/packets/server/SPacketTileEntityGet.java",
         "source_sha256": "78e174ee4744f3e1331d7f9db3d97bdfdbedfbb3080815a3bed6a7797055e050",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46307,7 +46463,8 @@
         "source": "noppes/npcs/packets/server/SPacketTileEntitySave.java",
         "source_sha256": "bd2d51936500299afa21ff52f2acf485ca5f1a1ffe2059b2961377c34e783d33",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46328,7 +46485,8 @@
         "source": "noppes/npcs/packets/server/SPacketToolMobSpawner.java",
         "source_sha256": "764fc2dc150070fd2a9f11b681d4ecc793c6dbbe4481b9329c91974b5f479d2d",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46349,7 +46507,8 @@
         "source": "noppes/npcs/packets/server/SPacketToolMounter.java",
         "source_sha256": "aff5d68f108e63d7aad7f4c53b1314e30b24f4ee0028f36fb433d16c6532eafa",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46370,7 +46529,8 @@
         "source": "noppes/npcs/packets/server/SPacketTransportCategoriesGet.java",
         "source_sha256": "4ab4956fab0c5da1edac3a23bd139082ab249d74e497e5dfd95c500052acd3d3",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46391,7 +46551,8 @@
         "source": "noppes/npcs/packets/server/SPacketTransportCategoryRemove.java",
         "source_sha256": "63924c64a130b1bd5187a1d258e4fc0b12177a5c25e72d82844a2ac14c8d3b4a",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46412,7 +46573,8 @@
         "source": "noppes/npcs/packets/server/SPacketTransportCategorySave.java",
         "source_sha256": "ab25700e2062263890dc7b06c495263ccad8bbddfa1debf8bec68df741a3a714",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46433,7 +46595,8 @@
         "source": "noppes/npcs/packets/server/SPacketTransportGet.java",
         "source_sha256": "8212a6867065845a4010bbb2cd057479ffb72885e080137d08a2feb87713686f",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46454,7 +46617,8 @@
         "source": "noppes/npcs/packets/server/SPacketTransportRemove.java",
         "source_sha256": "8bccdf13ef316686a760718fdba143fc3ffafd502e5c6fb7d795dd521e7ffda4",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -46475,7 +46639,8 @@
         "source": "noppes/npcs/packets/server/SPacketTransportSave.java",
         "source_sha256": "bcef28e57948076a7c5ac5f47ac6311791d0406caa4e4a5b99b7d7bea869a910",
         "parity_fixture_ids": [
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       }
@@ -50035,7 +50200,8 @@
         "provenance": "jar-class",
         "source": "noppes/npcs/roles/RoleTransporter.class",
         "parity_fixture_ids": [
-          "P0-4.transport"
+          "P0-4.transport",
+          "P6-3.player-transport-panel"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       }
@@ -52188,7 +52354,8 @@
         ],
         "parity_fixture_ids": [
           "P0-4.dialogue-choice",
-          "P0-4.networking"
+          "P0-4.networking",
+          "P1-3.player-panel-protocol"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -52213,7 +52380,8 @@
         ],
         "parity_fixture_ids": [
           "P0-4.faction",
-          "P0-4.targeting"
+          "P0-4.targeting",
+          "P6-1.player-faction-panel"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -52329,7 +52497,9 @@
         "parity_fixture_ids": [
           "P0-4.persistence",
           "P0-4.quest-completion",
-          "P0-4.quest-progression"
+          "P0-4.quest-progression",
+          "P5-4.player-quest-log",
+          "P5-5.player-mail"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -52484,7 +52654,8 @@
           "P2-3"
         ],
         "parity_fixture_ids": [
-          "P0-4.transport"
+          "P0-4.transport",
+          "P6-3.player-transport-panel"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       }

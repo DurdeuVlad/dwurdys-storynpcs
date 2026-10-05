@@ -260,7 +260,7 @@
       "feature": "Role: Transporter",
       "status": "partial",
       "issue": "#72 P6-3",
-      "summary": "TransporterRole, transports/*.yaml family, TransportEvaluator, /storynpcs transport, requestTransport; no player UI yet",
+      "summary": "TransporterRole, transports/*.yaml family, TransportEvaluator, /storynpcs transport, requestTransport + player transport-picker panel (#150)",
       "evidence": {
         "files": ["src/main/java/com/storynpcs/domain/role/transporter/TransporterRole.java", "src/main/java/com/storynpcs/domain/transport/TransportEvaluator.java", "src/main/java/com/storynpcs/domain/transport/TransportLocation.java"],
         "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"transport\"\\)"}, {"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "requestTransport"}],
@@ -302,7 +302,7 @@
       "feature": "Role: Postman/mail",
       "status": "partial",
       "issue": "#71 P6-2, #79 P8-3",
-      "summary": "PostmanRole field; MailMessage, QuestMailStore, /storynpcs mail; no mailbox block or write GUI",
+      "summary": "PostmanRole field; MailMessage, QuestMailStore, /storynpcs mail + player mail panel with session-bound send/read actions (#150); no mailbox block or NPC write GUI",
       "evidence": {
         "files": ["src/main/java/com/storynpcs/domain/role/social/PostmanRole.java", "src/main/java/com/storynpcs/domain/quest/QuestMailStore.java", "src/main/java/com/storynpcs/domain/progression/MailMessage.java"],
         "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"mail\"\\)"}, {"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "PostmanRole|postman"}],
@@ -468,15 +468,15 @@
     {
       "id": "quest-log-ui",
       "feature": "Quest log / player UI",
-      "status": "planned",
+      "status": "implemented",
       "issue": "#150",
-      "summary": "None (editor only: QuestEditorScreen)",
+      "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> PlayerQuestLogScreen et al; session-bound commits, server-built JSON views (4 panels; remaining screens tracked separately)",
       "evidence": {
-        "files": [],
-        "wired": [],
+        "files": ["src/main/java/com/storynpcs/service/PlayerPanelViews.java", "src/main/java/com/storynpcs/client/gui/player/PlayerQuestLogScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerMailScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "ClientboundPlayerPanelPayload|sendPlayerPanel"}],
         "registered": [],
-        "tests": [],
-        "absent": ["QuestLog|class\\s+QuestLogScreen|GuiQuestLog"]
+        "tests": ["src/test/java/com/storynpcs/service/PlayerPanelViewsTest.java", "src/test/java/com/storynpcs/network/PlayerPanelPayloadsTest.java"],
+        "absent": ["GuiQuestLog"]
       }
     },
     {

@@ -3057,6 +3057,88 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Player-facing mail send (issue #150): delivers {@code subject}/{@code body}
+     * to {@code recipientUuid}'s mailbox on behalf of the acting player. The
+     * recipient is resolved by the adapter (name → known player UUID); this
+     * method validates content bounds, applies a per-sender quota against the
+     * recipient's mailbox, and appends through the durable mailbox path.
+     * The request id is recorded in the sender's durable action ledger, so a
+     * replayed request survives restarts instead of double-delivering.
+     */
+    public AuthorizedActionResult sendMail(PlayerProgressionActionRequest request,
+                                           UUID recipientUuid, String senderLabel,
+                                           String subject, String body) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(recipientUuid, "recipientUuid");
+        if ((senderLabel != null && senderLabel.length() > MAIL_SENDER_MAX_LENGTH)
+                || (subject != null && subject.length() > MAIL_SUBJECT_MAX_LENGTH)
+                || (body != null && body.length() > MAIL_BODY_MAX_LENGTH)) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "MAIL_CONTENT_TOO_LONG",
+                    "Mail sender, subject, or body exceeds the allowed length."));
+        }
+        String fingerprint = recipientUuid + "|"
+                + (subject == null ? -1 : subject.length()) + ":" + subject + "|"
+                + (body == null ? -1 : body.length()) + ":" + body;
+        return runProgressionAction(request, "mail.send", fingerprint, null,
+                () -> applySendMail(request, recipientUuid, senderLabel,
+                        subject, body, fingerprint));
+    }
+
+    /**
+     * Bounds one player's mail footprint in another player's mailbox — without
+     * it, the self-scoped {@code mail.send} authorization would let a sender
+     * flush a victim's durable mailbox by forcing oldest-first evictions.
+     */
+    private static final int MAIL_SENDER_QUOTA_PER_RECIPIENT = 8;
+
+    private AuthorizedActionResult applySendMail(
+            PlayerProgressionActionRequest request, UUID recipientUuid,
+            String senderLabel, String subject, String body, String fingerprint) {
+        PlayerProgression senderProgression =
+                progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (senderProgression) {
+            String recorded = senderProgression.appliedActionOutcome(request.requestId());
+            if (recorded != null) {
+                String[] parts = recorded.split("\n", 2);
+                if (!parts[0].equals(fingerprint)) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "REQUEST_PAYLOAD_MISMATCH",
+                            "Request ID is already bound to a different progression action"));
+                }
+                boolean applied = parts.length > 1 && Boolean.parseBoolean(parts[1]);
+                return AuthorizedActionResult.replayOf(AuthorizedActionResult.of(applied));
+            }
+        }
+        PlayerProgression recipient = progressionRepository.getOrCreate(recipientUuid);
+        synchronized (recipient) {
+            long fromSender = recipient.getMailbox().stream()
+                    .filter(m -> Objects.equals(senderLabel, m.getSender()))
+                    .count();
+            if (fromSender >= MAIL_SENDER_QUOTA_PER_RECIPIENT) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "MAIL_SENDER_QUOTA_EXCEEDED",
+                        "Recipient mailbox already holds the maximum messages from this sender."));
+            }
+        }
+        deliverMail(recipientUuid, senderLabel, subject, body);
+        // The replay marker lands in the sender's durable ledger — best-effort
+        // after the delivery commit; the in-process replay cache already covers
+        // the same-request path, this survives restart/eviction.
+        synchronized (senderProgression) {
+            try {
+                senderProgression.recordAppliedActionRequest(
+                        request.requestId(), fingerprint, "true");
+                progressionRepository.save(request.playerUuid(), senderProgression);
+            } catch (Exception markerFailure) {
+                // Delivery already committed — report applied rather than lying
+                // about the recipient-visible outcome.
+            }
+        }
+        return AuthorizedActionResult.of(true);
+    }
+
+    /**
      * Authorization-checked mail deletion (issue #54 — P1-4 coverage). Adapters that
      * accept untrusted actor input should route through this overload instead of
      * the package-private {@link #deleteMail(UUID, UUID)}, which remains for
