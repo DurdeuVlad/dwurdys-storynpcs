@@ -1,6 +1,6 @@
 # P2-1 — Versioned YAML definition boundary closeout
 
-Status: `IN-REVIEW`
+Status: `DONE-LOCAL` — the versioning boundary is complete and enforced for every loadable family. Per-family version fixtures for domains that do not exist yet (role, job, companion, tool, world) are inherited by their owning issues (P6/P8): those directories fail closed with `SCHEMA_FAMILY_UNSUPPORTED` — a family cannot load without the version boundary, so no silent unmigrated loading is possible. All acceptance criteria met for the schema surface that exists: version envelopes, migration chain, strict-field diagnostics with locations, forward-version refusal, cross-reference diagnostics naming both sides, `requiredCount` ceiling, versioned bundled starters, Java-free quickstart, and malformed-resource refusal.
 
 ## Delivered locally
 

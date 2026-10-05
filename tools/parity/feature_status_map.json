@@ -1377,7 +1377,7 @@
   {
    "id": "persistence",
    "feature": "Persistence (18 stores)",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#56 P2-2, #57 P2-3",
    "summary": "DurableJsonStore, ProgressionRepository, BankRepository, TradeStateRepository, ActorStateRepository, DurableOperationJournal — selected stores, not the 18-store crash matrix",
    "evidence": {

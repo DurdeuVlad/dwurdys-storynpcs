@@ -1,6 +1,6 @@
 # P2-3 — Operation-specific transaction and recovery fixtures closeout
 
-Status: `IN-REVIEW`
+Status: `DONE-LOCAL` — every value-moving operation has a commit boundary, deterministic outcome, and durable dedup/recovery coverage. Remaining windows all fail closed (`RECOVERY_REQUIRED` surfaced for manual resolution, never guessed). Deferred by inheritance, not dropped: live-MC process-kill/inventory fixtures → #95 GameTest harness; operator recovery UI for `PREPARED` journal records → P9-4 administration; live equipment mutation surface → future equipment issue (currently definition-side only, covered by the P2-1 atomic-YAML write path); target-runtime certification → P11-3 (#93).
 
 ## Delivered locally
 
