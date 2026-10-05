@@ -27,6 +27,11 @@ import com.storynpcs.domain.npc.NpcStats;
  */
 public class NpcProjectileEntity extends AbstractArrow {
 
+    private static final net.minecraft.network.syncher.EntityDataAccessor<ItemStack> AUTHORED_ITEM =
+            net.minecraft.network.syncher.SynchedEntityData.defineId(
+                    NpcProjectileEntity.class,
+                    net.minecraft.network.syncher.EntityDataSerializers.ITEM_STACK);
+
     private double areaDamageRadius;
     private String trailParticleId = "";
     private String impactSoundId = "";
@@ -38,6 +43,21 @@ public class NpcProjectileEntity extends AbstractArrow {
     public NpcProjectileEntity(EntityType<? extends NpcProjectileEntity> type, Level level) {
         super(type, level);
         this.pickup = Pickup.DISALLOWED;
+    }
+
+    @Override
+    protected void defineSynchedData(net.minecraft.network.syncher.SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(AUTHORED_ITEM, ItemStack.EMPTY);
+    }
+
+    /** The authored PROJECTILE equipment item — drives the renderer visual. */
+    public void setAuthoredItem(ItemStack stack) {
+        this.entityData.set(AUTHORED_ITEM, stack == null ? ItemStack.EMPTY : stack.copy());
+    }
+
+    public ItemStack getAuthoredItem() {
+        return this.entityData.get(AUTHORED_ITEM);
     }
 
     /** Applies the authored ranged contract; call before {@link #shoot}. */

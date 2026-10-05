@@ -51,4 +51,20 @@ public class NpcMark {
 
     public boolean isAvailable() { return available; }
     public void setAvailable(boolean available) { this.available = available; }
+
+    /**
+     * Clean-room glyph indicator for the mark's type bucket — the target
+     * renders texture icons; StoryNPCs projects the same marker intent onto a
+     * deterministic text glyph tinted to {@link #color}. Type 0 (None) shows
+     * no glyph.
+     */
+    public String displayGlyph() {
+        return switch (type) {
+            case 0 -> "";
+            case 1 -> "!";
+            case 2 -> "?";
+            case 3 -> "▼";
+            default -> "◆";
+        };
+    }
 }

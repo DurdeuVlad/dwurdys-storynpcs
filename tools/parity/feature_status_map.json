@@ -179,9 +179,9 @@
   {
    "id": "marks",
    "feature": "Marks",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#61 P3-4",
-   "summary": "NpcMark + marks list on NpcDefinition; single-mark semantics only",
+   "summary": "Bounded NpcMark catalog (type/color/text/available) with first-available-glyph nameplate projection and definition-refresh resync",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/npc/NpcMark.java"
@@ -193,7 +193,9 @@
      }
     ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcInventoryTest.java"
+    ],
     "absent": []
    }
   },
@@ -407,9 +409,9 @@
   {
    "id": "inventory-equipment",
    "feature": "Inventory/equipment/drops",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#61 P3-4",
-   "summary": "NpcInventory, NpcItemStack (string-list â†’ typed in progress)",
+   "summary": "NpcItemStack + NpcInventory (7 slots, 21 drops, loot mode, XP range) with DataComponentPatch component application, authored projectile visual, lossless ops",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/npc/NpcInventory.java",
