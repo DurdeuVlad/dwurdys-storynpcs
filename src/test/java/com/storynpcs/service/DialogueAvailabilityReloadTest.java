@@ -38,16 +38,18 @@ class DialogueAvailabilityReloadTest {
 
     private DefinitionRegistry registry;
     private StoryNpcsApplicationService service;
+    private ProgressionRepository progressionRepository;
     private List<StoryNpcsEvent> publishedEvents;
 
     @BeforeEach
     void setUp() {
         registry = new DefinitionRegistry();
+        progressionRepository = new ProgressionRepository(tempDir);
         publishedEvents = new ArrayList<>();
         EventPublisher eventPublisher = new EventPublisher();
         eventPublisher.register(publishedEvents::add);
         service = new StoryNpcsApplicationService(
-                registry, new ProgressionRepository(tempDir), eventPublisher);
+                registry, progressionRepository, eventPublisher);
     }
 
     private static DialogueGraph twoNodeGraph(NamespacedId id) {
@@ -312,5 +314,21 @@ class DialogueAvailabilityReloadTest {
         assertThat(result.getErrors().stream()
                 .filter(e -> e.toString().contains("DIALOGUE_BAD_LOCALIZATION_KEY")).count())
                 .isEqualTo(2);
+    }
+
+    @Test
+    void questStatusConditionDoesNotPersistUnstartedQuestState() {
+        NamespacedId questId = NamespacedId.of("storynpcs:unstarted");
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:gated-quest");
+        DialogueGraph graph = twoNodeGraph(dialogueId);
+        graph.getAvailability().add(new DialogueCondition(
+                DialogueCondition.Type.QUEST_STATUS, questId.toString(), "==", "IN_PROGRESS"));
+        registry.registerDialogue(graph);
+
+        UUID player = UUID.randomUUID();
+        service.startDialogue(player, dialogueId);
+
+        assertThat(progressionRepository.getOrCreate(player).getQuests())
+                .doesNotContainKey(questId);
     }
 }
