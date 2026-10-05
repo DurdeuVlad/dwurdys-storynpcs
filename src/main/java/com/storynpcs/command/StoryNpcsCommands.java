@@ -268,6 +268,7 @@ public final class StoryNpcsCommands {
                                         .suggests(NPC_IDS)
                                         .executes(StoryNpcsCommands::deleteNpc)))
                         .then(npcRuleCommands())
+                        .then(npcAbilityCommands())
                         .then(npcTradeCommands())
                         .then(npcBankCommands()))
                 // Dialogue commands
@@ -718,6 +719,73 @@ public final class StoryNpcsCommands {
                         .then(triggerArg)));
 
         return rule;
+    }
+
+    /**
+     * /storynpcs npc ability — authored combat abilities (#147).
+     *
+     *   npc ability list <npc_id>
+     *   npc ability add <npc_id> <type> [trigger] [cooldown_ticks] [chance]
+     *   npc ability set <npc_id> <index> <param> <value>
+     *   npc ability remove <npc_id> <index>
+     *
+     * Params: range, strength, damage_multiplier, duration_ticks, amplifier,
+     * bonus_damage — each validated per-type by NpcAbility.validate() on the
+     * canonical write path.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> npcAbilityCommands() {
+        var ability = Commands.literal("ability");
+
+        ability.then(Commands.literal("list")
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .executes(StoryNpcsCommands::listNpcAbilities)));
+
+        ability.then(Commands.literal("remove")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .executes(StoryNpcsCommands::removeNpcAbility))));
+
+        var chanceArg = Commands.argument("chance",
+                        com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg(0.0, 1.0))
+                .executes(StoryNpcsCommands::addNpcAbility);
+        var cooldownArg = Commands.argument("cooldown_ticks", IntegerArgumentType.integer(0, 1200))
+                .executes(StoryNpcsCommands::addNpcAbility)
+                .then(chanceArg);
+        var triggerArg = Commands.argument("trigger", StringArgumentType.word())
+                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                        List.of("attack", "damaged", "update"), b))
+                .executes(StoryNpcsCommands::addNpcAbility)
+                .then(cooldownArg);
+        var typeArg = Commands.argument("type", StringArgumentType.word())
+                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                        java.util.Arrays.stream(com.storynpcs.domain.ability.AbilityType.values())
+                                .map(t -> t.name().toLowerCase()).toList(), b))
+                .executes(StoryNpcsCommands::addNpcAbility)
+                .then(triggerArg);
+        ability.then(Commands.literal("add")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(typeArg)));
+
+        var valueArg = Commands.argument("value", com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg())
+                .executes(StoryNpcsCommands::setNpcAbilityParam);
+        var paramArg = Commands.argument("param", StringArgumentType.word())
+                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                        List.of("range", "strength", "damage_multiplier",
+                                "duration_ticks", "amplifier", "bonus_damage"), b))
+                .then(valueArg);
+        ability.then(Commands.literal("set")
+                .requires(s -> s.hasPermission(2))
+                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                        .suggests(NPC_IDS)
+                        .then(Commands.argument("index", IntegerArgumentType.integer(1))
+                                .then(paramArg))));
+
+        return ability;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> npcTradeCommands() {
@@ -2266,6 +2334,201 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(String.format(
                 "[StoryNPCs] Added rule '%s' to '%s': on %s if %s → %s (persisted to YAML).",
                 rule.getId(), id, trigger, describeRuleConditions(rule), describeRuleActions(rule))), true);
+        return 1;
+    }
+
+    // ---- npc ability commands (#147) ----
+
+    private static com.storynpcs.domain.ability.AbilityTrigger defaultTrigger(
+            com.storynpcs.domain.ability.AbilityType type) {
+        return switch (type) {
+            case BLOCK -> com.storynpcs.domain.ability.AbilityTrigger.DAMAGED;
+            case SMASH -> com.storynpcs.domain.ability.AbilityTrigger.ATTACK;
+            default -> com.storynpcs.domain.ability.AbilityTrigger.UPDATE;
+        };
+    }
+
+    private static com.storynpcs.domain.ability.AbilityTrigger parseTrigger(
+            com.storynpcs.domain.ability.AbilityType type, CommandContext<CommandSourceStack> ctx) {
+        String raw;
+        try {
+            raw = StringArgumentType.getString(ctx, "trigger");
+        } catch (IllegalArgumentException notBound) {
+            return defaultTrigger(type);
+        }
+        var trigger = com.storynpcs.domain.ability.AbilityTrigger.valueOf(raw.trim().toUpperCase());
+        if (!type.allows(trigger)) {
+            throw new IllegalArgumentException("'" + type + "' cannot use trigger '" + trigger
+                    + "' — allowed: " + type.allowedTriggers());
+        }
+        return trigger;
+    }
+
+    private static int addNpcAbility(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        if (mod.getRegistry().getNpc(id).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+
+        com.storynpcs.domain.ability.AbilityType type;
+        try {
+            type = com.storynpcs.domain.ability.AbilityType.valueOf(
+                    StringArgumentType.getString(ctx, "type").trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Unknown ability type. Valid: block, pull, push, smash, snare, teleport"));
+            return 0;
+        }
+
+        com.storynpcs.domain.ability.AbilityTrigger trigger;
+        try {
+            trigger = parseTrigger(type, ctx);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
+            return 0;
+        }
+
+        long cooldown;
+        double chance;
+        try {
+            cooldown = IntegerArgumentType.getInteger(ctx, "cooldown_ticks");
+        } catch (IllegalArgumentException notBound) {
+            cooldown = 40;
+        }
+        try {
+            chance = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "chance");
+        } catch (IllegalArgumentException notBound) {
+            chance = 1.0;
+        }
+
+        var ability = new com.storynpcs.domain.ability.NpcAbility(type, trigger);
+        ability.setCooldownTicks(cooldown);
+        ability.setChance(chance);
+
+        var result = mutateNpc(ctx, mod.getApplicationService(), id,
+                updated -> updated.getAbilities().add(ability));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        long finalCooldown = cooldown;
+        double finalChance = chance;
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Added %s ability (on %s, cooldown %dt, chance %.2f) to '%s' (persisted to YAML).",
+                type, trigger, finalCooldown, finalChance, id)), true);
+        return 1;
+    }
+
+    private static int setNpcAbilityParam(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+        int index = IntegerArgumentType.getInteger(ctx, "index") - 1;
+        var abilities = npcOpt.get().getAbilities();
+        if (index < 0 || index >= abilities.size()) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] Ability index out of range — '%s' has %d abilities.",
+                    id, abilities.size())));
+            return 0;
+        }
+        String param = StringArgumentType.getString(ctx, "param").trim().toLowerCase();
+        double value = com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "value");
+
+        java.util.function.Consumer<com.storynpcs.domain.ability.NpcAbility> setter =
+                switch (param) {
+                    case "range" -> a -> a.setRange(value);
+                    case "strength" -> a -> a.setStrength(value);
+                    case "damage_multiplier" -> a -> a.setDamageMultiplier(value);
+                    case "duration_ticks" -> a -> a.setDurationTicks((int) value);
+                    case "amplifier" -> a -> a.setAmplifier((int) value);
+                    case "bonus_damage" -> a -> a.setBonusDamage(value);
+                    case "cooldown_ticks" -> a -> a.setCooldownTicks((long) value);
+                    case "chance" -> a -> a.setChance(value);
+                    default -> null;
+                };
+        if (setter == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Unknown param '" + param + "'. Valid: range, strength, "
+                            + "damage_multiplier, duration_ticks, amplifier, bonus_damage, "
+                            + "cooldown_ticks, chance"));
+            return 0;
+        }
+
+        var result = mutateNpc(ctx, mod.getApplicationService(), id,
+                updated -> setter.accept(updated.getAbilities().get(index)));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Set %s=%s on ability #%d of '%s' (persisted to YAML).",
+                param, value, index + 1, id)), true);
+        return 1;
+    }
+
+    private static int removeNpcAbility(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+        int index = IntegerArgumentType.getInteger(ctx, "index") - 1;
+        var abilities = npcOpt.get().getAbilities();
+        if (index < 0 || index >= abilities.size()) {
+            ctx.getSource().sendFailure(Component.literal(String.format(
+                    "[StoryNPCs] Ability index out of range — '%s' has %d abilities.",
+                    id, abilities.size())));
+            return 0;
+        }
+        var removed = abilities.get(index);
+        var result = mutateNpc(ctx, mod.getApplicationService(), id,
+                updated -> updated.getAbilities().remove(index));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Removed %s ability #%d from '%s' (persisted to YAML).",
+                removed.getType(), index + 1, id)), true);
+        return 1;
+    }
+
+    private static int listNpcAbilities(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId id = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        var npcOpt = mod.getRegistry().getNpc(id);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + id));
+            return 0;
+        }
+        var abilities = npcOpt.get().getAbilities();
+        if (abilities.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] '" + id + "' has no abilities — add one via "
+                            + "/storynpcs npc ability add"), false);
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder("[StoryNPCs] Abilities of '" + id + "':");
+        for (int i = 0; i < abilities.size(); i++) {
+            var a = abilities.get(i);
+            sb.append(String.format("%n  #%d %s on %s (cooldown %dt, chance %.2f)",
+                    i + 1, a.getType(), a.getTrigger(), a.getCooldownTicks(), a.getChance()));
+            if (a.getRange() != null) sb.append(String.format(" range=%.1f", a.getRange()));
+            if (a.getStrength() != null) sb.append(String.format(" strength=%.1f", a.getStrength()));
+            if (a.getDamageMultiplier() != null) sb.append(String.format(" dmgMult=%.2f", a.getDamageMultiplier()));
+            if (a.getDurationTicks() != null) sb.append(String.format(" dur=%dt", a.getDurationTicks()));
+            if (a.getAmplifier() != null) sb.append(String.format(" amp=%d", a.getAmplifier()));
+            if (a.getBonusDamage() != null) sb.append(String.format(" bonus=%.1f", a.getBonusDamage()));
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(sb.toString()), false);
         return 1;
     }
 
