@@ -257,8 +257,20 @@ public class StoryNpcRenderer extends LivingEntityRenderer<StoryNpcEntity, Entit
         } catch (Exception e) {
             return Optional.empty();
         }
+
+        // Marks (P3-4): the first available mark projects a tinted glyph onto
+        // the nameplate — visibility resynchronizes with the definition, and
+        // the glyph still shows when the authored nameplate itself is hidden.
+        var mark = defOpt.get().getMarks().stream()
+                .filter(com.storynpcs.domain.npc.NpcMark::isAvailable)
+                .findFirst().orElse(null);
+        String markGlyph = mark != null ? mark.displayGlyph() : "";
         if (!projection.nameVisible(attacking)) {
-            return Optional.empty();
+            if (markGlyph.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(Component.literal(markGlyph)
+                    .withStyle(s -> s.withColor(mark.getColor() & 0xFFFFFF)));
         }
 
         String name = projection.name() != null ? projection.name() : "StoryNPC";
@@ -266,10 +278,17 @@ public class StoryNpcRenderer extends LivingEntityRenderer<StoryNpcEntity, Entit
         String text = title != null && !title.trim().isEmpty()
                 ? name + " [" + title.trim() + "]" : name;
         int rgb = projection.tint() & 0xFFFFFF;
-        Component component = Component.literal(text);
-        return rgb != 0xFFFFFF
-                ? Optional.of(component.copy().withStyle(s -> s.withColor(rgb)))
-                : Optional.of(component);
+        var component = Component.literal(text);
+        if (rgb != 0xFFFFFF) {
+            component = component.copy().withStyle(s -> s.withColor(rgb));
+        }
+        if (!markGlyph.isEmpty()) {
+            var withMark = Component.literal(markGlyph + " ")
+                    .withStyle(s -> s.withColor(mark.getColor() & 0xFFFFFF));
+            withMark.append(component);
+            return Optional.of(withMark);
+        }
+        return Optional.of(component);
     }
 
     @Override

@@ -847,9 +847,9 @@ public class StoryNpcEntity extends PathfinderMob {
             if (followAttr != null && stats.getAggroRange() > 0) {
                 followAttr.setBaseValue(stats.getAggroRange());
             }
-            if (stats.getXpReward() > 0) {
-                this.xpReward = stats.getXpReward();
-            }
+            // Unconditional: an authored 0 must clear a previously applied
+            // reward, not leave the stale value armed on the live entity.
+            this.xpReward = Math.max(0, stats.getXpReward());
         });
 
         state.resolveDefinition(mod.getRegistry()).ifPresent(def -> {
@@ -976,25 +976,55 @@ public class StoryNpcEntity extends PathfinderMob {
             this.setItemSlot(slot, net.minecraft.world.item.ItemStack.EMPTY);
             return;
         }
-        var itemRl = net.minecraft.resources.ResourceLocation.tryParse(
-                authoredStack.itemId().toString());
-        var item = itemRl != null
-                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElse(null)
+        var stack = resolveAuthoredStack(authoredStack, "equipment " + authored);
+        this.setItemSlot(slot, stack != null ? stack : net.minecraft.world.item.ItemStack.EMPTY);
+    }
+
+    /**
+     * Resolves an authored {@code NpcItemStack} to a live ItemStack: item id,
+     * bounded count, and — when authored — the server-authored
+     * {@code components} payload applied as a {@code DataComponentPatch} (JSON
+     * serialized against the registry context, never client-provided NBT).
+     * Unknown items resolve null; unparseable component payloads are dropped
+     * with a warn-once and the un-enchanted item still applies — a broken
+     * payload must not silently delete the authored item.
+     */
+    public net.minecraft.world.item.ItemStack resolveAuthoredStack(
+            com.storynpcs.domain.npc.NpcItemStack authored, String context) {
+        var rl = net.minecraft.resources.ResourceLocation.tryParse(
+                authored.itemId().toString());
+        var item = rl != null
+                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl).orElse(null)
                 : null;
         if (item == null || item == net.minecraft.world.item.Items.AIR) {
-            if (unresolvableEquipmentItems.add(authored + "=" + authoredStack.itemId())) {
+            if (unresolvableEquipmentItems.add(context + "=" + authored.itemId())) {
                 com.storynpcs.StoryNpcs.LOGGER.warn(
-                        "NPC {} equipment {}: unknown item '{}' — slot cleared",
-                        this.getUUID(), authored, authoredStack.itemId());
+                        "NPC {} {}: unknown item '{}' — skipped",
+                        this.getUUID(), context, authored.itemId());
             }
-            this.setItemSlot(slot, net.minecraft.world.item.ItemStack.EMPTY);
-            return;
+            return null;
         }
-        // components is a server-authored opaque payload — no canonical
-        // DataComponentPatch format is defined yet, so count+item apply and
-        // the payload stays stored-but-unapplied (documented P3-4 residual).
-        this.setItemSlot(slot, new net.minecraft.world.item.ItemStack(item,
-                Math.min(authoredStack.count(), item.getDefaultMaxStackSize())));
+        var stack = new net.minecraft.world.item.ItemStack(item,
+                Math.min(authored.count(), item.getDefaultMaxStackSize()));
+        var components = authored.components();
+        if (components != null && !components.isBlank()) {
+            try {
+                var ops = this.level().registryAccess()
+                        .createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE);
+                var patch = net.minecraft.core.component.DataComponentPatch.CODEC
+                        .decode(ops, com.google.gson.JsonParser.parseString(components))
+                        .getOrThrow()
+                        .getFirst();
+                stack.applyComponents(patch);
+            } catch (RuntimeException e) {
+                if (unresolvableEquipmentItems.add(context + "=" + authored.itemId() + "#components")) {
+                    com.storynpcs.StoryNpcs.LOGGER.warn(
+                            "NPC {} {}: invalid components payload dropped: {}",
+                            this.getUUID(), context, e.getMessage());
+                }
+            }
+        }
+        return stack;
     }
 
     /**
@@ -1312,22 +1342,10 @@ public class StoryNpcEntity extends PathfinderMob {
         }
     }
 
-    /** Resolves an authored stack to a live {@code ItemStack}, or null when the item is unknown. */
+    /** Resolves an authored drop to a live {@code ItemStack}, or null when the item is unknown. */
     private net.minecraft.world.item.ItemStack resolveDropStack(
             com.storynpcs.domain.npc.NpcItemStack authored) {
-        var rl = net.minecraft.resources.ResourceLocation.tryParse(authored.itemId().toString());
-        var item = rl != null
-                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl).orElse(null)
-                : null;
-        if (item == null || item == net.minecraft.world.item.Items.AIR) {
-            if (unresolvableEquipmentItems.add("drop=" + authored.itemId())) {
-                com.storynpcs.StoryNpcs.LOGGER.warn("NPC {} drop '{}' is an unknown item — skipped",
-                        this.getUUID(), authored.itemId());
-            }
-            return null;
-        }
-        return new net.minecraft.world.item.ItemStack(item,
-                Math.min(authored.count(), item.getDefaultMaxStackSize()));
+        return resolveAuthoredStack(authored, "drop");
     }
 
     /** World-drop spawn — VERIFIED_TARGET_SOURCE geometry: eye-level, 40-tick delay, random scatter. */

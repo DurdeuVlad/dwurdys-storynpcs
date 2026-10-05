@@ -19,13 +19,20 @@ Status: `IN-PROGRESS`
 - GameTest: `dieNpcRollsAuthoredDropsIntoTheWorld` (item entity + exact XP total) and `authoredEquipmentProjectsOntoEntitySlots` cover the live entity path.
 - Full suite: `BUILD SUCCESSFUL` — all tests pass.
 
+- Seventh pass — component application, projectile visuals, mark resync, xpReward reset (issue #61):
+  - `resolveAuthoredStack` (shared by equipment projection and drop resolution) now applies the server-authored `components` payload as a `DataComponentPatch` decoded against the registry serialization context — invalid payloads warn-once and drop the patch, not the item. Removes the stored-but-unapplied residual.
+  - `NpcProjectileEntity` carries a synced `AUTHORED_ITEM` ItemStack accessor; `NpcRangedAttackGoal` resolves the authored `PROJECTILE` equipment slot once per volley; `NpcProjectileRenderer` billboards the item sprite when present, arrow model otherwise.
+  - Marks resynchronize visibility: `NpcMark.displayGlyph` maps type buckets to deterministic glyphs (None→"", Exclamation→"!", Question→"?", Pointer→"▼", other→"◆"); `formatNameTag` prepends the first available mark tinted to its color — the glyph still renders when the authored nameplate is hidden. Availability edits propagate on the existing definition refresh, no new channel.
+  - `xpReward` projection is now unconditional — an authored 0 clears a previously applied reward instead of leaving the stale value armed.
+  - `NpcInventoryTest.markDisplayGlyphMapsTypeDeterministically` covers the glyph contract.
+
 ## Explicit limits
 
-- `NpcItemStack.components` is an opaque validated payload; no canonical `DataComponentPatch` serialization format is defined, so the string is stored-but-unapplied at equip/drop time.
-- `PROJECTILE` equipment slot is authored intent only — `NpcProjectileEntity` renders as an arrow (`getDefaultPickupItem` returns EMPTY); wiring the authored item as the projectile visual needs a renderer/model decision.
+- `components` is applied via `DataComponentPatch` decoded from the authored JSON; component values that reference absent registry entries (e.g. an uninstalled enchantment) fail codec decode and drop the patch with a warn — the item itself still applies.
+- `PROJECTILE` equipment slot renders as the authored item sprite; the projectile's impact/pickup behavior is unchanged (`getDefaultPickupItem` stays EMPTY — authored projectiles are never pickable).
 - The target's `Looting` enchant read is dead code in the decompiled `dropStuff` (computed, never consumed) — replicated honestly: enchant does not modify authored chances.
 - AUTO_PICKUP delivery is unit-covered at the roll level; live killer-player absorption is not GameTested (needs a real ServerPlayer).
 - Authored drops/XP run unconditionally on death — the target has no `doMobLoot` gamerule check (its `dropCustomDeathLoot`/`dropFromLootTable` are empty stubs); the divergence from vanilla gamerule expectations is deliberate target parity, documented for admins.
-- Two XP channels coexist by design: `stats.xpReward` (vanilla `dropExperience`) and inventory `minExp`/`maxExp` (authored drop range). Pre-existing quirk: editing `xpReward` down to 0 leaves the stale attribute on live entities (applyDefinition only writes it when > 0).
+- Two XP channels coexist by design: `stats.xpReward` (vanilla `dropExperience`) and inventory `minExp`/`maxExp` (authored drop range).
 - `legacyItemIds`/legacy array migration leaves `minExp`/`maxExp` at 0 — the legacy shape carried no XP range.
-- Mark availability resync to the client, tool-item coverage beyond sessions, and live runtime-parity certification remain open.
+- Mark visibility resyncs through the nameplate glyph (clean-room equivalent of the target's texture icons); tool-item coverage beyond sessions and live runtime-parity certification remain open.

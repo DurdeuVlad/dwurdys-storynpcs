@@ -176,9 +176,21 @@ public class NpcRangedAttackGoal extends Goal {
 
     private void fireVolley(ServerLevel level, LivingEntity living, NpcStats.Ranged ranged) {
         int shotCount = Math.max(1, ranged.getShotCount());
+        // PROJECTILE equipment slot: the authored item is the projectile's
+        // visual (synced); resolved once per volley, an un-authored or
+        // unresolvable slot leaves the arrow model in place.
+        var projectileVisual = npc.getDefinition()
+                .map(def -> def.getInventory())
+                .map(inv -> inv.getEquipment().get(
+                        com.storynpcs.domain.npc.NpcInventory.ItemSlot.PROJECTILE))
+                .map(authored -> npc.resolveAuthoredStack(authored, "projectile"))
+                .orElse(null);
         for (int i = 0; i < shotCount; i++) {
             var projectile = new NpcProjectileEntity(StoryNpcRegistry.NPC_PROJECTILE.get(), level);
             projectile.configure(ranged, npc);
+            if (projectileVisual != null) {
+                projectile.setAuthoredItem(projectileVisual);
+            }
             projectile.setPos(npc.getX(), npc.getEyeY() - 0.1, npc.getZ());
             double dx = living.getX() - projectile.getX();
             double dz = living.getZ() - projectile.getZ();

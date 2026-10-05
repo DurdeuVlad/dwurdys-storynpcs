@@ -127,4 +127,14 @@ class NpcInventoryTest {
         assertThatThrownBy(() -> new NpcMark(0, 0x1000000, ""));
         assertThatThrownBy(() -> new NpcMark(0, 0, "x".repeat(129)));
     }
+
+    @Test
+    void markDisplayGlyphMapsTypeDeterministically() {
+        assertThat(new NpcMark(0, 0xFFFFFF, "").displayGlyph()).isEmpty();
+        assertThat(new NpcMark(1, 0xFFFFFF, "").displayGlyph()).isEqualTo("!");
+        assertThat(new NpcMark(2, 0xFFFFFF, "").displayGlyph()).isEqualTo("?");
+        assertThat(new NpcMark(3, 0xFFFFFF, "").displayGlyph()).isEqualTo("▼");
+        assertThat(new NpcMark(4, 0xFFFFFF, "").displayGlyph()).isEqualTo("◆");
+        assertThat(new NpcMark(255, 0xFFFFFF, "").displayGlyph()).isEqualTo("◆");
+    }
 }
