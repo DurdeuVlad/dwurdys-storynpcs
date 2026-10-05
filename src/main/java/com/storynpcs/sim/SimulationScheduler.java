@@ -32,16 +32,26 @@ public final class SimulationScheduler {
         }
     }
 
-    private final SimulationTierPolicy policy;
-    private final TierBudgets budgets;
+    private final java.util.function.Supplier<SimulationTierPolicy> policySource;
+    private final java.util.function.Supplier<TierBudgets> budgetSource;
     public static final int MAX_TRANSITION_HISTORY = 4_096;
 
     private final Map<UUID, ActorSimulationState> states = new LinkedHashMap<>();
     private final Deque<TierTransition> transitions = new ArrayDeque<>();
 
     public SimulationScheduler(SimulationTierPolicy policy, TierBudgets budgets) {
-        this.policy = policy;
-        this.budgets = budgets;
+        this(() -> policy, () -> budgets);
+    }
+
+    /**
+     * Resolving variant (#62): policy and budgets are fetched per use so a
+     * committed {@link RuntimeTunables} change takes effect on the next
+     * evaluation/capability check without rebuilding the scheduler.
+     */
+    public SimulationScheduler(java.util.function.Supplier<SimulationTierPolicy> policySource,
+                               java.util.function.Supplier<TierBudgets> budgetSource) {
+        this.policySource = policySource;
+        this.budgetSource = budgetSource;
     }
 
     /** Re-evaluate tiers for all actors. Transitions are recorded in sorted-id order for determinism. */
@@ -50,6 +60,9 @@ public final class SimulationScheduler {
                 .sorted(Comparator.comparing(a -> a.actorId().toString()))
                 .toList();
         List<TierTransition> fresh = new ArrayList<>();
+        // Resolved once per evaluation so one evaluate() is internally
+        // consistent even if a config commit lands mid-call.
+        SimulationTierPolicy policy = policySource.get();
         for (ActorInput actor : sorted) {
             SimulationTier next = policy.tierFor(actor.distanceBlocks(), actor.inCombat());
             ActorSimulationState prev = states.get(actor.actorId());
@@ -94,7 +107,7 @@ public final class SimulationScheduler {
     }
 
     private int period(SimulationTier tier, Capability capability) {
-        TierBudgets.Budget b = budgets.forTier(tier);
+        TierBudgets.Budget b = budgetSource.get().forTier(tier);
         return switch (capability) {
             case SENSING -> b.sensingTicks();
             case PATHING -> b.pathingTicks();

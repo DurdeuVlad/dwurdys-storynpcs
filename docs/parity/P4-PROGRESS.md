@@ -81,6 +81,20 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
     while hidden (latent P3-2 leak the fixtures had never actually run to catch).
 - 9 fixtures covering cap, ordering, cancel paths, determinism, bounds, stale-target detection.
 
+- Live configuration (issue #62 close slice): distance bands and all 25
+  per-tier capability periods are bounded `RuntimeTunables` keys
+  (`sim.band.{active,nearby,distant,dormant}` [1,4096] blocks;
+  `sim.budget.<tier>.<capability>` [-1,72000] ticks, -1 disables). The merged
+  candidate is validated atomically — an inverted band ordering rejects the
+  commit with `SIM_BANDS_NOT_ORDERED` and leaves live config untouched.
+  `SimulationTunables` resolves policy/budgets lazily on the view's revision
+  (one cached instance per commit — no per-tick re-parse); the scheduler
+  resolves policy once per `evaluate()` so a mid-call commit can't split a
+  single evaluation. Commits flow through the canonical `config.mutate` op
+  on the shared mod instance. `SimulationTunablesTest` covers defaults,
+  committed band/period propagation, ordering rejection, bounds rejection,
+  and revision caching.
+
 ## P4-3 — Certification contract
 
 - `PerformanceContract` — `Environment`/`Workload`/`Metrics`/`BenchmarkReport` records,
@@ -117,8 +131,9 @@ Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationSch
   best-effort 4 ms; a single pathfind can exceed the deadline, and `poll()` is O(n) per
   request (≤64×1024 comparisons worst case, inside the deadline guard). PERSISTENCE is
   budgeted but nothing consumes it (entity save is chunk-driven).
-- `TierBudgets`/`SimulationTierPolicy` are injectable but have no runtime config
-  surface — "configurable" is constructor-level only.
+- `TierBudgets`/`SimulationTierPolicy` remain injectable for tests; production
+  resolves them live through `SimulationTunables`/`RuntimeTunables` (29 bounded
+  keys, atomic validated commits via `config.mutate`).
 - Non-goal periodic work is unbudgeted: companion wages, social-role scans,
   authored regen, and `NpcJobRuntime` all tick at every tier including DORMANT.
   If dormant CPU bounds become load-bearing, those need capability gates too.

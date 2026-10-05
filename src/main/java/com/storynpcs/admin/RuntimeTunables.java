@@ -30,6 +30,21 @@ public final class RuntimeTunables implements RuntimeTunablesView {
     public static final String SCRIPT_STANDARD_HOOK_NANOS = "script.hook.standard.nanos";
     public static final String SCHEMATIC_BUILD_BLOCKS_PER_TICK = "schematic.build.blocks_per_tick";
 
+    // P4-1 (#62): simulation-tier distance bands and per-tier capability
+    // budgets — the "per-tier budgets are configurable" contract. Band keys
+    // are block distances; budget keys are tick periods (-1 disables, the
+    // same contract as TierBudgets.Budget).
+    public static final String SIM_BAND_ACTIVE = "sim.band.active";
+    public static final String SIM_BAND_NEARBY = "sim.band.nearby";
+    public static final String SIM_BAND_DISTANT = "sim.band.distant";
+    public static final String SIM_BAND_DORMANT = "sim.band.dormant";
+    private static final String[] SIM_TIERS = {"active", "nearby", "distant", "dormant", "unloaded"};
+    private static final String[] SIM_CAPABILITIES = {"sensing", "pathing", "animation", "combat", "persistence"};
+    /** {@code sim.budget.<tier>.<capability>} — tick period, -1 disables. */
+    public static String simBudgetKey(String tier, String capability) {
+        return "sim.budget." + tier + "." + capability;
+    }
+
     private static final Map<String, Tunable> KEYS;
     static {
         Map<String, Tunable> keys = new LinkedHashMap<>();
@@ -44,6 +59,25 @@ public final class RuntimeTunables implements RuntimeTunablesView {
         keys.put(SCRIPT_STANDARD_HOOK_NANOS,
                 new Tunable(100_000L, 50_000_000L, ScriptScheduler.STANDARD_HOOK_NANOS));
         keys.put(SCHEMATIC_BUILD_BLOCKS_PER_TICK, new Tunable(16L, 65_536L, 512L));
+        keys.put(SIM_BAND_ACTIVE, new Tunable(1L, 4_096L, 64L));
+        keys.put(SIM_BAND_NEARBY, new Tunable(1L, 4_096L, 128L));
+        keys.put(SIM_BAND_DISTANT, new Tunable(1L, 4_096L, 256L));
+        keys.put(SIM_BAND_DORMANT, new Tunable(1L, 4_096L, 512L));
+        var defaults = com.storynpcs.sim.TierBudgets.defaults();
+        for (String tier : SIM_TIERS) {
+            var budget = defaults.forTier(
+                    com.storynpcs.sim.SimulationTier.valueOf(tier.toUpperCase(java.util.Locale.ROOT)));
+            for (String cap : SIM_CAPABILITIES) {
+                long period = switch (cap) {
+                    case "sensing" -> budget.sensingTicks();
+                    case "pathing" -> budget.pathingTicks();
+                    case "animation" -> budget.animationTicks();
+                    case "combat" -> budget.combatEvalTicks();
+                    default -> budget.persistenceTicks();
+                };
+                keys.put(simBudgetKey(tier, cap), new Tunable(-1L, 72_000L, period));
+            }
+        }
         KEYS = Map.copyOf(keys);
     }
 
@@ -110,7 +144,29 @@ public final class RuntimeTunables implements RuntimeTunablesView {
                                 + "], got " + value);
             }
         }
+        // Cross-key contract (P4-1): the tier bands must stay non-decreasing
+        // or SimulationTierPolicy's invariant breaks. The merged candidate
+        // always carries every band key, so this check runs on every commit.
+        if (!result.hasErrors()) {
+            long active = parse(candidate, SIM_BAND_ACTIVE);
+            long nearby = parse(candidate, SIM_BAND_NEARBY);
+            long distant = parse(candidate, SIM_BAND_DISTANT);
+            long dormant = parse(candidate, SIM_BAND_DORMANT);
+            if (active <= 0 || nearby < active || distant < nearby || dormant < distant) {
+                result.addError("SIM_BANDS_NOT_ORDERED",
+                        "sim.band.* must satisfy 0 < active <= nearby <= distant <= dormant"
+                                + " (got " + active + "," + nearby + "," + distant + "," + dormant + ")");
+            }
+        }
         return result;
+    }
+
+    private static long parse(Map<String, String> candidate, String key) {
+        try {
+            return Long.parseLong(candidate.getOrDefault(key, "0").trim());
+        } catch (NumberFormatException malformed) {
+            return Long.MIN_VALUE;
+        }
     }
 
     /**
