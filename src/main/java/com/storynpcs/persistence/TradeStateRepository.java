@@ -17,10 +17,16 @@ public final class TradeStateRepository {
     public static final class State {
         @JsonProperty
         private Map<String, Integer> uses = new HashMap<>();
+        @JsonProperty
+        private Map<String, Long> restockTicks = new HashMap<>();
 
         public Map<String, Integer> getUses() { return uses; }
         public void setUses(Map<String, Integer> uses) {
             this.uses = uses == null ? new HashMap<>() : new HashMap<>(uses);
+        }
+        public Map<String, Long> getRestockTicks() { return restockTicks; }
+        public void setRestockTicks(Map<String, Long> restockTicks) {
+            this.restockTicks = restockTicks == null ? new HashMap<>() : new HashMap<>(restockTicks);
         }
     }
 
@@ -89,6 +95,38 @@ public final class TradeStateRepository {
         }
     }
 
+    /**
+     * Applies a restock boundary in the same durable record as uses: when the
+     * authored interval has elapsed since the last recorded boundary, uses
+     * reset to 0 and the marker advances with catch-up in ONE atomic write —
+     * a crash cannot split "uses reset" from "marker advanced", and the
+     * marker survives restart (P7-1). An interval of 0 never restocks.
+     * Returns true when a restock was applied.
+     */
+    public synchronized boolean restockIfDue(String npcId, String listingId,
+                                             long intervalTicks, long nowTick) throws IOException {
+        if (intervalTicks <= 0) {
+            return false;
+        }
+        String key = key(npcId, listingId);
+        State current = state();
+        long last = current.getRestockTicks().getOrDefault(key, 0L);
+        long elapsed = nowTick - last;
+        if (elapsed < intervalTicks) {
+            return false;
+        }
+        State snapshot = copy(current);
+        current.getUses().put(key, 0);
+        current.getRestockTicks().put(key, last + intervalTicks * (elapsed / intervalTicks));
+        try {
+            store().write(current);
+            return true;
+        } catch (IOException | RuntimeException failure) {
+            state = snapshot;
+            throw failure;
+        }
+    }
+
     /** Compensates a reserved use only when no other operation has advanced the same listing. */
     public synchronized boolean rollbackUse(String npcId, String listingId,
                                              int reservedUses, int expectedUses) throws IOException {
@@ -145,12 +183,13 @@ public final class TradeStateRepository {
     private static State copy(State source) {
         State copy = new State();
         copy.setUses(source.getUses());
+        copy.setRestockTicks(source.getRestockTicks());
         return copy;
     }
 
     private static void validateState(State state) {
-        if (state == null || state.getUses() == null) {
-            throw new IllegalArgumentException("trade state uses cannot be null");
+        if (state == null || state.getUses() == null || state.getRestockTicks() == null) {
+            throw new IllegalArgumentException("trade state uses/restockTicks cannot be null");
         }
         for (Map.Entry<String, Integer> entry : state.getUses().entrySet()) {
             String key = entry.getKey();
@@ -158,6 +197,14 @@ public final class TradeStateRepository {
             if (key == null || key.isBlank() || key.length() > MAX_KEY_LENGTH
                     || uses == null || uses < 0) {
                 throw new IllegalArgumentException("invalid trade state entry");
+            }
+        }
+        for (Map.Entry<String, Long> entry : state.getRestockTicks().entrySet()) {
+            String key = entry.getKey();
+            Long tick = entry.getValue();
+            if (key == null || key.isBlank() || key.length() > MAX_KEY_LENGTH
+                    || tick == null || tick < 0) {
+                throw new IllegalArgumentException("invalid trade state restock entry");
             }
         }
     }

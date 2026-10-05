@@ -51,13 +51,14 @@ public class TradeListing {
     @JsonProperty
     private int page = 0;
 
-    /** Restock interval in ticks; 0 = never restocks (uses are permanent). */
+    /**
+     * Restock interval in ticks; 0 = never restocks (uses are permanent).
+     * The boundary MARKER is durable runtime state in {@code
+     * TradeStateRepository} — never definition data — so restock survives
+     * restart without mutating read-only authored content.
+     */
     @JsonProperty
     private long restockIntervalTicks = 0;
-
-    /** Last restock tick — durable so restock survives restarts. */
-    @JsonProperty
-    private long lastRestockTick = 0;
 
     @JsonIgnore
     private transient long nextReservationId;
@@ -135,19 +136,6 @@ public class TradeListing {
             throw new IllegalArgumentException("restockIntervalTicks must be >= 0");
         }
         this.restockIntervalTicks = restockIntervalTicks;
-    }
-
-    public long getLastRestockTick() { return lastRestockTick; }
-    public void setLastRestockTick(long lastRestockTick) { this.lastRestockTick = lastRestockTick; }
-
-    /** True when a restock boundary has passed; resets uses deterministically. */
-    public synchronized boolean restock(long nowTick) {
-        if (restockIntervalTicks <= 0 || nowTick - lastRestockTick < restockIntervalTicks) {
-            return false;
-        }
-        lastRestockTick += restockIntervalTicks * ((nowTick - lastRestockTick) / restockIntervalTicks);
-        uses = 0;
-        return true;
     }
 
     /**
@@ -301,6 +289,9 @@ public class TradeListing {
     public synchronized void restock() {
         // Reservations already in flight remain owned by their callers; the
         // next committed trade count is therefore the number still reserved.
+        // Restock cadence itself is durable state in TradeStateRepository
+        // (restockIfDue) — this in-memory reset is for reservation-aware
+        // domain callers only.
         this.uses = activeReservations().size();
     }
 

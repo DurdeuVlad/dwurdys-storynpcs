@@ -106,6 +106,62 @@ class TraderBankerAdminScreenModelTest {
     }
 
     @Test
+    void extendedListingFieldsRoundTripThroughTheAdminForm() {
+        // P7-1: the admin screen must author every listing field the player
+        // screen consumes — two inputs, page, restock interval.
+        var npc = newNpc();
+        var model = new TraderBankerAdminScreenModel(npc);
+        model.beginAddListing();
+        model.setOfferItemIdField("minecraft:emerald");
+        model.setOfferCountField("2");
+        model.setPriceItemIdField("minecraft:diamond");
+        model.setPriceCountField("1");
+        model.setSecondaryPriceItemIdField("minecraft:gold_ingot");
+        model.setSecondaryPriceCountField("4");
+        model.setMaxUsesField("10");
+        model.setPageField("3");
+        model.setRestockIntervalField("12000");
+        String err = model.commitListing();
+        assertThat(err).isNull();
+
+        var saved = model.getListings().get(0);
+        assertThat(saved.hasTwoInputs()).isTrue();
+        assertThat(saved.getSecondaryPriceItemId()).isEqualTo("minecraft:gold_ingot");
+        assertThat(saved.getSecondaryPriceCount()).isEqualTo(4);
+        assertThat(saved.getPage()).isEqualTo(3);
+        assertThat(saved.getRestockIntervalTicks()).isEqualTo(12_000L);
+
+        // Edit reload shows the same values the player surface will see.
+        var editor = new TraderBankerAdminScreenModel(npc);
+        assertThat(editor.beginEditListing(0)).isTrue();
+        assertThat(editor.getSecondaryPriceItemIdField()).isEqualTo("minecraft:gold_ingot");
+        assertThat(editor.getSecondaryPriceCountField()).isEqualTo("4");
+        assertThat(editor.getPageField()).isEqualTo("3");
+        assertThat(editor.getRestockIntervalField()).isEqualTo("12000");
+    }
+
+    @Test
+    void incoherentSecondaryInputIsRejectedAtCommit() {
+        var model = new TraderBankerAdminScreenModel(newNpc());
+        model.beginAddListing();
+        model.setOfferItemIdField("minecraft:emerald");
+        model.setPriceItemIdField("minecraft:diamond");
+        // Secondary count without an id — incoherent, must fail like YAML load.
+        model.setSecondaryPriceCountField("3");
+        String err = model.commitListing();
+        assertThat(err).isNotNull();
+
+        // Same item in both inputs — under-charge vector, must fail.
+        var model2 = new TraderBankerAdminScreenModel(newNpc());
+        model2.beginAddListing();
+        model2.setOfferItemIdField("minecraft:emerald");
+        model2.setPriceItemIdField("minecraft:diamond");
+        model2.setSecondaryPriceItemIdField("minecraft:diamond");
+        model2.setSecondaryPriceCountField("1");
+        assertThat(model2.commitListing()).isNotNull();
+    }
+
+    @Test
     void removeListingRejectsOutOfRangeIndex() {
         var model = new TraderBankerAdminScreenModel(newNpc());
         String err = model.removeListing(0);

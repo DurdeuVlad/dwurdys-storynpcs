@@ -4805,6 +4805,20 @@ public class StoryNpcsApplicationService {
         int usesBefore = Math.max(0, trade.getUses());
         if (tradeStateRepository != null && listingIndex >= 0) {
             try {
+                // P7-1: lazy restock — the durable boundary check runs inside
+                // the same state record as uses, so a due restock resets uses
+                // before the reservation reads them. The repo write is atomic:
+                // a crash cannot split "reset" from "boundary advanced".
+                // The listing's own interval wins; the role-wide interval is
+                // the fallback (target daily-reset default).
+                if (minecraftServer != null) {
+                    long restockInterval = registry.getNpc(npcId)
+                            .map(com.storynpcs.domain.npc.NpcDefinition::getTrader)
+                            .map(trader -> trader.effectiveRestockInterval(trade))
+                            .orElse(trade.getRestockIntervalTicks());
+                    tradeStateRepository.restockIfDue(npcId.toString(), listingId,
+                            restockInterval, minecraftServer.overworld().getGameTime());
+                }
                 usesBefore = tradeStateRepository.getUsesOrMigrateLegacy(
                         npcId.toString(), listingId, legacyListingId);
             } catch (IOException | RuntimeException unavailable) {
@@ -5059,8 +5073,31 @@ public class StoryNpcsApplicationService {
                 if (offerItem != null) {
                     net.minecraft.world.item.ItemStack offerStack =
                             new net.minecraft.world.item.ItemStack(offerItem, Math.max(1, trade.getOfferCount()));
-                    if (!inventory.add(offerStack)) {
-                        throw new IllegalStateException("output inventory is full");
+                    inventory.add(offerStack);
+                    if (!offerStack.isEmpty()) {
+                        // P7-1 / P5-5 overflow policy: anything the inventory
+                        // could not absorb — including a PARTIAL fit, which a
+                        // bare !add() check would silently void — is queued as
+                        // durable claim-once mail (provenance = the trading
+                        // NPC's id). A mail-write failure propagates into the
+                        // catch, restoring the snapshot + rolling the use back
+                        // so the exchange stays side-effect-free.
+                        if (questMailStore == null) {
+                            throw new IllegalStateException(
+                                    "mail store unavailable — cannot queue trade overflow");
+                        }
+                        try {
+                            enqueueItemRemainderMail(playerUuid, npcId,
+                                    remainderMailItems(
+                                            NamespacedId.of(trade.getOfferItemId().trim()),
+                                            offerStack.getCount(), null),
+                                    minecraftServer.overworld().getGameTime());
+                        } catch (java.io.IOException mailFailure) {
+                            // Checked IO must land in the RuntimeException
+                            // boundary so the inventory snapshot restores.
+                            throw new IllegalStateException(
+                                    "trade overflow mail write failed", mailFailure);
+                        }
                     }
                 }
                 reservation.commit();

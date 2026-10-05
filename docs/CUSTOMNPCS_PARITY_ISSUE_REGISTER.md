@@ -406,6 +406,8 @@ Status: `IN-REVIEW` — `companion:` binds on `NpcDefinition`; `WageLedger` + ow
 
 ### P7-1 — Implement transactional trader parity
 
+Status: `IN-REVIEW` — two-input listings validated pre-commit; durable restock (`TradeStateRepository.restockTicks` + `restockIfDue`) resets uses and advances the boundary marker in one atomic write, driven lazily on purchase and trade-open view; role-wide interval is the fallback default (24000 daily). Full-inventory output follows P5-5: remainder queues as claim-once mail provenanced to the NPC; mail-write failure aborts side-effect-free. Admin form edits all listing fields and commits through `validate()`. Pending tracker close.
+
 - **Intent:** Reach target trader capability while fixing one-input, admin-editing, restock, and concurrency holes.
 - **Expectation:** Listings support up to two inputs/one output, pages, uses, restock interval, currency/item requirements, faction access, admin editing, player confirmation, and durable transaction outcome.
 - **Acceptance criteria:** Both input slots and output are validated before commit; uses/restock persist across restart; concurrent purchases have one winner per use; admin and player screens round-trip identical listing data; full output inventory follows P5-5/mail policy; required faction/permission checks are server-side; failed purchase is side-effect-free.
@@ -416,6 +418,8 @@ Status: `IN-REVIEW` — `companion:` binds on `NpcDefinition`; `WageLedger` + ow
 - **Verification:** Two-input, pages, uses/restock, concurrency, full inventory, faction/permission, restart and UI/command fixtures.
 
 ### P7-2 — Implement transactional bank parity
+
+Status: `IN-REVIEW` — six-tab bound on role + vault; PRIVATE/SHARED access policy with member list + `canAccess`; `bank.share` canonical op wired through CapabilityRegistry/AuthorizationPolicy/command; revisioned item ops + journaled UNLOCK_TAB with intent capture and reconcile-on-recover; vault owner resolves from authored role server-side; durable repository with restart/corruption fixtures. Pending tracker close.
 
 - **Intent:** Reach target bank capability with safe tabs, upgrades, access, and recovery.
 - **Expectation:** Banks support up to six tabs, upgrade costs, private/shared access, item placement/removal, close/reconnect recovery, admin editing and player UI.

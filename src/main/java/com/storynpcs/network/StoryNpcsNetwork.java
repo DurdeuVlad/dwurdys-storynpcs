@@ -1000,9 +1000,19 @@ public class StoryNpcsNetwork {
         if (mod == null || npc.getTrader() == null) return;
         var trader = com.storynpcs.domain.role.RoleSerde.copyTrader(npc.getTrader());
         var tradeState = mod.getTradeStateRepository();
+        var server = player.getServer();
         if (tradeState != null) {
             for (var listing : trader.getListings()) {
                 try {
+                    // P7-1: the screen shows post-restock availability — a due
+                    // boundary resets durable uses before they are read. The
+                    // listing's own interval wins; the role default applies
+                    // when the listing does not set one.
+                    if (server != null) {
+                        tradeState.restockIfDue(npc.getId().toString(), listing.getListingId(),
+                                trader.effectiveRestockInterval(listing),
+                                server.overworld().getGameTime());
+                    }
                     listing.setUses(tradeState.getUsesOrMigrateLegacy(
                             npc.getId().toString(), listing.getListingId(),
                             listing.legacyListingIdForMigration().orElse(null)));
