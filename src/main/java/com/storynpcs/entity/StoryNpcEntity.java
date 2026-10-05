@@ -89,6 +89,13 @@ public class StoryNpcEntity extends PathfinderMob {
     private boolean wasNoPhysicsBeforeHide = false;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
+    /** Persisted data revision written to entity NBT (ADR-007 ModRev-equivalent). */
+    private static final int DATA_REVISION = 1;
+    /** Revision read back from NBT — defaults to 0 for pre-marker saves. */
+    private int loadedDataRevision = 0;
+
+    /** The persisted data revision this entity was loaded at; 0 for pre-marker saves. */
+    public int getLoadedDataRevision() { return loadedDataRevision; }
     /** Server-authoritative emote lifecycle; the three EMOTE_* accessors mirror it to clients. */
     private final com.storynpcs.domain.npc.NpcEmoteState emoteState =
             new com.storynpcs.domain.npc.NpcEmoteState();
@@ -1796,9 +1803,13 @@ public class StoryNpcEntity extends PathfinderMob {
     }
 
     /**
-     * Authored damage-resistance channels (P3-2): incoming-damage multipliers
-     * in [0, 2] — 1.0 normal, 0 fully resisted, above 1 amplified. Scaling
-     * happens after threat evaluation: a fully resisted hit still provokes.
+     * Authored damage-resistance channels (P3-2, ADR-007): incoming damage is
+     * scaled by the target-faithful {@code 2.0 - resistance} — {@code 0.0}
+     * resistance is vulnerability (double damage), {@code 1.0} normal, and
+     * {@code 2.0} immunity. Persisted out-of-range values pass through
+     * unclamped (target NBT-read quirk): a value above {@code 2.0} produces a
+     * negative scale and can heal on hit, matching the target. Scaling happens
+     * after threat evaluation: a fully resisted hit still provokes.
      */
     private float scaleByAuthoredResistances(DamageSource source, float amount) {
         if (amount <= 0) {
@@ -1811,11 +1822,11 @@ public class StoryNpcEntity extends PathfinderMob {
         }
         double multiplier = 1.0;
         if (source.is(net.minecraft.tags.DamageTypeTags.IS_PROJECTILE)) {
-            multiplier = resistances.getArrow();
+            multiplier = resistances.damageScaleArrow();
         } else if (source.is(net.minecraft.tags.DamageTypeTags.IS_EXPLOSION)) {
-            multiplier = resistances.getExplosion();
+            multiplier = resistances.damageScaleExplosion();
         } else if (source.getDirectEntity() instanceof LivingEntity) {
-            multiplier = resistances.getMelee();
+            multiplier = resistances.damageScaleMelee();
         }
         return (float) (amount * multiplier);
     }
@@ -1902,6 +1913,9 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
+        // ADR-007 ModRev-equivalent: the persisted data revision lets future
+        // format changes distinguish pre-change saves during migration.
+        compound.putInt("StoryNpcsRev", DATA_REVISION);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
         // Never persist a blank actor ID — an entity loaded before the actor
         // runtime existed would otherwise carry StoryNpcActorId:"" forever,
@@ -1951,6 +1965,8 @@ public class StoryNpcEntity extends PathfinderMob {
         // Establish durable logical identity before definition binding. This prevents
         // a replacement projection from first registering a UUID-derived orphan actor.
         try {
+            this.loadedDataRevision = compound.contains("StoryNpcsRev")
+                    ? compound.getInt("StoryNpcsRev") : 0;
             if (compound.contains("StoryNpcActorId")) {
                 this.state.setActorId(compound.getString("StoryNpcActorId"));
             }

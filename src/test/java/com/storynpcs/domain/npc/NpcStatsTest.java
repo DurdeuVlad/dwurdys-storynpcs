@@ -86,7 +86,8 @@ class NpcStatsTest {
     void resistanceChannelsClampToTargetContract() {
         NpcResistances resistances = new NpcResistances();
 
-        // All four channels default to normal damage (1.0) and clamp to [0, 2].
+        // All four channels default to normal resistance (1.0); authored
+        // setters clamp to [0, 2].
         assertThat(resistances.getKnockback()).isEqualTo(1.0);
         assertThat(resistances.getArrow()).isEqualTo(1.0);
         assertThat(resistances.getMelee()).isEqualTo(1.0);
@@ -101,10 +102,40 @@ class NpcStatsTest {
         assertThat(resistances.getMelee()).isEqualTo(1.0);
         assertThat(resistances.getExplosion()).isEqualTo(0.0);
 
-        resistances.setArrow(0.0); // full immunity
-        resistances.setExplosion(2.0); // amplified
-        assertThat(resistances.getArrow()).isEqualTo(0.0);
-        assertThat(resistances.getExplosion()).isEqualTo(2.0);
+        resistances.setArrow(2.0); // immunity (ADR-007)
+        resistances.setExplosion(0.0); // vulnerability (ADR-007)
+        assertThat(resistances.getArrow()).isEqualTo(2.0);
+        assertThat(resistances.getExplosion()).isEqualTo(0.0);
+    }
+
+    @Test
+    void damageScalesFollowTargetFaithfulTwoMinusResistance() {
+        NpcResistances resistances = new NpcResistances();
+
+        // ADR-007: incoming damage * (2.0 - resistance).
+        assertThat(resistances.damageScaleArrow()).isEqualTo(1.0);
+        assertThat(resistances.damageScaleMelee()).isEqualTo(1.0);
+        assertThat(resistances.damageScaleExplosion()).isEqualTo(1.0);
+
+        resistances.setArrow(2.0);      // immune → zero damage
+        resistances.setMelee(0.0);      // vulnerable → double damage
+        resistances.setExplosion(1.5);  // 50% reduced
+        assertThat(resistances.damageScaleArrow()).isEqualTo(0.0);
+        assertThat(resistances.damageScaleMelee()).isEqualTo(2.0);
+        assertThat(resistances.damageScaleExplosion()).isEqualTo(0.5);
+    }
+
+    @Test
+    void deserializedResistancesPassThroughUnclamped() {
+        // ADR-007 target quirk: persisted reads bypass setter clamps — an
+        // out-of-range document value reaches damage math verbatim.
+        var def = new NpcDefinition(com.storynpcs.domain.common.NamespacedId.of("storynpcs", "r"), "r");
+        String json = NpcDefinitionSerde.toJson(def);
+        String tampered = json.replaceFirst("\"arrow\":1\\.0", "\"arrow\":2.6");
+        assertThat(tampered).contains("\"arrow\":2.6");
+        var restored = NpcDefinitionSerde.fromJson(tampered).orElseThrow();
+        assertThat(restored.getStats().getResistances().getArrow()).isEqualTo(2.6);
+        assertThat(restored.getStats().getResistances().damageScaleArrow()).isCloseTo(-0.6, org.assertj.core.data.Offset.offset(1e-9));
     }
 
     @Test
@@ -112,9 +143,9 @@ class NpcStatsTest {
         NpcResistances resistances = new NpcResistances();
 
         assertThat(resistances.scaleKnockback(0.8F)).isEqualTo(0.8F);
-        resistances.setKnockback(0.0);
+        resistances.setKnockback(2.0); // immune → no knockback
         assertThat(resistances.scaleKnockback(0.8F)).isEqualTo(0.0F);
-        resistances.setKnockback(2.0);
+        resistances.setKnockback(0.0); // vulnerable → double knockback
         assertThat(resistances.scaleKnockback(0.8F)).isEqualTo(1.6F);
     }
 

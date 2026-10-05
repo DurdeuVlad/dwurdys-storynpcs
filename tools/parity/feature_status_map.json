@@ -216,9 +216,9 @@
   {
    "id": "stats-defeat",
    "feature": "Stats/defeat",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#59 P3-2, #118, #122",
-   "summary": "NpcStats w/ regen/resistance fields; die() always normal death (HIDE/FLEE not honored)",
+   "summary": "Bounded NpcStats + melee/ranged/defeat blocks; DefeatResolution drives die/hide/flee with events; respawn timers; XP reward hook",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/npc/NpcStats.java"
@@ -239,9 +239,9 @@
   {
    "id": "melee",
    "feature": "Melee",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#59 P3-2",
-   "summary": "NpcMeleeAttackGoal, NpcAttackOnSightGoal",
+   "summary": "NpcMeleeAttackGoal consumes authored delay/range/knockback/potion-effect; attributes projected server-side",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/ai/combat/NpcMeleeAttackGoal.java",
@@ -254,16 +254,18 @@
      }
     ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcStatsTest.java"
+    ],
     "absent": []
    }
   },
   {
    "id": "ranged",
    "feature": "Ranged/projectiles",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#59 P3-2",
-   "summary": "NpcRangedAttackGoal, NpcProjectileEntity, NpcProjectileRenderer",
+   "summary": "NpcRangedAttackGoal + NpcProjectileEntity consume the full ranged block: windup, fire-rate, shotCount, accuracy, gravity, size, area damage, trail, impact sound, on-hit effects",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/ai/combat/NpcRangedAttackGoal.java",
@@ -277,16 +279,19 @@
      }
     ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcStatsTest.java",
+     "src/test/java/com/storynpcs/ai/combat/ThreatManagerTest.java"
+    ],
     "absent": []
    }
   },
   {
    "id": "resistances-immunities",
    "feature": "Resistances/immunities",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#59 P3-2, #122",
-   "summary": "NpcResistances/NpcImmunities consumed in entity hurt/knockback/potion/cobweb paths; #122 contract open",
+   "summary": "ADR-007 target-faithful 2.0-resistance damage scale + unclamped read passthrough + StoryNpcsRev marker; 6 immunity toggles round-trip; compat-adapter type 1/4 quirk inherited by #91",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/npc/NpcResistances.java",
@@ -299,7 +304,9 @@
      }
     ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcStatsTest.java"
+    ],
     "absent": []
    }
   },
