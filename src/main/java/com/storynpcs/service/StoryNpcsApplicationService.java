@@ -207,6 +207,19 @@ public class StoryNpcsApplicationService {
         if (definition.getId() == null) {
             throw new IllegalArgumentException("NPC definition must have an ID");
         }
+        var abilities = definition.getAbilities();
+        for (int i = 0; i < abilities.size(); i++) {
+            try {
+                var ability = abilities.get(i);
+                if (ability == null) {
+                    throw new IllegalStateException("null ability");
+                }
+                ability.validate();
+            } catch (RuntimeException abilityFailure) {
+                throw new IllegalArgumentException(
+                        "Invalid ability #" + i + ": " + abilityFailure.getMessage());
+            }
+        }
         synchronized (canonicalMutationLock) {
             synchronized (this) {
                 DefinitionRegistry snapshot = new DefinitionRegistry();
@@ -274,6 +287,26 @@ public class StoryNpcsApplicationService {
                     result.addError("TRADE_LISTING_INVALID",
                             "Invalid trade listing #" + i + " (" + label
                                     + "): " + listingFailure.getMessage());
+                }
+            }
+            if (result.hasErrors()) {
+                return result;
+            }
+        }
+        {
+            // #147: same bounded-ability contract as the load path — a
+            // malformed ability must never persist through canonical writes.
+            var abilities = definition.getAbilities();
+            for (int i = 0; i < abilities.size(); i++) {
+                var ability = abilities.get(i);
+                try {
+                    if (ability == null) {
+                        throw new IllegalStateException("null ability");
+                    }
+                    ability.validate();
+                } catch (RuntimeException abilityFailure) {
+                    result.addError("ABILITY_INVALID",
+                            "Invalid ability #" + i + ": " + abilityFailure.getMessage());
                 }
             }
             if (result.hasErrors()) {
