@@ -93,6 +93,17 @@ public final class SchematicBuildService {
     /** Starts a build; returns a human-facing rejection or empty on success. */
     public Optional<String> startBuild(ServerLevel level, Schematic schematic,
                                        BlockPos origin, int quarterTurns) {
+        return startBuild(level, schematic, origin, quarterTurns, null);
+    }
+
+    /**
+     * Tagged variant (P6-4 BUILDER job): {@code tag} identifies the submitting
+     * owner so {@link #hasActiveBuild(String)} can enforce one in-flight build
+     * per owner — a builder re-submits only after its previous plan drains,
+     * giving bounded maintain/rebuild semantics.
+     */
+    public Optional<String> startBuild(ServerLevel level, Schematic schematic,
+                                       BlockPos origin, int quarterTurns, String tag) {
         if (active.size() >= MAX_ACTIVE_BUILDS) {
             return Optional.of("too many active builds (max " + MAX_ACTIVE_BUILDS + ")");
         }
@@ -105,8 +116,21 @@ public final class SchematicBuildService {
         if (plan.placements().isEmpty()) {
             return Optional.of("schematic '" + schematic.name() + "' has no placeable blocks");
         }
-        active.add(new BuildTask(level, schematic.name(), plan, origin, quarterTurns));
+        active.add(new BuildTask(level, schematic.name(), plan, origin, quarterTurns, tag));
         return Optional.empty();
+    }
+
+    /** True while a build carrying {@code tag} is still draining. */
+    public boolean hasActiveBuild(String tag) {
+        if (tag == null) {
+            return false;
+        }
+        for (BuildTask task : active) {
+            if (tag.equals(task.tag)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Stops every active build in {@code level}; returns the count stopped. */
@@ -179,6 +203,7 @@ public final class SchematicBuildService {
         private final BuildPlan plan;
         private final BlockPos origin;
         private final Rotation rotation;
+        private final String tag;
         private int cursor;
         private int placed;
         private int skippedUnloaded;
@@ -195,11 +220,12 @@ public final class SchematicBuildService {
         private final java.util.Set<Long> placedBeOffsets = new java.util.HashSet<>();
 
         BuildTask(ServerLevel level, String name, BuildPlan plan, BlockPos origin,
-                  int quarterTurns) {
+                  int quarterTurns, String tag) {
             this.level = level;
             this.name = name;
             this.plan = plan;
             this.origin = origin;
+            this.tag = tag;
             for (var be : plan.blockEntities()) {
                 beOffsets.add(packOffset(be.x(), be.y(), be.z()));
             }

@@ -114,6 +114,13 @@ public class CompanionProfile {
         private long minAgeTicks;
         @JsonProperty
         private double statMultiplier = 1.0;
+        /**
+         * How many authored talents take effect while this stage is active —
+         * the bounded-effects rule. Talents beyond the slot cap are inert, not
+         * silently stacked.
+         */
+        @JsonProperty
+        private int talentSlots = 2;
 
         public CompanionStage() {}
         public CompanionStage(NamespacedId id, long minAgeTicks, double statMultiplier) {
@@ -136,9 +143,21 @@ public class CompanionProfile {
             }
             this.statMultiplier = statMultiplier;
         }
+        public int getTalentSlots() { return talentSlots; }
+        public void setTalentSlots(int talentSlots) {
+            if (talentSlots < 0 || talentSlots > 8) {
+                throw new IllegalArgumentException("talentSlots must be in [0,8]");
+            }
+            this.talentSlots = talentSlots;
+        }
     }
 
-    /** A bounded companion talent. */
+    /**
+     * A bounded companion talent. {@code effect} is optional — a talent with
+     * no effect is flavor/rank only; one with an effect contributes its rank
+     * (≤ maxRank ≤ 10) toward the bounded bonus for that
+     * {@link CompanionEffectType} while a stage slot is available.
+     */
     public static class Talent {
         @JsonProperty(required = true)
         private NamespacedId id;
@@ -146,6 +165,8 @@ public class CompanionProfile {
         private int rank = 1;
         @JsonProperty
         private int maxRank = 3;
+        @JsonProperty
+        private CompanionEffectType effect;
 
         public Talent() {}
         public Talent(NamespacedId id, int rank, int maxRank) {
@@ -170,5 +191,7 @@ public class CompanionProfile {
             }
             this.maxRank = maxRank;
         }
+        public CompanionEffectType getEffect() { return effect; }
+        public void setEffect(CompanionEffectType effect) { this.effect = effect; }
     }
 }

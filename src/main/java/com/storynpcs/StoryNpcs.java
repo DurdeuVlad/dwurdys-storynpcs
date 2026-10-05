@@ -174,6 +174,12 @@ public class StoryNpcs {
         MinecraftServer server = event.getServer();
         schematicBuildService.tick();
         drainPathRequests(server);
+        var appService = getApplicationService();
+        if (appService != null) {
+            // P6-3: cross-dimension arrival verifications expire per authored
+            // timeout — cheap no-op when the queue is empty.
+            appService.tickTransportVerifications(server);
+        }
         if (server.overworld().getGameTime() % 20 != 0) {
             return;
         }

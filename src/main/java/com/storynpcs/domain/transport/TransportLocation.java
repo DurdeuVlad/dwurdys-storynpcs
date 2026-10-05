@@ -50,6 +50,16 @@ public class TransportLocation {
     @JsonProperty
     private boolean visibleWhenLocked = false;
 
+    /**
+     * Cross-dimension transfer policy (P6-3): after a successful transfer the
+     * arrival is deadline-verified within {@code transferTimeoutTicks}; a
+     * player who never arrived in the target dimension is recovered per
+     * {@code recovery}. {@code null} resolves to
+     * {@link TransportEvaluator.DimensionPolicy#defaults()}.
+     */
+    @JsonProperty
+    private TransportEvaluator.DimensionPolicy dimensionPolicy;
+
     public TransportLocation() {}
 
     public TransportLocation(NamespacedId id, String name, String dimension, double x, double y, double z) {
@@ -94,6 +104,14 @@ public class TransportLocation {
 
     public boolean isVisibleWhenLocked() { return visibleWhenLocked; }
     public void setVisibleWhenLocked(boolean visibleWhenLocked) { this.visibleWhenLocked = visibleWhenLocked; }
+
+    /** Authored cross-dimension policy; absent means the bounded default applies. */
+    public TransportEvaluator.DimensionPolicy getDimensionPolicy() {
+        return dimensionPolicy != null ? dimensionPolicy : TransportEvaluator.DimensionPolicy.defaults();
+    }
+    public void setDimensionPolicy(TransportEvaluator.DimensionPolicy dimensionPolicy) {
+        this.dimensionPolicy = dimensionPolicy;
+    }
 
     /**
      * Static, server-independent safety validation: required id/name/dimension,

@@ -62,6 +62,18 @@ public class JobConfig {
     @JsonProperty
     private NamespacedId scriptId;
 
+    /** BUILDER: schematic name resolvable through {@code SchematicStore}. */
+    @JsonProperty
+    private NamespacedId buildSchematicId;
+
+    /**
+     * BUILDER: re-submit the build once the previous plan drains — the target's
+     * maintain semantics (broken cells get replaced). Bounded by the build
+     * service's global per-tick budget and active-build cap; default on.
+     */
+    @JsonProperty
+    private boolean buildMaintain = true;
+
     public JobConfig() {}
 
     public JobConfig(JobType type) {
@@ -150,6 +162,12 @@ public class JobConfig {
     public NamespacedId getScriptId() { return scriptId; }
     public void setScriptId(NamespacedId scriptId) { this.scriptId = scriptId; }
 
+    public NamespacedId getBuildSchematicId() { return buildSchematicId; }
+    public void setBuildSchematicId(NamespacedId buildSchematicId) { this.buildSchematicId = buildSchematicId; }
+
+    public boolean isBuildMaintain() { return buildMaintain; }
+    public void setBuildMaintain(boolean buildMaintain) { this.buildMaintain = buildMaintain; }
+
     /** Per-type load-time validation beyond field bounds. */
     public void validate() {
         if (type == null) {
@@ -161,9 +179,8 @@ public class JobConfig {
         if (type == JobType.ITEM_GIVER && itemId == null) {
             throw new IllegalStateException("ITEM_GIVER job requires itemId");
         }
-        if (type == JobType.BUILDER || type == JobType.FOLLOWER) {
-            throw new IllegalStateException(
-                    "job type " + type + " has no implemented handler — definition rejected at load");
+        if (type == JobType.BUILDER && buildSchematicId == null) {
+            throw new IllegalStateException("BUILDER job requires buildSchematicId");
         }
     }
 }

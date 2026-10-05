@@ -17,6 +17,12 @@ public final class JobInstance {
     private State state = State.RUNNING;
     private long lastRunTick = -1;
     private long ticksRun;
+    /**
+     * BUILDER: schematic resolved once per RUNNING stint — cleared on
+     * pause/stop so a resume re-reads the current file rather than holding a
+     * stale copy. Runtime-only; never serialized.
+     */
+    private transient com.storynpcs.domain.schematic.Schematic builderSchematic;
 
     public JobInstance(UUID actorId, JobConfig config) {
         this.actorId = actorId;
@@ -50,7 +56,20 @@ public final class JobInstance {
         }
     }
 
-    public void pause() { if (state == State.RUNNING) state = State.PAUSED; }
+    /** BUILDER schematic cache — runtime-only, cleared when not RUNNING. */
+    public com.storynpcs.domain.schematic.Schematic getBuilderSchematic() {
+        return builderSchematic;
+    }
+    public void setBuilderSchematic(com.storynpcs.domain.schematic.Schematic schematic) {
+        this.builderSchematic = schematic;
+    }
+
+    public void pause() {
+        if (state == State.RUNNING) {
+            state = State.PAUSED;
+            builderSchematic = null;
+        }
+    }
     public void resume() { if (state == State.PAUSED) state = State.RUNNING; }
-    public void stop() { state = State.STOPPED; }
+    public void stop() { state = State.STOPPED; builderSchematic = null; }
 }

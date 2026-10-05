@@ -339,6 +339,8 @@ Status: `DONE` — closed by PR #168 (merged). Completion/turn-in is revisioned 
 
 ### P6-1 — Implement faction matrix and progression parity
 
+Status: `DONE-LOCAL` — relationship matrix, bounded colors, deletion planner with reference diagnostics + progression repair/restore, source-tagged reputation events, clamped points, threshold-driven targeting (P3-3 provider), and opt-in team sharing (`team.share` canonical op propagates deltas to all member records under the mutation lock). Change sources covered: dialogue edge actions, quest rewards, rule `AdjustFactionAction`, canonical API/command. Script→faction: N/A (the script surface is fixed hook dispatch, not a general faction API — marked unsupported, not silently claimed). Pending tracker close.
+
 - **Intent:** Make faction reputation a complete targeting/progression system rather than points plus thresholds only.
 - **Expectation:** Factions support default points, clamping, thresholds, colors, inter-faction relationship matrix, hostile/friendly policy, and changes from dialogue/quest/kill/API/script with deletion cleanup and optional team sharing.
 - **Acceptance criteria:** Every field has schema/service/UI/API/event/persistence mapping; changes identify source and actor; thresholds update target policies; faction deletion repairs references or fails with diagnostics; points never overflow; team sharing is explicit and tested.
@@ -350,7 +352,7 @@ Status: `DONE` — closed by PR #168 (merged). Completion/turn-in is revisioned 
 
 ### P6-2 — Implement service and social roles
 
-Status: `IN-REVIEW` — `TraderRole`/`BankerRole`/`BardRole`/`HealerRole`/`PostmanRole` now bind as NPC-attached YAML fields on `NpcDefinition` with fail-closed diagnostics; the entity executes healer/bard tick behavior on bounded periods and postman interact delivery; role removal cleans state. Trader/bank ship with M7; role-removal fixtures and per-role permission surfaces remain open.
+Status: `IN-REVIEW` — `BardRole`/`HealerRole`/`PostmanRole` bind as NPC-attached YAML fields on `NpcDefinition` with fail-closed diagnostics; the entity executes healer/bard tick behavior on bounded periods and postman interacts against the durable mail store; follower/dialogue roles route P1-1 requests with owner logout/unload policies; role removal cleans state (definition rebind detaches behavior; forced-chunk release + job stop on unload/removal). Trader/bank roles ship with M7; dedicated role UI screens are wave-2 scope (#150). Remaining evidence gap: role-removal behavior is verified at domain level; the entity-side rebind is live-level.
 
 - **Intent:** Provide the target role vocabulary through composable capabilities.
 - **Expectation:** Dialogue, follower, postman/mailbox, healer, and bard roles have explicit configuration, permissions, UI, events, persistence, lifecycle and tick budgets; trader/bank roles are completed by M7.
@@ -363,7 +365,7 @@ Status: `IN-REVIEW` — `TraderRole`/`BankerRole`/`BardRole`/`HealerRole`/`Postm
 
 ### P6-3 — Implement transport locations and transporter role
 
-Status: `IN-REVIEW` — `transports/*.yaml` is a loadable standalone family (`loadTransport`, registry map, duplicate-ID rejection); `TransportEvaluator` performs server-authoritative destination/unlock/dimension/chunk/safety/fee checks via `StoryNpcsApplicationService.requestTransport`/`listTransports`, exposed through commands and API. Unlock persistence exactly-once, cross-dimension timeout/recovery, and player transport UI remain open.
+Status: `IN-REVIEW` — `transports/*.yaml` loadable standalone family; `TransportEvaluator` server-authoritative checks via `requestTransport`/`listTransports` (command + API adapters); fee charged only post-evaluation and refunded on transfer failure/refusal; durable replay-safe unlocks + request journal (ambiguous states → RECOVERY_REQUIRED); `DimensionPolicy` consumed — cross-dimension arrivals deadline-verified per server tick with authored RETURN_TO_ORIGIN/ABORT recovery (in-memory queue, durable journal holds outcome across restart). Remaining gap: player transport GUI is wave-2 scope (#150); deadline-verification exercised at domain/serde level headlessly, arrival behavior is live-level.
 
 - **Intent:** Add safe NPC transport and fast-travel workflows absent from StoryNPCs.
 - **Expectation:** Creators define categories/locations, destination dimensions/coordinates, unlock conditions, fees, preview and failure behavior; players discover/select/confirm transport through server-authoritative UI/command/API.
@@ -376,7 +378,7 @@ Status: `IN-REVIEW` — `transports/*.yaml` is a loadable standalone family (`lo
 
 ### P6-4 — Implement the exact job capability inventory
 
-Status: `IN-REVIEW` — `job:` binds on `NpcDefinition` with load-time `validate()` rejection (`JOB_CONFIG_INVALID`); `NpcJobRuntime` executes implemented types (`ITEM_GIVER` interact-driven, `HEALER`, `BARD`, `GUARD` — threat-table routed, `FARMER`, `CHUNK_LOADER` — shared-chunk reference tracking, `SPAWNER`, `CONVERSATION`, `PUPPET`) on bounded `tickPeriod` schedules from entity tick; jobs stop on unload/removal. `BUILDER` and `FOLLOWER` fail validation as unimplemented; per-job events/permissions/fixtures remain open.
+Status: `IN-REVIEW` — `job:` binds on `NpcDefinition` with load-time `validate()` rejection; ALL eleven types have `NpcJobRuntime` handlers on bounded `tickPeriod` from entity tick (ITEM_GIVER interact, HEALER/BARD AoE, GUARD threat-table, FARMER bounded bonemeal, CHUNK_LOADER shared-chunk tracking, SPAWNER ownership-stamped caps, CONVERSATION scheduler-dispatched script, PUPPET emote-cycle/scheduler, BUILDER tagged schematic builds, FOLLOWER state machine). `NpcJobLifecycleEvent` publishes bind/pause/stop transitions; jobs stop or pause on unload/removal; forced chunks release on removal. Runtime handler behavior is live-level beyond domain/lifecycle fixtures.
 
 - **Intent:** Replace the absent jobs system with bounded, composable handlers for every target job.
 - **Expectation:** Artifact-resolved jobs each have a typed configuration, lifecycle, pause/resume, tick budget, persistence, events, permissions and cleanup. The manifest must resolve the 11th job name before certification.
@@ -389,7 +391,7 @@ Status: `IN-REVIEW` — `job:` binds on `NpcDefinition` with load-time `validate
 
 ### P6-5 — Implement companion lifecycle, wages, stages, talents, and inventory
 
-Status: `IN-REVIEW` — `companion:` binds on `NpcDefinition`; `WageLedger` prevents repeated in-process charges per bounded period and stores its period in entity NBT, but no crash-spanning payment journal proves exactly-once charging. Stages/talents applying bounded effects, companion inventory containers, and dismissal state-return policy remain open.
+Status: `IN-REVIEW` — `companion:` binds on `NpcDefinition`; `WageLedger` + owner-progression durable backstop (consulted pre-charge, force-written post-charge) makes charging exactly-once across restart within a documented double-save crash window; insufficient-funds policies (PAUSE/DISMISS/KEEP) explicit and durable; hire edge, owner-offline policies, and transition messaging entity-wired. `CompanionEffects` projection now applies stage multiplier + slotted talent effects as signature-gated transient attribute modifiers (damage/armor/speed); `companionCarryCapacity()` exposes the bounded capacity projection for the wave-2 container UI (#150). Companion death rides the authored defeat contract (HIDE/FLEE/transform/DIE). Dismissal releases ownership (INSUFFICIENT_DISMISSED path); state return to owner inventory is not a separate channel.
 
 - **Intent:** Turn the partial follower role into a complete companion system.
 - **Expectation:** Hiring, wages, stages, talents, inventory, stance, formation, jobs, owner lifecycle, dismissal, death and unloaded-time policy are data-driven.

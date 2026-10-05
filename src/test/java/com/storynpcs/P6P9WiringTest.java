@@ -208,6 +208,59 @@ class P6P9WiringTest {
     }
 
     @Test
+    void transport_dimensionPolicySerdeAndDefaults() {
+        // Absent policy resolves to the bounded default.
+        var loaded = loader.loadTransport("""
+                id: storynpcs:portal_hub
+                name: Portal Hub
+                dimensionId: minecraft:the_nether
+                x: 10
+                y: 64
+                z: 10
+                """, "hub.yaml", new ValidationResult());
+        assertThat(loaded).isNotNull();
+        assertThat(loaded.getDimensionPolicy().transferTimeoutTicks()).isEqualTo(100);
+        assertThat(loaded.getDimensionPolicy().recovery())
+                .isEqualTo(com.storynpcs.domain.transport.TransportEvaluator
+                        .DimensionPolicy.Recovery.RETURN_TO_ORIGIN);
+
+        // Authored policy round-trips through YAML.
+        var authored = loader.loadTransport("""
+                id: storynpcs:risky_rift
+                name: Risky Rift
+                dimensionId: minecraft:the_end
+                x: 0
+                y: 80
+                z: 0
+                dimensionPolicy:
+                  transferTimeoutTicks: 40
+                  recovery: ABORT
+                """, "rift.yaml", new ValidationResult());
+        assertThat(authored).isNotNull();
+        assertThat(authored.getDimensionPolicy().transferTimeoutTicks()).isEqualTo(40);
+        assertThat(authored.getDimensionPolicy().recovery())
+                .isEqualTo(com.storynpcs.domain.transport.TransportEvaluator
+                        .DimensionPolicy.Recovery.ABORT);
+
+        // Invalid policy fails at load — a non-positive timeout is rejected by
+        // the record's compact constructor.
+        var bad = new ValidationResult();
+        var rejected = loader.loadTransport("""
+                id: storynpcs:broken_rift
+                name: Broken
+                dimensionId: minecraft:the_end
+                x: 0
+                y: 80
+                z: 0
+                dimensionPolicy:
+                  transferTimeoutTicks: 0
+                  recovery: ABORT
+                """, "broken.yaml", bad);
+        assertThat(rejected).isNull();
+        assertThat(bad.hasErrors()).isTrue();
+    }
+
+    @Test
     void requestTransport_failsClosedWithoutServer() {
         UUID player = UUID.randomUUID();
         var result = service.requestTransport(new com.storynpcs.service.PlayerProgressionActionRequest(
@@ -229,10 +282,14 @@ class P6P9WiringTest {
         giver.setItemId(NamespacedId.of("minecraft:bread"));
         giver.validate(); // valid now
 
+        // BUILDER without buildSchematicId must fail validation; supplying one
+        // passes — the handler submits a tagged bounded build per cycle.
         var builder = new JobConfig(JobType.BUILDER);
         org.assertj.core.api.Assertions.assertThatThrownBy(builder::validate)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no implemented handler");
+                .hasMessageContaining("buildSchematicId");
+        builder.setBuildSchematicId(NamespacedId.of("storynpcs:hut"));
+        builder.validate(); // valid now
     }
 
     @Test

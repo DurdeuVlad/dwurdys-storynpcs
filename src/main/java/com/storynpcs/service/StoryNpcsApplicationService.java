@@ -2650,8 +2650,28 @@ public class StoryNpcsApplicationService {
                     if (progression == null) {
                         result = factionMutationFailure(0, "PROGRESSION_UNAVAILABLE",
                                 "Player progression is blocked pending durable-state recovery");
-                    } else synchronized (progression) {
-                        result = applyFactionProgressionMutation(request, fingerprint, progression, notifications);
+                    } else {
+                        synchronized (progression) {
+                            result = applyFactionProgressionMutation(request, fingerprint, progression, notifications);
+                        }
+                        // P6-1 team sharing: an applied ADJUST propagates its
+                        // post-clamp delta to teammates when the team opted in.
+                        // The delta rides the emitted event so clamped values
+                        // are what teammates receive, not the requested amount.
+                        if (result.applied() && !result.duplicate()
+                                && request.action() == FactionProgressionMutationRequest.Action.ADJUST) {
+                            // Snapshot: propagation appends member events to
+                            // the same list — iterating a live copy is required.
+                            for (var event : new ArrayList<>(notifications)) {
+                                if (event instanceof FactionReputationChangeEvent fce
+                                        && fce.newPoints() != fce.oldPoints()) {
+                                    registry.getFaction(request.factionId()).ifPresent(faction ->
+                                            propagateTeamFactionDelta(request.playerUuid(),
+                                                    request.factionId(), fce.newPoints() - fce.oldPoints(),
+                                                    faction, notifications));
+                                }
+                            }
+                        }
                     }
                     if (!result.duplicate()) notifications.add(0, factionMutationEvent(request, result));
                     dispatchQueue = enqueueQuestEvents(request.playerUuid(), notifications);
@@ -3468,6 +3488,115 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Toggle optional faction sharing (P6-1): the subject must own the team.
+     * When enabled, an ADJUST faction change on any member propagates the
+     * applied delta to teammates — explicit opt-in, never implicit.
+     */
+    public AuthorizedActionResult teamSetSharing(PlayerProgressionActionRequest request,
+                                                 boolean shareFactionPoints) {
+        Objects.requireNonNull(request, "request");
+        return runProgressionAction(request, "team.share", "share=" + shareFactionPoints, null,
+                () -> applyTeamSetSharing(request, shareFactionPoints));
+    }
+
+    private AuthorizedActionResult applyTeamSetSharing(PlayerProgressionActionRequest request,
+                                                       boolean shareFactionPoints) {
+        var store = teamProgressionStore;
+        if (store == null) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "TEAM_STORE_UNAVAILABLE", "Team progression store is not open"));
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            UUID teamId = progression.getTeamId();
+            if (teamId == null) {
+                return AuthorizedActionResult.of(false);
+            }
+            try {
+                var teamOpt = store.get(teamId);
+                if (teamOpt.isEmpty() || !teamOpt.get().isMember(request.playerUuid())) {
+                    return AuthorizedActionResult.of(false);
+                }
+                var team = teamOpt.get();
+                if (!request.playerUuid().equals(team.getOwnerUuid())) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "NOT_OWNER", "Only the team owner can change sharing"));
+                }
+                team.setShareFactionPoints(shareFactionPoints);
+                store.save(team);
+                return AuthorizedActionResult.of(true);
+            } catch (Exception e) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "TEAM_STORE_UNAVAILABLE", "Team record could not be persisted"));
+            }
+        }
+    }
+
+    /** Bound on teammates receiving a shared faction delta — teams stay small; the cap is defensive. */
+    private static final int MAX_TEAM_FACTION_SHARE = 64;
+
+    /**
+     * Faction sharing (P6-1): when the subject's team opted in, the *applied*
+     * delta (post-clamp) is applied to each teammate's own progression — own
+     * revision bump, own save, own {@code FactionReputationChangeEvent} with
+     * source {@code "team"}. Runs after the subject commit; per-member write
+     * failures are logged, never rolled back (same best-effort policy as the
+     * quest mirror). Only ADJUST deltas propagate — an absolute SET is an
+     * administrative action with no shareable relative meaning.
+     */
+    private void propagateTeamFactionDelta(UUID playerUuid, NamespacedId factionId, int delta,
+                                           Faction faction, List<StoryNpcsEvent> eventsOut) {
+        var store = teamProgressionStore;
+        if (store == null || delta == 0) {
+            return;
+        }
+        try {
+            PlayerProgression subject = progressionRepository.getOrCreate(playerUuid);
+            UUID teamId;
+            synchronized (subject) {
+                teamId = subject.getTeamId();
+            }
+            if (teamId == null) {
+                return;
+            }
+            var teamOpt = store.get(teamId);
+            if (teamOpt.isEmpty() || !teamOpt.get().isShareFactionPoints()
+                    || !teamOpt.get().isMember(playerUuid)) {
+                return;
+            }
+            int applied = 0;
+            for (UUID memberUuid : teamOpt.get().getMemberUuids()) {
+                if (memberUuid.equals(playerUuid)) {
+                    continue;
+                }
+                if (++applied > MAX_TEAM_FACTION_SHARE) {
+                    break;
+                }
+                try {
+                    PlayerProgression member = progressionRepository.getOrCreate(memberUuid);
+                    synchronized (member) {
+                        int oldP = member.getFactionScore(factionId, faction.getDefaultPoints());
+                        member.adjustFactionScore(factionId, delta, faction.getDefaultPoints());
+                        int newP = member.getFactionScore(factionId, faction.getDefaultPoints());
+                        member.setFactionRevision(Math.addExact(member.getFactionRevision(), 1L));
+                        progressionRepository.save(memberUuid, member);
+                        if (eventsOut != null && oldP != newP) {
+                            eventsOut.add(new FactionReputationChangeEvent(
+                                    memberUuid, factionId, oldP, newP, "team"));
+                        }
+                    }
+                } catch (Exception memberFailure) {
+                    System.err.println("[StoryNPCs] team faction share to " + memberUuid
+                            + " failed: " + memberFailure.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[StoryNPCs] team faction share for " + playerUuid
+                    + " failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * Post-commit mirror (P5-5): when a team member's quest state changes,
      * the shared team record picks it up so "team progress and ownership
      * survive reconnect". Completion also records the explicit claim — the
@@ -3576,6 +3705,14 @@ public class StoryNpcsApplicationService {
                                     request.requestId(), fingerprint);
                             if (completion.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
                                 notifications.addAll(factionEvents);
+                                // P6-1: share the just-applied faction reward
+                                // deltas with an opted-in team.
+                                for (var fe : factionEvents) {
+                                    registry.getFaction(fe.factionId()).ifPresent(faction ->
+                                            propagateTeamFactionDelta(request.playerUuid(),
+                                                    fe.factionId(), fe.newPoints() - fe.oldPoints(),
+                                                    faction, notifications));
+                                }
                                 notifications.add(new QuestCompleteEvent(request.playerUuid(), request.questId()));
                                 result = new CanonicalMutationResult(true, result.duplicate(),
                                         progression.getQuestRevision(), ValidationResult.valid(), result.events(),
@@ -3999,6 +4136,15 @@ public class StoryNpcsApplicationService {
                         // record and record the explicit claim.
                         propagateTeamQuestState(request.playerUuid(), request.questId(), progression);
                         notifications.addAll(factionEvents);
+                        // P6-1: share applied faction reward deltas with an
+                        // opted-in team (teammates get the delta, each under
+                        // their own revision and durable save).
+                        for (var fe : factionEvents) {
+                            registry.getFaction(fe.factionId()).ifPresent(faction ->
+                                    propagateTeamFactionDelta(request.playerUuid(),
+                                            fe.factionId(), fe.newPoints() - fe.oldPoints(),
+                                            faction, notifications));
+                        }
                         notifications.add(new QuestCompleteEvent(request.playerUuid(), request.questId()));
                     }
                 }
@@ -6688,6 +6834,71 @@ public class StoryNpcsApplicationService {
      */
     // Internal-only (issue #54): the typed request overload above is the
     // adapter-facing entry point; this performs the authorized mutation.
+    /**
+     * Pending cross-dimension arrival verifications (P6-3): a successful
+     * cross-dimension transfer is re-checked after {@code transferTimeoutTicks};
+     * a player not in the target dimension at the deadline is recovered per the
+     * location's authored policy. In-memory by design — the world-scoped
+     * service is recreated on reload, so a restart inside the window drops the
+     * verification (the durable journal still records the request outcome).
+     */
+    private final java.util.Queue<PendingTransportVerification> pendingTransportVerifications =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+    private record PendingTransportVerification(
+            UUID playerUuid,
+            net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> originLevel,
+            double originX, double originY, double originZ, float originYaw,
+            net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> targetLevel,
+            NamespacedId locationId, long deadlineTick,
+            com.storynpcs.domain.transport.TransportEvaluator.DimensionPolicy.Recovery recovery) {}
+
+    /** Test seam: number of outstanding cross-dimension arrival verifications. */
+    int pendingTransportVerificationCount() {
+        return pendingTransportVerifications.size();
+    }
+
+    /**
+     * Drain expired arrival verifications — called once per server tick from
+     * the mod's tick hook. An offline player at the deadline is dropped: there
+     * is nobody to relocate, and their durable journal record already holds the
+     * request outcome.
+     */
+    public void tickTransportVerifications(net.minecraft.server.MinecraftServer server) {
+        if (server == null || pendingTransportVerifications.isEmpty()) {
+            return;
+        }
+        long now = server.overworld().getGameTime();
+        var it = pendingTransportVerifications.iterator();
+        while (it.hasNext()) {
+            var v = it.next();
+            if (now < v.deadlineTick()) {
+                continue;
+            }
+            it.remove();
+            var player = server.getPlayerList().getPlayer(v.playerUuid());
+            if (player == null) {
+                continue; // offline at deadline — nothing to relocate
+            }
+            if (player.serverLevel().dimension().equals(v.targetLevel())) {
+                continue; // arrived
+            }
+            System.err.println("[StoryNPCs] cross-dimension transport to '"
+                    + v.locationId() + "' for " + v.playerUuid()
+                    + " did not arrive within the transfer timeout — recovery "
+                    + v.recovery());
+            if (v.recovery()
+                    == com.storynpcs.domain.transport.TransportEvaluator
+                            .DimensionPolicy.Recovery.RETURN_TO_ORIGIN) {
+                var origin = server.getLevel(v.originLevel());
+                if (origin != null) {
+                    player.teleportTo(origin, v.originX(), v.originY(), v.originZ(),
+                            java.util.Set.of(), v.originYaw(), player.getXRot());
+                }
+            }
+        }
+    }
+
     TransportResult requestTransport(UUID playerUuid, NamespacedId locationId) {
         if (minecraftServer == null) {
             return new TransportResult(false, null, 0, "SERVER_UNAVAILABLE");
@@ -6718,10 +6929,14 @@ public class StoryNpcsApplicationService {
         if (targetLevel == null) {
             return new TransportResult(false, dest.getName(), 0, "DIMENSION_UNAVAILABLE");
         }
+        var policy = dest.getDimensionPolicy();
         // Evaluation passed — charge the fee, then move the player. Teleport
         // failure refunds the fee: the charge and the transfer are one leg.
         // Entity.teleportTo returns boolean — a refused transfer signals false,
         // not an exception — so BOTH outcomes must refund the charged fee.
+        var originLevel = player.serverLevel().dimension();
+        double ox = player.getX(), oy = player.getY(), oz = player.getZ();
+        float originYaw = player.getYRot();
         if (approved.fee() > 0) {
             deductEmeralds(player, approved.fee());
         }
@@ -6736,7 +6951,30 @@ public class StoryNpcsApplicationService {
             if (approved.fee() > 0) {
                 refundEmeralds(player, approved.fee());
             }
+            // A refused transfer can still leave the entity relocated
+            // (platform partial-move edge); RETURN_TO_ORIGIN restores the
+            // recorded pre-transfer position.
+            if (policy.recovery()
+                    == com.storynpcs.domain.transport.TransportEvaluator
+                            .DimensionPolicy.Recovery.RETURN_TO_ORIGIN
+                    && !player.serverLevel().dimension().equals(originLevel)) {
+                var origin = minecraftServer.getLevel(originLevel);
+                if (origin != null) {
+                    player.teleportTo(origin, ox, oy, oz,
+                            java.util.Set.of(), originYaw, player.getXRot());
+                }
+            }
             return new TransportResult(false, dest.getName(), 0, "TRANSFER_FAILED");
+        }
+        if (!originLevel.equals(targetLevel.dimension())) {
+            // Cross-dimension success: deadline-verify the arrival so a player
+            // bounced out of the target dimension within the timeout window is
+            // recovered per the authored policy instead of stranded.
+            long deadline = minecraftServer.overworld().getGameTime()
+                    + policy.transferTimeoutTicks();
+            pendingTransportVerifications.add(new PendingTransportVerification(
+                    playerUuid, originLevel, ox, oy, oz, originYaw,
+                    targetLevel.dimension(), locationId, deadline, policy.recovery()));
         }
         return new TransportResult(true, dest.getName(), approved.fee(), "transported");
     }

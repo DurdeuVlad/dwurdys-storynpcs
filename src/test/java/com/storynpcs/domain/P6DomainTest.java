@@ -193,6 +193,35 @@ class P6DomainTest {
         assertThatThrownBy(() -> job.markRan(200)).isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void builderSchematicCacheClearsOnPauseAndStop() {
+        JobConfig builder = new JobConfig(JobType.BUILDER);
+        builder.setBuildSchematicId(id("hut"));
+        builder.validate(); // implemented handler — only the schematic ref is required
+        JobInstance job = new JobInstance(UUID.randomUUID(), builder);
+        var schematic = new com.storynpcs.domain.schematic.Schematic(
+                "hut", 1, 1, 1, List.of("minecraft:stone"), new int[]{0},
+                List.of(), List.of());
+        job.setBuilderSchematic(schematic);
+        assertThat(job.getBuilderSchematic()).isNotNull();
+        job.pause();
+        assertThat(job.getBuilderSchematic()).isNull(); // stale copy dropped
+        job.resume();
+        job.setBuilderSchematic(schematic);
+        job.stop();
+        assertThat(job.getBuilderSchematic()).isNull();
+    }
+
+    @Test
+    void followerJobConfigRequiresNothingBeyondType() {
+        // FOLLOWER's data lives on FollowerRole — the job only maintains the
+        // following state; no additional config fields are mandatory.
+        new JobConfig(JobType.FOLLOWER).validate();
+        new JobConfig(JobType.PUPPET).validate();
+        new JobConfig(JobType.BARD).validate();
+        new JobConfig(JobType.CHUNK_LOADER).validate();
+    }
+
     // --- P6-5 companion -----------------------------------------------------
 
     @Test
@@ -237,5 +266,53 @@ class P6DomainTest {
                 .isInstanceOf(IllegalArgumentException.class);
         // Inventory is the P3-4 container contract.
         assertThat(profile.getInventory()).isNotNull();
+    }
+
+    @Test
+    void companionEffectsApplyBoundedStageAndTalentBonuses() {
+        var profile = new CompanionProfile();
+        assertThat(com.storynpcs.domain.companion.CompanionEffects
+                .summarize(profile, 0).stageMultiplier()).isEqualTo(1.0);
+
+        var early = new CompanionProfile.CompanionStage(id("squire"), 0, 1.0);
+        early.setTalentSlots(1);
+        var late = new CompanionProfile.CompanionStage(id("knight"), 100_000, 1.5);
+        late.setTalentSlots(3);
+        profile.setStages(List.of(early, late));
+
+        var sword = new CompanionProfile.Talent(id("swordplay"), 4, 5);
+        sword.setEffect(com.storynpcs.domain.companion.CompanionEffectType.DAMAGE_BONUS);
+        var armor = new CompanionProfile.Talent(id("bulwark"), 2, 5);
+        armor.setEffect(com.storynpcs.domain.companion.CompanionEffectType.DEFENSE_BONUS);
+        var lore = new CompanionProfile.Talent(id("lore"), 1, 1); // flavor: no effect
+        var swift = new CompanionProfile.Talent(id("swift"), 3, 5);
+        swift.setEffect(com.storynpcs.domain.companion.CompanionEffectType.MOVEMENT_SPEED_BONUS);
+        var pack = new CompanionProfile.Talent(id("pack"), 6, 8);
+        pack.setEffect(com.storynpcs.domain.companion.CompanionEffectType.CARRY_CAPACITY_BONUS);
+        profile.setTalents(List.of(sword, armor, lore, swift, pack));
+
+        // Early stage: 1 slot — only the first effect-bearing talent counts.
+        var p1 = com.storynpcs.domain.companion.CompanionEffects.summarize(profile, 0);
+        assertThat(p1.damageBonus()).isEqualTo(4);
+        assertThat(p1.armorBonus()).isZero();
+        assertThat(p1.stageMultiplier()).isEqualTo(1.0);
+
+        // Late stage: 3 slots — flavor talent does not consume a slot.
+        var p2 = com.storynpcs.domain.companion.CompanionEffects.summarize(profile, 200_000);
+        assertThat(p2.stageMultiplier()).isEqualTo(1.5);
+        assertThat(p2.damageBonus()).isEqualTo(4);
+        assertThat(p2.armorBonus()).isEqualTo(2);
+        assertThat(p2.speedBonusFraction()).isEqualTo(3 * 0.01);
+        assertThat(p2.carrySlotBonus()).isZero(); // 5th effective talent is past the cap
+
+        // Carry capacity is bounded by the P3-4 container.
+        var packOnly = new CompanionProfile();
+        var s = new CompanionProfile.CompanionStage(id("beast"), 0, 1.0);
+        s.setTalentSlots(4);
+        packOnly.setStages(List.of(s));
+        packOnly.setTalents(List.of(pack, pack));
+        var proj = com.storynpcs.domain.companion.CompanionEffects.summarize(packOnly, 10);
+        assertThat(com.storynpcs.domain.companion.CompanionEffects.effectiveCarryCapacity(proj))
+                .isLessThanOrEqualTo(com.storynpcs.domain.npc.NpcInventory.DROP_SLOTS);
     }
 }
