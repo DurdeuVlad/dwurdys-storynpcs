@@ -21,6 +21,8 @@ import com.storynpcs.StoryNpcsAccess;
  * - Click entity A: Selects passenger.
  * - Click entity B: Mounts passenger onto entity B.
  * - Sneak-click entity: Dismounts entity.
+ * - Right-click a block with a passenger selected: seats the passenger on a
+ *   transient chair mount (#148).
  */
 public class NpcMounterItem extends Item {
 
@@ -98,5 +100,61 @@ public class NpcMounterItem extends Item {
                 return InteractionResult.FAIL;
             }
         }
+    }
+
+    /**
+     * Right-click a block with a selected passenger: spawns a transient
+     * {@link com.storynpcs.entity.ChairMountEntity} on the clicked face and
+     * seats the passenger on it (#148). Without a selection the click is a
+     * no-op hint — the chair needs a rider.
+     */
+    @Override
+    public InteractionResult useOn(net.minecraft.world.item.context.UseOnContext context) {
+        var level = context.getLevel();
+        var player = context.getPlayer();
+        if (level.isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!(player instanceof ServerPlayer serverPlayer) || !serverPlayer.hasPermissions(2)) {
+            return InteractionResult.FAIL;
+        }
+        StoryNpcs mod = StoryNpcsAccess.mod(serverPlayer);
+        if (mod == null) {
+            return InteractionResult.FAIL;
+        }
+        if (context.getClickedFace() != net.minecraft.core.Direction.UP) {
+            serverPlayer.sendSystemMessage(Component.literal(
+                    "§7[StoryNPCs Mounter] Click the top face of a block to seat the passenger."));
+            return InteractionResult.FAIL;
+        }
+        Integer passengerId = mod.getRuntimeSessions(serverPlayer.getServer())
+                .selectedPassenger(serverPlayer.getUUID());
+        if (passengerId == null) {
+            serverPlayer.sendSystemMessage(Component.literal(
+                    "§7[StoryNPCs Mounter] Select a passenger entity first, then click a block to seat it."));
+            return InteractionResult.FAIL;
+        }
+        Entity passenger = level.getEntity(passengerId);
+        if (passenger == null || !passenger.isAlive()) {
+            mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
+            serverPlayer.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs Mounter] Previously selected passenger is no longer available."));
+            return InteractionResult.FAIL;
+        }
+        var chair = new com.storynpcs.entity.ChairMountEntity(
+                com.storynpcs.entity.StoryNpcRegistry.NPC_CHAIR_MOUNT.get(), level);
+        var seat = net.minecraft.world.phys.Vec3.atBottomCenterOf(context.getClickedPos().above());
+        chair.setPos(seat.x, seat.y, seat.z);
+        level.addFreshEntity(chair);
+        mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
+        if (passenger.startRiding(chair, true)) {
+            serverPlayer.sendSystemMessage(Component.literal(
+                    "§a[StoryNPCs Mounter] Seated '§f" + passenger.getName().getString() + "§a'."));
+            return InteractionResult.SUCCESS;
+        }
+        chair.discard();
+        serverPlayer.sendSystemMessage(Component.literal(
+                "§c[StoryNPCs Mounter] Could not seat the passenger."));
+        return InteractionResult.FAIL;
     }
 }

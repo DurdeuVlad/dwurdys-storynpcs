@@ -36,6 +36,9 @@ public final class StoryNpcsItems {
     public static final DeferredHolder<Item, NpcDialogueWandItem> NPC_DIALOGUE_WAND =
             ITEMS.register("npc_dialogue_wand", () -> new NpcDialogueWandItem(new Item.Properties().stacksTo(1).rarity(Rarity.RARE)));
 
+    public static final DeferredHolder<Item, NbtBookItem> NBT_BOOK =
+            ITEMS.register("nbt_book", () -> new NbtBookItem(new Item.Properties().stacksTo(1).rarity(Rarity.RARE)));
+
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> STORYNPCS_TAB =
             CREATIVE_MODE_TABS.register("storynpcs_tab", () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.storynpcs"))
@@ -46,6 +49,7 @@ public final class StoryNpcsItems {
                         output.accept(NPC_PATH.get());
                         output.accept(NPC_MOUNTER.get());
                         output.accept(NPC_DIALOGUE_WAND.get());
+                        output.accept(NBT_BOOK.get());
                     })
                     .build());
 

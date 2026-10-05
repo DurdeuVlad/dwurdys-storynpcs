@@ -71,50 +71,33 @@
   },
   "fixture_coverage": {
     "domains": {
-      "ai-and-movement": [
-        "P0-4.ai"
-      ],
-      "banks": [
-        "P0-4.bank"
-      ],
-      "commands": [
-        "P0-4.commands"
-      ],
-      "companions": [
-        "P0-4.companion"
-      ],
       "core-entity-and-variants": [
         "P0-4.core-entity"
-      ],
-      "creator-world-tools": [
-        "P0-4.creator-tools"
-      ],
-      "dialogue": [
-        "P0-4.dialogue-choice",
-        "P0-4.dialogue-definition"
       ],
       "display-and-aesthetics": [
         "P0-4.display"
       ],
-      "factions": [
-        "P0-4.faction",
-        "P6-1.player-faction-panel"
+      "stats-and-combat": [
+        "P0-4.combat",
+        "P3-2.abilities.block",
+        "P3-2.abilities.pull",
+        "P3-2.abilities.push",
+        "P3-2.abilities.smash",
+        "P3-2.abilities.snare",
+        "P3-2.abilities.teleport"
+      ],
+      "ai-and-movement": [
+        "P0-4.ai"
+      ],
+      "targeting-and-defeat": [
+        "P0-4.targeting"
       ],
       "inventory-equipment-drops": [
         "P0-4.inventory"
       ],
-      "jobs": [
-        "P0-4.jobs"
-      ],
-      "marks": [
-        "P0-4.marks"
-      ],
-      "networking": [
-        "P0-4.networking",
-        "P1-3.player-panel-protocol"
-      ],
-      "persistence": [
-        "P0-4.persistence"
+      "dialogue": [
+        "P0-4.dialogue-choice",
+        "P0-4.dialogue-definition"
       ],
       "quests": [
         "P0-4.quest-completion",
@@ -123,35 +106,70 @@
         "P5-4.player-quest-log",
         "P5-5.player-mail"
       ],
+      "factions": [
+        "P0-4.faction",
+        "P6-1.player-faction-panel"
+      ],
       "roles": [
         "P0-4.roles"
       ],
-      "scripting": [
-        "P0-4.scripting"
-      ],
-      "spawners-templates": [
-        "P0-4.spawner"
-      ],
-      "stats-and-combat": [
-        "P0-4.combat"
-      ],
-      "targeting-and-defeat": [
-        "P0-4.targeting"
-      ],
-      "trading": [
-        "P0-4.trade"
+      "jobs": [
+        "P0-4.jobs"
       ],
       "transport": [
         "P0-4.transport",
         "P6-3.player-transport-panel"
+      ],
+      "banks": [
+        "P0-4.bank"
+      ],
+      "trading": [
+        "P0-4.trade"
+      ],
+      "companions": [
+        "P0-4.companion"
+      ],
+      "spawners-templates": [
+        "P0-4.spawner"
+      ],
+      "marks": [
+        "P0-4.marks"
+      ],
+      "creator-world-tools": [
+        "P0-4.creator-tools",
+        "P8-2.chair-mount",
+        "P8-2.fake-living",
+        "P8-2.nbt-book",
+        "P8-2.schematic-build",
+        "P8-2.schematic-reader"
+      ],
+      "scripting": [
+        "P0-4.scripting"
+      ],
+      "commands": [
+        "P0-4.commands"
+      ],
+      "networking": [
+        "P0-4.networking",
+        "P1-3.player-panel-protocol"
+      ],
+      "persistence": [
+        "P0-4.persistence"
       ]
     },
     "operation_families": {
-      "BANK": [
-        "P0-4.bank"
-      ],
-      "CONFIG-WORLD-TOOLS": [
-        "P0-4.creator-tools"
+      "NPC-MODULE-MUTATION": [
+        "P0-4.ai",
+        "P0-4.combat",
+        "P0-4.commands",
+        "P0-4.core-entity",
+        "P0-4.display",
+        "P3-2.abilities.block",
+        "P3-2.abilities.pull",
+        "P3-2.abilities.push",
+        "P3-2.abilities.smash",
+        "P3-2.abilities.snare",
+        "P3-2.abilities.teleport"
       ],
       "DIALOG-DEFINITION": [
         "P0-4.dialogue-definition"
@@ -166,18 +184,8 @@
         "P0-4.targeting",
         "P6-1.player-faction-panel"
       ],
-      "INVENTORY-EQUIPMENT": [
-        "P0-4.inventory"
-      ],
-      "MARK": [
-        "P0-4.marks"
-      ],
-      "NPC-MODULE-MUTATION": [
-        "P0-4.ai",
-        "P0-4.combat",
-        "P0-4.commands",
-        "P0-4.core-entity",
-        "P0-4.display"
+      "QUEST-DEFINITION": [
+        "P0-4.quest-definition"
       ],
       "QUEST-COMPLETION": [
         "P0-4.persistence",
@@ -186,26 +194,40 @@
         "P5-4.player-quest-log",
         "P5-5.player-mail"
       ],
-      "QUEST-DEFINITION": [
-        "P0-4.quest-definition"
-      ],
       "ROLE-JOB": [
         "P0-4.companion",
         "P0-4.jobs",
         "P0-4.roles"
       ],
-      "SCRIPT": [
-        "P0-4.scripting"
-      ],
-      "SPAWN-CLONE": [
-        "P0-4.spawner"
+      "INVENTORY-EQUIPMENT": [
+        "P0-4.inventory"
       ],
       "TRADE": [
         "P0-4.trade"
       ],
+      "BANK": [
+        "P0-4.bank"
+      ],
       "TRANSPORT": [
         "P0-4.transport",
         "P6-3.player-transport-panel"
+      ],
+      "SPAWN-CLONE": [
+        "P0-4.spawner"
+      ],
+      "MARK": [
+        "P0-4.marks"
+      ],
+      "SCRIPT": [
+        "P0-4.scripting"
+      ],
+      "CONFIG-WORLD-TOOLS": [
+        "P0-4.creator-tools",
+        "P8-2.chair-mount",
+        "P8-2.fake-living",
+        "P8-2.nbt-book",
+        "P8-2.schematic-build",
+        "P8-2.schematic-reader"
       ]
     }
   },
@@ -52277,7 +52299,12 @@
           "P9-4"
         ],
         "parity_fixture_ids": [
-          "P0-4.creator-tools"
+          "P0-4.creator-tools",
+          "P8-2.chair-mount",
+          "P8-2.fake-living",
+          "P8-2.nbt-book",
+          "P8-2.schematic-build",
+          "P8-2.schematic-reader"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },
@@ -52436,7 +52463,13 @@
           "P0-4.combat",
           "P0-4.commands",
           "P0-4.core-entity",
-          "P0-4.display"
+          "P0-4.display",
+          "P3-2.abilities.block",
+          "P3-2.abilities.pull",
+          "P3-2.abilities.push",
+          "P3-2.abilities.smash",
+          "P3-2.abilities.snare",
+          "P3-2.abilities.teleport"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },

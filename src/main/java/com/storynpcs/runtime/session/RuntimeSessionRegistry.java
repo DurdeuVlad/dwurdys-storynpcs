@@ -17,10 +17,15 @@ public final class RuntimeSessionRegistry {
     private final Map<UUID, Integer> selectedPassengers = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastDialogueChoiceMillis = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRoleActionMillis = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastToolActionMillis = new ConcurrentHashMap<>();
     private final Map<UUID, RoleSession> roleSessions = new ConcurrentHashMap<>();
+    private final Map<UUID, EntitySession> entitySessions = new ConcurrentHashMap<>();
     private final Map<UUID, LinkedHashMap<UUID, Boolean>> acceptedRequests = new ConcurrentHashMap<>();
 
     public record RoleSession(String kind, NamespacedId npcId, UUID sessionId) {}
+
+    /** Tool session bound to a live entity id (NBT book, future entity tools). */
+    public record EntitySession(String kind, int entityId, UUID sessionId) {}
 
     public enum RequestAdmission {
         NEW,
@@ -72,6 +77,10 @@ public final class RuntimeSessionRegistry {
         return throttle(lastRoleActionMillis, playerId, nowMillis, minimumIntervalMillis);
     }
 
+    public boolean throttleToolAction(UUID playerId, long nowMillis, long minimumIntervalMillis) {
+        return throttle(lastToolActionMillis, playerId, nowMillis, minimumIntervalMillis);
+    }
+
     /** Returns a stable server-issued token for the currently open role screen. */
     public UUID openRoleSession(UUID playerId, String kind, NamespacedId npcId) {
         if (playerId == null || kind == null || npcId == null) return null;
@@ -89,6 +98,33 @@ public final class RuntimeSessionRegistry {
         RoleSession current = roleSessions.get(playerId);
         return current != null && current.sessionId().equals(sessionId)
                 && current.kind().equals(kind) && current.npcId().equals(npcId);
+    }
+
+    /** Returns a stable server-issued token for the currently open entity-targeted tool session. */
+    public UUID openEntitySession(UUID playerId, String kind, int entityId) {
+        if (playerId == null || kind == null) return null;
+        EntitySession current = entitySessions.get(playerId);
+        if (current != null && current.kind().equals(kind) && current.entityId() == entityId) {
+            return current.sessionId();
+        }
+        UUID sessionId = UUID.randomUUID();
+        entitySessions.put(playerId, new EntitySession(kind, entityId, sessionId));
+        return sessionId;
+    }
+
+    public boolean isEntitySession(UUID playerId, String kind, int entityId, UUID sessionId) {
+        if (playerId == null || kind == null || sessionId == null) return false;
+        EntitySession current = entitySessions.get(playerId);
+        return current != null && current.sessionId().equals(sessionId)
+                && current.kind().equals(kind) && current.entityId() == entityId;
+    }
+
+    /** Invalidates the live entity session for the player (screen closed / tool dismissed). */
+    public void closeEntitySession(UUID playerId, String kind, UUID sessionId) {
+        if (playerId == null || kind == null || sessionId == null) return;
+        entitySessions.computeIfPresent(playerId,
+                (id, current) -> current.kind().equals(kind) && current.sessionId().equals(sessionId)
+                        ? null : current);
     }
 
     /**
@@ -138,7 +174,9 @@ public final class RuntimeSessionRegistry {
         selectedPassengers.remove(playerId);
         lastDialogueChoiceMillis.remove(playerId);
         lastRoleActionMillis.remove(playerId);
+        lastToolActionMillis.remove(playerId);
         roleSessions.remove(playerId);
+        entitySessions.remove(playerId);
         acceptedRequests.remove(playerId);
     }
 
@@ -148,7 +186,9 @@ public final class RuntimeSessionRegistry {
         selectedPassengers.clear();
         lastDialogueChoiceMillis.clear();
         lastRoleActionMillis.clear();
+        lastToolActionMillis.clear();
         roleSessions.clear();
+        entitySessions.clear();
         acceptedRequests.clear();
     }
 

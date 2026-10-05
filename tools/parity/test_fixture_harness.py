@@ -73,14 +73,14 @@ class FixtureHarnessTest(unittest.TestCase):
         self.assertEqual(report["validation_status"], "PASS")
         self.assertEqual(report["status"], "BLOCKED")
         self.assertEqual(report["source_provenance_status"], "UNVERIFIED")
-        self.assertEqual(report["coverage"]["fixture_count"], 30)
-        self.assertEqual(report["coverage"]["mapped_junit_fixture_count"], 30)
+        self.assertEqual(report["coverage"]["fixture_count"], 41)
+        self.assertEqual(report["coverage"]["mapped_junit_fixture_count"], 41)
         self.assertEqual(report["coverage"]["unmapped_junit_fixture_ids"], [])
         self.assertEqual(report["coverage"]["unmapped_junit_fixture_blockers"], [])
         self.assertEqual(report["storynpcs_execution_coverage"], "MAPPED")
         self.assertEqual(report["evidence"]["parity_status"], "BLOCKED")
         self.assertFalse(report["evidence"]["certification_eligible"])
-        self.assertEqual(len(expand_fixtures(catalog)), 30)
+        self.assertEqual(len(expand_fixtures(catalog)), 41)
 
     def test_target_import_advances_covered_fixtures_and_marks_the_rest_uncovered(self):
         root = Path(__file__).resolve().parents[2]
