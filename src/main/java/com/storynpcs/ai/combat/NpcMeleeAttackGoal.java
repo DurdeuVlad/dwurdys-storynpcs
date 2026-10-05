@@ -195,8 +195,11 @@ public class NpcMeleeAttackGoal extends Goal {
                 && combatPeriod > 0) {
             attackCooldown = Math.max(authoredAttackDelayTicks(), combatPeriod);
             this.npc.swing(InteractionHand.MAIN_HAND);
-            this.npc.doHurtTarget(target);
+            boolean hit = this.npc.doHurtTarget(target);
             applyAuthoredOnHitEffect(target);
+            if (hit) {
+                this.npc.fireAbilitiesOnAttack(target);
+            }
             if (behavior == NpcAi.TacticalBehavior.HIT_AND_RUN) {
                 hitRunUntilTick = now + TacticalManeuver.hitAndRunBackoffTicks(tacticalRadius);
             }

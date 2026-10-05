@@ -16,6 +16,7 @@ import com.storynpcs.runtime.actor.ActorLifecycleService;
 import com.storynpcs.service.DialogueView;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -52,6 +53,8 @@ public class StoryNpcEntity extends PathfinderMob {
 
     private final StoryNpcState state = new StoryNpcState();
     private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
+    private final com.storynpcs.ai.combat.NpcAbilityController abilityController =
+            new com.storynpcs.ai.combat.NpcAbilityController(this.random::nextDouble);
     private BlockPos startPosition;
     /**
      * HIDE-defeat state: {@code >0} counts down to reappearance,
@@ -249,6 +252,11 @@ public class StoryNpcEntity extends PathfinderMob {
             this.threatManager.tick(5, elapsed);
         }
 
+        // #147: authored combat abilities — UPDATE trigger. The controller
+        // enforces its own per-entity minimum update period plus per-ability
+        // cooldowns, so the per-tick cost is a map lookup when nothing is due.
+        tickAbilities(now);
+
         if (this.tickCount % 20 == 0) {
             if (animationDue) {
                 updateBossBar();
@@ -263,6 +271,138 @@ public class StoryNpcEntity extends PathfinderMob {
                 && !companionPaused) {
             com.storynpcs.runtime.job.NpcJobRuntime.run(this, jobInstance);
             jobInstance.markRan(now);
+        }
+    }
+
+    /**
+     * Authored combat abilities (#147): evaluates UPDATE-triggered abilities
+     * against the current threat target. The controller self-throttles to
+     * {@code MIN_UPDATE_PERIOD_TICKS}; absent abilities or no live target
+     * short-circuit before any outcome computation.
+     */
+    private void tickAbilities(long now) {
+        var abilities = getDefinition().map(NpcDefinition::getAbilities).orElse(java.util.List.of());
+        if (abilities.isEmpty()) {
+            return;
+        }
+        // Same tier budget as melee/ranged combat — a DORMANT NPC must not
+        // keep pulling or teleporting toward a stale threat target.
+        if (simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.COMBAT) <= 0) {
+            return;
+        }
+        var targetUuid = threatManager.getCurrentTarget();
+        if (targetUuid.isEmpty() || !(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            return;
+        }
+        if (!(serverLevel.getEntity(targetUuid.get()) instanceof LivingEntity victim) || !victim.isAlive()) {
+            return;
+        }
+        applyAbilityOutcomes(
+                this.abilityController.onUpdate(abilities, abilityEventInput(victim, 0, now)),
+                victim);
+    }
+
+    /**
+     * ATTACK-triggered abilities after a landed hit (melee goal or projectile
+     * impact). Server-side only; callers are already in server code paths.
+     */
+    public void fireAbilitiesOnAttack(LivingEntity target) {
+        if (this.level().isClientSide || target == null || !target.isAlive()) {
+            return;
+        }
+        var abilities = getDefinition().map(NpcDefinition::getAbilities).orElse(java.util.List.of());
+        if (abilities.isEmpty()) {
+            return;
+        }
+        applyAbilityOutcomes(
+                this.abilityController.onAttack(abilities,
+                        abilityEventInput(target, 0, this.level().getGameTime())),
+                target);
+    }
+
+    private com.storynpcs.ai.combat.NpcAbilityController.EventInput abilityEventInput(
+            LivingEntity actor, double damage, long gameTime) {
+        var def = getDefinition().orElse(null);
+        return new com.storynpcs.ai.combat.NpcAbilityController.EventInput(
+                def != null ? def.getId() : null,
+                def != null && def.getDisplay() != null ? def.getDisplay().getName() : "StoryNPC",
+                getHealth(), Math.max(1.0, getMaxHealth()),
+                getX(), getY(), getZ(),
+                actor.getX(), actor.getY(), actor.getZ(),
+                damage, gameTime, actor.getUUID(), actor instanceof ServerPlayer,
+                threatManager.getStrikes(actor.getUUID()), resolveActorStanding(actor));
+    }
+
+    /**
+     * Resolves the attacker's faction standing toward this NPC's faction for
+     * {@code FACTION_STANDING} ability conditions: players read progression
+     * faction scores against authored thresholds; NPC actors resolve through
+     * the inter-faction relationship matrix. Null when unresolvable.
+     */
+    private com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing resolveActorStanding(
+            LivingEntity actor) {
+        var mod = StoryNpcsAccess.mod(this);
+        if (mod == null) {
+            return null;
+        }
+        var ownFactionId = getState().getFactionId(mod.getRegistry()).orElse(null);
+        if (actor instanceof ServerPlayer player) {
+            var progressionRepo = mod.getProgressionRepository();
+            if (progressionRepo == null || ownFactionId == null) {
+                return null;
+            }
+            var faction = mod.getRegistry().getFaction(ownFactionId).orElse(null);
+            int defaultPoints = faction != null ? faction.getDefaultPoints() : 1000;
+            int score = progressionRepo.getOrCreate(player.getUUID())
+                    .getFactionScore(ownFactionId, defaultPoints);
+            if (score < (faction != null ? faction.getHostileThreshold() : 500)) {
+                return com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.HOSTILE;
+            }
+            if (score >= (faction != null ? faction.getFriendlyThreshold() : 1500)) {
+                return com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.FRIENDLY;
+            }
+            return com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.NEUTRAL;
+        }
+        if (actor instanceof StoryNpcEntity otherNpc && ownFactionId != null) {
+            var otherFactionId = otherNpc.getState().getFactionId(mod.getRegistry()).orElse(null);
+            if (otherFactionId == null) {
+                return null;
+            }
+            if (ownFactionId.equals(otherFactionId)) {
+                return com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.FRIENDLY;
+            }
+            var relationship = com.storynpcs.domain.ai.FactionRelationshipProvider
+                    .fromFactions(mod.getRegistry().getAllFactions())
+                    .relationship(ownFactionId, otherFactionId);
+            return switch (relationship) {
+                case HOSTILE -> com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.HOSTILE;
+                case FRIENDLY -> com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.FRIENDLY;
+                default -> com.storynpcs.domain.rule.condition.FactionStandingCondition.Standing.NEUTRAL;
+            };
+        }
+        return null;
+    }
+
+    /** Applies controller outcomes to real entities; DAMAGE_MULTIPLIER is consumed by the hurt() caller. */
+    private void applyAbilityOutcomes(
+            java.util.List<com.storynpcs.ai.combat.NpcAbilityController.AbilityOutcome> outcomes,
+            LivingEntity victim) {
+        for (var outcome : outcomes) {
+            switch (outcome.kind()) {
+                case TARGET_VELOCITY -> {
+                    victim.setDeltaMovement(victim.getDeltaMovement()
+                            .add(outcome.dx(), outcome.dy(), outcome.dz()));
+                    victim.hurtMarked = true;
+                }
+                case TARGET_SLOWNESS -> victim.addEffect(new MobEffectInstance(
+                        MobEffects.MOVEMENT_SLOWDOWN, outcome.durationTicks(), outcome.amplifier()),
+                        this);
+                case SELF_TELEPORT -> teleportTo(outcome.dx(), outcome.dy(), outcome.dz());
+                case BONUS_DAMAGE -> victim.hurt(
+                        damageSources().mobAttack(this), (float) outcome.amount());
+                case DAMAGE_MULTIPLIER -> { } // consumed by hurt() before damage is applied
+            }
         }
     }
 
@@ -1540,6 +1680,26 @@ public class StoryNpcEntity extends PathfinderMob {
                 if (!sameFaction && !(attacker instanceof ServerPlayer)) {
                     this.threatManager.evaluateHit(attacker.getUUID(), this.level().getGameTime(), 0, 60);
                 }
+
+                // #147: DAMAGED-triggered abilities — BLOCK scales the hit,
+                // pull/push/snare/teleport react to the attacker. Skip when
+                // vanilla i-frames would reject the hit outright so cooldowns
+                // are not burned on zero-damage invocations.
+                if (this.invulnerableTime > this.invulnerableDuration / 2.0F
+                        && amount <= this.lastHurt) {
+                    return super.hurt(source, scaleByAuthoredResistances(source, amount));
+                }
+                var abilityOutcomes = this.abilityController.onDamaged(
+                        getDefinition().map(NpcDefinition::getAbilities).orElse(java.util.List.of()),
+                        abilityEventInput(attacker, amount, this.level().getGameTime()));
+                float damageMultiplier = 1.0F;
+                for (var outcome : abilityOutcomes) {
+                    if (outcome.kind() == com.storynpcs.ai.combat.NpcAbilityController.OutcomeKind.DAMAGE_MULTIPLIER) {
+                        damageMultiplier *= (float) outcome.amount();
+                    }
+                }
+                applyAbilityOutcomes(abilityOutcomes, attacker);
+                return super.hurt(source, scaleByAuthoredResistances(source, amount * damageMultiplier));
             }
         }
         return super.hurt(source, scaleByAuthoredResistances(source, amount));
