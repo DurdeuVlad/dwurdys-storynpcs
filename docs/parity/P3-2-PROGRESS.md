@@ -38,3 +38,17 @@ Status: `IN-PROGRESS`
 - FLEE NPCs can re-aggro on continued attack (normal aggression rules apply after the flee) — deeper disengage/retreat policy is P3-3 targeting scope.
 - Totem-of-undying holders bypass the defeat contract via vanilla `checkTotemDeathProtection` (intercepted before `die()`); `LivingDeathEvent` does not fire for HIDE/FLEE (consistent with no-corpse intent).
 - Live entity/damage verification deferred — no live MC testing (entity `die()`/`aiStep` paths are runtime-only; the decision layer is JUnit-pinned). A headless GameTest for die→hide→reappear is feasible once the P4/infra harness lands.
+
+## Fifth pass — ADR-007 resistance contract correction (#122)
+
+The earlier resistance model stored *incoming-damage multipliers* (`amount * resistance`, 0=immune, 2=double) — the inverse of the target contract ADR-007 pinned down. Corrected:
+
+- **Semantic flip**: channels now store the target's resistance values (`0.0` vulnerable → double damage, `1.0` normal, `2.0` immune); damage scales by `2.0 - resistance` via `damageScaleArrow/Melee/Explosion` and `scaleKnockback`.
+- **Unclamped read passthrough**: `@JsonProperty` moved to fields with setters `@JsonIgnore`d — YAML/JSON deserialization bypasses the authored setter clamps and carries out-of-range persisted values verbatim into damage math (a value above 2.0 yields a negative scale — the target's heal-on-hit quirk). Authored setters still clamp `[0, 2]`.
+- **ModRev-equivalent marker**: `StoryNpcsRev` int written to entity NBT on every save (`DATA_REVISION = 1`), read back as `loadedDataRevision` (0 for pre-marker saves) for future format migrations.
+- **Compat-adapter immunity type-1/4 quirk**: inherited by the P11-1 import adapter (#91) — the adapter surface does not exist yet; recorded here so it isn't lost.
+- `NpcStatsTest`: resistance tests rewritten to target-faithful semantics + new `damageScalesFollowTargetFaithfulTwoMinusResistance` and `deserializedResistancesPassThroughUnclamped` fixtures.
+
+## Correction — ranged contract is fully executed (stale note above)
+
+`NpcRangedAttackGoal` + `NpcProjectileEntity` consume the entire authored ranged block server-side: windup delay, fire-rate cadence (combat-budget gated), shot count, accuracy spread, gravity, speed, authored projectile size, area damage, trail particles, impact sound, and on-hit effects — plus ability hooks on landed hits. The earlier "no projectile entity/goal executes it" note predates that wiring; the open item is closed.
