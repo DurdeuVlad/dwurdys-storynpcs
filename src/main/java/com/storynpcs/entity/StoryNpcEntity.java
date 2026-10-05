@@ -306,6 +306,7 @@ public class StoryNpcEntity extends PathfinderMob {
                 updateBossBar();
             }
             tickCompanionWages(now);
+            tickCompanionEffects(now);
             tickSocialRoles(now);
             tickAuthoredRegen();
         }
@@ -477,6 +478,86 @@ public class StoryNpcEntity extends PathfinderMob {
         if (rate > 0) {
             heal((float) rate);
         }
+    }
+
+    /**
+     * P6-5: apply the companion's stage multiplier + talent effects as
+     * transient attribute modifiers, refreshed whenever the resolved
+     * projection changes (stage advance, talent re-auth, profile remove).
+     * Runs on the 20-tick social cadence — projection math is a bounded scan
+     * (≤16 stages, ≤32 talents) and the signature check is a hash compare.
+     */
+    private void tickCompanionEffects(long now) {
+        var projection = companionProfile == null
+                ? com.storynpcs.domain.companion.CompanionEffects.Projection.NONE
+                : com.storynpcs.domain.companion.CompanionEffects.summarize(
+                        companionProfile, companionHiredTick < 0 ? 0 : now - companionHiredTick);
+        int signature = projection.hashCode();
+        if (signature == lastCompanionEffectSignature) {
+            return;
+        }
+        lastCompanionEffectSignature = signature;
+        applyCompanionModifier(COMPANION_STAGE_DAMAGE_MOD, Attributes.ATTACK_DAMAGE,
+                projection.stageMultiplier() - 1.0,
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+        applyCompanionModifier(COMPANION_STAGE_HEALTH_MOD, Attributes.MAX_HEALTH,
+                projection.stageMultiplier() - 1.0,
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+        applyCompanionModifier(COMPANION_TALENT_DAMAGE_MOD, Attributes.ATTACK_DAMAGE,
+                projection.damageBonus(),
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE);
+        applyCompanionModifier(COMPANION_TALENT_ARMOR_MOD, Attributes.ARMOR,
+                projection.armorBonus(),
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE);
+        applyCompanionModifier(COMPANION_TALENT_SPEED_MOD, Attributes.MOVEMENT_SPEED,
+                projection.speedBonusFraction(),
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_BASE);
+        if (this.getHealth() > this.getMaxHealth()) {
+            this.setHealth(this.getMaxHealth());
+        }
+    }
+
+    private static final net.minecraft.resources.ResourceLocation COMPANION_STAGE_DAMAGE_MOD =
+            net.minecraft.resources.ResourceLocation.parse("storynpcs:companion_stage_damage");
+    private static final net.minecraft.resources.ResourceLocation COMPANION_STAGE_HEALTH_MOD =
+            net.minecraft.resources.ResourceLocation.parse("storynpcs:companion_stage_health");
+    private static final net.minecraft.resources.ResourceLocation COMPANION_TALENT_DAMAGE_MOD =
+            net.minecraft.resources.ResourceLocation.parse("storynpcs:companion_talent_damage");
+    private static final net.minecraft.resources.ResourceLocation COMPANION_TALENT_ARMOR_MOD =
+            net.minecraft.resources.ResourceLocation.parse("storynpcs:companion_talent_armor");
+    private static final net.minecraft.resources.ResourceLocation COMPANION_TALENT_SPEED_MOD =
+            net.minecraft.resources.ResourceLocation.parse("storynpcs:companion_talent_speed");
+
+    private void applyCompanionModifier(net.minecraft.resources.ResourceLocation id,
+            net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute,
+            double amount,
+            net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation operation) {
+        var attr = this.getAttribute(attribute);
+        if (attr == null) {
+            return;
+        }
+        var existing = attr.getModifier(id);
+        if (Math.abs(amount) < 1.0e-9) {
+            if (existing != null) {
+                attr.removeModifier(id);
+            }
+            return;
+        }
+        if (existing != null && Math.abs(existing.amount() - amount) < 1.0e-9) {
+            return;
+        }
+        attr.addOrUpdateTransientModifier(
+                new net.minecraft.world.entity.ai.attributes.AttributeModifier(id, amount, operation));
+    }
+
+    /** Effective carried-item capacity for this companion (P6-5; wave-2 UI consumes it). */
+    public int companionCarryCapacity() {
+        if (companionProfile == null) {
+            return com.storynpcs.domain.companion.CompanionEffects.BASE_CARRY_CAPACITY;
+        }
+        var projection = com.storynpcs.domain.companion.CompanionEffects.summarize(
+                companionProfile, companionHiredTick < 0 ? 0 : tickCount - companionHiredTick);
+        return com.storynpcs.domain.companion.CompanionEffects.effectiveCarryCapacity(projection);
     }
 
     /** Companion wage charge + insufficient-funds/unload policy handling. */
@@ -898,6 +979,7 @@ public class StoryNpcEntity extends PathfinderMob {
                     // here instead of breaking the entity spawn path.
                     this.jobInstance = new com.storynpcs.domain.job.JobInstance(
                             this.getUUID(), def.getJob());
+                    publishJobTransition(this.jobInstance, null);
                 } catch (RuntimeException jobFailure) {
                     com.storynpcs.StoryNpcs.LOGGER.warn(
                             "NPC {} carries an invalid job config — job disabled: {}",
@@ -905,9 +987,13 @@ public class StoryNpcEntity extends PathfinderMob {
                 }
             }
             if (previousJob != null && previousJob.getState()
-                    != com.storynpcs.domain.job.JobInstance.State.STOPPED
-                    && this.jobInstance == null) {
+                    != com.storynpcs.domain.job.JobInstance.State.STOPPED) {
+                // Stopped whether the job was removed or replaced — a swapped
+                // instance must not linger as an orphan RUNNING marker (also
+                // releases its transient builder-schematic cache).
+                var preStop = previousJob.getState();
                 previousJob.stop();
+                publishJobTransition(previousJob, preStop);
             }
             this.companionProfile = def.getCompanion();
             this.bardRole = def.getBard();
@@ -1067,6 +1153,8 @@ public class StoryNpcEntity extends PathfinderMob {
             new com.storynpcs.domain.companion.WageLedger();
     private long companionHiredTick = -1;
     private boolean companionPaused;
+    /** Signature of the last applied companion effect projection — skips modifier churn when unchanged. */
+    private int lastCompanionEffectSignature = -1;
     private com.storynpcs.service.StoryNpcsApplicationService.CompanionWageOutcome lastWageOutcome;
     /** P9-2: script bound through the bounded scheduler for CONVERSATION/PUPPET jobs. */
     private java.util.UUID conversationScriptId;
@@ -1739,6 +1827,29 @@ public class StoryNpcEntity extends PathfinderMob {
         return jobForcedChunks;
     }
 
+    /**
+     * P6-4 job lifecycle event: publishes the observed {@link
+     * com.storynpcs.domain.job.JobInstance.State} transition (null previous =
+     * bind). The contract is the instance lifecycle, not config identity — a
+     * re-applied definition produces a STOPPED + RUNNING pair. No-ops
+     * client-side or when the observed state did not actually change.
+     */
+    private void publishJobTransition(com.storynpcs.domain.job.JobInstance job,
+                                      com.storynpcs.domain.job.JobInstance.State previous) {
+        if (job == null || previous == job.getState() || this.level().isClientSide) {
+            return;
+        }
+        var mod = StoryNpcsAccess.mod(this);
+        if (mod == null || mod.getEventPublisher() == null) {
+            return;
+        }
+        var definitionId = state.resolveDefinition(mod.getRegistry())
+                .map(NpcDefinition::getId).orElse(null);
+        mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcJobLifecycleEvent(
+                definitionId, this.getUUID(), job.getConfig().getType(),
+                previous, job.getState()));
+    }
+
     private void releaseJobForcedChunks() {
         if (jobForcedChunks.isEmpty()
                 || !(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
@@ -1938,7 +2049,9 @@ public class StoryNpcEntity extends PathfinderMob {
             }
             // P6-4: jobs stop on actor unload/removal — policy decides pause vs stop.
             if (jobInstance != null) {
+                var preUnload = jobInstance.getState();
                 jobInstance.onActorUnload();
+                publishJobTransition(jobInstance, preUnload);
             }
             releaseJobForcedChunks();
             // P4-2: drop any squad target claim so the slot is reclaimable.

@@ -61,12 +61,115 @@ public final class NpcJobRuntime {
             case FARMER -> runFarmer(npc, level, config.getWorkRadiusBlocks());
             case CHUNK_LOADER -> runChunkLoader(npc, level, config.getChunkRadius());
             case SPAWNER -> runSpawner(npc, level, config);
-            case CONVERSATION, PUPPET ->
+            case CONVERSATION ->
                     npc.dispatchScriptHook(com.storynpcs.script.ScriptHook.TICK);
+            case PUPPET -> runPuppet(npc, config);
             case ITEM_GIVER -> { /* interact-driven — handled in mobInteract */ }
-            case FOLLOWER, BUILDER -> logUnsupportedOnce(npc, config.getType());
+            case BUILDER -> runBuilder(npc, level, job);
+            case FOLLOWER -> runFollower(npc);
             default -> logUnsupportedOnce(npc, config.getType());
         }
+    }
+
+    /**
+     * BUILDER job: keep one in-flight tagged schematic build anchored at the
+     * NPC — the target's maintain/rebuild semantics. The schematic resolves
+     * once per RUNNING stint ({@link JobInstance#getBuilderSchematic}); while a
+     * build with this NPC's tag is draining the cycle is a no-op, and when
+     * {@code buildMaintain} is off the job submits exactly once.
+     */
+    private static void runBuilder(StoryNpcEntity npc, ServerLevel level, JobInstance job) {
+        var config = job.getConfig();
+        if (config.getBuildSchematicId() == null) {
+            return;
+        }
+        var mod = StoryNpcsAccess.mod(level);
+        if (mod == null) {
+            return;
+        }
+        var buildService = mod.getSchematicBuildService();
+        String tag = "job-builder:" + npc.getUUID();
+        if (buildService.hasActiveBuild(tag)) {
+            return; // previous plan still draining — bounded, nothing to do
+        }
+        if (job.getTicksRun() > 0 && !config.isBuildMaintain()
+                && job.getBuilderSchematic() != null) {
+            return; // single-shot build already submitted
+        }
+        var schematic = job.getBuilderSchematic();
+        if (schematic == null) {
+            var loaded = com.storynpcs.domain.schematic.SchematicStore.load(
+                    level.getServer(), config.getBuildSchematicId().toString());
+            if (loaded.schematic().isEmpty()) {
+                if (npc.markUnsupportedJobLogged(JobType.BUILDER)) {
+                    StoryNpcs.LOGGER.info("BUILDER job on actor {} cannot resolve schematic '{}': {}",
+                            npc.getUUID(), config.getBuildSchematicId(), loaded.error());
+                }
+                return;
+            }
+            schematic = loaded.schematic().get();
+            job.setBuilderSchematic(schematic);
+        }
+        var rejection = buildService.startBuild(
+                level, schematic, npc.blockPosition(), 0, tag);
+        rejection.ifPresent(msg -> {
+            if (npc.markUnsupportedJobLogged(JobType.BUILDER)) {
+                StoryNpcs.LOGGER.info("BUILDER job on actor {} rejected: {}",
+                        npc.getUUID(), msg);
+            }
+        });
+    }
+
+    /**
+     * FOLLOWER job: assert the follower state machine while an owner exists —
+     * the actual formation/navigation runs in {@code NpcFollowFormationGoal}.
+     * An NPC with no owner has nothing to follow; the handler is a bounded
+     * no-op rather than an error.
+     */
+    private static void runFollower(StoryNpcEntity npc) {
+        var role = npc.getFollowerRole();
+        if (role == null || role.getOwnerUuid() == null) {
+            return;
+        }
+        if (role.getState()
+                != com.storynpcs.domain.role.follower.FollowerRole.State.FOLLOWING) {
+            role.setState(com.storynpcs.domain.role.follower.FollowerRole.State.FOLLOWING);
+        }
+    }
+
+    /**
+     * PUPPET job: drive the synced emote lifecycle as the target's mannequin
+     * animation loop. A {@code scriptId} that names an emote loops that single
+     * animation; any other scriptId falls through to the scheduled script
+     * path; an absent scriptId cycles the emote vocabulary deterministically.
+     * Durations span two tick periods so the emote is still active when the
+     * next cycle resolves the next index — every stint stays under
+     * {@link com.storynpcs.domain.npc.NpcEmote#MAX_DURATION_TICKS}.
+     */
+    private static void runPuppet(StoryNpcEntity npc, com.storynpcs.domain.job.JobConfig config) {
+        int duration = (int) Math.min(2L * config.getTickPeriod(),
+                com.storynpcs.domain.npc.NpcEmote.MAX_DURATION_TICKS);
+        var scriptId = config.getScriptId();
+        if (scriptId != null) {
+            com.storynpcs.domain.npc.NpcEmote emote = null;
+            try {
+                emote = com.storynpcs.domain.npc.NpcEmote.fromWire(scriptId.getPath());
+            } catch (IllegalArgumentException notAnEmote) {
+                // A scriptId that is not an emote name is a scheduler script.
+            }
+            if (emote != null && emote != com.storynpcs.domain.npc.NpcEmote.NONE) {
+                if (npc.activeEmote() != emote) {
+                    npc.playEmote(emote, duration);
+                }
+                return;
+            }
+            npc.dispatchScriptHook(com.storynpcs.script.ScriptHook.TICK);
+            return;
+        }
+        var values = com.storynpcs.domain.npc.NpcEmote.values();
+        // ordinal 0 is NONE — cycle 1..N-1 so the loop never rests in NONE.
+        int next = npc.activeEmote().ordinal() % (values.length - 1) + 1;
+        npc.playEmote(values[next], duration);
     }
 
     /** HEALER job: small periodic heal to players inside the effect radius. */

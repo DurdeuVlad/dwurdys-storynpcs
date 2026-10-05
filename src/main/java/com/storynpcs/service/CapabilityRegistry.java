@@ -66,7 +66,8 @@ public final class CapabilityRegistry {
             Map.entry("team.join", Policy.PLAYER_SCOPED),
             Map.entry("team.leave", Policy.PLAYER_SCOPED),
             Map.entry("team.invite", Policy.PLAYER_SCOPED),
-            Map.entry("team.owner", Policy.PLAYER_SCOPED)
+            Map.entry("team.owner", Policy.PLAYER_SCOPED),
+            Map.entry("team.share", Policy.PLAYER_SCOPED)
     );
 
     private CapabilityRegistry() {}

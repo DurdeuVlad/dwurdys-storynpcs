@@ -37,6 +37,14 @@ public final class TeamProgression {
     @JsonProperty
     private Map<String, UUID> claimedBy = new LinkedHashMap<>();
 
+    /**
+     * Optional faction sharing (P6-1): when true, an ADJUST faction change on
+     * any member propagates the applied delta to every teammate's progression.
+     * Default off — sharing is explicit, never implicit (issue contract).
+     */
+    @JsonProperty
+    private boolean shareFactionPoints = false;
+
     /** Outstanding invitations — joining without one is rejected. */
     @JsonProperty
     private Set<UUID> invited = new LinkedHashSet<>();
@@ -119,6 +127,14 @@ public final class TeamProgression {
     /** The member who claimed the shared completion, if any. */
     public java.util.Optional<UUID> claimer(NamespacedId questId) {
         return java.util.Optional.ofNullable(claimedBy.get(questId.toString()));
+    }
+
+    public boolean isShareFactionPoints() { return shareFactionPoints; }
+    public void setShareFactionPoints(boolean shareFactionPoints) {
+        if (this.shareFactionPoints != shareFactionPoints) {
+            this.shareFactionPoints = shareFactionPoints;
+            revision++;
+        }
     }
 
     public Set<UUID> getInvited() { return Set.copyOf(invited); }

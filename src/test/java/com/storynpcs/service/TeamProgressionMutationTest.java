@@ -188,6 +188,69 @@ class TeamProgressionMutationTest {
     }
 
     @Test
+    void factionSharingIsOptInAndPropagatesAppliedDelta() throws IOException {
+        UUID owner = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        service.teamCreate(req("team.create", "player", owner, owner, -1));
+        service.teamInvite(req("team.invite", "player", owner, owner, -1), member);
+        service.teamJoin(req("team.join", "player", member, member, -1), owner);
+        UUID teamId = repository.getOrCreate(owner).getTeamId();
+        NamespacedId factionId = NamespacedId.of("storynpcs:shared_faction");
+        var faction = new com.storynpcs.domain.faction.Faction(
+                factionId, "Shared", 0, -1000, 1000);
+        registry.registerFaction(faction);
+
+        // Default off: member does NOT receive the delta.
+        service.mutateFactionProgression(com.storynpcs.service.FactionProgressionMutationRequest.adjust(
+                "system", null, owner, factionId, 50,
+                repository.getOrCreate(owner).getFactionRevision(), UUID.randomUUID()));
+        assertThat(repository.getOrCreate(member).getFactionScore(factionId, 0)).isEqualTo(0);
+
+        // Non-owner cannot toggle sharing.
+        var denied = service.teamSetSharing(req("team.share", "player", member, member, -1), true);
+        assertThat(denied.applied()).isFalse();
+        assertThat(denied.decision().code()).isEqualTo("NOT_OWNER");
+
+        // Owner enables; subsequent ADJUST propagates the applied delta.
+        assertThat(service.teamSetSharing(req("team.share", "player", owner, owner, -1), true)
+                .applied()).isTrue();
+        assertThat(teamStore.get(teamId).orElseThrow().isShareFactionPoints()).isTrue();
+
+        service.mutateFactionProgression(com.storynpcs.service.FactionProgressionMutationRequest.adjust(
+                "system", null, owner, factionId, 25,
+                repository.getOrCreate(owner).getFactionRevision(), UUID.randomUUID()));
+        assertThat(repository.getOrCreate(owner).getFactionScore(factionId, 0)).isEqualTo(75);
+        assertThat(repository.getOrCreate(member).getFactionScore(factionId, 0)).isEqualTo(25);
+
+        // SET (absolute) does not propagate — sharing is delta-only.
+        service.mutateFactionProgression(com.storynpcs.service.FactionProgressionMutationRequest.set(
+                "system", null, owner, factionId, 900,
+                repository.getOrCreate(owner).getFactionRevision(), UUID.randomUUID()));
+        assertThat(repository.getOrCreate(owner).getFactionScore(factionId, 0)).isEqualTo(900);
+        assertThat(repository.getOrCreate(member).getFactionScore(factionId, 0)).isEqualTo(25);
+
+        // Sharing also flows through quest-completion faction rewards.
+        NamespacedId questId = NamespacedId.of("storynpcs:team_reward_quest");
+        Quest rq = new Quest(questId, "Team reward");
+        rq.setRewards(List.of(new com.storynpcs.domain.quest.QuestReward(
+                com.storynpcs.domain.quest.QuestReward.Type.FACTION_POINTS,
+                factionId.toString(), 10)));
+        registry.registerQuest(rq);
+        service.completeQuest(new QuestCompletionMutationRequest(
+                "player", member, member, questId,
+                repository.getOrCreate(member).getQuestRevision(), UUID.randomUUID(), -1));
+        assertThat(repository.getOrCreate(member).getFactionScore(factionId, 0)).isEqualTo(35);
+        assertThat(repository.getOrCreate(owner).getFactionScore(factionId, 0)).isEqualTo(910);
+
+        // Leaving severs sharing: owner leaves → further member deltas stay local.
+        service.teamLeave(req("team.leave", "player", owner, owner, -1));
+        service.mutateFactionProgression(com.storynpcs.service.FactionProgressionMutationRequest.adjust(
+                "system", null, member, factionId, 5,
+                repository.getOrCreate(member).getFactionRevision(), UUID.randomUUID()));
+        assertThat(repository.getOrCreate(owner).getFactionScore(factionId, 0)).isEqualTo(910);
+    }
+
+    @Test
     void lastMemberLeavingDisbandsTeam() {
         UUID owner = UUID.randomUUID();
         service.teamCreate(req("team.create", "player", owner, owner, -1));

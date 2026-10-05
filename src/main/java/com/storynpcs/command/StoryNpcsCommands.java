@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.arguments.ArgumentType;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -149,7 +150,10 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("leave").executes(StoryNpcsCommands::teamLeave))
                         .then(Commands.literal("owner")
                                 .then(Commands.argument("player", EntityArgument.player())
-                                        .executes(StoryNpcsCommands::teamOwner))))
+                                        .executes(StoryNpcsCommands::teamOwner)))
+                        .then(Commands.literal("share")
+                                .then(Commands.argument("faction_points", BoolArgumentType.bool())
+                                        .executes(StoryNpcsCommands::teamShare))))
                 // P8-1 templates: list + instantiate-into-NPC through saveNpc
                 .then(Commands.literal("template")
                         .requires(source -> source.hasPermission(2))
@@ -2254,6 +2258,19 @@ public final class StoryNpcsCommands {
         var result = mod(ctx).getApplicationService()
                 .teamTransferOwner(teamRequest(ctx, "team.owner", player), newOwner.getUUID());
         return teamResult(ctx, result, "Ownership transferred to " + newOwner.getScoreboardName());
+    }
+
+    private static int teamShare(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player = teamActor(ctx);
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        boolean share = BoolArgumentType.getBool(ctx, "faction_points");
+        var result = mod(ctx).getApplicationService()
+                .teamSetSharing(teamRequest(ctx, "team.share", player), share);
+        return teamResult(ctx, result,
+                "Faction-point sharing " + (share ? "enabled" : "disabled") + " for your team");
     }
 
     private static int resetQuest(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
