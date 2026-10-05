@@ -87,7 +87,9 @@
         "P0-4.core-entity"
       ],
       "creator-world-tools": [
-        "P0-4.creator-tools"
+        "P0-4.creator-tools",
+        "P8-2.schematic-build",
+        "P8-2.schematic-reader"
       ],
       "dialogue": [
         "P0-4.dialogue-choice",
@@ -146,7 +148,9 @@
         "P0-4.bank"
       ],
       "CONFIG-WORLD-TOOLS": [
-        "P0-4.creator-tools"
+        "P0-4.creator-tools",
+        "P8-2.schematic-build",
+        "P8-2.schematic-reader"
       ],
       "DIALOG-DEFINITION": [
         "P0-4.dialogue-definition"
@@ -52111,7 +52115,9 @@
           "P9-4"
         ],
         "parity_fixture_ids": [
-          "P0-4.creator-tools"
+          "P0-4.creator-tools",
+          "P8-2.schematic-build",
+          "P8-2.schematic-reader"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },

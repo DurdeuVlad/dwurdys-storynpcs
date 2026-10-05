@@ -578,6 +578,43 @@
     "fault": "rename-failure"
    },
    "expected_result": "migration, atomic commit, rollback, and restart recovery are observable"
+  },
+  {
+   "fixture_id": "P8-2.schematic-reader",
+   "issue_ids": [
+    "P8-2"
+   ],
+   "target_symbol": "noppes.npcs.controllers.SchematicController",
+   "domain": "creator-world-tools",
+   "operation_family": "CONFIG-WORLD-TOOLS",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "fixture": "synthetic .schem + .schematic containers"
+   },
+   "expected_result": "both formats parse to the shared model; malformed/oversized containers fail with source:reason diagnostics"
+  },
+  {
+   "fixture_id": "P8-2.schematic-build",
+   "issue_ids": [
+    "P8-2"
+   ],
+   "target_symbol": "noppes.npcs.controllers.SchematicController",
+   "domain": "creator-world-tools",
+   "operation_family": "CONFIG-WORLD-TOOLS",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "plan": "rotated build plan",
+    "budget": "schematic.build.blocks_per_tick"
+   },
+   "expected_result": "rotated placement plans skip air/void cells; bounded builds place within budget and skip unloaded chunks"
   }
  ],
  "storynpcs_test_map": {
@@ -759,6 +796,16 @@
    "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
    "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
    "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()"
+  ],
+  "P8-2.schematic-reader": [
+   "com.storynpcs.domain.schematic.SchematicReaderTest#spongeSchemParsesDimsPaletteAndVarintIndices()",
+   "com.storynpcs.domain.schematic.SchematicReaderTest#legacySchematicTranslatesNumericIdsThroughBlockTable()",
+   "com.storynpcs.domain.schematic.SchematicReaderTest#malformedContainersFailWithSourceAndReason()",
+   "com.storynpcs.domain.schematic.SchematicStoreTest#creatorFilesLoadAndList()"
+  ],
+  "P8-2.schematic-build": [
+   "com.storynpcs.domain.schematic.BuildPlanTest#quarterTurnRotatesWithinFootprint()",
+   "com.storynpcs.domain.schematic.BuildPlanTest#airAndStructureVoidAreNoOps()"
   ]
  },
  "storynpcs_test_blockers": {},
@@ -862,6 +909,14 @@
   "P0-4.scripting": {
    "observed_scope": "P9-1/P9-2 tests cover the nine-hook matrix, instruction/memory/depth/canonical-op quotas, and aggregate per-tick scheduler budget with quarantine.",
    "uncovered_scope": "No JS/engine runtime inside hooks, live script-triggered world effects, or target-runtime script fixture."
+  },
+  "P8-2.schematic-reader": {
+   "observed_scope": "SchematicReaderTest covers Sponge v2 varint decoding, legacy numeric-id translation with orientation bits, malformed/truncated/oversized rejection, and block-entity payloads; SchematicStoreTest covers name validation and file loading.",
+   "uncovered_scope": "No bundled-asset fixture (27 target schematics pending source assets); no live chunk placement fixture."
+  },
+  "P8-2.schematic-build": {
+   "observed_scope": "BuildPlanTest covers rotation across all four turns, air/void no-ops, and block-entity offset rotation.",
+   "uncovered_scope": "No live ServerLevel placement fixture; per-tick budget and chunk-safety verified only via unit scope."
   }
  }
 }

@@ -15,9 +15,10 @@ import java.util.List;
  *
  * <p><b>Scope boundary:</b> this is a read-only, evidence-backed snapshot of
  * current mapping status. It does NOT implement any of the missing stores
- * (recipes, spawns, scripts, linked NPCs, scripted items/blocks, schematics,
+ * (recipes, spawns, scripts, linked NPCs, scripted items/blocks,
  * config, client presets, global data) — those remain open, each with its own
- * tracking issue where one exists, cited per entry below.
+ * tracking issue where one exists, cited per entry below. The schematics
+ * store landed with #149's schematic pipeline.
  */
 public final class PersistenceStoreCatalog {
 
@@ -55,7 +56,7 @@ public final class PersistenceStoreCatalog {
             new PersistenceStoreEntry("target.persistence_stores.0015", "scripted_item_and_blocks", "ItemScriptedWrapper / TileScripted / TileScriptedDoor",
                     PersistenceStoreStatus.UNMAPPED, null, "No scripted item/block-entity subsystem exists in this codebase yet (depends on the scripting engine tracked by issue #84, P9-2)."),
             new PersistenceStoreEntry("target.persistence_stores.0016", "schematics", "SchematicController and schematic readers",
-                    PersistenceStoreStatus.UNMAPPED, null, "No schematic build/read subsystem exists in this codebase yet (tracked by the still-open issues #78/#79, P8-2/P8-3)."),
+                    PersistenceStoreStatus.PARTIALLY_MAPPED, "SchematicStore + SchematicReader", "Issue #149: Sponge .schem v2/v3 + legacy .schematic reader, bundled data/storynpcs/schematics/ assets (read-only) + config/storynpcs/schematics/ creator files, bounded SchematicBuildService. The 27 bundled target assets are not yet shipped (source/licensing pending)."),
             new PersistenceStoreEntry("target.persistence_stores.0017", "config", "ConfigLoader / CustomNpcs",
                     PersistenceStoreStatus.UNMAPPED, null, "No persistent server-configuration store exists yet. Issue #85's command-parity audit found the equivalent /noppes/config command family (chunkloaders, debug, freezenpcs, icemelts, leavesdecay, scripting, vineinflateth) entirely UNVERIFIED -- there is no config value to persist because none of these settings are implemented yet."),
             new PersistenceStoreEntry("target.persistence_stores.0018", "client_presets", "PresetController",
