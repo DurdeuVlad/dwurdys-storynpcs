@@ -42,6 +42,9 @@ jobs:
       - name: Enforce Documentation Truth Gate
         run: python tools/parity/check_truth_gate.py
 
+      - name: Enforce Feature-Status Evidence Consistency
+        run: python tools/parity/check_feature_status.py --check
+
       - name: Validate Parity Evidence and Fixture Catalog
         run: python -m unittest discover -s tools/parity -p "test_*.py"
 

@@ -38,3 +38,13 @@
 - **Consequences**:
   - Other mods can cleanly intercept, cancel, or react to storytelling events.
   - Safe, backward-compatible API boundary.
+
+## ADR-006: File-First Data — No SQL Store; Categories and Bundled Schematic Decisions
+- **Context**: CustomNPCs ships a `DatabaseController` SQL-backed player-data store, organizes dialogs/quests into named folders, and bundles 27 `.schematic` structures for the Builder job. StoryNPCs needed owner decisions on each.
+- **Decision** (owner: Vlad, 2026-10-05):
+  1. **No SQL store — intentional deviation.** Everything admins may edit must be human-editable YAML/TOML/files. Only concurrency-sensitive runtime state (player progression, trade/bank, operation journals, mail) uses managed durable stores, and admins must not hand-edit those files.
+  2. **Categories — parity.** Dialogue and quest schemas gain a `category` (folder) field; editors group by it; the P11-1 importer maps target folder trees onto it.
+  3. **Bundled schematics — port all 27** target structures as mod assets consumed by the Builder job and schema commands.
+- **Consequences**:
+  - `persistence_stores.database` / `noppes.npcs.db` is a recorded deviation; CustomNPCs SQL users migrate via export-to-files through the importer.
+  - G-A1/G-A2 decision issues not needed; scope folded into #65, #68, #86 and gap issues G-B3.
