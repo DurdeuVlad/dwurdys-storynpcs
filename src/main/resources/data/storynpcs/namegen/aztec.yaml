@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:aztec"
+culture: "Aztec"
+order: 2
+names:
+  - Acatl
+  - Amoxtli
+  - Citlalli
+  - Coaxoch
+  - Cualli
+  - Ehecatl
+  - Ichtaca
+  - Ixchel
+  - Mazatl
+  - Necalli
+  - Ollin
+  - Quetzal
+  - Tenoch
+  - Tlacaelel
+  - Xipil
+  - Yaotl
+  - Chalchiuitl
+  - Itzel
+  - Metztli
+  - Nayeli
+  - Quiahuitl
+  - Teyacapan
+  - Xochil
+  - Zyanya

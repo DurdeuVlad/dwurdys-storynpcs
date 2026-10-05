@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:welsh"
+culture: "Welsh"
+order: 2
+names:
+  - Aneurin
+  - Brynmor
+  - Cadwallon
+  - Dafydd
+  - Emrys
+  - Gwalchmai
+  - Hywel
+  - Iestyn
+  - Llewelyn
+  - Madoc
+  - Owain
+  - Rhodri
+  - Taliesin
+  - Angharad
+  - Bronwen
+  - Catrin
+  - Elowen
+  - Gwendolyn
+  - Lowri
+  - Nerys
+  - Rhiannon
+  - Sioned
+  - Ceridwen
+  - Morwenna

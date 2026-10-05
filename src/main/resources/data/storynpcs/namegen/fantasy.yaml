@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:fantasy"
+culture: "Fantasy"
+order: 2
+names:
+  - Aerendir
+  - Bramblethorn
+  - Caeldrim
+  - Duskrunner
+  - Emberlyn
+  - Faragorn
+  - Grimwald
+  - Haldanir
+  - Ironveil
+  - Kethlan
+  - Morvain
+  - Nightbreeze
+  - Pyrrhion
+  - Ashwyn
+  - Briallen
+  - Cindralis
+  - Dawnwhisper
+  - Elowyn
+  - Faeira
+  - Luminiel
+  - Sylvaris
+  - Thistledown
+  - Zephyrine
+  - Wrenhall

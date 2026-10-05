@@ -16,19 +16,26 @@ public record ServerboundNpcSavePayload(
         String npcId,
         String npcJson,
         long expectedRevision,
-        UUID requestId
+        UUID requestId,
+        String randomizeNameCulture
 ) implements CustomPacketPayload {
     public static final int MAX_NPC_JSON_LENGTH = 1 << 20; // 1 MiB
 
     public ServerboundNpcSavePayload {
         npcId = npcId != null ? npcId : "";
         npcJson = npcJson != null ? npcJson : "";
+        randomizeNameCulture = randomizeNameCulture != null ? randomizeNameCulture : "";
         if (expectedRevision < 0) expectedRevision = 0;
         requestId = requestId != null ? requestId : UUID.randomUUID();
     }
 
     public ServerboundNpcSavePayload(String npcId, String npcJson) {
-        this(npcId, npcJson, 0L, UUID.randomUUID());
+        this(npcId, npcJson, 0L, UUID.randomUUID(), "");
+    }
+
+    public ServerboundNpcSavePayload(String npcId, String npcJson,
+                                     long expectedRevision, UUID requestId) {
+        this(npcId, npcJson, expectedRevision, requestId, "");
     }
 
     public static final Type<ServerboundNpcSavePayload> TYPE =
@@ -40,6 +47,7 @@ public record ServerboundNpcSavePayload(
                     MutationProtocolCodecs.JSON_CODEC, ServerboundNpcSavePayload::npcJson,
                     ByteBufCodecs.VAR_LONG, ServerboundNpcSavePayload::expectedRevision,
                     MutationProtocolCodecs.UUID_CODEC, ServerboundNpcSavePayload::requestId,
+                    MutationProtocolCodecs.ID_CODEC, ServerboundNpcSavePayload::randomizeNameCulture,
                     ServerboundNpcSavePayload::new
             ));
 

@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:french"
+culture: "French"
+order: 2
+names:
+  - Alain
+  - Bertrand
+  - Cedric
+  - Edouard
+  - Fabien
+  - Gaston
+  - Hugues
+  - Laurent
+  - Mathieu
+  - Olivier
+  - Renaud
+  - Thierry
+  - Yves
+  - Adele
+  - Beatrice
+  - Celeste
+  - Delphine
+  - Eloise
+  - Isabelle
+  - Marguerite
+  - Noemie
+  - Odile
+  - Solange
+  - Vivienne

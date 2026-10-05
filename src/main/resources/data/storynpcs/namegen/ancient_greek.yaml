@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: "storynpcs:ancient_greek"
+culture: "Ancient Greek"
+order: 2
+names:
+  - Alexandros
+  - Androcles
+  - Demetrios
+  - Euphemios
+  - Herakleitos
+  - Kallias
+  - Lysander
+  - Nikander
+  - Pankratios
+  - Perikles
+  - Sophokles
+  - Themistios
+  - Timoleon
+  - Zenobios
+  - Aspasia
+  - Eirene
+  - Kallisto
+  - Melite
+  - Pherenike
+  - Thaleia
+  - Xanthe
+  - Zoe
+  - Agape
+  - Eudoxia
+  - Kleio
