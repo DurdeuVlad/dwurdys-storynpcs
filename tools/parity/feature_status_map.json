@@ -174,15 +174,15 @@
     {
       "id": "abilities",
       "feature": "Abilities (pull/push/smash/snare/teleport/block)",
-      "status": "missing",
+      "status": "implemented",
       "issue": "#147",
-      "summary": "None — no code (issue filed 2026-10-05)",
+      "summary": "All six types on NpcDefinition.abilities — DAMAGED/ATTACK/UPDATE triggers, bounded params, rule conditions; NpcAbilityController applies velocity/snare/teleport/block/smash via entity APIs",
       "evidence": {
-        "files": [],
-        "wired": [],
+        "files": ["src/main/java/com/storynpcs/domain/ability/NpcAbility.java", "src/main/java/com/storynpcs/domain/ability/AbilityType.java", "src/main/java/com/storynpcs/domain/ability/AbilityTrigger.java", "src/main/java/com/storynpcs/ai/combat/NpcAbilityController.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcAbilityController|abilityController"}, {"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "npcAbilityCommands"}],
         "registered": [],
-        "tests": [],
-        "absent": ["\\w*Ability\\w*|\\babilities\\b|package\\s+com\\.storynpcs\\.[\\w.]*ability"]
+        "tests": ["src/test/java/com/storynpcs/ai/combat/NpcAbilityControllerTest.java", "src/test/java/com/storynpcs/domain/ability/NpcAbilityTest.java", "src/test/java/com/storynpcs/domain/ability/NpcAbilitySerdeTest.java"],
+        "absent": []
       }
     },
     {
