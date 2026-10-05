@@ -205,6 +205,208 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleFactionSaveResult(payload));
                 }
         );
+
+        // Player-facing panels (issue #150): quest log, faction panel, mail,
+        // transport picker. Views are server-built JSON; commits carry the
+        // panel session id + idempotent request id.
+        registrar.playToClient(
+                ClientboundPlayerPanelPayload.TYPE,
+                ClientboundPlayerPanelPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openPlayerPanel(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundMailActionPayload.TYPE,
+                ServerboundMailActionPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleMailAction(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundTransportSelectPayload.TYPE,
+                ServerboundTransportSelectPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleTransportSelect(serverPlayer, payload));
+                    }
+                }
+        );
+    }
+
+    // ---- Player panels (issue #150) ----
+
+    /**
+     * Opens (or refreshes) a player panel for {@code player}. The view JSON is
+     * built server-side from the player's durable progression + the definition
+     * registry; a panel id outside {@link com.storynpcs.service.PlayerPanelViews#PANEL_IDS}
+     * is rejected before a session token is minted.
+     */
+    public static void sendPlayerPanel(ServerPlayer player, String panel) {
+        var mod = StoryNpcsAccess.mod(player);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (mod == null || service == null
+                || !com.storynpcs.service.PlayerPanelViews.PANEL_IDS.contains(panel)) {
+            return;
+        }
+        var sessions = mod.getRuntimeSessions(player.getServer());
+        var progression = mod.getProgressionRepository() != null
+                ? mod.getProgressionRepository().getOrCreate(player.getUUID()) : null;
+        if (progression == null) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Player data is unavailable right now."), true);
+            return;
+        }
+        String viewJson = switch (panel) {
+            case com.storynpcs.service.PlayerPanelViews.PANEL_QUEST_LOG ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.questLog(
+                                    mod.getRegistry(), progression));
+            case com.storynpcs.service.PlayerPanelViews.PANEL_FACTIONS ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.factionPanel(
+                                    mod.getRegistry(), progression));
+            case com.storynpcs.service.PlayerPanelViews.PANEL_MAIL ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.mail(
+                                    service.getMailbox(player.getUUID())));
+            case com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT -> {
+                var visible = service.listTransports(player.getUUID());
+                var unlocked = new java.util.HashSet<com.storynpcs.domain.common.NamespacedId>();
+                for (var l : service.listAvailableTransportLocations(player.getUUID())) {
+                    unlocked.add(l.getId());
+                }
+                yield com.storynpcs.domain.role.RoleSerde.toJson(
+                        com.storynpcs.service.PlayerPanelViews.transport(visible, unlocked));
+            }
+            default -> null;
+        };
+        if (viewJson == null) {
+            return;
+        }
+        var sessionId = sessions.openPanelSession(player.getUUID(), panel);
+        PacketDistributor.sendToPlayer(player,
+                new ClientboundPlayerPanelPayload(panel, viewJson, sessionId));
+    }
+
+    private static void handleMailAction(ServerPlayer player, ServerboundMailActionPayload payload) {
+        if (!player.isAlive() || player.isSpectator()) return;
+        if (isRoleActionThrottled(player)) return;
+        var mod = StoryNpcsAccess.mod(player);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (mod == null || service == null) return;
+        var sessions = mod.getRuntimeSessions(player.getServer());
+        if (!sessions.isPanelSession(player.getUUID(),
+                com.storynpcs.service.PlayerPanelViews.PANEL_MAIL, payload.sessionId())) {
+            return; // stale session — fail closed
+        }
+        // Duplicate request ids still reach the canonical service so a lost
+        // response is classified as REPLAYED rather than silently dropped.
+        sessions.admitRequest(player.getUUID(), payload.requestId());
+        var request = new com.storynpcs.service.PlayerProgressionActionRequest(
+                switch (payload.action()) {
+                    case ServerboundMailActionPayload.ACTION_MARK_READ -> "mail.read";
+                    case ServerboundMailActionPayload.ACTION_DELETE -> "mail.delete";
+                    case ServerboundMailActionPayload.ACTION_SEND -> "mail.send";
+                    default -> "mail.unknown";
+                },
+                "player", player.getUUID(), player.getUUID(), payload.requestId(),
+                player.hasPermissions(2) ? 2 : 0);
+        com.storynpcs.service.AuthorizedActionResult result;
+        switch (payload.action()) {
+            case ServerboundMailActionPayload.ACTION_MARK_READ -> {
+                java.util.UUID mailId;
+                try {
+                    mailId = java.util.UUID.fromString(payload.target());
+                } catch (IllegalArgumentException e) {
+                    return;
+                }
+                result = service.markMailRead(request, mailId);
+            }
+            case ServerboundMailActionPayload.ACTION_DELETE -> {
+                java.util.UUID mailId;
+                try {
+                    mailId = java.util.UUID.fromString(payload.target());
+                } catch (IllegalArgumentException e) {
+                    return;
+                }
+                result = service.deleteMail(request, mailId);
+            }
+            case ServerboundMailActionPayload.ACTION_SEND -> {
+                // Resolve the recipient server-side — the client only names a
+                // player; unknown names fail before any mailbox write. The
+                // rejection is generic so it does not echo the queried name.
+                var profile = player.getServer().getProfileCache() != null
+                        ? player.getServer().getProfileCache().get(payload.target())
+                        : java.util.Optional.<com.mojang.authlib.GameProfile>empty();
+                java.util.UUID recipient = profile.map(p -> p.getId()).orElse(null);
+                if (recipient == null) {
+                    player.sendSystemMessage(Component.literal(
+                            "§c[StoryNPCs] Mail could not be delivered."), true);
+                    return;
+                }
+                result = service.sendMail(request, recipient,
+                        player.getGameProfile().getName(), payload.subject(), payload.body());
+            }
+            default -> {
+                return;
+            }
+        }
+        if (result != null && result.applied()) {
+            if (ServerboundMailActionPayload.ACTION_SEND.equals(payload.action())) {
+                // The sender's own mailbox is unchanged — confirm in chat
+                // instead of force-reopening a panel they may have closed.
+                player.sendSystemMessage(Component.literal(
+                        "§a[StoryNPCs] Mail sent."), true);
+            } else {
+                sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL);
+            }
+        } else if (result != null && result.decision() != null && !result.decision().allowed()) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Mail action rejected: " + result.decision().code()), true);
+        }
+    }
+
+    private static void handleTransportSelect(ServerPlayer player,
+                                              ServerboundTransportSelectPayload payload) {
+        if (!player.isAlive() || player.isSpectator()) return;
+        if (isRoleActionThrottled(player)) return;
+        var mod = StoryNpcsAccess.mod(player);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (mod == null || service == null) return;
+        var sessions = mod.getRuntimeSessions(player.getServer());
+        if (!sessions.isPanelSession(player.getUUID(),
+                com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT, payload.sessionId())) {
+            return; // stale session — fail closed
+        }
+        // Duplicates reach the canonical service so a lost transport response
+        // is classified as REPLAYED from the durable journal.
+        sessions.admitRequest(player.getUUID(), payload.requestId());
+        com.storynpcs.domain.common.NamespacedId locationId;
+        try {
+            locationId = com.storynpcs.domain.common.NamespacedId.of(payload.locationId());
+        } catch (Exception e) {
+            return;
+        }
+        var request = new com.storynpcs.service.PlayerProgressionActionRequest(
+                "transport.request", "player", player.getUUID(), player.getUUID(),
+                payload.requestId(), player.hasPermissions(2) ? 2 : 0);
+        var result = service.requestTransport(request, locationId);
+        if (result == null) {
+            return;
+        }
+        if (result.approved()) {
+            player.sendSystemMessage(Component.literal(
+                    "§a[StoryNPCs] Transporting to " + result.destinationName()
+                            + (result.feeCharged() > 0 ? " (fee " + result.feeCharged() + ")" : "")), true);
+        } else {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Transport denied: " + result.detail()), true);
+        }
     }
 
     private static void handleFactionSave(ServerPlayer player, ServerboundFactionSavePayload payload) {

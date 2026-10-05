@@ -83,6 +83,15 @@ public final class RoleSerde {
         }
     }
 
+    /**
+     * Generic JSON read for view-model records that don't warrant a dedicated
+     * serde entry (player panels, #150). Lenient on unknown properties —
+     * forward-compatible with server additions.
+     */
+    public static <T> Optional<T> fromJson(String json, Class<T> type) {
+        return read(json, type);
+    }
+
     private static <T> Optional<T> read(String json, Class<T> type) {
         if (json == null || json.isBlank()) return Optional.empty();
         try {

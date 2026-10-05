@@ -578,6 +578,108 @@
     "fault": "rename-failure"
    },
    "expected_result": "migration, atomic commit, rollback, and restart recovery are observable"
+  },
+  {
+   "fixture_id": "P5-4.player-quest-log",
+   "issue_ids": [
+    "P5-4"
+   ],
+   "target_symbol": "noppes.npcs.controllers.data.Quest",
+   "domain": "quests",
+   "operation_family": "QUEST-COMPLETION",
+   "required_layers": [
+    "server",
+    "client",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "panel": "quest_log",
+    "player": "<uuid>"
+   },
+   "expected_result": "detached quest-log view shows active and pending-completion quests only"
+  },
+  {
+   "fixture_id": "P5-5.player-mail",
+   "issue_ids": [
+    "P5-5"
+   ],
+   "target_symbol": "noppes.npcs.controllers.data.PlayerMailData",
+   "domain": "quests",
+   "operation_family": "QUEST-COMPLETION",
+   "required_layers": [
+    "server",
+    "client",
+    "persistence",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "panel": "mail",
+    "player": "<uuid>"
+   },
+   "expected_result": "mailbox view is newest-first; send/read/delete route through authorized progression actions"
+  },
+  {
+   "fixture_id": "P6-1.player-faction-panel",
+   "issue_ids": [
+    "P6-1"
+   ],
+   "target_symbol": "noppes.npcs.controllers.data.Faction",
+   "domain": "factions",
+   "operation_family": "FACTION-PROGRESSION",
+   "required_layers": [
+    "server",
+    "client",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "panel": "faction",
+    "player": "<uuid>"
+   },
+   "expected_result": "faction standing rows classify against authored thresholds with live points"
+  },
+  {
+   "fixture_id": "P6-3.player-transport-panel",
+   "issue_ids": [
+    "P6-3"
+   ],
+   "target_symbol": "noppes.npcs.roles.RoleTransporter",
+   "domain": "transport",
+   "operation_family": "TRANSPORT",
+   "required_layers": [
+    "server",
+    "client",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "panel": "transport",
+    "player": "<uuid>"
+   },
+   "expected_result": "transport rows expose unlocked state and fees; selection routes through canonical requestTransport"
+  },
+  {
+   "fixture_id": "P1-3.player-panel-protocol",
+   "issue_ids": [
+    "P1-3"
+   ],
+   "target_symbol": "noppes.npcs.packets.Packets",
+   "domain": "networking",
+   "operation_family": "DIALOG-PLAYER-CHOICE",
+   "required_layers": [
+    "server",
+    "client",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "panel": "<kind>",
+    "session": "<uuid>",
+    "request": "<uuid>"
+   },
+   "expected_result": "panel payloads are versioned/bounded, session-bound, and replay-safe"
   }
  ],
  "storynpcs_test_map": {
@@ -759,6 +861,27 @@
    "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
    "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
    "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()"
+  ],
+  "P5-4.player-quest-log": [
+   "com.storynpcs.service.PlayerPanelViewsTest#questLogHidesNotStartedAndSurfacesPendingCompletions()",
+   "com.storynpcs.service.PlayerPanelViewsTest#questLogResolvesMissingDefinitionToId()"
+  ],
+  "P5-5.player-mail": [
+   "com.storynpcs.service.PlayerPanelViewsTest#mailViewPresentsNewestFirstWithAllFields()",
+   "com.storynpcs.service.StoryNpcsApplicationServiceTest#sendMailDeliversToRecipientMailboxUnderSenderAuth()",
+   "com.storynpcs.service.StoryNpcsApplicationServiceTest#sendMailIsIdempotentOnRequestIdAndBoundsContent()"
+  ],
+  "P6-1.player-faction-panel": [
+   "com.storynpcs.service.PlayerPanelViewsTest#factionPanelClassifiesStandingFromAuthoredThresholds()"
+  ],
+  "P6-3.player-transport-panel": [
+   "com.storynpcs.service.PlayerPanelViewsTest#transportViewFlagsUnlockedRows()"
+  ],
+  "P1-3.player-panel-protocol": [
+   "com.storynpcs.network.PlayerPanelPayloadsTest#ClientboundPlayerPanelPayload round-trips panel + view + session",
+   "com.storynpcs.network.PlayerPanelPayloadsTest#mail payload bounds reject oversized content",
+   "com.storynpcs.network.PlayerPanelPayloadsTest#ServerboundTransportSelectPayload round-trips",
+   "com.storynpcs.runtime.session.RuntimeSessionRegistryTest#panelSessionsRotateLikeRoleSessionsAndAreKindScoped()"
   ]
  },
  "storynpcs_test_blockers": {},
@@ -862,6 +985,26 @@
   "P0-4.scripting": {
    "observed_scope": "P9-1/P9-2 tests cover the nine-hook matrix, instruction/memory/depth/canonical-op quotas, and aggregate per-tick scheduler budget with quarantine.",
    "uncovered_scope": "No JS/engine runtime inside hooks, live script-triggered world effects, or target-runtime script fixture."
+  },
+  "P5-4.player-quest-log": {
+   "observed_scope": "PlayerPanelViewsTest proves the quest-log view filters to active/pending-completion quests and degrades missing definitions to ids.",
+   "uncovered_scope": "No live client render or dedicated-server round trip."
+  },
+  "P5-5.player-mail": {
+   "observed_scope": "PlayerPanelViewsTest covers mailbox ordering/fields; StoryNpcsApplicationServiceTest covers authorized send, idempotent replay, and bounds.",
+   "uncovered_scope": "No live client render or cross-server mail routing."
+  },
+  "P6-1.player-faction-panel": {
+   "observed_scope": "PlayerPanelViewsTest proves standing classification against authored thresholds.",
+   "uncovered_scope": "No live client render or team-aggregated standings."
+  },
+  "P6-3.player-transport-panel": {
+   "observed_scope": "PlayerPanelViewsTest proves unlocked/fee projection of transport rows.",
+   "uncovered_scope": "No live teleport execution against a running server world."
+  },
+  "P1-3.player-panel-protocol": {
+   "observed_scope": "PlayerPanelPayloadsTest proves codec round-trip/bounds; RuntimeSessionRegistryTest proves panel-session rotation and replay safety.",
+   "uncovered_scope": "No wire-level interop test against a running dedicated server."
   }
  }
 }
