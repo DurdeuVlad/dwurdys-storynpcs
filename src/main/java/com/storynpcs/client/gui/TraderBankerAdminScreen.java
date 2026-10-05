@@ -44,6 +44,10 @@ public class TraderBankerAdminScreen extends Screen {
     private EditBox priceItemIdField;
     private EditBox priceCountField;
     private EditBox maxUsesField;
+    private EditBox secondaryPriceItemIdField;
+    private EditBox secondaryPriceCountField;
+    private EditBox pageField;
+    private EditBox restockIntervalField;
     private EditBox requiredFactionField;
     private EditBox requiredFactionPointsField;
 
@@ -178,6 +182,22 @@ public class TraderBankerAdminScreen extends Screen {
 
         maxUsesField = argField(fieldX, y, "0 = unlimited", model.getMaxUsesField());
         maxUsesField.setResponder(model::setMaxUsesField);
+        y += 16;
+
+        secondaryPriceItemIdField = argField(fieldX, y, "second input id (optional)", model.getSecondaryPriceItemIdField());
+        secondaryPriceItemIdField.setResponder(model::setSecondaryPriceItemIdField);
+        y += 16;
+
+        secondaryPriceCountField = argField(fieldX, y, "second input count", model.getSecondaryPriceCountField());
+        secondaryPriceCountField.setResponder(model::setSecondaryPriceCountField);
+        y += 16;
+
+        pageField = argField(fieldX, y, "page 0-99", model.getPageField());
+        pageField.setResponder(model::setPageField);
+        y += 16;
+
+        restockIntervalField = argField(fieldX, y, "restock ticks (0 = role default)", model.getRestockIntervalField());
+        restockIntervalField.setResponder(model::setRestockIntervalField);
         y += 16;
 
         requiredFactionField = argField(fieldX, y, "faction id (optional)", model.getRequiredFactionField());

@@ -44,7 +44,11 @@ public final class TraderBankerAdminScreenModel {
     private String offerCount = "1";
     private String priceItemId = "";
     private String priceCount = "1";
+    private String secondaryPriceItemId = "";
+    private String secondaryPriceCount = "0";
     private String maxUses = "0";
+    private String page = "0";
+    private String restockIntervalTicks = "0";
     private String requiredFaction = "";
     private String requiredFactionPoints = "0";
 
@@ -104,7 +108,11 @@ public final class TraderBankerAdminScreenModel {
         offerCount = "1";
         priceItemId = "";
         priceCount = "1";
+        secondaryPriceItemId = "";
+        secondaryPriceCount = "0";
         maxUses = "0";
+        page = "0";
+        restockIntervalTicks = "0";
         requiredFaction = "";
         requiredFactionPoints = "0";
         setStatus("", false);
@@ -122,7 +130,12 @@ public final class TraderBankerAdminScreenModel {
         offerCount = Integer.toString(listing.getOfferCount());
         priceItemId = listing.getPriceItemId() == null ? "" : listing.getPriceItemId();
         priceCount = Integer.toString(listing.getPriceCount());
+        secondaryPriceItemId = listing.getSecondaryPriceItemId() == null
+                ? "" : listing.getSecondaryPriceItemId();
+        secondaryPriceCount = Integer.toString(listing.getSecondaryPriceCount());
         maxUses = Integer.toString(listing.getMaxUses());
+        page = Integer.toString(listing.getPage());
+        restockIntervalTicks = Long.toString(listing.getRestockIntervalTicks());
         requiredFaction = listing.getRequiredFaction() == null ? "" : listing.getRequiredFaction().toString();
         requiredFactionPoints = Integer.toString(listing.getRequiredFactionPoints());
         setStatus("", false);
@@ -145,8 +158,16 @@ public final class TraderBankerAdminScreenModel {
     public void setPriceItemIdField(String v) { priceItemId = v; }
     public String getPriceCountField() { return priceCount; }
     public void setPriceCountField(String v) { priceCount = v; }
+    public String getSecondaryPriceItemIdField() { return secondaryPriceItemId; }
+    public void setSecondaryPriceItemIdField(String v) { secondaryPriceItemId = v; }
+    public String getSecondaryPriceCountField() { return secondaryPriceCount; }
+    public void setSecondaryPriceCountField(String v) { secondaryPriceCount = v; }
     public String getMaxUsesField() { return maxUses; }
     public void setMaxUsesField(String v) { maxUses = v; }
+    public String getPageField() { return page; }
+    public void setPageField(String v) { page = v; }
+    public String getRestockIntervalField() { return restockIntervalTicks; }
+    public void setRestockIntervalField(String v) { restockIntervalTicks = v; }
     public String getRequiredFactionField() { return requiredFaction; }
     public void setRequiredFactionField(String v) { requiredFaction = v; }
     public String getRequiredFactionPointsField() { return requiredFactionPoints; }
@@ -209,6 +230,10 @@ public final class TraderBankerAdminScreenModel {
         StringBuilder sb = new StringBuilder();
         sb.append(listing.getOfferCount()).append("x ").append(listing.getOfferItemId())
                 .append(" -> ").append(listing.getPriceCount()).append("x ").append(listing.getPriceItemId());
+        if (listing.hasTwoInputs()) {
+            sb.append(" + ").append(listing.getSecondaryPriceCount())
+                    .append("x ").append(listing.getSecondaryPriceItemId());
+        }
         if (listing.getMaxUses() > 0) {
             sb.append(" (").append(listing.getUses()).append('/').append(listing.getMaxUses()).append(" uses)");
         }
@@ -227,8 +252,20 @@ public final class TraderBankerAdminScreenModel {
         int maxUsesValue = parseInt(maxUses, "max uses", 0, 1_000_000);
         int requiredPointsValue = parseInt(requiredFactionPoints, "required faction points", -100_000, 100_000);
 
+        int pageValue = parseInt(page, "page", 0, 99);
+        long restockValue = parseLong(restockIntervalTicks, "restock interval (ticks)", 0, 1_000_000_000L);
+        int secondaryCountValue = parseInt(secondaryPriceCount, "secondary price count", 0, 64);
+
         TradeListing listing = new TradeListing(offerItemId.trim(), offerCountValue, priceItemId.trim(), priceCountValue);
+        if (!secondaryPriceItemId.isBlank()) {
+            listing.setSecondaryPriceItemId(secondaryPriceItemId.trim());
+            listing.setSecondaryPriceCount(secondaryCountValue);
+        } else if (secondaryCountValue != 0) {
+            throw new IllegalArgumentException("Secondary price count requires a secondary price item id.");
+        }
         listing.setMaxUses(maxUsesValue);
+        listing.setPage(pageValue);
+        listing.setRestockIntervalTicks(restockValue);
         listing.setRequiredFactionPoints(requiredPointsValue);
         if (!requiredFaction.isBlank()) {
             listing.setRequiredFaction(parseId(requiredFaction, "required faction"));
@@ -237,6 +274,11 @@ public final class TraderBankerAdminScreenModel {
             listing.setListingId(listingId.trim());
         } else {
             listing.ensureStableId();
+        }
+        try {
+            listing.validate();
+        } catch (IllegalStateException invalid) {
+            throw new IllegalArgumentException(invalid.getMessage());
         }
         return listing;
     }
@@ -294,6 +336,18 @@ public final class TraderBankerAdminScreenModel {
     private static int parseInt(String raw, String label, int min, int max) {
         try {
             int v = Integer.parseInt(raw.trim());
+            if (v < min || v > max) {
+                throw new IllegalArgumentException(label + " must be between " + min + " and " + max + ".");
+            }
+            return v;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("'" + raw + "' is not a valid whole number for " + label + ".");
+        }
+    }
+
+    private static long parseLong(String raw, String label, long min, long max) {
+        try {
+            long v = Long.parseLong(raw.trim());
             if (v < min || v > max) {
                 throw new IllegalArgumentException(label + " must be between " + min + " and " + max + ".");
             }

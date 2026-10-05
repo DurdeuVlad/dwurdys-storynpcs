@@ -56,12 +56,25 @@ public class TraderRole {
         }
     }
 
+    /**
+     * Role-wide restock interval used when a listing does not set its own —
+     * the target's daily-reset default (24000 ticks). A listing's explicit
+     * {@code restockIntervalTicks} always wins; 0 here + 0 on the listing
+     * means permanent stock.
+     */
     public int getRestockIntervalTicks() { return restockIntervalTicks; }
-    public void setRestockIntervalTicks(int restockIntervalTicks) { this.restockIntervalTicks = restockIntervalTicks; }
-
-    public void restockAll() {
-        for (TradeListing listing : listings) {
-            listing.restock();
+    public void setRestockIntervalTicks(int restockIntervalTicks) {
+        if (restockIntervalTicks < 0) {
+            throw new IllegalArgumentException("restockIntervalTicks must be >= 0");
         }
+        this.restockIntervalTicks = restockIntervalTicks;
+    }
+
+    /** The interval a listing actually restocks on: its own when set, else the role default. */
+    public long effectiveRestockInterval(TradeListing listing) {
+        if (listing != null && listing.getRestockIntervalTicks() > 0) {
+            return listing.getRestockIntervalTicks();
+        }
+        return restockIntervalTicks;
     }
 }

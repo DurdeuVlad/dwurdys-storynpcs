@@ -12,6 +12,7 @@ import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.role.banker.BankVault;
 import com.storynpcs.domain.role.banker.BankerRole;
 import com.storynpcs.domain.role.trader.TradeListing;
+import com.storynpcs.persistence.TradeStateRepository;
 
 class P7DomainTest {
 
@@ -45,20 +46,46 @@ class P7DomainTest {
     }
 
     @Test
-    void restockResetsUsesDeterministically() {
-        TradeListing listing = new TradeListing("minecraft:emerald", 1, "minecraft:diamond", 1);
-        listing.setMaxUses(2);
-        listing.setRestockIntervalTicks(100);
-        listing.setLastRestockTick(0);
-        listing.setUses(2);
-        assertThat(listing.restock(50)).isFalse();   // before boundary
-        assertThat(listing.restock(150)).isTrue();   // boundary crossed → uses reset
-        assertThat(listing.getUses()).isEqualTo(0);
-        assertThat(listing.getLastRestockTick()).isEqualTo(100);
-        listing.setUses(2);
-        assertThat(listing.restock(150)).isFalse();  // no double restock within window
-        listing.setRestockIntervalTicks(0);
-        assertThat(listing.restock(1_000_000)).isFalse(); // disabled never restocks
+    void restockResetsUsesDeterministically(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        // Restock cadence is durable state: the marker lives in
+        // TradeStateRepository beside uses, so boundaries survive restart and
+        // the reset+advance lands in one atomic write.
+        var repo = new TradeStateRepository(tempDir.resolve("trade_restock"));
+        String npc = "storynpcs:shop", lid = "storynpcs:deal";
+        repo.reserveUse(npc, lid, 0, 2);
+        repo.reserveUse(npc, lid, 1, 2);
+        assertThat(repo.getUses(npc, lid)).isEqualTo(2);
+
+        assertThat(repo.restockIfDue(npc, lid, 100, 50)).isFalse();   // before boundary
+        assertThat(repo.restockIfDue(npc, lid, 100, 150)).isTrue();   // boundary → reset
+        assertThat(repo.getUses(npc, lid)).isEqualTo(0);
+        assertThat(repo.restockIfDue(npc, lid, 100, 150)).isFalse();  // no double restock
+        assertThat(repo.restockIfDue(npc, lid, 0, 1_000_000)).isFalse(); // 0 = never
+
+        // Catch-up: several elapsed intervals land on the latest boundary.
+        repo.reserveUse(npc, lid, 0, 2);
+        assertThat(repo.restockIfDue(npc, lid, 100, 450)).isTrue();
+        assertThat(repo.getUses(npc, lid)).isEqualTo(0);
+        assertThat(repo.restockIfDue(npc, lid, 100, 449)).isFalse();
+
+        // Restart: a fresh repository over the same files keeps the marker.
+        var repo2 = new TradeStateRepository(tempDir.resolve("trade_restock"));
+        assertThat(repo2.restockIfDue(npc, lid, 100, 460)).isFalse();
+    }
+
+    @Test
+    void roleRestockIntervalIsTheListingFallback() {
+        var role = new com.storynpcs.domain.role.trader.TraderRole();
+        var listing = new TradeListing("minecraft:emerald", 1, "minecraft:diamond", 1);
+        assertThat(role.effectiveRestockInterval(listing)).isEqualTo(24_000); // role default
+        listing.setRestockIntervalTicks(500);
+        assertThat(role.effectiveRestockInterval(listing)).isEqualTo(500);    // listing wins
+        role.setRestockIntervalTicks(0);
+        var unset = new TradeListing("minecraft:emerald", 1, "minecraft:diamond", 1);
+        assertThat(role.effectiveRestockInterval(unset)).isEqualTo(0);        // permanent
+        assertThatThrownBy(() -> role.setRestockIntervalTicks(-1))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
