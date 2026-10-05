@@ -312,6 +312,7 @@ public final class StoryNpcsCommands {
                 // Faction commands
                 .then(factionCommands())
                 .then(mailCommands())
+                .then(schemaCommands())
                 // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
                         .executes(StoryNpcsCommands::sendFollowerHelp)
@@ -333,6 +334,111 @@ public final class StoryNpcsCommands {
         dispatcher.register(root);
         // Register alias /sn (inherits subcommand permissions from root and executes help when called alone)
         dispatcher.register(Commands.literal("sn").executes(StoryNpcsCommands::sendHelp).redirect(dispatcher.getRoot().getChild("storynpcs")));
+    }
+
+    /**
+     * The `schema` subtree (issue #149, parity for `/noppes schema`): list
+     * available schematics, start a bounded build, stop, and report progress.
+     * Builds run through {@link com.storynpcs.service.SchematicBuildService}
+     * at a per-tick budget — the command never places blocks synchronously.
+     */
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> schemaCommands() {
+        return Commands.literal("schema")
+                .requires(source -> source.hasPermission(2))
+                .then(Commands.literal("list").executes(StoryNpcsCommands::schemaList))
+                .then(Commands.literal("info").executes(StoryNpcsCommands::schemaInfo))
+                .then(Commands.literal("stop").executes(StoryNpcsCommands::schemaStop))
+                .then(Commands.literal("build")
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .then(Commands.argument("pos", Vec3Argument.vec3())
+                                        .executes(ctx -> schemaBuild(ctx, 0))
+                                        .then(Commands.argument("rotation",
+                                                        IntegerArgumentType.integer(0, 3))
+                                                .executes(ctx -> schemaBuild(ctx,
+                                                        IntegerArgumentType.getInteger(ctx, "rotation")))))));
+    }
+
+    private static int schemaList(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        var names = com.storynpcs.domain.schematic.SchematicStore.list(source.getServer());
+        if (names.isEmpty()) {
+            source.sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] No schematics available (bundled assets are not yet shipped; "
+                            + "creator files go in config/storynpcs/schematics/)."), false);
+            return 1;
+        }
+        source.sendSuccess(() -> Component.literal(
+                "[StoryNPCs] " + names.size() + " schematic(s): " + String.join(", ", names)), false);
+        return names.size();
+    }
+
+    private static int schemaInfo(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        StoryNpcs mod = modOrNull(ctx);
+        var status = mod != null ? mod.getSchematicBuildService().status()
+                : java.util.List.<com.storynpcs.service.SchematicBuildService.BuildStatus>of();
+        var results = mod != null ? mod.getSchematicBuildService().recentResults()
+                : java.util.List.<com.storynpcs.service.SchematicBuildService.BuildResult>of();
+        for (var s : status) {
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "[StoryNPCs] %s in %s — %d/%d placed, %d skipped (unloaded), %d unresolved",
+                    s.name(), s.dimension(), s.placed(), s.total(), s.skippedUnloaded(),
+                    s.unresolved())), false);
+        }
+        for (var r : results) {
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "[StoryNPCs] done: %s in %s — %d/%d placed, %d skipped (unloaded),"
+                            + " %d unresolved, %d block-entity payload(s) applied",
+                    r.name(), r.dimension(), r.placed(), r.total(), r.skippedUnloaded(),
+                    r.unresolved(), r.blockEntitiesApplied())), false);
+        }
+        if (status.isEmpty() && results.isEmpty()) {
+            source.sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] No active or recent schematic builds."), false);
+            return 1;
+        }
+        return status.size() + results.size();
+    }
+
+    private static int schemaStop(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        StoryNpcs mod = modOrNull(ctx);
+        int stopped = mod != null ? mod.getSchematicBuildService().stop(source.getLevel()) : 0;
+        int finalStopped = stopped;
+        source.sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Stopped " + finalStopped + " active build(s) in this dimension."), true);
+        return stopped;
+    }
+
+    private static int schemaBuild(CommandContext<CommandSourceStack> ctx, int quarterTurns) {
+        CommandSourceStack source = ctx.getSource();
+        StoryNpcs mod = modOrNull(ctx);
+        if (mod == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] Mod services unavailable."));
+            return 0;
+        }
+        String name = StringArgumentType.getString(ctx, "name");
+        var result = com.storynpcs.domain.schematic.SchematicStore.load(source.getServer(), name);
+        if (result.schematic().isEmpty()) {
+            source.sendFailure(Component.literal("[StoryNPCs] " + result.error()));
+            return 0;
+        }
+        var schematic = result.schematic().get();
+        var origin = net.minecraft.core.BlockPos.containing(Vec3Argument.getVec3(ctx, "pos"));
+        var rejection = mod.getSchematicBuildService().startBuild(
+                source.getLevel(), schematic, origin, quarterTurns);
+        if (rejection.isPresent()) {
+            source.sendFailure(Component.literal("[StoryNPCs] " + rejection.get()));
+            return 0;
+        }
+        for (String diagnostic : schematic.diagnostics()) {
+            source.sendSuccess(() -> Component.literal("[StoryNPCs] §7" + diagnostic), false);
+        }
+        source.sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Building '%s' (%dx%dx%d) at %s — budgeted per tick.",
+                schematic.name(), schematic.width(), schematic.height(), schematic.length(),
+                origin.toShortString())), true);
+        return 1;
     }
 
     /**

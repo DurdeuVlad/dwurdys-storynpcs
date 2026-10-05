@@ -15,8 +15,9 @@ import java.util.List;
  * equivalent and, for every leaf that does not, an honest {@code UNVERIFIED}
  * status with the specific reason (never a silent gap). It does NOT implement
  * any of the missing command trees themselves (clone, config, mark, scene,
- * schema, script, slay, and the several NPC/quest/faction/dialog gaps
- * documented per-entry below) — that remains open on #85.
+ * script, slay, and the several NPC/quest/faction/dialog gaps
+ * documented per-entry below) — that remains open on #85. The `schema`
+ * subtree landed with #149's schematic pipeline.
  */
 public final class CommandParityCatalog {
 
@@ -148,13 +149,13 @@ public final class CommandParityCatalog {
             new CommandParityEntry("target.commands.0062", "/noppes/scene/pause/<name>", "pause one named scene",
                     CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
             new CommandParityEntry("target.commands.0063", "/noppes/schema/build/<name>/<pos>/<rotation>", "load and build a schematic",
-                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs schema build <name> <pos> [rotation]", "Bounded budgeted build via SchematicBuildService (blocks/tick, chunk-safe); bundled assets pending (#149)."),
             new CommandParityEntry("target.commands.0064", "/noppes/schema/stop", "stop active schematic build",
-                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs schema stop", "Stops active builds in the caller's dimension."),
             new CommandParityEntry("target.commands.0065", "/noppes/schema/info", "report schematic build info",
-                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs schema info", "Per-build progress: placed/total, unloaded skips, unresolved palette entries."),
             new CommandParityEntry("target.commands.0066", "/noppes/schema/list", "list available schematic names",
-                    CommandParityStatus.UNVERIFIED, null, "No schematic build/list/stop command tree or schematic subsystem exists yet in this codebase."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs schema list", "Lists bundled data/storynpcs/schematics/ assets plus creator files in config/storynpcs/schematics/."),
             new CommandParityEntry("target.commands.0067", "/noppes/script/reload", "reload script files, player scripts, Forge scripts, and world stored data",
                     CommandParityStatus.UNVERIFIED, null, "No scripting engine or script command tree exists yet in this codebase."),
             new CommandParityEntry("target.commands.0068", "/noppes/script/trigger/<id>", "trigger script event with no arguments",

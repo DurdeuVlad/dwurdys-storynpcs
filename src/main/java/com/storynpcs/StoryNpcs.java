@@ -63,6 +63,8 @@ public class StoryNpcs {
      * budget per server tick on the server thread — no async world access.
      */
     private final com.storynpcs.sim.PathScheduler pathScheduler;
+    /** Bounded schematic build executor (P8-2/#149) — per-instance, never static. */
+    private final com.storynpcs.service.SchematicBuildService schematicBuildService;
     /**
      * Squad target coordinators keyed {@code "dimension|factionId"} (P4-2).
      * Bounded by live faction count; entries with no live assignments are
@@ -94,6 +96,8 @@ public class StoryNpcs {
                 com.storynpcs.sim.SimulationTierPolicy.defaults(),
                 com.storynpcs.sim.TierBudgets.defaults());
         this.pathScheduler = new com.storynpcs.sim.PathScheduler();
+        this.schematicBuildService = com.storynpcs.service.SchematicBuildService
+                .create(runtimeTunables.readOnlyView());
     }
 
     public static StoryNpcs createForTesting() {
@@ -119,6 +123,8 @@ public class StoryNpcs {
                 com.storynpcs.sim.SimulationTierPolicy.defaults(),
                 com.storynpcs.sim.TierBudgets.defaults());
         this.pathScheduler = new com.storynpcs.sim.PathScheduler();
+        this.schematicBuildService = com.storynpcs.service.SchematicBuildService
+                .create(runtimeTunables.readOnlyView());
 
         StoryNpcRegistry.register(modEventBus);
         com.storynpcs.item.StoryNpcsItems.register(modEventBus);
@@ -162,6 +168,7 @@ public class StoryNpcs {
     private void onServerTick(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
         scriptScheduler.beginTick();
         MinecraftServer server = event.getServer();
+        schematicBuildService.tick();
         drainPathRequests(server);
         if (server.overworld().getGameTime() % 20 != 0) {
             return;
@@ -409,6 +416,10 @@ public class StoryNpcs {
         }
         serverActorServices.remove(server);
         serverActorRepositories.remove(server);
+    }
+
+    public com.storynpcs.service.SchematicBuildService getSchematicBuildService() {
+        return schematicBuildService;
     }
 
     public RuntimeSessionRegistry getRuntimeSessions() {

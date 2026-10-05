@@ -28,6 +28,7 @@ public final class RuntimeTunables implements RuntimeTunablesView {
     public static final String SCRIPT_TICK_AGGREGATE_NANOS = "script.tick.aggregate.nanos";
     public static final String SCRIPT_TICK_HOOK_NANOS = "script.hook.tick.nanos";
     public static final String SCRIPT_STANDARD_HOOK_NANOS = "script.hook.standard.nanos";
+    public static final String SCHEMATIC_BUILD_BLOCKS_PER_TICK = "schematic.build.blocks_per_tick";
 
     private static final Map<String, Tunable> KEYS;
     static {
@@ -42,6 +43,7 @@ public final class RuntimeTunables implements RuntimeTunablesView {
                 new Tunable(100_000L, 50_000_000L, ScriptScheduler.TICK_HOOK_NANOS));
         keys.put(SCRIPT_STANDARD_HOOK_NANOS,
                 new Tunable(100_000L, 50_000_000L, ScriptScheduler.STANDARD_HOOK_NANOS));
+        keys.put(SCHEMATIC_BUILD_BLOCKS_PER_TICK, new Tunable(16L, 65_536L, 512L));
         KEYS = Map.copyOf(keys);
     }
 

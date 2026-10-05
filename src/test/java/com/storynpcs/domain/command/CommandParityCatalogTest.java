@@ -45,7 +45,7 @@ class CommandParityCatalogTest {
     }
 
     @Test
-    void tenLeavesAreCurrentlySupportedAndSixtyAreUnverified() {
+    void fourteenLeavesAreCurrentlySupportedAndFiftySixAreUnverified() {
         long supported = CommandParityCatalog.all().stream()
                 .filter(e -> e.getStatus() == CommandParityStatus.SUPPORTED).count();
         long unverified = CommandParityCatalog.all().stream()
@@ -53,8 +53,8 @@ class CommandParityCatalogTest {
         long deviation = CommandParityCatalog.all().stream()
                 .filter(e -> e.getStatus() == CommandParityStatus.INTENTIONAL_DEVIATION).count();
 
-        assertThat(supported).isEqualTo(10);
-        assertThat(unverified).isEqualTo(60);
+        assertThat(supported).isEqualTo(14);
+        assertThat(unverified).isEqualTo(56);
         assertThat(deviation).isEqualTo(0);
         assertThat(supported + unverified + deviation).isEqualTo(70);
     }
