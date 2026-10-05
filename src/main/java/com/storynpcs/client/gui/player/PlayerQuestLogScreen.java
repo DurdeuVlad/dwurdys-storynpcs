@@ -96,7 +96,7 @@ public class PlayerQuestLogScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int cx = this.width / 2;
-        if (mouseX >= cx - 190 && mouseX <= cx + 170
+        if (button == 0 && mouseX >= cx - 190 && mouseX <= cx + 170
                 && mouseY >= listTop() && mouseY <= listBottom()) {
             int index = scrollOffset + (int) ((mouseY - listTop()) / 12);
             if (index >= 0 && index < rowCount()) {

@@ -70,6 +70,25 @@ class SchematicStoreTest {
     }
 
     @Test
+    void listHidesNamesLoadWouldReject() throws IOException {
+        // A file whose stem fails the name rule can never be loaded — it must
+        // not be advertised by `schema list`.
+        Files.write(creatorDir.resolve("ok.schem"), tinySchem());
+        Files.write(creatorDir.resolve("CAPS.schem"), tinySchem());
+        assertThat(SchematicStore.list(null, creatorDir)).containsExactly("ok");
+    }
+
+    @Test
+    void oversizedCreatorFileFailsAtBound() throws IOException {
+        // Bounded read, not size-then-read: the error must surface even if the
+        // file exceeded the cap between resolution and read.
+        Files.write(creatorDir.resolve("huge.schem"), new byte[33 * 1024 * 1024]);
+        var result = SchematicStore.load(null, "huge", creatorDir);
+        assertThat(result.schematic()).isEmpty();
+        assertThat(result.error()).contains("exceeds 32 MiB");
+    }
+
+    @Test
     void nullCreatorDirDegradesToBundledOnly() {
         assertThat(SchematicStore.list(null, null)).isEmpty();
         assertThat(SchematicStore.load(null, "house", null).error())

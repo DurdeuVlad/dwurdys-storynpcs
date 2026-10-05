@@ -174,15 +174,15 @@
     {
       "id": "abilities",
       "feature": "Abilities (pull/push/smash/snare/teleport/block)",
-      "status": "missing",
+      "status": "implemented",
       "issue": "#147",
-      "summary": "None — no code (issue filed 2026-10-05)",
+      "summary": "All six types on NpcDefinition.abilities — DAMAGED/ATTACK/UPDATE triggers, bounded params, rule conditions; NpcAbilityController applies velocity/snare/teleport/block/smash via entity APIs",
       "evidence": {
-        "files": [],
-        "wired": [],
+        "files": ["src/main/java/com/storynpcs/domain/ability/NpcAbility.java", "src/main/java/com/storynpcs/domain/ability/AbilityType.java", "src/main/java/com/storynpcs/domain/ability/AbilityTrigger.java", "src/main/java/com/storynpcs/ai/combat/NpcAbilityController.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcAbilityController|abilityController"}, {"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "npcAbilityCommands"}],
         "registered": [],
-        "tests": [],
-        "absent": ["\\w*Ability\\w*|\\babilities\\b|package\\s+com\\.storynpcs\\.[\\w.]*ability"]
+        "tests": ["src/test/java/com/storynpcs/ai/combat/NpcAbilityControllerTest.java", "src/test/java/com/storynpcs/domain/ability/NpcAbilityTest.java", "src/test/java/com/storynpcs/domain/ability/NpcAbilitySerdeTest.java"],
+        "absent": []
       }
     },
     {
@@ -260,7 +260,7 @@
       "feature": "Role: Transporter",
       "status": "partial",
       "issue": "#72 P6-3",
-      "summary": "TransporterRole, transports/*.yaml family, TransportEvaluator, /storynpcs transport, requestTransport; no player UI yet",
+      "summary": "TransporterRole, transports/*.yaml family, TransportEvaluator, /storynpcs transport, requestTransport + player transport-picker panel (#150)",
       "evidence": {
         "files": ["src/main/java/com/storynpcs/domain/role/transporter/TransporterRole.java", "src/main/java/com/storynpcs/domain/transport/TransportEvaluator.java", "src/main/java/com/storynpcs/domain/transport/TransportLocation.java"],
         "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"transport\"\\)"}, {"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "requestTransport"}],
@@ -302,7 +302,7 @@
       "feature": "Role: Postman/mail",
       "status": "partial",
       "issue": "#71 P6-2, #79 P8-3",
-      "summary": "PostmanRole field; MailMessage, QuestMailStore, /storynpcs mail; no mailbox block or write GUI",
+      "summary": "PostmanRole field; MailMessage, QuestMailStore, /storynpcs mail + player mail panel with session-bound send/read actions (#150); no mailbox block or NPC write GUI",
       "evidence": {
         "files": ["src/main/java/com/storynpcs/domain/role/social/PostmanRole.java", "src/main/java/com/storynpcs/domain/quest/QuestMailStore.java", "src/main/java/com/storynpcs/domain/progression/MailMessage.java"],
         "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"mail\"\\)"}, {"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "PostmanRole|postman"}],
@@ -468,15 +468,15 @@
     {
       "id": "quest-log-ui",
       "feature": "Quest log / player UI",
-      "status": "planned",
+      "status": "partial",
       "issue": "#150",
-      "summary": "None (editor only: QuestEditorScreen)",
+      "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> player screens; session-bound commits, server-built JSON views (4 of the #150 acceptance surfaces; follower hire -> #71/#74, companion inv/stats -> #74, achievement view -> #86/#88, carpentry bench -> #80, custom GUI renderer -> #82)",
       "evidence": {
-        "files": [],
-        "wired": [],
+        "files": ["src/main/java/com/storynpcs/service/PlayerPanelViews.java", "src/main/java/com/storynpcs/client/gui/player/PlayerQuestLogScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerMailScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "ClientboundPlayerPanelPayload|sendPlayerPanel"}],
         "registered": [],
-        "tests": [],
-        "absent": ["QuestLog|class\\s+QuestLogScreen|GuiQuestLog"]
+        "tests": ["src/test/java/com/storynpcs/service/PlayerPanelViewsTest.java", "src/test/java/com/storynpcs/network/PlayerPanelPayloadsTest.java"],
+        "absent": ["GuiQuestLog"]
       }
     },
     {
@@ -552,15 +552,15 @@
     {
       "id": "scripter-nbtbook",
       "feature": "Scripter / NBT book tools",
-      "status": "planned",
+      "status": "partial",
       "issue": "#148",
-      "summary": "None",
+      "summary": "NbtBookItem + NbtBookService — op-gated allowlist entity edits (CustomName/NoGravity/Invulnerable/Silent/Glowing) via session-bound payload; scripter tool absent",
       "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["ItemNpcScripter|NbtBook|NpcScripter"]
+        "files": ["src/main/java/com/storynpcs/item/NbtBookItem.java", "src/main/java/com/storynpcs/domain/support/NbtBookService.java", "src/main/java/com/storynpcs/domain/support/SupportEntityRules.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "NbtBook|nbt_book"}],
+        "registered": [{"file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java", "pattern": "nbt_book"}],
+        "tests": ["src/test/java/com/storynpcs/domain/support/NbtBookServiceTest.java", "src/test/java/com/storynpcs/domain/support/SupportEntityRulesTest.java"],
+        "absent": ["ItemNpcScripter|NpcScripter"]
       }
     },
     {
@@ -574,7 +574,7 @@
         "wired": [],
         "registered": [],
         "tests": [],
-        "absent": ["Registries\\.BLOCK"]
+        "absent": ["DeferredRegister<\\s*Block\\b|\\bBLOCKS\\.register\\(|Registries\\.BLOCK\\.register"]
       }
     },
     {
@@ -649,16 +649,16 @@
     },
     {
       "id": "schematics",
-      "feature": "Schematics (27 bundled + build commands)",
-      "status": "planned",
+      "feature": "Schematics (28 bundled + build commands)",
+      "status": "implemented",
       "issue": "#149",
-      "summary": "None — 27-file port pending (asset access blocked)",
+      "summary": "Bounded reader (Sponge v1-v3 + legacy MCEdit), traversal-proof store, budgeted multi-tick build pipeline + schema commands; all 28 bundled .schematic assets shipped at data/storynpcs/schematics/ (ported from the pinned target jar, datapack-overridable)",
       "evidence": {
-        "files": [],
-        "wired": [],
+        "files": ["src/main/java/com/storynpcs/domain/schematic/Schematic.java", "src/main/java/com/storynpcs/domain/schematic/BuildPlan.java", "src/main/java/com/storynpcs/domain/schematic/SchematicReader.java", "src/main/java/com/storynpcs/domain/schematic/SchematicStore.java", "src/main/java/com/storynpcs/service/SchematicBuildService.java", "src/main/resources/data/storynpcs/schematics/archery_range.schematic", "src/main/resources/data/storynpcs/schematics/bakery.schematic", "src/main/resources/data/storynpcs/schematics/barn.schematic", "src/main/resources/data/storynpcs/schematics/building_site.schematic", "src/main/resources/data/storynpcs/schematics/chapel.schematic", "src/main/resources/data/storynpcs/schematics/church.schematic", "src/main/resources/data/storynpcs/schematics/gate.schematic", "src/main/resources/data/storynpcs/schematics/glassworks.schematic", "src/main/resources/data/storynpcs/schematics/guard_tower.schematic", "src/main/resources/data/storynpcs/schematics/guild_house.schematic", "src/main/resources/data/storynpcs/schematics/house.schematic", "src/main/resources/data/storynpcs/schematics/house_small.schematic", "src/main/resources/data/storynpcs/schematics/inn.schematic", "src/main/resources/data/storynpcs/schematics/library.schematic", "src/main/resources/data/storynpcs/schematics/lighthouse.schematic", "src/main/resources/data/storynpcs/schematics/mill.schematic", "src/main/resources/data/storynpcs/schematics/observatory.schematic", "src/main/resources/data/storynpcs/schematics/ship.schematic", "src/main/resources/data/storynpcs/schematics/shop.schematic", "src/main/resources/data/storynpcs/schematics/stall.schematic", "src/main/resources/data/storynpcs/schematics/stall2.schematic", "src/main/resources/data/storynpcs/schematics/stall3.schematic", "src/main/resources/data/storynpcs/schematics/tier_house1.schematic", "src/main/resources/data/storynpcs/schematics/tier_house2.schematic", "src/main/resources/data/storynpcs/schematics/tier_house3.schematic", "src/main/resources/data/storynpcs/schematics/tower.schematic", "src/main/resources/data/storynpcs/schematics/wall.schematic", "src/main/resources/data/storynpcs/schematics/wall_corner.schematic"],
+        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "SchematicStore|SchematicBuildService|literal\\(\"schema\"\\)"}],
         "registered": [],
-        "tests": [],
-        "absent": ["class\\s+\\w*Schematic\\w*"]
+        "tests": ["src/test/java/com/storynpcs/domain/schematic/SchematicReaderTest.java", "src/test/java/com/storynpcs/domain/schematic/SchematicStoreTest.java", "src/test/java/com/storynpcs/domain/schematic/BuildPlanTest.java", "src/test/java/com/storynpcs/domain/schematic/BundledSchematicTest.java"],
+        "absent": []
       }
     },
     {
@@ -804,9 +804,9 @@
     {
       "id": "integrations",
       "feature": "Optional-mod integrations (mixins)",
-      "status": "planned",
-      "issue": "#87 P9-5",
-      "summary": "None",
+      "status": "deviation",
+      "issue": "#87 P9-5 (closed: documented deviation)",
+      "summary": "Recorded deviation — P9-5 closeout enumerates the target's 7-class Pixelmon/Cobblemon surface; StoryNPCs implements no optional-mod integration; absent-check + P9-5 tests enforce it",
       "evidence": {
         "files": [],
         "wired": [],

@@ -2,7 +2,6 @@
  "blocking_checks": [
   "issue_statuses_terminal",
   "p11_3_status",
-  "storynpcs_fixture_execution",
   "target_runtime_evidence"
  ],
  "checks": {
@@ -11,19 +10,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 9.995153744968292,
+     "timing_repeatability_observed_pct": 18.609026644915716,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 11.232926607175377,
+     "timing_repeatability_observed_pct": 2.689889724827381,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 8.132497484714795,
+     "timing_repeatability_observed_pct": 5.0567784406500875,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -123,36 +122,31 @@
    "pass": true
   },
   "storynpcs_fixture_execution": {
-   "blocked": true,
+   "blocked": false,
    "detail": {
-    "junit_test_case_count": 1143,
-    "source_fingerprint_matches": false,
+    "junit_test_case_count": 1173,
+    "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,
      "blocked_mapped": 0,
      "failed": 0,
-     "fixture_count": 36,
-     "mapped_cases": 145,
-     "observed": 36,
+     "fixture_count": 41,
+     "mapped_cases": 158,
+     "observed": 41,
      "unmapped": 0
     }
    },
-   "findings": [
-    "fixture evidence does not match the current source fingerprint",
-    "the fixture runner recorded a failed run",
-    "mapped JUnit fixture validation did not pass",
-    "fixture catalog validation did not pass"
-   ],
-   "pass": false
+   "findings": [],
+   "pass": true
   },
   "target_runtime_evidence": {
    "blocked": true,
    "detail": {
-    "imported_target_observation_count": 0,
+    "imported_target_observation_count": 3,
     "parity_status": "BLOCKED"
    },
    "findings": [
-    "target-runtime observations are unavailable; target parity remains BLOCKED"
+    "3 fixture(s) carry imported VERIFIED_TARGET_RUNTIME observations; no fixture reaches VERIFIED_PARITY, so target parity remains BLOCKED"
    ],
    "pass": false
   },

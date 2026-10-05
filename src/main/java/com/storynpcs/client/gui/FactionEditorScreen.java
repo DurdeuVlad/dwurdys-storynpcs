@@ -305,7 +305,7 @@ public class FactionEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (model.getMode() == Mode.LIST) {
+        if (model.getMode() == Mode.LIST && button == 0) {
             return listClick(mx, my) || super.mouseClicked(mx, my, button);
         }
         return super.mouseClicked(mx, my, button);

@@ -3121,10 +3121,7 @@ public class StoryNpcsApplicationService {
                         "Recipient mailbox already holds the maximum messages from this sender."));
             }
         }
-        var delivered = deliverMail(recipientUuid, senderLabel, subject, body);
-        if (delivered == null) {
-            return AuthorizedActionResult.of(false);
-        }
+        deliverMail(recipientUuid, senderLabel, subject, body);
         // The replay marker lands in the sender's durable ledger — best-effort
         // after the delivery commit; the in-process replay cache already covers
         // the same-request path, this survives restart/eviction.

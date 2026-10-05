@@ -364,8 +364,8 @@ public final class StoryNpcsCommands {
         var names = com.storynpcs.domain.schematic.SchematicStore.list(source.getServer());
         if (names.isEmpty()) {
             source.sendSuccess(() -> Component.literal(
-                    "[StoryNPCs] No schematics available (bundled assets are not yet shipped; "
-                            + "creator files go in config/storynpcs/schematics/)."), false);
+                    "[StoryNPCs] No schematics available (bundled assets should ship in the mod"
+                            + " jar; creator files go in config/storynpcs/schematics/)."), false);
             return 1;
         }
         source.sendSuccess(() -> Component.literal(
@@ -389,9 +389,10 @@ public final class StoryNpcsCommands {
         for (var r : results) {
             source.sendSuccess(() -> Component.literal(String.format(
                     "[StoryNPCs] done: %s in %s — %d/%d placed, %d skipped (unloaded),"
-                            + " %d unresolved, %d block-entity payload(s) applied",
+                            + " %d unresolved, %d block-entity payload(s) applied,"
+                            + " %d block-entity payload(s) skipped",
                     r.name(), r.dimension(), r.placed(), r.total(), r.skippedUnloaded(),
-                    r.unresolved(), r.blockEntitiesApplied())), false);
+                    r.unresolved(), r.blockEntitiesApplied(), r.blockEntitiesSkipped())), false);
         }
         if (status.isEmpty() && results.isEmpty()) {
             source.sendSuccess(() -> Component.literal(

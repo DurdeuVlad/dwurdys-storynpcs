@@ -399,8 +399,16 @@ public class StoryNpcEntity extends PathfinderMob {
                         MobEffects.MOVEMENT_SLOWDOWN, outcome.durationTicks(), outcome.amplifier()),
                         this);
                 case SELF_TELEPORT -> teleportTo(outcome.dx(), outcome.dy(), outcome.dz());
-                case BONUS_DAMAGE -> victim.hurt(
-                        damageSources().mobAttack(this), (float) outcome.amount());
+                case BONUS_DAMAGE -> {
+                    // This runs immediately after the triggering hit landed,
+                    // so the victim's invulnerability window is already full.
+                    // Vanilla hurt() would clamp the bonus to
+                    // max(0, bonus - lastHurt) — the authored bonus damage
+                    // must land additively, so clear the window first. Same
+                    // reason applyAuthoredAreaDamage skips the direct victim.
+                    victim.invulnerableTime = 0;
+                    victim.hurt(damageSources().mobAttack(this), (float) outcome.amount());
+                }
                 case DAMAGE_MULTIPLIER -> { } // consumed by hurt() before damage is applied
             }
         }
@@ -1692,10 +1700,14 @@ public class StoryNpcEntity extends PathfinderMob {
                 // #147: DAMAGED-triggered abilities — BLOCK scales the hit,
                 // pull/push/snare/teleport react to the attacker. Skip when
                 // vanilla i-frames would reject the hit outright so cooldowns
-                // are not burned on zero-damage invocations.
+                // are not burned on zero-damage invocations. The gate must
+                // compare the resistance-scaled amount — the same value
+                // super.hurt() will compare against lastHurt — or amplified
+                // hits would deal differential damage without firing.
+                float scaledAmount = scaleByAuthoredResistances(source, amount);
                 if (this.invulnerableTime > this.invulnerableDuration / 2.0F
-                        && amount <= this.lastHurt) {
-                    return super.hurt(source, scaleByAuthoredResistances(source, amount));
+                        && scaledAmount <= this.lastHurt) {
+                    return super.hurt(source, scaledAmount);
                 }
                 var abilityOutcomes = this.abilityController.onDamaged(
                         getDefinition().map(NpcDefinition::getAbilities).orElse(java.util.List.of()),

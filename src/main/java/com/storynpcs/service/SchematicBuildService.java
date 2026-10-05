@@ -55,7 +55,7 @@ public final class SchematicBuildService {
     /** Terminal tally retained after a build drains. */
     public record BuildResult(String name, String dimension, int placed, int total,
                               int skippedUnloaded, int unresolved,
-                              int blockEntitiesApplied) {}
+                              int blockEntitiesApplied, int blockEntitiesSkipped) {}
 
     /** Legacy MCEdit TileEntities id → modern block-entity registry key. */
     private static final Map<String, String> LEGACY_BE_IDS = Map.ofEntries(
@@ -164,7 +164,8 @@ public final class SchematicBuildService {
             recentResults.addLast(new BuildResult(task.name,
                     task.level.dimension().location().toString(),
                     task.placed, task.plan.placements().size(),
-                    task.skippedUnloaded, task.unresolved, task.blockEntitiesApplied));
+                    task.skippedUnloaded, task.unresolved,
+                    task.blockEntitiesApplied, task.blockEntitiesSkipped));
             while (recentResults.size() > MAX_RECENT_RESULTS) {
                 recentResults.removeFirst();
             }
@@ -183,9 +184,15 @@ public final class SchematicBuildService {
         private int skippedUnloaded;
         private int unresolved;
         private int blockEntitiesApplied;
+        private int blockEntitiesSkipped;
+        private int blockEntityCursor;
         private boolean done;
         /** Palette name → resolved state; Optional.empty marks unresolvable. */
         private final Map<String, Optional<BlockState>> stateCache = new LinkedHashMap<>();
+        /** Rotated offsets that carry a block-entity record. */
+        private final java.util.Set<Long> beOffsets = new java.util.HashSet<>();
+        /** BE offsets whose own placement actually landed this build. */
+        private final java.util.Set<Long> placedBeOffsets = new java.util.HashSet<>();
 
         BuildTask(ServerLevel level, String name, BuildPlan plan, BlockPos origin,
                   int quarterTurns) {
@@ -193,6 +200,9 @@ public final class SchematicBuildService {
             this.name = name;
             this.plan = plan;
             this.origin = origin;
+            for (var be : plan.blockEntities()) {
+                beOffsets.add(packOffset(be.x(), be.y(), be.z()));
+            }
             this.rotation = switch (Math.floorMod(quarterTurns, 4)) {
                 case 1 -> Rotation.CLOCKWISE_90;
                 case 2 -> Rotation.CLOCKWISE_180;
@@ -221,11 +231,24 @@ public final class SchematicBuildService {
                 }
                 level.setBlock(pos, state.get().rotate(rotation), 3);
                 placed++;
+                if (!beOffsets.isEmpty()) {
+                    long key = packOffset(p.dx(), p.dy(), p.dz());
+                    if (beOffsets.contains(key)) {
+                        placedBeOffsets.add(key);
+                    }
+                }
             }
-            if (cursor >= plan.placements().size()) {
-                applyBlockEntities();
-                done = true;
+            while (cursor >= plan.placements().size()
+                    && blockEntityCursor < plan.blockEntities().size() && processed < budget) {
+                if (applyBlockEntity(plan.blockEntities().get(blockEntityCursor++))) {
+                    blockEntitiesApplied++;
+                } else {
+                    blockEntitiesSkipped++;
+                }
+                processed++;
             }
+            done = cursor >= plan.placements().size()
+                    && blockEntityCursor >= plan.blockEntities().size();
             return processed;
         }
 
@@ -241,26 +264,38 @@ public final class SchematicBuildService {
             }
         }
 
-        /** Applies carried block-entity payloads once all placements land. */
-        private void applyBlockEntities() {
-            for (var record : plan.blockEntities()) {
-                BlockPos pos = origin.offset(record.x(), record.y(), record.z());
-                if (!level.hasChunkAt(pos)) {
-                    continue;
-                }
-                var blockEntity = level.getBlockEntity(pos);
-                if (blockEntity == null || !typeMatches(record.id(), blockEntity)) {
-                    continue;
-                }
-                try {
-                    blockEntity.loadWithComponents(record.data(), level.registryAccess());
-                    blockEntity.setChanged();
-                    blockEntitiesApplied++;
-                } catch (Exception ignored) {
-                    // A payload that doesn't match the placed block is skipped —
-                    // the build result still stands.
-                }
+        /**
+         * Applies one carried block-entity payload once all placements land.
+         * Only fires when this build actually placed the cell's own block —
+         * an air/unresolved/unloaded cell must never let the payload stamp
+         * onto a pre-existing block entity at that position.
+         */
+        private boolean applyBlockEntity(Schematic.BlockEntityRecord record) {
+            if (!placedBeOffsets.contains(packOffset(record.x(), record.y(), record.z()))) {
+                return false;
             }
+            BlockPos pos = origin.offset(record.x(), record.y(), record.z());
+            if (!level.hasChunkAt(pos)) {
+                return false;
+            }
+            var blockEntity = level.getBlockEntity(pos);
+            if (blockEntity == null || !typeMatches(record.id(), blockEntity)) {
+                return false;
+            }
+            try {
+                blockEntity.loadWithComponents(record.data(), level.registryAccess());
+                blockEntity.setChanged();
+                return true;
+            } catch (Exception ignored) {
+                // A payload that doesn't match the placed block is skipped —
+                // the build result still stands.
+                return false;
+            }
+        }
+
+        /** Local offsets are in-footprint ({@code <}512 per axis) — pack losslessly. */
+        private static long packOffset(int x, int y, int z) {
+            return ((long) y << 20) | ((long) z << 10) | (long) x;
         }
 
         /** Recorded BE id must match the placed block entity's registry type. */

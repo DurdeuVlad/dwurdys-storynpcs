@@ -211,7 +211,6 @@ public class NpcAbilityController {
 
     private List<AbilityOutcome> computeOutcome(NpcAbility ability, AbilityTrigger trigger, EventInput in) {
         double dxTarget = in.targetX() - in.npcX();
-        double dyTarget = in.targetY() - in.npcY();
         double dzTarget = in.targetZ() - in.npcZ();
         double dist = Math.sqrt(dxTarget * dxTarget + dzTarget * dzTarget);
 

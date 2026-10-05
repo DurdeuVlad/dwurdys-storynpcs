@@ -454,10 +454,13 @@ public class QuestEditorScreen extends Screen {
         if (model.getRowKind() != RowKind.NONE) {
             return super.mouseClicked(mx, my, button); // modal owns clicks
         }
-        if (model.getMode() == Mode.LIST) {
+        if (button == 0 && model.getMode() == Mode.LIST) {
             return listClick(mx, my) || super.mouseClicked(mx, my, button);
         }
-        return editClick(mx, my) || super.mouseClicked(mx, my, button);
+        if (button == 0) {
+            return editClick(mx, my) || super.mouseClicked(mx, my, button);
+        }
+        return super.mouseClicked(mx, my, button);
     }
 
     private boolean listClick(double mx, double my) {

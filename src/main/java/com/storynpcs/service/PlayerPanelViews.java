@@ -57,9 +57,11 @@ public final class PlayerPanelViews {
         Map<NamespacedId, com.storynpcs.domain.progression.PendingQuestCompletion> pending;
         Map<NamespacedId, List<String>> objectiveLines = new java.util.HashMap<>();
         Map<NamespacedId, QuestProgressState.Status> statuses = new java.util.HashMap<>();
+        long questRevision;
         synchronized (progression) {
             states = Map.copyOf(progression.getQuests());
             pending = Map.copyOf(progression.getPendingQuestCompletions());
+            questRevision = progression.getQuestRevision();
             for (Map.Entry<NamespacedId, QuestProgressState> e : states.entrySet()) {
                 var state = e.getValue();
                 if (state == null) continue;
@@ -91,7 +93,7 @@ public final class PlayerPanelViews {
                         e.getValue() == null ? 0L : e.getValue().questStateRevision()))
                 .sorted(Comparator.comparing(PendingQuestRow::questId))
                 .toList();
-        return new QuestLogView(rows, pendingRows, progression.getQuestRevision());
+        return new QuestLogView(rows, pendingRows, questRevision);
     }
 
     /**
@@ -102,8 +104,10 @@ public final class PlayerPanelViews {
                                                 PlayerProgression progression) {
         Objects.requireNonNull(progression, "progression");
         Map<NamespacedId, Integer> points;
+        long factionRevision;
         synchronized (progression) {
             points = Map.copyOf(progression.getFactionPoints());
+            factionRevision = progression.getFactionRevision();
         }
         List<FactionRow> rows = new ArrayList<>();
         if (registry != null) {
@@ -114,7 +118,7 @@ public final class PlayerPanelViews {
             }
         }
         rows.sort(Comparator.comparing(FactionRow::name));
-        return new FactionPanelView(rows, progression.getFactionRevision());
+        return new FactionPanelView(rows, factionRevision);
     }
 
     /** Mailbox view — newest first (the durable list is newest-last). */

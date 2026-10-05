@@ -149,7 +149,7 @@ public final class CommandParityCatalog {
             new CommandParityEntry("target.commands.0062", "/noppes/scene/pause/<name>", "pause one named scene",
                     CommandParityStatus.UNVERIFIED, null, "No scene/cutscene command tree or scene subsystem exists yet in this codebase."),
             new CommandParityEntry("target.commands.0063", "/noppes/schema/build/<name>/<pos>/<rotation>", "load and build a schematic",
-                    CommandParityStatus.SUPPORTED, "/storynpcs schema build <name> <pos> [rotation]", "Bounded budgeted build via SchematicBuildService (blocks/tick, chunk-safe); bundled assets pending (#149)."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs schema build <name> <pos> [rotation]", "Bounded budgeted build via SchematicBuildService (blocks/tick, chunk-safe); 28 bundled assets shipped (#149)."),
             new CommandParityEntry("target.commands.0064", "/noppes/schema/stop", "stop active schematic build",
                     CommandParityStatus.SUPPORTED, "/storynpcs schema stop", "Stops active builds in the caller's dimension."),
             new CommandParityEntry("target.commands.0065", "/noppes/schema/info", "report schematic build info",
