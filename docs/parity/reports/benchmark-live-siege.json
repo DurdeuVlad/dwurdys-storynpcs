@@ -1,0 +1,85 @@
+{
+  "artifact_kind" : "benchmark-evidence",
+  "scenario" : "siege",
+  "runtime_kind" : "storynpcs-live-neoforge-gametest",
+  "honesty_note" : "Real NeoForge dedicated-server GameTest runtime. Tick times are ServerTickEvent.Pre->Post wall clock for the whole server tick (all worlds + mod work) — live MSPT, not a scheduler model.",
+  "environment" : {
+    "javaVersion" : "21.0.12",
+    "neoforgeVersion" : "neoforge-21.1.248",
+    "minecraftVersion" : "1.21.1",
+    "hardwareProfile" : "live-neoforge-gametest: Windows 11/amd64",
+    "simulationDistance" : 0,
+    "viewDistance" : 0,
+    "modpackAssumptions" : "real dedicated-server GameTest runtime; ServerTickEvent wall-clock",
+    "warmupTicks" : 100,
+    "runTicks" : 400,
+    "seed" : 0
+  },
+  "workload" : {
+    "scenario" : "siege",
+    "npcCount" : 50,
+    "activeCombatants" : 50,
+    "description" : "50 near/0 far (force-loaded dormant), 400 measured ticks after 100 warmup"
+  },
+  "metrics" : {
+    "msptP50" : 0.5175,
+    "msptP95" : 2.3854,
+    "msptP99" : 43.5123,
+    "heapAfterGcBytes" : 219459904,
+    "dormantIncrementalBytes" : 43,
+    "pathQueueMaxDepth" : 23,
+    "pathQueueDropped" : 0,
+    "packetCount" : 0,
+    "correctnessFailures" : 0,
+    "lostEvents" : 0,
+    "duplicatedEvents" : 0
+  },
+  "work_fingerprint" : {
+    "tierEvaluations" : 400,
+    "emittedEvents" : 50,
+    "deliveredEvents" : 50,
+    "pathSubmissions" : 0,
+    "squadCoordinations" : 0
+  },
+  "threshold_results" : [ {
+    "metric" : "msptP95",
+    "limit" : "≤35.0",
+    "actual" : 2.3854,
+    "pass" : true
+  }, {
+    "metric" : "msptP99",
+    "limit" : "≤45.0",
+    "actual" : 43.5123,
+    "pass" : true
+  }, {
+    "metric" : "dormantIncremental",
+    "limit" : "≤9223372036854775807",
+    "actual" : 43.0,
+    "pass" : true
+  }, {
+    "metric" : "pathQueueMaxDepth",
+    "limit" : "≤1024",
+    "actual" : 23.0,
+    "pass" : true
+  }, {
+    "metric" : "correctnessFailures",
+    "limit" : "≤0",
+    "actual" : 0.0,
+    "pass" : true
+  }, {
+    "metric" : "lostEvents",
+    "limit" : "=0",
+    "actual" : 0.0,
+    "pass" : true
+  }, {
+    "metric" : "duplicatedEvents",
+    "limit" : "=0",
+    "actual" : 0.0,
+    "pass" : true
+  } ],
+  "scenario_pass" : true,
+  "certification_state" : "LIVE_RUNTIME_PASS",
+  "spawned_npcs" : 50,
+  "alive_npcs" : 50,
+  "sampled_ticks" : 400
+}

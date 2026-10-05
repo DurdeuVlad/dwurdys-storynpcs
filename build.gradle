@@ -33,6 +33,16 @@ neoForge {
             type = 'gameTestServer'
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
+        liveBenchmark {
+            // #126: same gameTestServer type, plus the benchmark flag and an
+            // absolute report dir so artifacts land in docs/parity/reports.
+            // No client port is bound — the 25565/25566 concern is avoided.
+            type = 'gameTestServer'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'storynpcs.liveBenchmark', 'true'
+            systemProperty 'storynpcs.benchmarkReportDir',
+                    file("${rootDir}/docs/parity/reports").absolutePath
+        }
     }
 
     mods {
