@@ -1608,6 +1608,178 @@ public class StoryNpcsApplicationService {
                 });
     }
 
+    /**
+     * P8-1: canonical spawner-rule save — mirrors {@link #saveTemplate}. The rule
+     * persists under {@code spawners/*.yaml} and registers its template dependency.
+     */
+    public ValidationResult saveSpawner(com.storynpcs.creator.template.SpawnerRule rule) {
+        Objects.requireNonNull(rule, "rule");
+        if (rule.getId() == null) {
+            ValidationResult result = ValidationResult.valid();
+            result.addError("SPAWNER_ID_MISSING", "Spawner rule must have an ID");
+            return result;
+        }
+        return saveSpawner(new MutationRequest(
+                "spawner.replace", "adapter", "spawner.mutate", rule.getId(),
+                definitionRevisions.getOrDefault(revisionKey("spawner", rule.getId()), 0L),
+                UUID.randomUUID()), rule).diagnostics();
+    }
+
+    public CanonicalMutationResult saveSpawner(MutationRequest request,
+            com.storynpcs.creator.template.SpawnerRule rule) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(rule, "rule");
+        var payload = detachedSpawnerCopy(rule);
+        return executeCanonicalMutation(request, "spawner", "replace",
+                MutationPayloadFingerprint.ofFields("spawner.replace", canonicalSpawnerFields(payload)),
+                () -> {
+                    if (payload.getId() == null) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("SPAWNER_ID_MISSING", "Spawner rule must have an ID");
+                        return result;
+                    }
+                    if (!request.targetId().equals(payload.getId())) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TARGET_ID_MISMATCH", "Spawner ID does not match request target");
+                        return result;
+                    }
+                    return saveSpawnerUnderCanonicalLock(payload);
+                });
+    }
+
+    /** Replay-safe, revision-checked spawner delete — mirrors {@link #deleteTemplate(MutationRequest)}. */
+    public CanonicalMutationResult deleteSpawner(MutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return executeCanonicalMutation(request, "spawner", "delete",
+                MutationPayloadFingerprint.of("spawner.delete", request.targetId().toString()), () -> {
+                    if (registry.getSpawnerRule(request.targetId()).isEmpty()) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("SPAWNER_NOT_FOUND", "Spawner not found: " + request.targetId());
+                        return result;
+                    }
+                    if (!deleteSpawner(request.targetId())) {
+                        ValidationResult failure = ValidationResult.valid();
+                        failure.addError(registry.getSpawnerRule(request.targetId()).isPresent()
+                                        ? "DEFINITION_DELETE_FAILED" : "SPAWNER_NOT_FOUND",
+                                "Spawner '" + request.targetId() + "' could not be deleted");
+                        return failure;
+                    }
+                    return ValidationResult.valid();
+                });
+    }
+
+    /**
+     * File-first spawner delete — the YAML file goes before the registry binding
+     * under the canonical lock. Runtime state for the spawner is pruned lazily by
+     * {@code NpcSpawnerRuntime} once the rule is gone.
+     */
+    public boolean deleteSpawner(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        synchronized (canonicalMutationLock) {
+            synchronized (this) {
+                if (registry.getSpawnerRule(id).isEmpty()) {
+                    return false;
+                }
+                if (!deleteDefinitionFileBeforeRegistryMutation("spawners", id)) {
+                    return false;
+                }
+                if (registry.removeSpawnerRule(id)) {
+                    definitionRevisions.merge(revisionKey("spawner", id), 1L, Long::sum);
+                    return true;
+                }
+                return false;
+            }
+        }
+    }
+
+    private synchronized ValidationResult saveSpawnerUnderCanonicalLock(
+            com.storynpcs.creator.template.SpawnerRule rule) {
+        Objects.requireNonNull(rule, "rule");
+        ValidationResult result = ValidationResult.valid();
+
+        if (rule.getId() == null) {
+            result.addError("SPAWNER_ID_MISSING", "Spawner rule must have an ID");
+            return result;
+        }
+        if (rule.getSchemaVersion() != com.storynpcs.creator.template.SpawnerRule.SCHEMA_VERSION) {
+            result.addError("SCHEMA_VERSION_UNSUPPORTED",
+                    "Spawner schemaVersion " + rule.getSchemaVersion()
+                            + " is not supported (expected "
+                            + com.storynpcs.creator.template.SpawnerRule.SCHEMA_VERSION + ")");
+            return result;
+        }
+        if (rule.getTemplateId() == null) {
+            result.addError("SPAWNER_MISSING_TEMPLATE", "Spawner must declare a 'templateId'");
+            return result;
+        }
+        if (rule.hasPartialAnchor()) {
+            result.addError("SPAWNER_PARTIAL_ANCHOR",
+                    "Spawner anchor is all-or-none — set 'dimension', 'anchorX',"
+                            + " 'anchorY' and 'anchorZ' together or none");
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                var savedFile = new YamlDefinitionWriter(loader.getDefinitionWriteCoordinator()).writeDefinition(
+                        loader.getLastLoadedRootPath(), "spawners",
+                        YamlDefinitionWriter.fileNameFor(rule.getId()), rule,
+                        loader.getDefinitionFiles("spawners", rule.getId()));
+                loader.recordDefinitionFile("spawners", rule.getId(), savedFile);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write spawner file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerSpawnerRule(rule);
+        if (registry.getTemplate(rule.getTemplateId()).isEmpty()) {
+            result.addWarning("SPAWNER_TEMPLATE_UNKNOWN",
+                    "Spawner '" + rule.getId() + "' references template '" + rule.getTemplateId()
+                            + "' which is not loaded — it stays inert until the template registers");
+        }
+        definitionRevisions.merge(revisionKey("spawner", rule.getId()), 1L, Long::sum);
+        return result;
+    }
+
+    private static com.storynpcs.creator.template.SpawnerRule detachedSpawnerCopy(
+            com.storynpcs.creator.template.SpawnerRule source) {
+        var copy = new com.storynpcs.creator.template.SpawnerRule();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setTemplateId(source.getTemplateId());
+        copy.setQuota(source.getQuota());
+        copy.setSpawnIntervalTicks(source.getSpawnIntervalTicks());
+        copy.setPlacementRadiusBlocks(source.getPlacementRadiusBlocks());
+        copy.setCleanupOnChunkUnload(source.isCleanupOnChunkUnload());
+        copy.setRespawnOnDeath(source.isRespawnOnDeath());
+        copy.setDimension(source.getDimension());
+        copy.setAnchorX(source.getAnchorX());
+        copy.setAnchorY(source.getAnchorY());
+        copy.setAnchorZ(source.getAnchorZ());
+        copy.setEnabled(source.isEnabled());
+        return copy;
+    }
+
+    private static List<String> canonicalSpawnerFields(
+            com.storynpcs.creator.template.SpawnerRule rule) {
+        List<String> fields = new java.util.ArrayList<>();
+        fields.add(rule.getId() == null ? null : rule.getId().toString());
+        fields.add(Integer.toString(rule.getSchemaVersion()));
+        fields.add(rule.getTemplateId() == null ? null : rule.getTemplateId().toString());
+        fields.add(Integer.toString(rule.getQuota()));
+        fields.add(Integer.toString(rule.getSpawnIntervalTicks()));
+        fields.add(Double.toString(rule.getPlacementRadiusBlocks()));
+        fields.add(Boolean.toString(rule.isCleanupOnChunkUnload()));
+        fields.add(Boolean.toString(rule.isRespawnOnDeath()));
+        fields.add(rule.getDimension());
+        fields.add(String.valueOf(rule.getAnchorX()));
+        fields.add(String.valueOf(rule.getAnchorY()));
+        fields.add(String.valueOf(rule.getAnchorZ()));
+        fields.add(Boolean.toString(rule.isEnabled()));
+        return fields;
+    }
+
     private static com.storynpcs.creator.template.NpcTemplate detachedTemplateCopy(
             com.storynpcs.creator.template.NpcTemplate source) {
         var copy = new com.storynpcs.creator.template.NpcTemplate();

@@ -361,6 +361,71 @@ public class YamlDefinitionLoader {
         return null;
     }
 
+    /**
+     * P8-1 spawner family: an anchored rule points at a template and drives the
+     * bounded spawner runtime. Anchor fields are all-or-none — a partial anchor
+     * fails closed rather than spawning at an ambiguous origin.
+     */
+    public com.storynpcs.creator.template.SpawnerRule loadSpawner(
+            String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
+        try {
+            var rule = readDefinition(yamlContent, sourceName, result,
+                    com.storynpcs.creator.template.SpawnerRule.class);
+            if (rule == null) return null;
+            if (rule.getId() == null) {
+                result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID",
+                        "Spawner definition must declare an 'id'");
+                return null;
+            }
+            if (rule.getSchemaVersion() != com.storynpcs.creator.template.SpawnerRule.SCHEMA_VERSION) {
+                result.addError(sourceName, 1, 1, "SCHEMA_VERSION_UNSUPPORTED",
+                        "Spawner schemaVersion " + rule.getSchemaVersion()
+                                + " is not supported (expected "
+                                + com.storynpcs.creator.template.SpawnerRule.SCHEMA_VERSION + ")");
+                return null;
+            }
+            if (rule.getTemplateId() == null) {
+                result.addError(sourceName, 1, 1, "SPAWNER_MISSING_TEMPLATE",
+                        "Spawner must declare a 'templateId'");
+                return null;
+            }
+            if (rule.hasPartialAnchor()) {
+                result.addError(sourceName, 1, 1, "SPAWNER_PARTIAL_ANCHOR",
+                        "Spawner anchor is all-or-none — set 'dimension', 'anchorX',"
+                                + " 'anchorY' and 'anchorZ' together or none");
+                return null;
+            }
+            if (registry.getSpawnerRule(rule.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate Spawner ID '" + rule.getId() + "' is already defined in another file");
+                return null;
+            }
+            registry.registerSpawnerRule(rule);
+            if (registry.getTemplate(rule.getTemplateId()).isEmpty()) {
+                result.addWarning(sourceName, 1, 1, "SPAWNER_TEMPLATE_UNKNOWN",
+                        "Spawner '" + rule.getId() + "' references template '" + rule.getTemplateId()
+                                + "' which is not loaded — it stays inert until the template registers");
+            }
+            return rule;
+        } catch (JsonParseException e) {
+            result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
+                    "YAML_PARSE_ERROR", e.getOriginalMessage());
+        } catch (UnrecognizedPropertyException e) {
+            addUnknownFieldError(yamlContent, sourceName, e, result);
+        } catch (JsonMappingException e) {
+            result.addError(sourceName, e.getLocation() != null ? e.getLocation().getLineNr() : 1,
+                    e.getLocation() != null ? e.getLocation().getColumnNr() : 1,
+                    "YAML_MAPPING_ERROR", e.getOriginalMessage());
+        } catch (Exception e) {
+            result.addError(sourceName, 1, 1, "LOAD_ERROR", e.getMessage());
+        }
+        return null;
+    }
+
     private <T> T readDefinition(String yamlContent, String sourceName,
                                  ValidationResult result, Class<T> type) throws IOException {
         JsonNode normalized = DefinitionSchema.normalize(mapper, yamlContent, sourceName, result);
@@ -570,6 +635,7 @@ public class YamlDefinitionLoader {
             case "quest", "quests" -> "quests";
             case "transport", "transports" -> "transports";
             case "template", "templates" -> "templates";
+            case "spawner", "spawners" -> "spawners";
             default -> null;
         };
     }
@@ -633,7 +699,7 @@ public class YamlDefinitionLoader {
                         result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
                                 "Definition family '" + dirName + "' is recognized but not yet loadable;"
                                         + " remove the file or move it to a supported family directory"
-                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/)");
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/)");
                         return;
                     }
                 }
@@ -647,6 +713,7 @@ public class YamlDefinitionLoader {
                 case "quests" -> loadQuest(content, file.toString(), result);
                 case "transports" -> loadTransport(content, file.toString(), result);
                 case "templates" -> loadTemplate(content, file.toString(), result);
+                case "spawners" -> loadSpawner(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -675,6 +742,10 @@ public class YamlDefinitionLoader {
         if (parentName.equals("templates") || parentName.equals("template")
                 || fileName.startsWith("template_")) {
             return "templates";
+        }
+        if (parentName.equals("spawners") || parentName.equals("spawner")
+                || fileName.startsWith("spawner_")) {
+            return "spawners";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.

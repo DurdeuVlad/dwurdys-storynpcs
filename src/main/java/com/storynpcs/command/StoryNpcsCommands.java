@@ -162,6 +162,20 @@ public final class StoryNpcsCommands {
                                 .then(Commands.argument("template_id", ResourceLocationArgument.id())
                                         .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                                 .executes(StoryNpcsCommands::applyTemplate)))))
+                // P8-1 spawners: list/info plus place/delete through canonical ops
+                .then(Commands.literal("spawner")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listSpawners))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("spawner_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::spawnerInfo)))
+                        .then(Commands.literal("place")
+                                .then(Commands.argument("spawner_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("template_id", ResourceLocationArgument.id())
+                                                .executes(StoryNpcsCommands::placeSpawner))))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("spawner_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteSpawner))))
                 // P11-1 import: dry-run by default; `apply` executes with rollback
                 .then(Commands.literal("import")
                         .requires(source -> source.hasPermission(2))
@@ -4046,6 +4060,130 @@ public final class StoryNpcsCommands {
         }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§aCreated NPC " + npcId + " from template " + templateId), true);
+        return 1;
+    }
+
+    // ── P8-1 spawners ────────────────────────────────────────────────────────
+
+    private static int listSpawners(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var rules = mod.getRegistry().getAllSpawnerRules();
+        if (rules.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] No spawners loaded. YAML: definitions/spawners/"), false);
+            return 1;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                String.format("--- StoryNPCs Spawners (%d) ---", rules.size())), false);
+        for (var r : rules) {
+            String anchor = r.isAnchored()
+                    ? String.format("%s @ (%d,%d,%d)", r.getDimension(),
+                            r.getAnchorX(), r.getAnchorY(), r.getAnchorZ())
+                    : "unanchored";
+            final var line = Component.literal(String.format(
+                    " §e%s§r → %s | quota %d every %dt | %s%s",
+                    r.getId(), r.getTemplateId(), r.getQuota(), r.getSpawnIntervalTicks(),
+                    anchor, r.isEnabled() ? "" : " [disabled]"));
+            ctx.getSource().sendSuccess(() -> line, false);
+        }
+        return 1;
+    }
+
+    private static int spawnerInfo(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var id = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "spawner_id").toString());
+        var rule = mod.getRegistry().getSpawnerRule(id).orElse(null);
+        if (rule == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Spawner not found: " + id));
+            return 0;
+        }
+        String templateState = mod.getRegistry().getTemplate(rule.getTemplateId()).isPresent()
+                ? "loaded" : "MISSING — spawner inert";
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "--- Spawner %s ---%n template: %s (%s)%n quota: %d  interval: %dt  radius: %.1f%n"
+                        + " cleanupOnChunkUnload: %s  respawnOnDeath: %s  enabled: %s%n anchor: %s",
+                rule.getId(), rule.getTemplateId(), templateState,
+                rule.getQuota(), rule.getSpawnIntervalTicks(), rule.getPlacementRadiusBlocks(),
+                rule.isCleanupOnChunkUnload(), rule.isRespawnOnDeath(), rule.isEnabled(),
+                rule.isAnchored() ? String.format("%s @ (%d,%d,%d)", rule.getDimension(),
+                        rule.getAnchorX(), rule.getAnchorY(), rule.getAnchorZ())
+                        : "unanchored (inert)")), false);
+        return 1;
+    }
+
+    /**
+     * Convenience anchor: creates (or replaces) a spawner rule bound to the
+     * executor's position/dimension through the canonical spawner.replace op —
+     * the same operation a YAML file or editor save would take.
+     */
+    private static int placeSpawner(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var spawnerId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "spawner_id").toString());
+        var templateId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "template_id").toString());
+        if (mod.getRegistry().getTemplate(templateId).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template not found: " + templateId));
+            return 0;
+        }
+        // Service detaches the payload internally — a fresh bean is safe here.
+        var rule = new com.storynpcs.creator.template.SpawnerRule();
+        rule.setId(spawnerId);
+        rule.setTemplateId(templateId);
+        var pos = ctx.getSource().getPosition();
+        rule.setDimension(ctx.getSource().getLevel().dimension().location().toString());
+        rule.setAnchorX((int) Math.floor(pos.x));
+        rule.setAnchorY((int) Math.floor(pos.y));
+        rule.setAnchorZ((int) Math.floor(pos.z));
+        var result = service.saveSpawner(
+                commandMutationRequest(ctx, service, "spawner", "replace", spawnerId), rule);
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Spawner save rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aPlaced spawner " + spawnerId + " → template " + templateId
+                        + " at " + rule.getDimension()
+                        + " (" + rule.getAnchorX() + "," + rule.getAnchorY() + ","
+                        + rule.getAnchorZ() + ")"), true);
+        return 1;
+    }
+
+    private static int deleteSpawner(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "spawner_id").toString());
+        var result = service.deleteSpawner(
+                commandMutationRequest(ctx, service, "spawner", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Spawner delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aDeleted spawner " + id + " (owned actors remain in-world)"), true);
         return 1;
     }
 

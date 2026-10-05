@@ -5,8 +5,14 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 ## P8-1 — Templates/spawners
 
 - `NpcTemplate`: namespaced, schemaVersion, revision, description, tags; `instantiate` deep-copies the definition — no shared mutable state.
-- `TemplateLibrary`: deterministic search, spawner-dependent registry, `delete` reports dependents, `importValidation` rejects unknown fields + unsupported schema.
-- `SpawnerRule`: quota ≤64, interval ≥20 ticks, placement radius ≤64, unload cleanup, deterministic `shouldSpawn`.
+- `TemplateLibrary`: deterministic search, spawner-dependent registry (dedup + unregister), `delete` reports dependents, `importValidation` rejects unknown fields + unsupported schema.
+- `SpawnerRule`: quota ≤64, interval ≥20 ticks, placement radius ≤64, unload cleanup, respawn policy, `enabled` flag, and an all-or-none world anchor (`dimension` + `anchorX/Y/Z`) — a rule without an anchor is an inert preset.
+- `spawners/*.yaml` is a loadable definition family (schemaVersion, duplicate-id, partial-anchor and missing-template diagnostics; missing template is a warning — the spawner stays inert).
+- Canonical ops: `spawner.replace`/`spawner.delete` through `executeCanonicalMutation` with revision/replay/fingerprint handling (`spawner.mutate`/`spawner.edit`/`spawner.delete` capability rows); `spawner place` command mints anchored rules via the same op.
+- `NpcSpawnerRuntime`: staggered 20-tick evaluation; spawn only when the anchor chunk is loaded; owned-actor ledger via the `TemplateSpawner` persistent-data key + `EntityLeaveLevelEvent` resolution; `cleanupOnChunkUnload` discards on unload; `respawnOnDeath=false` permanently consumes quota slots; a 400-tick missing-grace releases dead-in-unloaded-chunk actors; spawn definitions are instantiated lazily once per rule under `storynpcs:spawned/<path>` via canonical `npc.create` (system actor) — clone-spawns share one definition rather than polluting the registry.
+- `SpawnerRuntimeStore` (`IndexedRecordStore`, `storynpcs/spawner_state/`): owned UUIDs, last spawn tick, deaths, instantiated definition id — durable per change so restart enforces quotas against surviving actors; stale records prune on a bounded cadence.
+- `NpcSpawnerLifecycleEvent` audit events: spawned, released-death, released-unload-cleanup, released-despawned, released-missing-grace, state-pruned.
+- Live evidence: `templateSpawnerSpawnsOwnedNpcInLiveWorld` GameTest (12/12 pass) — real ServerLevel spawn, owner-tag binding, quota-1 never exceeded, `storynpcs:spawned/` definition resolution.
 
 ## P8-2 — Movement/utility tools
 
@@ -38,9 +44,11 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## Explicit limits
 
-- Domain contracts only — no network packets, client screens, or entity wiring yet.
-- Templates persist via `templates/*.yaml` (loadable family, canonical saves through `RegistryImportSink`/`saveNpc` instantiation); world-mutation executors absent.
+- P8-2..P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet (P8-1 spawner runtime is wired; the rest are not).
+- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; spawner runtime state via the durable `IndexedRecordStore` ledger.
+- A spawner whose template is deleted keeps spawning from its last-instantiated definition (snapshot semantics); deleting a spawner stops future spawns but leaves already-spawned actors in-world — both are surfaced explicitly.
+- Placement uses a seeded `RandomSource` (deterministic per rule+tick sequence); quota/interval/chunk/unload rules are deterministic.
 
 ## Verification
 
-`./gradlew test`: 71 suites, 588 tests, 0 failures. `git diff --check` clean. No live MC testing.
+`./gradlew test`: 1253 tests, 0 failures, 1 skipped. `./gradlew runGameTestServer`: 12/12 pass (includes the live spawner fixture). `git diff --check` clean.

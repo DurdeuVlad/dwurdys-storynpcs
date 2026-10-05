@@ -55,7 +55,22 @@ public final class TemplateLibrary {
 
     /** Register a spawner as dependent on a template — surfaced on delete. */
     public void registerSpawner(NamespacedId templateId, NamespacedId spawnerId) {
-        spawnerDependents.computeIfAbsent(templateId.toString(), k -> new java.util.ArrayList<>()).add(spawnerId);
+        var deps = spawnerDependents.computeIfAbsent(
+                templateId.toString(), k -> new java.util.ArrayList<>());
+        if (!deps.contains(spawnerId)) {
+            deps.add(spawnerId);
+        }
+    }
+
+    /** Drop a single dependent (spawner deleted or retargeted). */
+    public void unregisterSpawner(NamespacedId templateId, NamespacedId spawnerId) {
+        var deps = spawnerDependents.get(templateId.toString());
+        if (deps != null) {
+            deps.remove(spawnerId);
+            if (deps.isEmpty()) {
+                spawnerDependents.remove(templateId.toString());
+            }
+        }
     }
 
     public List<NamespacedId> dependentSpawners(NamespacedId templateId) {
