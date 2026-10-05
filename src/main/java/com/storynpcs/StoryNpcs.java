@@ -54,6 +54,7 @@ public class StoryNpcs {
     private final Map<MinecraftServer, FollowerGroup> serverFollowerGroups = new ConcurrentHashMap<>();
     /** World-scoped quest-mail store; installed by the world lifecycle on open. */
     private volatile com.storynpcs.domain.quest.QuestMailStore questMailStore;
+    private volatile com.storynpcs.domain.quest.TeamProgressionStore teamProgressionStore;
     /** Bounded live runtime configuration (P9-4) — shared with the app service. */
     private final com.storynpcs.admin.RuntimeTunables runtimeTunables;
     /** Bounded script dispatch host (P9-2) — per-instance, never static. */
@@ -293,6 +294,14 @@ public class StoryNpcs {
 
     public void setQuestMailStore(com.storynpcs.domain.quest.QuestMailStore questMailStore) {
         this.questMailStore = questMailStore;
+    }
+
+    public com.storynpcs.domain.quest.TeamProgressionStore getTeamProgressionStore() {
+        return teamProgressionStore;
+    }
+
+    public void setTeamProgressionStore(com.storynpcs.domain.quest.TeamProgressionStore store) {
+        this.teamProgressionStore = store;
     }
 
     public com.storynpcs.script.ScriptScheduler getScriptScheduler() {

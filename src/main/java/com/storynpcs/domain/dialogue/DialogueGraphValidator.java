@@ -51,20 +51,16 @@ public final class DialogueGraphValidator {
         }
 
         // Graph-level availability conditions — the target's Dialog.availability.
-        // Edge-level conditions are historically lenient; the new graph-level
-        // surface is strict from introduction: typed target required.
         if (graph.getAvailability() != null) {
             for (DialogueCondition condition : graph.getAvailability()) {
-                if (condition == null || condition.getType() == null
-                        || condition.getTarget() == null || condition.getTarget().isBlank()) {
-                    result.addError("DIALOGUE_BAD_AVAILABILITY_CONDITION",
-                            "dialogue graph " + graph.getId()
-                                    + " has an availability condition without type/target");
-                }
+                checkCondition(result, "graph '" + graph.getId() + "' availability",
+                        condition, "DIALOGUE_BAD_AVAILABILITY_CONDITION");
             }
         }
 
-        // Dangling edge targets — every edge must name a node that exists.
+        // Dangling edge targets + deep condition/action payload validation —
+        // every edge must name a node that exists, and condition/action fields
+        // must satisfy the semantics the runtime evaluator/executor implement.
         for (DialogueNode node : graph.getNodes().values()) {
             if (node.getOptions() == null) {
                 continue;
@@ -74,6 +70,18 @@ public final class DialogueGraphValidator {
                 if (target == null || target.isBlank() || !graph.getNodes().containsKey(target)) {
                     result.addError("DIALOGUE_DANGLING_EDGE",
                             "node '" + node.getId() + "' has option targeting missing node '" + target + "'");
+                }
+                String where = "node '" + node.getId() + "' option '" + edge.getText() + "'";
+                if (edge.getConditions() != null) {
+                    for (DialogueCondition condition : edge.getConditions()) {
+                        checkCondition(result, where + " condition", condition,
+                                "DIALOGUE_BAD_EDGE_CONDITION");
+                    }
+                }
+                if (edge.getActions() != null) {
+                    for (DialogueAction action : edge.getActions()) {
+                        checkAction(result, where + " action", action);
+                    }
                 }
             }
         }
@@ -100,6 +108,114 @@ public final class DialogueGraphValidator {
     /** Minecraft translation-key charset: namespace:path, lowercase. */
     private static final java.util.regex.Pattern LOCALIZATION_KEY =
             java.util.regex.Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
+
+    /** namespace:path identifier shape — quests, factions, items. */
+    private static final java.util.regex.Pattern NAMESPACED_TARGET =
+            java.util.regex.Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
+
+    private static void checkCondition(ValidationResult result, String where,
+                                       DialogueCondition condition, String code) {
+        if (condition == null || condition.getType() == null
+                || condition.getTarget() == null || condition.getTarget().isBlank()) {
+            result.addError(code, where + " without type/target");
+            return;
+        }
+        String value = condition.getValue() != null ? condition.getValue().trim() : "";
+        switch (condition.getType()) {
+            case QUEST_STATUS -> {
+                requireNamespacedTarget(result, where, code, condition.getTarget(), "quest");
+                try {
+                    com.storynpcs.domain.progression.QuestProgressState.Status
+                            .valueOf(value.toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    result.addError(code, where + " has unknown quest status '" + value + "'");
+                }
+            }
+            case FACTION_STANDING -> {
+                requireNamespacedTarget(result, where, code, condition.getTarget(), "faction");
+                try {
+                    com.storynpcs.domain.faction.FactionStanding
+                            .valueOf(value.toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    result.addError(code, where + " has unknown faction standing '" + value + "'");
+                }
+            }
+            case FACTION_POINTS -> {
+                requireNamespacedTarget(result, where, code, condition.getTarget(), "faction");
+                if (!Set.of(">=", "<=", ">", "<", "==").contains(condition.getOperator())) {
+                    result.addError(code, where + " has unsupported operator '"
+                            + condition.getOperator() + "'");
+                }
+                if (!isInt(value)) {
+                    result.addError(code, where + " has non-numeric points value '" + value + "'");
+                }
+            }
+            case HAS_ITEM -> {
+                requireNamespacedTarget(result, where, code, condition.getTarget(), "item");
+                if (!value.isEmpty() && (!isInt(value) || Integer.parseInt(value) < 1)) {
+                    result.addError(code, where + " has non-positive item count '" + value + "'");
+                }
+            }
+            case HAS_PERMISSION -> {
+                // target already non-blank; numeric op-level or dot-form node
+            }
+        }
+    }
+
+    private static void checkAction(ValidationResult result, String where, DialogueAction action) {
+        if (action == null || action.getType() == null) {
+            result.addError("DIALOGUE_BAD_EDGE_ACTION", where + " without type");
+            return;
+        }
+        String target = action.getTarget() != null ? action.getTarget().trim() : "";
+        String value = action.getValue() != null ? action.getValue().trim() : "";
+        switch (action.getType()) {
+            case START_QUEST, ADVANCE_QUEST, COMPLETE_QUEST ->
+                    requireNamespacedTarget(result, where, "DIALOGUE_BAD_EDGE_ACTION",
+                            target, "quest");
+            case ADJUST_FACTION -> {
+                requireNamespacedTarget(result, where, "DIALOGUE_BAD_EDGE_ACTION",
+                        target, "faction");
+                if (!isInt(value)) {
+                    result.addError("DIALOGUE_BAD_EDGE_ACTION",
+                            where + " has non-numeric faction delta '" + value + "'");
+                }
+            }
+            case GIVE_ITEM -> {
+                requireNamespacedTarget(result, where, "DIALOGUE_BAD_EDGE_ACTION",
+                        target, "item");
+                if (!value.isEmpty() && (!isInt(value) || Integer.parseInt(value) < 1)) {
+                    result.addError("DIALOGUE_BAD_EDGE_ACTION",
+                            where + " has non-positive item count '" + value + "'");
+                }
+            }
+            case EXECUTE_COMMAND -> {
+                if (target.isEmpty()) {
+                    result.addError("DIALOGUE_BAD_EDGE_ACTION",
+                            where + " EXECUTE_COMMAND without command target");
+                }
+            }
+            case CLOSE_DIALOGUE -> { /* no fields required */ }
+        }
+    }
+
+    private static void requireNamespacedTarget(ValidationResult result, String where,
+                                                String code, String target, String kind) {
+        if (target == null || !NAMESPACED_TARGET.matcher(target.trim()).matches()) {
+            result.addError(code,
+                    where + " has malformed " + kind + " id '" + target + "'");
+        }
+    }
+
+    private static boolean isInt(String s) {
+        if (s == null || s.isEmpty()) return false;
+        try {
+            Integer.parseInt(s);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
 
     private static void checkLocalizationKey(ValidationResult result, String field, String key) {
         if (key != null && !key.isBlank() && !LOCALIZATION_KEY.matcher(key).matches()) {

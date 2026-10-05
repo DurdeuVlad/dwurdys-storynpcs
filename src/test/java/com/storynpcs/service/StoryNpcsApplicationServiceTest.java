@@ -178,6 +178,47 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void duplicateChoiceSubmissionRunsEffectsExactlyOnce() {
+        // P5-2: a second submission of the same choice must be rejected at the
+        // service boundary and must not re-run edge effects.
+        UUID playerUuid = UUID.randomUUID();
+
+        NamespacedId factionId = NamespacedId.of("storynpcs:knights");
+        registry.registerFaction(new Faction(factionId, "Knights", 1000, 500, 1500));
+
+        NamespacedId dialogueId = NamespacedId.of("storynpcs:dup_dialogue");
+        DialogueGraph graph = new DialogueGraph(dialogueId, "Dup", "start");
+        DialogueNode start = new DialogueNode("start", "Pick once.");
+        DialogueNode end = new DialogueNode("end", "Done.");
+        DialogueEdge edge = new DialogueEdge("Take reward", "end");
+        edge.getActions().add(new DialogueAction(
+                DialogueAction.Type.ADJUST_FACTION, factionId.toString(), "50"));
+        start.addOption(edge);
+        graph.addNode(start);
+        graph.addNode(end);
+        registry.registerDialogue(graph);
+
+        DialogueView opened = service.startDialogue(playerUuid, dialogueId);
+        assertThat(opened.options()).containsExactly("Take reward");
+
+        // Capture the issued token, then submit it twice through the token path.
+        String token = service.getActiveSession(playerUuid).get()
+                .getIssuedTokens().get(0).value().toString();
+        assertThat(token).isNotBlank();
+
+        DialogueView first = service.chooseDialogueOption(playerUuid, token);
+        assertThat(first.nodeId()).isEqualTo("end");
+        PlayerProgression prog = progressionRepository.getOrCreate(playerUuid);
+        assertThat(prog.getFactionScore(factionId, 1000)).isEqualTo(1050);
+
+        // Second submission of the SAME token — consumed, session now closed.
+        DialogueView replay = service.chooseDialogueOption(playerUuid, token);
+        assertThat(replay.isTerminal() || replay.nodeId() == null).isTrue();
+        // Effect ran exactly once — no duplicated reward.
+        assertThat(prog.getFactionScore(factionId, 1000)).isEqualTo(1050);
+    }
+
+    @Test
     void shouldExposeSpeakerNameAndOptionHintsInDialogueView() {
         UUID playerUuid = UUID.randomUUID();
 
@@ -420,7 +461,7 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
-    void shouldRejectNonAtomicCommandRewardBeforeQuestCompletion() {
+    void commandRewardCompletesUnderDurableMarkAndBlankTargetIsRejected() {
         UUID playerUuid = UUID.randomUUID();
         NamespacedId questId = NamespacedId.of("storynpcs:command_reward");
         Quest quest = new Quest(questId, "Command Reward");
@@ -430,11 +471,28 @@ class StoryNpcsApplicationServiceTest {
         service.startQuest(playerUuid, questId);
         QuestCompletionResult result = service.completeQuest(playerUuid, questId);
 
-        assertThat(result.outcome()).isEqualTo(QuestCompletionResult.Outcome.REJECTED);
-        assertThat(result.code()).isEqualTo("NON_ATOMIC_COMMAND_REWARD");
+        // Non-atomic policy: the command runs once under a durable delivered
+        // mark (headless: no server → marked delivered), completion commits.
+        assertThat(result.outcome()).isEqualTo(QuestCompletionResult.Outcome.COMPLETED);
         assertThat(progressionRepository.getOrCreate(playerUuid).getQuestState(questId).getStatus())
+                .isEqualTo(QuestProgressState.Status.COMPLETED);
+        assertThat(publishedEvents)
+                .anyMatch(event -> event instanceof com.storynpcs.api.event.QuestCompleteEvent);
+
+        // A blank command payload is still rejected before any completion.
+        UUID second = UUID.randomUUID();
+        NamespacedId badQuestId = NamespacedId.of("storynpcs:command_reward_blank");
+        Quest badQuest = new Quest(badQuestId, "Blank Command Reward");
+        badQuest.setRewards(List.of(new QuestReward(QuestReward.Type.COMMAND, "  ", 1)));
+        registry.registerQuest(badQuest);
+
+        service.startQuest(second, badQuestId);
+        QuestCompletionResult rejected = service.completeQuest(second, badQuestId);
+
+        assertThat(rejected.outcome()).isEqualTo(QuestCompletionResult.Outcome.REJECTED);
+        assertThat(rejected.code()).isEqualTo("COMMAND_REWARD_TARGET_MISSING");
+        assertThat(progressionRepository.getOrCreate(second).getQuestState(badQuestId).getStatus())
                 .isEqualTo(QuestProgressState.Status.IN_PROGRESS);
-        assertThat(publishedEvents).noneMatch(event -> event instanceof com.storynpcs.api.event.QuestCompleteEvent);
     }
 
     @Test

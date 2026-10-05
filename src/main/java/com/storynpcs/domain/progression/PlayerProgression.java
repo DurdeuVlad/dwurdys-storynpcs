@@ -77,6 +77,15 @@ public class PlayerProgression {
 
     private static final int MAX_COMPANION_WAGE_PERIODS = 256;
 
+    /**
+     * Optional shared-party membership (P5-5): the durable
+     * {@link com.storynpcs.domain.quest.TeamProgressionStore} holds the team
+     * record; this field is the per-player lookup so membership survives
+     * reconnect without scanning every team.
+     */
+    @JsonProperty
+    private UUID teamId;
+
 
     public PlayerProgression() {}
 
@@ -97,6 +106,10 @@ public class PlayerProgression {
     public void setVisitedDialogueNodes(Set<String> visitedDialogueNodes) { this.visitedDialogueNodes = visitedDialogueNodes; }
 
     public long getQuestRevision() { return questRevision; }
+
+    /** Shared-party membership; {@code null} means the player is in no team. */
+    public UUID getTeamId() { return teamId; }
+    public void setTeamId(UUID teamId) { this.teamId = teamId; }
     public void setQuestRevision(long revision) {
         if (revision < 0) throw new IllegalArgumentException("revision must be non-negative");
         this.questRevision = revision;
@@ -265,6 +278,7 @@ public class PlayerProgression {
         copy.unlockedTransportLocations = new HashSet<>(unlockedTransportLocations);
         copy.appliedActionRequests = new LinkedHashMap<>(appliedActionRequests);
         copy.companionWagePeriods = new LinkedHashMap<>(companionWagePeriods);
+        copy.teamId = teamId;
         return copy;
     }
 
@@ -287,6 +301,7 @@ public class PlayerProgression {
         unlockedTransportLocations = new HashSet<>(snapshot.unlockedTransportLocations);
         appliedActionRequests = new LinkedHashMap<>(snapshot.appliedActionRequests);
         companionWagePeriods = new LinkedHashMap<>(snapshot.companionWagePeriods);
+        teamId = snapshot.teamId;
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {

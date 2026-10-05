@@ -59,7 +59,14 @@ public final class CapabilityRegistry {
             Map.entry("mail.send", Policy.PLAYER_SCOPED),
             Map.entry("transport.unlock", Policy.PLAYER_SCOPED),
             Map.entry("transport.request", Policy.PLAYER_SCOPED),
-            Map.entry("dialogue.visit.record", Policy.PLAYER_SCOPED)
+            Map.entry("dialogue.visit.record", Policy.PLAYER_SCOPED),
+            // Shared-party membership actions (P5-5) — subject is the player
+            // whose membership changes; ADMIN scope gates cross-subject ops.
+            Map.entry("team.create", Policy.PLAYER_SCOPED),
+            Map.entry("team.join", Policy.PLAYER_SCOPED),
+            Map.entry("team.leave", Policy.PLAYER_SCOPED),
+            Map.entry("team.invite", Policy.PLAYER_SCOPED),
+            Map.entry("team.owner", Policy.PLAYER_SCOPED)
     );
 
     private CapabilityRegistry() {}

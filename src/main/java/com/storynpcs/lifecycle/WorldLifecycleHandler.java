@@ -217,6 +217,21 @@ public class WorldLifecycleHandler {
             mod.setQuestMailStore(null);
         }
 
+        // P5-5: durable shared-party store — team membership, ownership, and
+        // shared quest states survive crashes and member reconnects.
+        Path teamsDir = storyNpcsDir.resolve("teams");
+        com.storynpcs.domain.quest.TeamProgressionStore teamStore = null;
+        try {
+            teamStore = new com.storynpcs.domain.quest.TeamProgressionStore(
+                    teamsDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            teamStore.open();
+            mod.setTeamProgressionStore(teamStore);
+        } catch (Exception teamFailure) {
+            LOGGER.error("Team progression store could not be opened at {}: {}",
+                    teamsDir, teamFailure.getMessage());
+            mod.setTeamProgressionStore(null);
+        }
+
         // The logical actor scope is a durable world identity (scope.id), not the
         // world directory path — relocating a world must not orphan its actors.
         ActorLifecycleService actorService;
@@ -292,6 +307,7 @@ public class WorldLifecycleHandler {
         appService.setLoader(mod.getLoader());
         appService.setTradeStateRepository(mod.getTradeStateRepository());
         appService.setQuestMailStore(mod.getQuestMailStore());
+        appService.setTeamProgressionStore(mod.getTeamProgressionStore());
         mod.setApplicationService(appService);
 
         // Load definitions
@@ -475,8 +491,12 @@ public class WorldLifecycleHandler {
         // Drop the world-scoped mail store binding — writes are durable per-op,
         // and a new world must never deliver another world's mail.
         mod.setQuestMailStore(null);
+        // Same for the shared-party store — a new world must never inherit
+        // another world's teams.
+        mod.setTeamProgressionStore(null);
         if (mod.getApplicationService() != null) {
             mod.getApplicationService().setQuestMailStore(null);
+            mod.getApplicationService().setTeamProgressionStore(null);
         }
         mod.clearServerRuntime(stoppingServer);
         if (stoppingActorService != null && mod.getActorLifecycleService() == stoppingActorService) {
