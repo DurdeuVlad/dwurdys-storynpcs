@@ -163,4 +163,50 @@ class NpcAiPolicyTest {
         assertThat(restoredAi.isLeapAtTarget()).isTrue();
         assertThat(restoredAi.getAllyDefenseRadius()).isEqualTo(20);
     }
+
+    @Test
+    void b6b7VocabularyFieldsHaveSafeDefaults() {
+        NpcAi ai = new NpcAi();
+        // B6 movement vocabulary
+        assertThat(ai.isDoorBust()).isFalse();
+        assertThat(ai.isSeekShade()).isFalse();
+        assertThat(ai.isShelterIndoors()).isFalse();
+        assertThat(ai.isWatchClosest()).isTrue(); // default-on: NPCs watch players
+        // B7 tactics vocabulary
+        assertThat(ai.isSprintToTarget()).isFalse();
+        assertThat(ai.isPanicOnHurt()).isFalse();
+        assertThat(ai.isAvoidTargets()).isFalse();
+        assertThat(ai.isDefendOwner()).isFalse();
+        assertThat(ai.getDefeatTransformId()).isNull();
+    }
+
+    @Test
+    void b6b7VocabularyRoundTripsThroughSerde() {
+        NpcDefinition original = new NpcDefinition(
+                NamespacedId.of("storynpcs", "villager"), "Villager");
+        NpcAi ai = original.getAi();
+        ai.setDoorBust(true);
+        ai.setSeekShade(true);
+        ai.setShelterIndoors(true);
+        ai.setWatchClosest(false);
+        ai.setSprintToTarget(true);
+        ai.setPanicOnHurt(true);
+        ai.setAvoidTargets(true);
+        ai.setDefendOwner(true);
+        ai.setDefeatTransformId(NamespacedId.of("storynpcs", "werewolf"));
+
+        NpcAi restored = NpcDefinitionSerde
+                .fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow().getAi();
+
+        assertThat(restored.isDoorBust()).isTrue();
+        assertThat(restored.isSeekShade()).isTrue();
+        assertThat(restored.isShelterIndoors()).isTrue();
+        assertThat(restored.isWatchClosest()).isFalse();
+        assertThat(restored.isSprintToTarget()).isTrue();
+        assertThat(restored.isPanicOnHurt()).isTrue();
+        assertThat(restored.isAvoidTargets()).isTrue();
+        assertThat(restored.isDefendOwner()).isTrue();
+        assertThat(restored.getDefeatTransformId())
+                .isEqualTo(NamespacedId.of("storynpcs", "werewolf"));
+    }
 }

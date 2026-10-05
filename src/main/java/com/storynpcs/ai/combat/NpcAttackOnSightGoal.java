@@ -300,7 +300,7 @@ public class NpcAttackOnSightGoal extends Goal {
      * hostile threshold. Standing is read from durable progression; a missing
      * record resolves to each faction's authored default.
      */
-    private boolean playerHostileStanding(UUID playerUuid, NamespacedId ownFactionId,
+    static boolean playerHostileStanding(UUID playerUuid, NamespacedId ownFactionId,
                                           NpcAi ai,
                                           com.storynpcs.yaml.DefinitionRegistry registry,
                                           StoryNpcs mod) {

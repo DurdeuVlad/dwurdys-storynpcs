@@ -93,6 +93,16 @@ public class WorldLifecycleHandler {
             LOGGER.warn("Could not reconcile StoryNPC projection {} on level join: {}",
                     npc.getUUID(), e.getMessage());
         }
+        // Entities deserialized before the definition registry was populated
+        // (spawn chunks during prepareLevels) applied an empty registry at read
+        // time; re-project now that definitions resolve. Idempotent: a fresh
+        // spawn re-applies the same values it already projected.
+        try {
+            npc.applyDefinition();
+        } catch (RuntimeException e) {
+            LOGGER.warn("Could not re-apply StoryNPC definition {} on level join: {}",
+                    npc.getUUID(), e.getMessage());
+        }
     }
 
     public void onLevelSave(net.neoforged.neoforge.event.level.LevelEvent.Save event) {
@@ -259,6 +269,12 @@ public class WorldLifecycleHandler {
                             npc.reconcileActorBinding();
                         } catch (RuntimeException e) {
                             LOGGER.warn("Could not reconcile StoryNPC projection {} after startup: {}",
+                                    npc.getUUID(), e.getMessage());
+                        }
+                        try {
+                            npc.applyDefinition();
+                        } catch (RuntimeException e) {
+                            LOGGER.warn("Could not re-apply StoryNPC definition {} after startup: {}",
                                     npc.getUUID(), e.getMessage());
                         }
                     }

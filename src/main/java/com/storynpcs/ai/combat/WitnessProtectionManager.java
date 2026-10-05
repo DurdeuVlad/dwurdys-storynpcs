@@ -54,10 +54,40 @@ public class WitnessProtectionManager {
             return;
         }
 
-        // 2. Witnessed assault on an innocent entity/player
+        // 2. Owner defense (B7 "defend owner"): a follower NPC retaliates
+        //    against attackers of its owner when the authored flag is on.
+        if (victim instanceof ServerPlayer ownerPlayer) {
+            handleOwnerDefense(ownerPlayer, attackerPlayer);
+            return;
+        }
+
+        // 3. Witnessed assault on an innocent entity/player
         if (isInnocentVictim(victim)) {
             handleWitnessedAssault(victim, attackerPlayer, gameTime);
         }
+    }
+
+    /**
+     * Scans follower NPCs owned by the hit player inside each NPC's authored
+     * ally-defense radius (bounded [0,64]) and applies threat toward the
+     * attacker. Never scans wider than the per-NPC authored bound.
+     */
+    private static void handleOwnerDefense(ServerPlayer owner, ServerPlayer attacker) {
+        owner.level().getEntitiesOfClass(StoryNpcEntity.class,
+                owner.getBoundingBox().inflate(64.0)).forEach(npc -> {
+            var role = npc.getFollowerRole();
+            if (role == null || !role.isOwnedBy(owner.getUUID())) {
+                return;
+            }
+            var ai = npc.getDefinition().map(d -> d.getAi()).orElse(null);
+            if (ai == null || !ai.isDefendOwner()) {
+                return;
+            }
+            if (owner.distanceToSqr(npc) > (double) ai.getAllyDefenseRadius() * ai.getAllyDefenseRadius()) {
+                return;
+            }
+            npc.getThreatManager().addThreat(attacker.getUUID(), 100);
+        });
     }
 
     /**
@@ -91,6 +121,13 @@ public class WitnessProtectionManager {
         var defOpt = npc.getDefinition();
         NpcAi ai = defOpt.map(d -> d.getAi()).orElse(null);
         if (ai == null || ai.getTacticalStance() == TacticalStance.PASSIVE) {
+            return;
+        }
+
+        // B7 panic/avoid vocabulary: a panicking or avoiding NPC flees through
+        // its goal instead of retaliating — strike/rule/threat bookkeeping is
+        // suppression-equivalent to the PASSIVE stance.
+        if (ai.isPanicOnHurt() || ai.isAvoidTargets()) {
             return;
         }
 

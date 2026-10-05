@@ -76,6 +76,45 @@ public class NpcAi {
     @JsonProperty
     private int allyDefenseRadius = 16;
 
+    /** Target "door bust" vocabulary: breaks closed doors instead of opening them. */
+    @JsonProperty
+    private boolean doorBust = false;
+
+    /** Target "find shade" vocabulary: pathing avoids sun-exposed blocks. */
+    @JsonProperty
+    private boolean seekShade = false;
+
+    /** Target "move indoors" vocabulary: seeks a roofed position when idle. */
+    @JsonProperty
+    private boolean shelterIndoors = false;
+
+    /** Target "watch closest" vocabulary: tracks the nearest player while idle. */
+    @JsonProperty
+    private boolean watchClosest = true;
+
+    /** Target "sprint-to-target" vocabulary: sprints while closing on a target. */
+    @JsonProperty
+    private boolean sprintToTarget = false;
+
+    /** Target "panic" vocabulary: runs randomly when hurt instead of retaliating. */
+    @JsonProperty
+    private boolean panicOnHurt = false;
+
+    /** Target "avoid" vocabulary: flees selector-matched entities rather than engaging. */
+    @JsonProperty
+    private boolean avoidTargets = false;
+
+    /** Target "defend owner" vocabulary: retaliates against attackers of its owner. */
+    @JsonProperty
+    private boolean defendOwner = false;
+
+    /**
+     * Target "transform" vocabulary: on lethal defeat the projection rebinds to
+     * this definition at full health instead of dying. Null disables.
+     */
+    @JsonProperty
+    private com.storynpcs.domain.common.NamespacedId defeatTransformId = null;
+
     /** Six resting-pose stances matching the target animation vocabulary. */
     public enum AnimationStance {
         NORMAL,
@@ -192,5 +231,34 @@ public class NpcAi {
     public int getAllyDefenseRadius() { return allyDefenseRadius; }
     public void setAllyDefenseRadius(int allyDefenseRadius) {
         this.allyDefenseRadius = Math.max(0, Math.min(64, allyDefenseRadius));
+    }
+
+    public boolean isDoorBust() { return doorBust; }
+    public void setDoorBust(boolean doorBust) { this.doorBust = doorBust; }
+
+    public boolean isSeekShade() { return seekShade; }
+    public void setSeekShade(boolean seekShade) { this.seekShade = seekShade; }
+
+    public boolean isShelterIndoors() { return shelterIndoors; }
+    public void setShelterIndoors(boolean shelterIndoors) { this.shelterIndoors = shelterIndoors; }
+
+    public boolean isWatchClosest() { return watchClosest; }
+    public void setWatchClosest(boolean watchClosest) { this.watchClosest = watchClosest; }
+
+    public boolean isSprintToTarget() { return sprintToTarget; }
+    public void setSprintToTarget(boolean sprintToTarget) { this.sprintToTarget = sprintToTarget; }
+
+    public boolean isPanicOnHurt() { return panicOnHurt; }
+    public void setPanicOnHurt(boolean panicOnHurt) { this.panicOnHurt = panicOnHurt; }
+
+    public boolean isAvoidTargets() { return avoidTargets; }
+    public void setAvoidTargets(boolean avoidTargets) { this.avoidTargets = avoidTargets; }
+
+    public boolean isDefendOwner() { return defendOwner; }
+    public void setDefendOwner(boolean defendOwner) { this.defendOwner = defendOwner; }
+
+    public com.storynpcs.domain.common.NamespacedId getDefeatTransformId() { return defeatTransformId; }
+    public void setDefeatTransformId(com.storynpcs.domain.common.NamespacedId id) {
+        this.defeatTransformId = id;
     }
 }
