@@ -1,6 +1,6 @@
 # P4 — Performance foundations progress (P4-1, P4-2, P4-3)
 
-Status: `DONE-LOCAL` for P4-1 (#62, PR #166), P4-2 (#63, verified no-delta close), P4-3 (#64, contract + headless artifacts + hardened release gate). Live-runtime benchmark evidence remains issue #126's explicit scope — the artifacts label `HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED` honestly.
+Status: `DONE-LOCAL` for P4-1 (#62, PR #166), P4-2 (#63, verified no-delta close), P4-3 (#64, contract + headless artifacts + hardened release gate), and #126 live-runtime evidence (this doc's last section — real `runGameTestServer` MSPT artifacts, honest pass/fail per scenario).
 
 ## P4-1 — Archetypes, simulation tiers, LOD
 
@@ -142,7 +142,42 @@ Status: `DONE-LOCAL` for P4-1 (#62, PR #166), P4-2 (#63, verified no-delta close
   the interval (evaluation is idempotent, so this is harmless).
 - `HeadlessBenchmark` + `SimCertificationBenchmarkTest` produce the `benchmark-*`
   reports in a plain JVM — explicitly labeled `headless-jvm-simulation`, not live
-  MSPT; live-server certification evidence remains P4-3 scope (issue #126).
+  MSPT. Live evidence now exists — see the #126 section below.
+
+## #126 — Live-runtime benchmark evidence
+
+- `StoryNpcsLiveBenchmark` (`gametest/` package) is a property-gated GameTest
+  that runs the three certification scenarios inside the REAL NeoForge
+  dedicated server via the new `runLiveBenchmark` Gradle run type (same
+  `gameTestServer` launch target, so no client port is ever bound — the
+  documented 25565/25566 concern is structurally avoided). Normal
+  `runGameTestServer` runs skip it (`storynpcs.liveBenchmark=true` required).
+- Tick timing is measured by a `ServerTickEvent.Pre`/`Post` nanoTime pair —
+  wall-clock duration of the actual whole server tick = true live MSPT, not a
+  scheduler model. 100 warmup + 400 measured ticks per scenario.
+- Workload honesty: scenarios run sequentially in one test (entities discarded
+  between them — no cross-contamination); the far band sits in force-loaded
+  chunks so dormant NPCs genuinely tick; a mock `ServerPlayer` anchors the
+  near band so the production nearest-player distance feed assigns tiers
+  exactly as on a real server; NPCs spawn at heightmap surface with
+  `NoGravity` (no suffocation/fall deaths); siege uses authored
+  `targetFactionIds` on both sides (real attack-on-sight combat).
+- Artifacts `docs/parity/reports/benchmark-live-{population,siege,stress}.json`
+  carry environment, workload, metrics, threshold checks, spawned/alive
+  counts, sampled-tick count, and an explicit `honesty_note` +
+  `runtime_kind: storynpcs-live-neoforge-gametest` (never confused with
+  target-runtime parity).
+- **Measured results (this machine, first run — all NPCs alive, 0 drops):**
+  - population (500): p50 4.7 / p95 9.8 / p99 50.9 ms → `LIVE_RUNTIME_FAIL`
+    on p99 ≤45 (tail spikes from chunk/GC inside whole-tick wall clock).
+  - siege (25v25 combat): p50 0.5 / p95 2.4 / p99 43.5 ms → `LIVE_RUNTIME_PASS`.
+  - stress (2,500): p50 53.0 / p95 86.8 / p99 95.6 ms → `LIVE_RUNTIME_FAIL`
+    on p95 ≤45 and p99 ≤50.
+- The failures are reported, not tuned away: 2,500 loaded entities exceed the
+  certified stress threshold on this hardware — vanilla entity tick plus goal
+  work is real cost the headless scheduler model never measured. That is a
+  performance finding against the certification contract, tracked honestly
+  rather than relabeled; target-runtime parity remains BLOCKED either way.
 
 ## Verification
 

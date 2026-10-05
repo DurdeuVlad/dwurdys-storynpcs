@@ -44,9 +44,21 @@ then asserts on the resulting live entity/world state.
 - Keep `@PrefixGameTestTemplate(false)` on the class so the template path isn't additionally prefixed with the class's simple name.
 - Call `helper.assertTrue(condition, message)` for assertions and `helper.succeed()` at the end of a passing path.
 
+### Tier 2b — live-runtime benchmark (`./gradlew runLiveBenchmark`)
+
+Same `gameTestServer` launch target as Tier 2, plus
+`-Dstorynpcs.liveBenchmark=true` and a `storynpcs.benchmarkReportDir`
+property. `StoryNpcsLiveBenchmark` runs the three certification scenarios
+(population/siege/stress) sequentially inside one test — real spawned NPC
+populations, real tick load — and measures whole-server-tick wall clock via
+`ServerTickEvent.Pre`/`Post` (true live MSPT). Reports land in
+`docs/parity/reports/benchmark-live-<scenario>.json`. This tier is slow
+(~1,500+ ticks of workload) and off by default; the flag keeps ordinary
+`runGameTestServer` runs a fast correctness pass.
+
 ### What this tier does not cover
 
-GameTests prove StoryNPCs behavior only; they are not CustomNPCs target-parity or `VERIFIED_PARITY` evidence.
+GameTests prove StoryNPCs behavior only; they are not CustomNPCs target-parity or `VERIFIED_PARITY` evidence. The same applies to the live benchmark — `LIVE_RUNTIME_PASS/FAIL` certifies StoryNPCs on this hardware, never target parity.
 
 Actual pixel-level rendering (GUI layout, HUD appearance, model/texture
 previews) is out of reach in this environment — there is no way to launch
