@@ -87,7 +87,10 @@
     "P0-4.core-entity"
    ],
    "creator-world-tools": [
-    "P0-4.creator-tools"
+    "P0-4.creator-tools",
+    "P8-2.chair-mount",
+    "P8-2.fake-living",
+    "P8-2.nbt-book"
    ],
    "dialogue": [
     "P0-4.dialogue-choice",
@@ -152,7 +155,10 @@
     "P0-4.bank"
    ],
    "CONFIG-WORLD-TOOLS": [
-    "P0-4.creator-tools"
+    "P0-4.creator-tools",
+    "P8-2.chair-mount",
+    "P8-2.fake-living",
+    "P8-2.nbt-book"
    ],
    "DIALOG-DEFINITION": [
     "P0-4.dialogue-definition"
@@ -52123,7 +52129,10 @@
      "P9-4"
     ],
     "parity_fixture_ids": [
-     "P0-4.creator-tools"
+     "P0-4.creator-tools",
+     "P8-2.chair-mount",
+     "P8-2.fake-living",
+     "P8-2.nbt-book"
     ],
     "coverage_status": "FIXTURE_REFERENCED"
    },

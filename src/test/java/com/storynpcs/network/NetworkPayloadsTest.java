@@ -290,4 +290,40 @@ class NetworkPayloadsTest {
         assertEquals("{}", payload.revisionsJson());
         assertEquals("{}", new ClientboundFactionEditorOpenPayload("id", "[]").revisionsJson());
     }
+
+    @Test
+    @DisplayName("NBT book payloads round-trip through the versioned codecs")
+    void testNbtBookPayloadCodecs() {
+        UUID session = UUID.randomUUID();
+        var open = new ClientboundNbtBookOpenPayload(
+                42, "Gatekeeper", "[{\"path\":\"Health\",\"value\":\"20\",\"editable\":false}]",
+                true, session);
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundNbtBookOpenPayload.STREAM_CODEC.encode(buf, open);
+        assertEquals(open, ClientboundNbtBookOpenPayload.STREAM_CODEC.decode(buf));
+
+        var edit = new ServerboundNbtBookEditPayload(session, 42, "NoGravity", "true");
+        buf.clear();
+        ServerboundNbtBookEditPayload.STREAM_CODEC.encode(buf, edit);
+        assertEquals(edit, ServerboundNbtBookEditPayload.STREAM_CODEC.decode(buf));
+
+        buf.clear();
+        net.minecraft.network.codec.ByteBufCodecs.VAR_INT.encode(buf, 99);
+        assertThrows(IllegalArgumentException.class,
+                () -> ServerboundNbtBookEditPayload.STREAM_CODEC.decode(buf));
+    }
+
+    @Test
+    @DisplayName("Tool-session close payload round-trips and rejects bad versions")
+    void testToolSessionCloseCodec() {
+        UUID session = UUID.randomUUID();
+        var close = new ServerboundToolSessionClosePayload("nbt_book", session);
+        ByteBuf buf = Unpooled.buffer();
+        ServerboundToolSessionClosePayload.STREAM_CODEC.encode(buf, close);
+        assertEquals(close, ServerboundToolSessionClosePayload.STREAM_CODEC.decode(buf));
+        buf.clear();
+        net.minecraft.network.codec.ByteBufCodecs.VAR_INT.encode(buf, 99);
+        assertThrows(IllegalArgumentException.class,
+                () -> ServerboundToolSessionClosePayload.STREAM_CODEC.decode(buf));
+    }
 }
