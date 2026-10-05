@@ -2,6 +2,7 @@
  "blocking_checks": [
   "issue_statuses_terminal",
   "p11_3_status",
+  "storynpcs_fixture_execution",
   "target_runtime_evidence"
  ],
  "checks": {
@@ -10,19 +11,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 27.050270601234423,
+     "timing_repeatability_observed_pct": 9.995153744968292,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 13.733977962671448,
+     "timing_repeatability_observed_pct": 11.232926607175377,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 6.535742434029228,
+     "timing_repeatability_observed_pct": 8.132497484714795,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -68,8 +69,8 @@
    "detail": {
     "BLOCKED": 1,
     "DONE-LOCAL": 8,
-    "IN-PROGRESS": 13,
-    "IN-REVIEW": 25
+    "IN-PROGRESS": 12,
+    "IN-REVIEW": 26
    },
    "findings": [
     "P1-1: IN-REVIEW",
@@ -89,7 +90,7 @@
     "P4-1: IN-REVIEW",
     "P4-2: IN-REVIEW",
     "P4-3: IN-REVIEW",
-    "P5-1: IN-PROGRESS",
+    "P5-1: IN-REVIEW",
     "P5-2: IN-REVIEW",
     "P5-3: IN-PROGRESS",
     "P5-4: IN-PROGRESS",
@@ -122,31 +123,36 @@
    "pass": true
   },
   "storynpcs_fixture_execution": {
-   "blocked": false,
+   "blocked": true,
    "detail": {
-    "junit_test_case_count": 1054,
-    "source_fingerprint_matches": true,
+    "junit_test_case_count": 1143,
+    "source_fingerprint_matches": false,
     "storynpcs_fixture_counts": {
      "blocked": 0,
      "blocked_mapped": 0,
      "failed": 0,
-     "fixture_count": 25,
-     "mapped_cases": 129,
-     "observed": 25,
+     "fixture_count": 36,
+     "mapped_cases": 145,
+     "observed": 36,
      "unmapped": 0
     }
    },
-   "findings": [],
-   "pass": true
+   "findings": [
+    "fixture evidence does not match the current source fingerprint",
+    "the fixture runner recorded a failed run",
+    "mapped JUnit fixture validation did not pass",
+    "fixture catalog validation did not pass"
+   ],
+   "pass": false
   },
   "target_runtime_evidence": {
    "blocked": true,
    "detail": {
-    "imported_target_observation_count": 3,
+    "imported_target_observation_count": 0,
     "parity_status": "BLOCKED"
    },
    "findings": [
-    "3 fixture(s) carry imported VERIFIED_TARGET_RUNTIME observations; no fixture reaches VERIFIED_PARITY, so target parity remains BLOCKED"
+    "target-runtime observations are unavailable; target parity remains BLOCKED"
    ],
    "pass": false
   },

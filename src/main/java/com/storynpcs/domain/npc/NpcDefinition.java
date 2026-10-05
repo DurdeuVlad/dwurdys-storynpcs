@@ -41,6 +41,8 @@ public class NpcDefinition {
     @JsonProperty
     private List<com.storynpcs.domain.rule.BehaviorRule> rules = new ArrayList<>();
 
+    private List<com.storynpcs.domain.ability.NpcAbility> abilities = new ArrayList<>();
+
     @JsonProperty
     private com.storynpcs.domain.role.trader.TraderRole trader;
 
@@ -115,6 +117,11 @@ public class NpcDefinition {
 
     public List<com.storynpcs.domain.rule.BehaviorRule> getRules() { return rules; }
     public void setRules(List<com.storynpcs.domain.rule.BehaviorRule> rules) { this.rules = rules; }
+
+    public List<com.storynpcs.domain.ability.NpcAbility> getAbilities() { return abilities; }
+    public void setAbilities(List<com.storynpcs.domain.ability.NpcAbility> abilities) {
+        this.abilities = abilities != null ? abilities : new ArrayList<>();
+    }
 
     public com.storynpcs.domain.role.trader.TraderRole getTrader() { return trader; }
     public void setTrader(com.storynpcs.domain.role.trader.TraderRole trader) { this.trader = trader; }

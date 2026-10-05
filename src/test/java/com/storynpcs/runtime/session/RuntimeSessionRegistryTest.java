@@ -41,4 +41,39 @@ class RuntimeSessionRegistryTest {
         registry.clearPlayer(PLAYER);
         assertTrue(registry.acceptRequest(PLAYER, request));
     }
+
+    @Test
+    void entitySessionsAreBoundToKindAndEntityAndExpireWithPlayer() {
+        RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
+        UUID first = registry.openEntitySession(PLAYER, "nbt_book", 42);
+        assertNotNull(first);
+        assertEquals(first, registry.openEntitySession(PLAYER, "nbt_book", 42));
+        assertTrue(registry.isEntitySession(PLAYER, "nbt_book", 42, first));
+        // A different entity gets a new token and invalidates the old one.
+        UUID second = registry.openEntitySession(PLAYER, "nbt_book", 77);
+        assertNotEquals(first, second);
+        assertFalse(registry.isEntitySession(PLAYER, "nbt_book", 42, first));
+        assertTrue(registry.isEntitySession(PLAYER, "nbt_book", 77, second));
+        // Wrong kind never validates.
+        assertFalse(registry.isEntitySession(PLAYER, "mounter", 77, second));
+        registry.clearPlayer(PLAYER);
+        assertFalse(registry.isEntitySession(PLAYER, "nbt_book", 77, second));
+    }
+
+    @Test
+    void closeEntitySessionInvalidatesOnlyTheMatchingSession() {
+        RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
+        UUID session = registry.openEntitySession(PLAYER, "nbt_book", 42);
+        // A stale close (wrong session id) must not clobber the live session.
+        registry.closeEntitySession(PLAYER, "nbt_book", UUID.randomUUID());
+        assertTrue(registry.isEntitySession(PLAYER, "nbt_book", 42, session));
+        // A stale kind likewise cannot close it.
+        registry.closeEntitySession(PLAYER, "mounter", session);
+        assertTrue(registry.isEntitySession(PLAYER, "nbt_book", 42, session));
+        registry.closeEntitySession(PLAYER, "nbt_book", session);
+        assertFalse(registry.isEntitySession(PLAYER, "nbt_book", 42, session));
+        // Reopening after close issues a fresh token.
+        UUID next = registry.openEntitySession(PLAYER, "nbt_book", 42);
+        assertNotEquals(session, next);
+    }
 }

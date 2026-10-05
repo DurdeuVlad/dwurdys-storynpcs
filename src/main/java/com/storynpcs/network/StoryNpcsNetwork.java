@@ -5,6 +5,7 @@ import com.storynpcs.StoryNpcsAccess;
 import com.storynpcs.domain.common.DiagnosticHints;
 import com.storynpcs.service.DialogueView;
 import com.storynpcs.service.MutationRequest;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -205,6 +206,128 @@ public class StoryNpcsNetwork {
                     context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.handleFactionSaveResult(payload));
                 }
         );
+
+        // NBT book (#148): read view for holders; allowlisted edits are
+        // session-bound + permission-gated server-side.
+        registrar.playToClient(
+                ClientboundNbtBookOpenPayload.TYPE,
+                ClientboundNbtBookOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openNbtBook(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundNbtBookEditPayload.TYPE,
+                ServerboundNbtBookEditPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleNbtBookEdit(serverPlayer, payload));
+                    }
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundToolSessionClosePayload.TYPE,
+                ServerboundToolSessionClosePayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleToolSessionClose(serverPlayer, payload));
+                    }
+                }
+        );
+    }
+
+    /**
+     * Opens the NBT book view for the clicked entity; issues the edit session.
+     * Throttled like role actions (a full entity serialize + view build per
+     * call), and reading a <em>player</em> target requires operator level 2 —
+     * their saved tag exposes inventory, ender chest, and recipe state.
+     */
+    public static void sendNbtBookOpen(ServerPlayer player, net.minecraft.world.entity.Entity target) {
+        sendNbtBookOpen(player, target, true);
+    }
+
+    private static void sendNbtBookOpen(ServerPlayer player, net.minecraft.world.entity.Entity target,
+                                        boolean applyThrottle) {
+        var mod = StoryNpcsAccess.mod(player);
+        if (mod == null || target == null) {
+            return;
+        }
+        if (applyThrottle && mod.getRuntimeSessions(player.getServer()).throttleToolAction(
+                player.getUUID(), System.currentTimeMillis(), 250L)) {
+            return;
+        }
+        if (target instanceof net.minecraft.world.entity.player.Player && !player.hasPermissions(2)) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Reading a player's NBT requires operator level 2."));
+            return;
+        }
+        CompoundTag tag = target.saveWithoutId(new CompoundTag());
+        var entries = com.storynpcs.domain.support.NbtBookService.buildView(tag);
+        boolean canEdit = player.hasPermissions(2);
+        var sessionId = mod.getRuntimeSessions(player.getServer()).openEntitySession(
+                player.getUUID(), com.storynpcs.item.NbtBookItem.SESSION_KIND, target.getId());
+        PacketDistributor.sendToPlayer(player, new ClientboundNbtBookOpenPayload(
+                target.getId(), target.getName().getString(),
+                com.storynpcs.domain.support.NbtBookService.entriesToJsonBounded(
+                        entries, MutationProtocolCodecs.MAX_EDITOR_DOCUMENT_BYTES / 2),
+                canEdit, sessionId));
+    }
+
+    /** Closes an entity-targeted tool session when its screen is dismissed. */
+    private static void handleToolSessionClose(ServerPlayer player, ServerboundToolSessionClosePayload payload) {
+        var mod = StoryNpcsAccess.mod(player);
+        if (mod == null) {
+            return;
+        }
+        mod.getRuntimeSessions(player.getServer()).closeEntitySession(
+                player.getUUID(), payload.kind(), payload.sessionId());
+    }
+
+    /**
+     * Applies one allowlisted NBT-book edit. Defense-in-depth: permission 2,
+     * alive non-spectator sender in interaction range of the target, live
+     * entity session bound to this entity, allowlist plan — all must pass,
+     * and only typed entity setters are used (never {@code load()}).
+     */
+    private static void handleNbtBookEdit(ServerPlayer player, ServerboundNbtBookEditPayload payload) {
+        var mod = StoryNpcsAccess.mod(player);
+        if (mod == null) {
+            return;
+        }
+        if (!player.hasPermissions(2)) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] NBT book edits require operator level 2."));
+            return;
+        }
+        if (!player.isAlive() || player.isSpectator()) {
+            return;
+        }
+        if (!mod.getRuntimeSessions(player.getServer()).isEntitySession(player.getUUID(),
+                com.storynpcs.item.NbtBookItem.SESSION_KIND, payload.entityId(), payload.sessionId())) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] NBT book session is stale — reopen the book on the target."));
+            return;
+        }
+        net.minecraft.world.entity.Entity target = player.level().getEntity(payload.entityId());
+        if (target == null || !target.isAlive()
+                || target.distanceToSqr(player) > 64.0 * 64.0) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Target entity is no longer available or is out of reach."));
+            return;
+        }
+        var edit = com.storynpcs.domain.support.NbtBookService.planEdit(payload.path(), payload.value());
+        if (edit.isEmpty()) {
+            var result = com.storynpcs.domain.support.NbtBookService.describeEdit(
+                    payload.path(), payload.value());
+            player.sendSystemMessage(Component.literal("§c[StoryNPCs] " + result.message()));
+            return;
+        }
+        com.storynpcs.domain.support.NbtBookService.applyEdit(target, edit.get());
+        player.sendSystemMessage(Component.literal(
+                "§a[StoryNPCs] Applied " + payload.path() + " <- " + payload.value().strip()));
+        sendNbtBookOpen(player, target, false); // refresh the open view (unthrottled)
     }
 
     private static void handleFactionSave(ServerPlayer player, ServerboundFactionSavePayload payload) {
