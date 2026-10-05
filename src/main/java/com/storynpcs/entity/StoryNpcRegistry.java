@@ -33,6 +33,25 @@ public final class StoryNpcRegistry {
                             .build(StoryNpcs.MOD_ID + ":npc_projectile")
             );
 
+    /** Transient seat for the mounter's sit workflow — never saved, self-cleans. */
+    public static final DeferredHolder<EntityType<?>, EntityType<ChairMountEntity>> NPC_CHAIR_MOUNT =
+            ENTITY_TYPES.register("npc_chair_mount", () ->
+                    EntityType.Builder.of(ChairMountEntity::new, MobCategory.MISC)
+                            .sized(0.1F, 0.1F)
+                            .clientTrackingRange(8)
+                            .noSave()
+                            .build(StoryNpcs.MOD_ID + ":npc_chair_mount")
+            );
+
+    /** Owner-bound display puppet rendered as another entity type (#148). */
+    public static final DeferredHolder<EntityType<?>, EntityType<FakeLivingEntity>> NPC_FAKE_LIVING =
+            ENTITY_TYPES.register("npc_fake_living", () ->
+                    EntityType.Builder.of(FakeLivingEntity::new, MobCategory.MISC)
+                            .sized(0.6F, 1.8F)
+                            .clientTrackingRange(10)
+                            .build(StoryNpcs.MOD_ID + ":npc_fake_living")
+            );
+
     public static void register(IEventBus modEventBus) {
         ENTITY_TYPES.register(modEventBus);
         modEventBus.addListener(StoryNpcRegistry::onEntityAttributeCreation);
@@ -40,5 +59,6 @@ public final class StoryNpcRegistry {
 
     public static void onEntityAttributeCreation(EntityAttributeCreationEvent event) {
         event.put(STORY_NPC.get(), StoryNpcEntity.createAttributes().build());
+        event.put(NPC_FAKE_LIVING.get(), FakeLivingEntity.createAttributes().build());
     }
 }

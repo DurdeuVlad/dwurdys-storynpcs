@@ -23,6 +23,27 @@ public final class StoryNpcsClient {
         event.registerEntityRenderer(StoryNpcRegistry.STORY_NPC.get(), StoryNpcRenderer::new);
         event.registerEntityRenderer(StoryNpcRegistry.NPC_PROJECTILE.get(),
                 com.storynpcs.client.render.NpcProjectileRenderer::new);
+        event.registerEntityRenderer(StoryNpcRegistry.NPC_CHAIR_MOUNT.get(),
+                net.minecraft.client.renderer.entity.NoopRenderer::new);
+        event.registerEntityRenderer(StoryNpcRegistry.NPC_FAKE_LIVING.get(),
+                com.storynpcs.client.render.FakeLivingRenderer::new);
+    }
+
+    /** Opens the NBT book viewer/editor when the server sends the open payload (#148). */
+    public static void openNbtBook(com.storynpcs.network.ClientboundNbtBookOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            // A post-edit refresh must update the open screen, not replace it —
+            // replacing would drop scroll position and the in-flight edit row.
+            if (mc.screen instanceof com.storynpcs.client.gui.NbtBookScreen open
+                    && open.matches(payload.entityId(), payload.sessionId())) {
+                open.updateEntries(payload.entriesJson());
+                return;
+            }
+            mc.setScreen(new com.storynpcs.client.gui.NbtBookScreen(
+                    payload.entityId(), payload.displayName(), payload.entriesJson(),
+                    payload.canEdit(), payload.sessionId()));
+        });
     }
 
     public static void openDialogue(ClientboundDialogueOpenPayload payload) {
