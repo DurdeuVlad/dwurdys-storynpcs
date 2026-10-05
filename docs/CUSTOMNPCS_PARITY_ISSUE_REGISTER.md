@@ -85,7 +85,7 @@ This is the implementation handoff register. The authoritative traceability mapp
 
 ### P1-1 — Introduce typed canonical operations inside StoryNpcsApplicationService
 
-Status: `IN-REVIEW` — typed player-scoped quest start/progress/completion, trade execution, bank operations, faction progression, and follower state now route through `StoryNpcsApplicationService` with persisted revision checks; completion advances that revision; objective thresholds are bounded by the supported state maximum; reentrant quest-event listeners cannot overtake the active notification group; quest reward overflow honors `RewardOverflowPolicy` with durable mail recovery instead of silent drops; and replay caches are bounded insertion-ordered. Template/tool operations and remaining direct adapters (creator tool flows, full world/economy mutation coverage) remain incomplete. See [P1-1 closeout](parity/P1-1-CLOSEOUT.md).
+Status: `DONE-LOCAL` — all acceptance criteria verified; the last mutating read (`evalCondition` auto-vivifying `QuestProgressState`) is fixed via `PlayerProgression.peekQuestState` with a regression fixture, and the earlier stale residuals (faction path, direct adapter mutation) were confirmed already enveloped. Closed 2026-10-05 via PR #160 (issue #51). See [P1-1 closeout](parity/P1-1-CLOSEOUT.md).
 
 - **Intent:** Make commands, packets, GUI, API, and scripts reliable adapters instead of independent mutation implementations.
 - **Expectation:** Typed requests carry actor context, capability, target ID, expected revision, idempotency key, and validated payload; typed results carry diagnostics, revision, events, and recovery outcome; all domain mutation remains inside/behind `StoryNpcsApplicationService`.
@@ -124,7 +124,7 @@ Status: `DONE-LOCAL` — current packet hardening, focused tests, full-suite ver
 
 ### P1-4 — Enforce actor capability and authorization policy
 
-Status: `IN-REVIEW` — canonical definition mutations now fail closed through `AuthorizationPolicy`; complete command/script/economy/world-tool coverage remains open. See [P1-4 closeout](parity/P1-4-CLOSEOUT.md).
+Status: `DONE-LOCAL` — all acceptance criteria verified: 47 `hasPermission(2)` gates on admin literals, `panel` self-data subtree server-reauthorized per session, self-subject player actions routed through `PlayerProgressionActionRequest` envelopes, no mutating adapter bypasses `AuthorizationPolicy`. Closed 2026-10-05 (issue #54). See [P1-4 closeout](parity/P1-4-CLOSEOUT.md).
 
 - **Intent:** Ensure creator tools, scripts, commands, dialogue effects, economy, and persistence cannot bypass server authority.
 - **Expectation:** Every operation declares required capability and actor type; player, operator, console, script, and internal lifecycle actors receive distinct authorization; denial is side-effect-free and observable.

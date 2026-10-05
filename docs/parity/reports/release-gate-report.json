@@ -10,19 +10,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 18.609026644915716,
+     "timing_repeatability_observed_pct": 12.927811901459618,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 2.689889724827381,
+     "timing_repeatability_observed_pct": 4.0593132666633736,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 5.0567784406500875,
+     "timing_repeatability_observed_pct": 4.830742546785021,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -67,13 +67,11 @@
    "blocked": true,
    "detail": {
     "BLOCKED": 1,
-    "DONE-LOCAL": 8,
+    "DONE-LOCAL": 10,
     "IN-PROGRESS": 12,
-    "IN-REVIEW": 26
+    "IN-REVIEW": 24
    },
    "findings": [
-    "P1-1: IN-REVIEW",
-    "P1-4: IN-REVIEW",
     "P10-1: IN-REVIEW",
     "P10-2: IN-REVIEW",
     "P10-3: IN-REVIEW",
@@ -124,7 +122,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 1173,
+    "junit_test_case_count": 1207,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,
@@ -153,8 +151,8 @@
   "twentytwo_domains_mapped": {
    "detail": {
     "INTENTIONAL_DEVIATION": 375,
-    "INVENTORY_ONLY": 2357,
-    "MAPPED_STORYNPCS_OBSERVED": 104
+    "INVENTORY_ONLY": 2323,
+    "MAPPED_STORYNPCS_OBSERVED": 138
    },
    "findings": [],
    "pass": true

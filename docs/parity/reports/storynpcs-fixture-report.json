@@ -274,14 +274,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#replacementPreservesLogicalIdentityAndPublishesReasonedEvents()",
                   "test_name": "replacementPreservesLogicalIdentityAndPublishesReasonedEvents()"
                 },
                 {
                   "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#unloadThenReloadKeepsActorIdButReplacesProjection()",
                   "test_name": "unloadThenReloadKeepsActorIdButReplacesProjection()"
@@ -316,14 +316,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                  "duration_seconds": 0.756,
+                  "duration_seconds": 0.742,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Should resolve custom skin texture when specified in NpcDisplay",
                   "test_name": "Should resolve custom skin texture when specified in NpcDisplay"
                 },
                 {
                   "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.004,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Name mode can hide names or show them only during attack",
                   "test_name": "Name mode can hide names or show them only during attack"
@@ -366,7 +366,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#NpcDefinition round-trips through JSON serialization with all fields intact",
                   "test_name": "NpcDefinition round-trips through JSON serialization with all fields intact"
@@ -402,21 +402,21 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.003,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Immobilized entity triggers progressive recovery actions as stall persists",
                   "test_name": "Immobilized entity triggers progressive recovery actions as stall persists"
                 },
                 {
                   "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Stopping navigation immediately clears stall state",
                   "test_name": "Stopping navigation immediately clears stall state"
                 },
                 {
                   "class_name": "com.storynpcs.domain.ai.WaypointPathTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.ai.WaypointPathTest#LOOP mode cycles continuously from start to end and wraps back",
                   "test_name": "LOOP mode cycles continuously from start to end and wraps back"
@@ -444,7 +444,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.npc.NpcAiPolicyTest",
-                  "duration_seconds": 0.004,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.npc.NpcAiPolicyTest#threatTargetChangesEmitReasonsThroughTheSink()",
                   "test_name": "threatTargetChangesEmitReasonsThroughTheSink()"
@@ -550,7 +550,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                  "duration_seconds": 0.0,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.npc.NpcInventoryTest#equipReplacesAndUnequipsWithoutLoss()",
                   "test_name": "equipReplacesAndUnequipsWithoutLoss()"
@@ -607,14 +607,14 @@
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.016,
+                  "duration_seconds": 0.012,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#saveDialogueShouldWriteYamlFileWhenLoaderIsBound()",
                   "test_name": "saveDialogueShouldWriteYamlFileWhenLoaderIsBound()"
                 },
                 {
                   "class_name": "com.storynpcs.domain.DialogueGraphSerdeTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.007,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.DialogueGraphSerdeTest#JSON round-trip preserves all graph fields",
                   "test_name": "JSON round-trip preserves all graph fields"
@@ -628,7 +628,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest",
-                  "duration_seconds": 0.0,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest#cyclesDiagnosedAsWarningsNotErrors()",
                   "test_name": "cyclesDiagnosedAsWarningsNotErrors()"
@@ -664,28 +664,28 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.025,
+                  "duration_seconds": 0.029,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()",
                   "test_name": "shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()"
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.008,
+                  "duration_seconds": 0.007,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()",
                   "test_name": "shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()"
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.007,
+                  "duration_seconds": 0.006,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()",
                   "test_name": "shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()"
                 },
                 {
                   "class_name": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest",
-                  "duration_seconds": 0.005,
+                  "duration_seconds": 0.007,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest#acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()",
                   "test_name": "acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()"
@@ -742,28 +742,28 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidQuestDefinition()",
                   "test_name": "shouldLoadValidQuestDefinition()"
                 },
                 {
                   "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldDetectCircularQuestPrerequisites()",
                   "test_name": "shouldDetectCircularQuestPrerequisites()"
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.012,
+                  "duration_seconds": 0.011,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Written quest YAML round-trips every definition field",
                   "test_name": "Written quest YAML round-trips every definition field"
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.023,
+                  "duration_seconds": 0.022,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Namespaced quest saves migrate matching legacy files without overwriting another namespace",
                   "test_name": "Namespaced quest saves migrate matching legacy files without overwriting another namespace"
@@ -777,28 +777,28 @@
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.008,
+                  "duration_seconds": 0.007,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Malformed existing YAML is preserved when its definition identity cannot be checked",
                   "test_name": "Malformed existing YAML is preserved when its definition identity cannot be checked"
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.01,
+                  "duration_seconds": 0.009,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Unrelated malformed YAML does not block saving a different definition",
                   "test_name": "Unrelated malformed YAML does not block saving a different definition"
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.024,
+                  "duration_seconds": 0.023,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer updates a renamed definition and fails closed on duplicate IDs",
                   "test_name": "Writer updates a renamed definition and fails closed on duplicate IDs"
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.015,
+                  "duration_seconds": 0.012,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Loader refuses duplicate-ID deletion without removing either source",
                   "test_name": "Loader refuses duplicate-ID deletion without removing either source"
@@ -812,7 +812,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                  "duration_seconds": 0.06,
+                  "duration_seconds": 0.052,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Concurrent writes to one definition use separate atomic temporary files",
                   "test_name": "Concurrent writes to one definition use separate atomic temporary files"
@@ -826,14 +826,14 @@
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.011,
+                  "duration_seconds": 0.01,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()",
                   "test_name": "failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()"
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.25,
+                  "duration_seconds": 0.254,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()",
                   "test_name": "concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()"
@@ -867,14 +867,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.021,
+                  "duration_seconds": 0.016,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldManageQuestProgressionAndRewards()",
                   "test_name": "shouldManageQuestProgressionAndRewards()"
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.013,
+                  "duration_seconds": 0.014,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldNotDuplicateQuestRewardsOnRepeatedCompletion()",
                   "test_name": "shouldNotDuplicateQuestRewardsOnRepeatedCompletion()"
@@ -888,35 +888,35 @@
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.023,
+                  "duration_seconds": 0.025,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()",
                   "test_name": "experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.027,
+                  "duration_seconds": 0.03,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()",
                   "test_name": "rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.027,
+                  "duration_seconds": 0.025,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()",
                   "test_name": "rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.028,
+                  "duration_seconds": 0.03,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()",
                   "test_name": "loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()"
                 },
                 {
                   "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                  "duration_seconds": 0.039,
+                  "duration_seconds": 0.036,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#mailSurvivesReopenAndClaimsExactlyOnce(Path)",
                   "test_name": "mailSurvivesReopenAndClaimsExactlyOnce(Path)"
@@ -930,7 +930,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#teamProgressionSurvivesMemberChangesAndRevisions()",
                   "test_name": "teamProgressionSurvivesMemberChangesAndRevisions()"
@@ -966,70 +966,70 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.013,
+                  "duration_seconds": 0.016,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()",
                   "test_name": "typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.01,
+                  "duration_seconds": 0.014,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()",
                   "test_name": "playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.011,
+                  "duration_seconds": 0.01,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#reusingAProgressionRequestIdForDifferentPayloadFailsClosed()",
                   "test_name": "reusingAProgressionRequestIdForDifferentPayloadFailsClosed()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.015,
+                  "duration_seconds": 0.016,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()",
                   "test_name": "objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.004,
+                  "duration_seconds": 0.007,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#anotherPlayerCannotMutateTheSubjectsQuestProgression()",
                   "test_name": "anotherPlayerCannotMutateTheSubjectsQuestProgression()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.005,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()",
                   "test_name": "commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.026,
+                  "duration_seconds": 0.054,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()",
                   "test_name": "concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.006,
+                  "duration_seconds": 0.007,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#legacyProgressionFileLoadsWithRevisionZero()",
                   "test_name": "legacyProgressionFileLoadsWithRevisionZero()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.006,
+                  "duration_seconds": 0.008,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()",
                   "test_name": "failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.015,
+                  "duration_seconds": 0.016,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()",
                   "test_name": "completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()"
@@ -1043,7 +1043,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldRejectQuestObjectiveAboveProgressionCountLimit()",
                   "test_name": "shouldRejectQuestObjectiveAboveProgressionCountLimit()"
@@ -1057,49 +1057,49 @@
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.145,
+                  "duration_seconds": 0.156,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentProgressCommitsKeepTheirNotificationGroupsTogether()",
                   "test_name": "concurrentProgressCommitsKeepTheirNotificationGroupsTogether()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.011,
+                  "duration_seconds": 0.012,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()",
                   "test_name": "registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.014,
+                  "duration_seconds": 0.012,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()",
                   "test_name": "nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.018,
+                  "duration_seconds": 0.017,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()",
                   "test_name": "failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.028,
+                  "duration_seconds": 0.03,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()",
                   "test_name": "pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.022,
+                  "duration_seconds": 0.028,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()",
                   "test_name": "pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()"
                 },
                 {
                   "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                  "duration_seconds": 0.013,
+                  "duration_seconds": 0.019,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.QuestProgressionMutationTest#publisherFailureDoesNotStrandLaterQuestNotificationGroups()",
                   "test_name": "publisherFailureDoesNotStrandLaterQuestNotificationGroups()"
@@ -1138,7 +1138,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.01,
+                  "duration_seconds": 0.009,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldClampFactionPointsOnArithmeticOverflow()",
                   "test_name": "shouldClampFactionPointsOnArithmeticOverflow()"
@@ -1152,14 +1152,14 @@
                 },
                 {
                   "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidFactionDefinition()",
                   "test_name": "shouldLoadValidFactionDefinition()"
                 },
                 {
                   "class_name": "com.storynpcs.domain.P6DomainTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.P6DomainTest#factionMatrixFieldsAndBounds()",
                   "test_name": "factionMatrixFieldsAndBounds()"
@@ -1208,7 +1208,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.role.RoleSerdeTest",
-                  "duration_seconds": 0.005,
+                  "duration_seconds": 0.008,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.role.RoleSerdeTest#TraderRole, BankerRole, BankVault and score map survive JSON round-trip",
                   "test_name": "TraderRole, BankerRole, BankVault and score map survive JSON round-trip"
@@ -1284,7 +1284,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.domain.P6DomainTest",
-                  "duration_seconds": 0.005,
+                  "duration_seconds": 0.004,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.P6DomainTest#transportEvaluationFailsBeforeFee()",
                   "test_name": "transportEvaluationFailsBeforeFee()"
@@ -1321,28 +1321,28 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                  "duration_seconds": 0.016,
+                  "duration_seconds": 0.015,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.BankRepositoryTest#BankRepository saves and reloads vaults atomically from disk",
                   "test_name": "BankRepository saves and reloads vaults atomically from disk"
                 },
                 {
                   "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                  "duration_seconds": 0.063,
+                  "duration_seconds": 0.044,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.BankRepositoryTest#unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events",
                   "test_name": "unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events"
                 },
                 {
                   "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                  "duration_seconds": 0.02,
+                  "duration_seconds": 0.027,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.BankRepositoryTest#Whole-stack withdrawal request IDs replay without withdrawing twice",
                   "test_name": "Whole-stack withdrawal request IDs replay without withdrawing twice"
                 },
                 {
                   "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                  "duration_seconds": 0.028,
+                  "duration_seconds": 0.031,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.BankRepositoryTest#Recovery cannot abort a withdrawal between prepare and bank commit",
                   "test_name": "Recovery cannot abort a withdrawal between prepare and bank commit"
@@ -1356,7 +1356,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.P7DomainTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.003,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.P7DomainTest#tabCountCannotExceedSix()",
                   "test_name": "tabCountCannotExceedSix()"
@@ -1400,14 +1400,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.004,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.role.TraderRoleTest#TradeListing enforces stock limits and restocks properly",
                   "test_name": "TradeListing enforces stock limits and restocks properly"
                 },
                 {
                   "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                  "duration_seconds": 0.017,
+                  "duration_seconds": 0.019,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.role.TraderRoleTest#A repeated trade request replays without charging another listing use",
                   "test_name": "A repeated trade request replays without charging another listing use"
@@ -1421,21 +1421,21 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                  "duration_seconds": 0.128,
+                  "duration_seconds": 0.117,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
                   "test_name": "Concurrent executeTrade calls cannot exceed a listing's maxUses"
                 },
                 {
                   "class_name": "com.storynpcs.persistence.TradeStateRepositoryTest",
-                  "duration_seconds": 0.009,
+                  "duration_seconds": 0.01,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload",
                   "test_name": "Listing uses reserve durably and survive repository reload"
                 },
                 {
                   "class_name": "com.storynpcs.domain.P7DomainTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.P7DomainTest#twoInputsAndOutputValidateBeforeCommit()",
                   "test_name": "twoInputsAndOutputValidateBeforeCommit()"
@@ -1501,7 +1501,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.ai.FollowerFormationGoalTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.ai.FollowerFormationGoalTest#Follower in auto slot mode dynamically resolves unique position in formation",
                   "test_name": "Follower in auto slot mode dynamically resolves unique position in formation"
@@ -1515,7 +1515,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.P6DomainTest",
-                  "duration_seconds": 0.0,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.P6DomainTest#companionProfileBoundsAndStageSelection()",
                   "test_name": "companionProfileBoundsAndStageSelection()"
@@ -1551,7 +1551,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.creator.P8DomainTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.creator.P8DomainTest#spawnerRuleIsDeterministicAndBounded()",
                   "test_name": "spawnerRuleIsDeterministicAndBounded()"
@@ -1595,14 +1595,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                  "duration_seconds": 0.004,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#Single mark type, color, and text survive definition JSON round-trip",
                   "test_name": "Single mark type, color, and text survive definition JSON round-trip"
                 },
                 {
                   "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.npc.NpcInventoryTest#markCollectionsBoundAndCarryAvailability()",
                   "test_name": "markCollectionsBoundAndCarryAvailability()"
@@ -1652,7 +1652,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.creator.P8DomainTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.creator.P8DomainTest#carpentryRecipeValidatesGridAndSlots()",
                   "test_name": "carpentryRecipeValidatesGridAndSlots()"
@@ -1703,7 +1703,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.P9DomainTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.004,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.P9DomainTest#schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()",
                   "test_name": "schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()"
@@ -1739,7 +1739,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.004,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.command.StoryNpcsCommandsTest#Command tree registers /storynpcs and /sn alias with all subcommands",
                   "test_name": "Command tree registers /storynpcs and /sn alias with all subcommands"
@@ -1760,14 +1760,14 @@
                 },
                 {
                   "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.006,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.command.StoryNpcsCommandsTest#questCompletionCommandFeedbackReflectsServiceOutcome()",
                   "test_name": "questCompletionCommandFeedbackReflectsServiceOutcome()"
                 },
                 {
                   "class_name": "com.storynpcs.P9DomainTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.P9DomainTest#suggestionsRejectInvalidIdsAndFields()",
                   "test_name": "suggestionsRejectInvalidIdsAndFields()"
@@ -1808,7 +1808,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.network.NetworkPayloadsTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.003,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects trailing frame bytes",
                   "test_name": "payload codec rejects trailing frame bytes"
@@ -1851,21 +1851,21 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                  "duration_seconds": 0.007,
+                  "duration_seconds": 0.006,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
                   "test_name": "readsLegacyRawRecordAndMigratesOnNextWrite()"
                 },
                 {
                   "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                  "duration_seconds": 0.01,
+                  "duration_seconds": 0.012,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
                   "test_name": "failedFinalRenameRecoversPreviousGenerationFromBackup()"
                 },
                 {
                   "class_name": "com.storynpcs.persistence.ProgressionRepositoryTest",
-                  "duration_seconds": 0.01,
+                  "duration_seconds": 0.009,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()",
                   "test_name": "shouldAtomicallyPersistAndReloadProgression()"
@@ -1974,7 +1974,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#pushMovesVictimAway()",
                   "test_name": "pushMovesVictimAway()"
@@ -2082,7 +2082,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                  "duration_seconds": 0.0,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#teleportUpdateApproachesTarget()",
                   "test_name": "teleportUpdateApproachesTarget()"
@@ -2125,7 +2125,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.support.NbtBookServiceTest",
-                  "duration_seconds": 0.008,
+                  "duration_seconds": 0.01,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.support.NbtBookServiceTest#buildViewFlattensNestedTagsToDottedPaths()",
                   "test_name": "buildViewFlattensNestedTagsToDottedPaths()"
@@ -2230,14 +2230,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#spongeSchemParsesDimsPaletteAndVarintIndices()",
                   "test_name": "spongeSchemParsesDimsPaletteAndVarintIndices()"
                 },
                 {
                   "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                  "duration_seconds": 0.0,
+                  "duration_seconds": 0.001,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#legacySchematicTranslatesNumericIdsThroughBlockTable()",
                   "test_name": "legacySchematicTranslatesNumericIdsThroughBlockTable()"
@@ -2258,14 +2258,14 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                  "duration_seconds": 0.149,
+                  "duration_seconds": 0.169,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledTargetSchematicsLoadAndBuild()",
                   "test_name": "bundledTargetSchematicsLoadAndBuild()"
                 },
                 {
                   "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                  "duration_seconds": 0.006,
+                  "duration_seconds": 0.005,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledDirectoryMatchesExpectedCatalog()",
                   "test_name": "bundledDirectoryMatchesExpectedCatalog()"
@@ -2306,7 +2306,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.domain.schematic.BuildPlanTest",
-                  "duration_seconds": 0.001,
+                  "duration_seconds": 0.0,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.domain.schematic.BuildPlanTest#airAndStructureVoidAreNoOps()",
                   "test_name": "airAndStructureVoidAreNoOps()"
@@ -2341,7 +2341,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.004,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.PlayerPanelViewsTest#questLogHidesNotStartedAndSurfacesPendingCompletions()",
                   "test_name": "questLogHidesNotStartedAndSurfacesPendingCompletions()"
@@ -2383,14 +2383,14 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.003,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.PlayerPanelViewsTest#mailViewPresentsNewestFirstWithAllFields()",
                   "test_name": "mailViewPresentsNewestFirstWithAllFields()"
                 },
                 {
                   "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                  "duration_seconds": 0.011,
+                  "duration_seconds": 0.009,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#sendMailDeliversToRecipientMailboxUnderSenderAuth()",
                   "test_name": "sendMailDeliversToRecipientMailboxUnderSenderAuth()"
@@ -2432,7 +2432,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.005,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.PlayerPanelViewsTest#factionPanelClassifiesStandingFromAuthoredThresholds()",
                   "test_name": "factionPanelClassifiesStandingFromAuthoredThresholds()"
@@ -2467,7 +2467,7 @@
               "tests": [
                 {
                   "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                  "duration_seconds": 0.002,
+                  "duration_seconds": 0.003,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.service.PlayerPanelViewsTest#transportViewFlagsUnlockedRows()",
                   "test_name": "transportViewFlagsUnlockedRows()"
@@ -2509,7 +2509,7 @@
                 },
                 {
                   "class_name": "com.storynpcs.network.PlayerPanelPayloadsTest",
-                  "duration_seconds": 0.003,
+                  "duration_seconds": 0.002,
                   "outcome": "PASSED",
                   "selector": "com.storynpcs.network.PlayerPanelPayloadsTest#mail payload bounds reject oversized content",
                   "test_name": "mail payload bounds reject oversized content"
@@ -2568,14 +2568,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#replacementPreservesLogicalIdentityAndPublishesReasonedEvents()",
                 "test_name": "replacementPreservesLogicalIdentityAndPublishesReasonedEvents()"
               },
               {
                 "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#unloadThenReloadKeepsActorIdButReplacesProjection()",
                 "test_name": "unloadThenReloadKeepsActorIdButReplacesProjection()"
@@ -2620,14 +2620,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#replacementPreservesLogicalIdentityAndPublishesReasonedEvents()",
                 "test_name": "replacementPreservesLogicalIdentityAndPublishesReasonedEvents()"
               },
               {
                 "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#unloadThenReloadKeepsActorIdButReplacesProjection()",
                 "test_name": "unloadThenReloadKeepsActorIdButReplacesProjection()"
@@ -2776,14 +2776,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                "duration_seconds": 0.756,
+                "duration_seconds": 0.742,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Should resolve custom skin texture when specified in NpcDisplay",
                 "test_name": "Should resolve custom skin texture when specified in NpcDisplay"
               },
               {
                 "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Name mode can hide names or show them only during attack",
                 "test_name": "Name mode can hide names or show them only during attack"
@@ -2838,14 +2838,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                "duration_seconds": 0.756,
+                "duration_seconds": 0.742,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Should resolve custom skin texture when specified in NpcDisplay",
                 "test_name": "Should resolve custom skin texture when specified in NpcDisplay"
               },
               {
                 "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Name mode can hide names or show them only during attack",
                 "test_name": "Name mode can hide names or show them only during attack"
@@ -2886,7 +2886,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#NpcDefinition round-trips through JSON serialization with all fields intact",
                 "test_name": "NpcDefinition round-trips through JSON serialization with all fields intact"
@@ -2933,7 +2933,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#NpcDefinition round-trips through JSON serialization with all fields intact",
                 "test_name": "NpcDefinition round-trips through JSON serialization with all fields intact"
@@ -2967,21 +2967,21 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Immobilized entity triggers progressive recovery actions as stall persists",
                 "test_name": "Immobilized entity triggers progressive recovery actions as stall persists"
               },
               {
                 "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Stopping navigation immediately clears stall state",
                 "test_name": "Stopping navigation immediately clears stall state"
               },
               {
                 "class_name": "com.storynpcs.domain.ai.WaypointPathTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.ai.WaypointPathTest#LOOP mode cycles continuously from start to end and wraps back",
                 "test_name": "LOOP mode cycles continuously from start to end and wraps back"
@@ -3009,7 +3009,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcAiPolicyTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcAiPolicyTest#threatTargetChangesEmitReasonsThroughTheSink()",
                 "test_name": "threatTargetChangesEmitReasonsThroughTheSink()"
@@ -3054,21 +3054,21 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Immobilized entity triggers progressive recovery actions as stall persists",
                 "test_name": "Immobilized entity triggers progressive recovery actions as stall persists"
               },
               {
                 "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Stopping navigation immediately clears stall state",
                 "test_name": "Stopping navigation immediately clears stall state"
               },
               {
                 "class_name": "com.storynpcs.domain.ai.WaypointPathTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.ai.WaypointPathTest#LOOP mode cycles continuously from start to end and wraps back",
                 "test_name": "LOOP mode cycles continuously from start to end and wraps back"
@@ -3096,7 +3096,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcAiPolicyTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcAiPolicyTest#threatTargetChangesEmitReasonsThroughTheSink()",
                 "test_name": "threatTargetChangesEmitReasonsThroughTheSink()"
@@ -3253,7 +3253,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcInventoryTest#equipReplacesAndUnequipsWithoutLoss()",
                 "test_name": "equipReplacesAndUnequipsWithoutLoss()"
@@ -3336,7 +3336,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcInventoryTest#equipReplacesAndUnequipsWithoutLoss()",
                 "test_name": "equipReplacesAndUnequipsWithoutLoss()"
@@ -3391,14 +3391,14 @@
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.016,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#saveDialogueShouldWriteYamlFileWhenLoaderIsBound()",
                 "test_name": "saveDialogueShouldWriteYamlFileWhenLoaderIsBound()"
               },
               {
                 "class_name": "com.storynpcs.domain.DialogueGraphSerdeTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.DialogueGraphSerdeTest#JSON round-trip preserves all graph fields",
                 "test_name": "JSON round-trip preserves all graph fields"
@@ -3412,7 +3412,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest#cyclesDiagnosedAsWarningsNotErrors()",
                 "test_name": "cyclesDiagnosedAsWarningsNotErrors()"
@@ -3474,14 +3474,14 @@
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.016,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#saveDialogueShouldWriteYamlFileWhenLoaderIsBound()",
                 "test_name": "saveDialogueShouldWriteYamlFileWhenLoaderIsBound()"
               },
               {
                 "class_name": "com.storynpcs.domain.DialogueGraphSerdeTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.DialogueGraphSerdeTest#JSON round-trip preserves all graph fields",
                 "test_name": "JSON round-trip preserves all graph fields"
@@ -3495,7 +3495,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest#cyclesDiagnosedAsWarningsNotErrors()",
                 "test_name": "cyclesDiagnosedAsWarningsNotErrors()"
@@ -3529,28 +3529,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.025,
+                "duration_seconds": 0.029,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()",
                 "test_name": "shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()",
                 "test_name": "shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.007,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()",
                 "test_name": "shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()"
               },
               {
                 "class_name": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest#acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()",
                 "test_name": "acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()"
@@ -3619,28 +3619,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.025,
+                "duration_seconds": 0.029,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()",
                 "test_name": "shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()",
                 "test_name": "shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.007,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()",
                 "test_name": "shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()"
               },
               {
                 "class_name": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest#acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()",
                 "test_name": "acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()"
@@ -3695,28 +3695,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidQuestDefinition()",
                 "test_name": "shouldLoadValidQuestDefinition()"
               },
               {
                 "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldDetectCircularQuestPrerequisites()",
                 "test_name": "shouldDetectCircularQuestPrerequisites()"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.012,
+                "duration_seconds": 0.011,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Written quest YAML round-trips every definition field",
                 "test_name": "Written quest YAML round-trips every definition field"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.023,
+                "duration_seconds": 0.022,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Namespaced quest saves migrate matching legacy files without overwriting another namespace",
                 "test_name": "Namespaced quest saves migrate matching legacy files without overwriting another namespace"
@@ -3730,28 +3730,28 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Malformed existing YAML is preserved when its definition identity cannot be checked",
                 "test_name": "Malformed existing YAML is preserved when its definition identity cannot be checked"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Unrelated malformed YAML does not block saving a different definition",
                 "test_name": "Unrelated malformed YAML does not block saving a different definition"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.024,
+                "duration_seconds": 0.023,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer updates a renamed definition and fails closed on duplicate IDs",
                 "test_name": "Writer updates a renamed definition and fails closed on duplicate IDs"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Loader refuses duplicate-ID deletion without removing either source",
                 "test_name": "Loader refuses duplicate-ID deletion without removing either source"
@@ -3765,7 +3765,7 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.06,
+                "duration_seconds": 0.052,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Concurrent writes to one definition use separate atomic temporary files",
                 "test_name": "Concurrent writes to one definition use separate atomic temporary files"
@@ -3779,14 +3779,14 @@
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()",
                 "test_name": "failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.25,
+                "duration_seconds": 0.254,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()",
                 "test_name": "concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()"
@@ -3830,28 +3830,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidQuestDefinition()",
                 "test_name": "shouldLoadValidQuestDefinition()"
               },
               {
                 "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldDetectCircularQuestPrerequisites()",
                 "test_name": "shouldDetectCircularQuestPrerequisites()"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.012,
+                "duration_seconds": 0.011,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Written quest YAML round-trips every definition field",
                 "test_name": "Written quest YAML round-trips every definition field"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.023,
+                "duration_seconds": 0.022,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Namespaced quest saves migrate matching legacy files without overwriting another namespace",
                 "test_name": "Namespaced quest saves migrate matching legacy files without overwriting another namespace"
@@ -3865,28 +3865,28 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Malformed existing YAML is preserved when its definition identity cannot be checked",
                 "test_name": "Malformed existing YAML is preserved when its definition identity cannot be checked"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Unrelated malformed YAML does not block saving a different definition",
                 "test_name": "Unrelated malformed YAML does not block saving a different definition"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.024,
+                "duration_seconds": 0.023,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer updates a renamed definition and fails closed on duplicate IDs",
                 "test_name": "Writer updates a renamed definition and fails closed on duplicate IDs"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Loader refuses duplicate-ID deletion without removing either source",
                 "test_name": "Loader refuses duplicate-ID deletion without removing either source"
@@ -3900,7 +3900,7 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.06,
+                "duration_seconds": 0.052,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Concurrent writes to one definition use separate atomic temporary files",
                 "test_name": "Concurrent writes to one definition use separate atomic temporary files"
@@ -3914,14 +3914,14 @@
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()",
                 "test_name": "failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.25,
+                "duration_seconds": 0.254,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()",
                 "test_name": "concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()"
@@ -3955,14 +3955,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.021,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldManageQuestProgressionAndRewards()",
                 "test_name": "shouldManageQuestProgressionAndRewards()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.014,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldNotDuplicateQuestRewardsOnRepeatedCompletion()",
                 "test_name": "shouldNotDuplicateQuestRewardsOnRepeatedCompletion()"
@@ -3976,35 +3976,35 @@
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.023,
+                "duration_seconds": 0.025,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()",
                 "test_name": "experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.027,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()",
                 "test_name": "rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.027,
+                "duration_seconds": 0.025,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()",
                 "test_name": "rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()",
                 "test_name": "loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()"
               },
               {
                 "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                "duration_seconds": 0.039,
+                "duration_seconds": 0.036,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#mailSurvivesReopenAndClaimsExactlyOnce(Path)",
                 "test_name": "mailSurvivesReopenAndClaimsExactlyOnce(Path)"
@@ -4018,7 +4018,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#teamProgressionSurvivesMemberChangesAndRevisions()",
                 "test_name": "teamProgressionSurvivesMemberChangesAndRevisions()"
@@ -4066,14 +4066,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.021,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldManageQuestProgressionAndRewards()",
                 "test_name": "shouldManageQuestProgressionAndRewards()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.014,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldNotDuplicateQuestRewardsOnRepeatedCompletion()",
                 "test_name": "shouldNotDuplicateQuestRewardsOnRepeatedCompletion()"
@@ -4087,35 +4087,35 @@
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.023,
+                "duration_seconds": 0.025,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()",
                 "test_name": "experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.027,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()",
                 "test_name": "rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.027,
+                "duration_seconds": 0.025,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()",
                 "test_name": "rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()",
                 "test_name": "loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()"
               },
               {
                 "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                "duration_seconds": 0.039,
+                "duration_seconds": 0.036,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#mailSurvivesReopenAndClaimsExactlyOnce(Path)",
                 "test_name": "mailSurvivesReopenAndClaimsExactlyOnce(Path)"
@@ -4129,7 +4129,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#teamProgressionSurvivesMemberChangesAndRevisions()",
                 "test_name": "teamProgressionSurvivesMemberChangesAndRevisions()"
@@ -4163,70 +4163,70 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()",
                 "test_name": "typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.014,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()",
                 "test_name": "playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#reusingAProgressionRequestIdForDifferentPayloadFailsClosed()",
                 "test_name": "reusingAProgressionRequestIdForDifferentPayloadFailsClosed()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()",
                 "test_name": "objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#anotherPlayerCannotMutateTheSubjectsQuestProgression()",
                 "test_name": "anotherPlayerCannotMutateTheSubjectsQuestProgression()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()",
                 "test_name": "commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.026,
+                "duration_seconds": 0.054,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()",
                 "test_name": "concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#legacyProgressionFileLoadsWithRevisionZero()",
                 "test_name": "legacyProgressionFileLoadsWithRevisionZero()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.008,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()",
                 "test_name": "failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()",
                 "test_name": "completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()"
@@ -4240,7 +4240,7 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldRejectQuestObjectiveAboveProgressionCountLimit()",
                 "test_name": "shouldRejectQuestObjectiveAboveProgressionCountLimit()"
@@ -4254,49 +4254,49 @@
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.145,
+                "duration_seconds": 0.156,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentProgressCommitsKeepTheirNotificationGroupsTogether()",
                 "test_name": "concurrentProgressCommitsKeepTheirNotificationGroupsTogether()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()",
                 "test_name": "registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.014,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()",
                 "test_name": "nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.018,
+                "duration_seconds": 0.017,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()",
                 "test_name": "failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()",
                 "test_name": "pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.022,
+                "duration_seconds": 0.028,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()",
                 "test_name": "pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.019,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#publisherFailureDoesNotStrandLaterQuestNotificationGroups()",
                 "test_name": "publisherFailureDoesNotStrandLaterQuestNotificationGroups()"
@@ -4350,70 +4350,70 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()",
                 "test_name": "typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.014,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()",
                 "test_name": "playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#reusingAProgressionRequestIdForDifferentPayloadFailsClosed()",
                 "test_name": "reusingAProgressionRequestIdForDifferentPayloadFailsClosed()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()",
                 "test_name": "objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#anotherPlayerCannotMutateTheSubjectsQuestProgression()",
                 "test_name": "anotherPlayerCannotMutateTheSubjectsQuestProgression()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()",
                 "test_name": "commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.026,
+                "duration_seconds": 0.054,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()",
                 "test_name": "concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#legacyProgressionFileLoadsWithRevisionZero()",
                 "test_name": "legacyProgressionFileLoadsWithRevisionZero()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.008,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()",
                 "test_name": "failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()",
                 "test_name": "completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()"
@@ -4427,7 +4427,7 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldRejectQuestObjectiveAboveProgressionCountLimit()",
                 "test_name": "shouldRejectQuestObjectiveAboveProgressionCountLimit()"
@@ -4441,49 +4441,49 @@
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.145,
+                "duration_seconds": 0.156,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentProgressCommitsKeepTheirNotificationGroupsTogether()",
                 "test_name": "concurrentProgressCommitsKeepTheirNotificationGroupsTogether()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()",
                 "test_name": "registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.014,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()",
                 "test_name": "nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.018,
+                "duration_seconds": 0.017,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()",
                 "test_name": "failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()",
                 "test_name": "pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.022,
+                "duration_seconds": 0.028,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()",
                 "test_name": "pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.019,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#publisherFailureDoesNotStrandLaterQuestNotificationGroups()",
                 "test_name": "publisherFailureDoesNotStrandLaterQuestNotificationGroups()"
@@ -4517,7 +4517,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldClampFactionPointsOnArithmeticOverflow()",
                 "test_name": "shouldClampFactionPointsOnArithmeticOverflow()"
@@ -4531,14 +4531,14 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidFactionDefinition()",
                 "test_name": "shouldLoadValidFactionDefinition()"
               },
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#factionMatrixFieldsAndBounds()",
                 "test_name": "factionMatrixFieldsAndBounds()"
@@ -4591,7 +4591,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldClampFactionPointsOnArithmeticOverflow()",
                 "test_name": "shouldClampFactionPointsOnArithmeticOverflow()"
@@ -4605,14 +4605,14 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidFactionDefinition()",
                 "test_name": "shouldLoadValidFactionDefinition()"
               },
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#factionMatrixFieldsAndBounds()",
                 "test_name": "factionMatrixFieldsAndBounds()"
@@ -4660,7 +4660,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.role.RoleSerdeTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.008,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.RoleSerdeTest#TraderRole, BankerRole, BankVault and score map survive JSON round-trip",
                 "test_name": "TraderRole, BankerRole, BankVault and score map survive JSON round-trip"
@@ -4721,7 +4721,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.role.RoleSerdeTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.008,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.RoleSerdeTest#TraderRole, BankerRole, BankVault and score map survive JSON round-trip",
                 "test_name": "TraderRole, BankerRole, BankVault and score map survive JSON round-trip"
@@ -4839,7 +4839,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#transportEvaluationFailsBeforeFee()",
                 "test_name": "transportEvaluationFailsBeforeFee()"
@@ -4890,7 +4890,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#transportEvaluationFailsBeforeFee()",
                 "test_name": "transportEvaluationFailsBeforeFee()"
@@ -4924,28 +4924,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.016,
+                "duration_seconds": 0.015,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#BankRepository saves and reloads vaults atomically from disk",
                 "test_name": "BankRepository saves and reloads vaults atomically from disk"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.063,
+                "duration_seconds": 0.044,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events",
                 "test_name": "unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.02,
+                "duration_seconds": 0.027,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#Whole-stack withdrawal request IDs replay without withdrawing twice",
                 "test_name": "Whole-stack withdrawal request IDs replay without withdrawing twice"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.031,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#Recovery cannot abort a withdrawal between prepare and bank commit",
                 "test_name": "Recovery cannot abort a withdrawal between prepare and bank commit"
@@ -4959,7 +4959,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.P7DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P7DomainTest#tabCountCannotExceedSix()",
                 "test_name": "tabCountCannotExceedSix()"
@@ -5017,28 +5017,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.016,
+                "duration_seconds": 0.015,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#BankRepository saves and reloads vaults atomically from disk",
                 "test_name": "BankRepository saves and reloads vaults atomically from disk"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.063,
+                "duration_seconds": 0.044,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events",
                 "test_name": "unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.02,
+                "duration_seconds": 0.027,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#Whole-stack withdrawal request IDs replay without withdrawing twice",
                 "test_name": "Whole-stack withdrawal request IDs replay without withdrawing twice"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.031,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#Recovery cannot abort a withdrawal between prepare and bank commit",
                 "test_name": "Recovery cannot abort a withdrawal between prepare and bank commit"
@@ -5052,7 +5052,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.P7DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P7DomainTest#tabCountCannotExceedSix()",
                 "test_name": "tabCountCannotExceedSix()"
@@ -5093,14 +5093,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#TradeListing enforces stock limits and restocks properly",
                 "test_name": "TradeListing enforces stock limits and restocks properly"
               },
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.017,
+                "duration_seconds": 0.019,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#A repeated trade request replays without charging another listing use",
                 "test_name": "A repeated trade request replays without charging another listing use"
@@ -5114,21 +5114,21 @@
               },
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.128,
+                "duration_seconds": 0.117,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
                 "test_name": "Concurrent executeTrade calls cannot exceed a listing's maxUses"
               },
               {
                 "class_name": "com.storynpcs.persistence.TradeStateRepositoryTest",
-                "duration_seconds": 0.009,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload",
                 "test_name": "Listing uses reserve durably and survive repository reload"
               },
               {
                 "class_name": "com.storynpcs.domain.P7DomainTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P7DomainTest#twoInputsAndOutputValidateBeforeCommit()",
                 "test_name": "twoInputsAndOutputValidateBeforeCommit()"
@@ -5195,14 +5195,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#TradeListing enforces stock limits and restocks properly",
                 "test_name": "TradeListing enforces stock limits and restocks properly"
               },
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.017,
+                "duration_seconds": 0.019,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#A repeated trade request replays without charging another listing use",
                 "test_name": "A repeated trade request replays without charging another listing use"
@@ -5216,21 +5216,21 @@
               },
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.128,
+                "duration_seconds": 0.117,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
                 "test_name": "Concurrent executeTrade calls cannot exceed a listing's maxUses"
               },
               {
                 "class_name": "com.storynpcs.persistence.TradeStateRepositoryTest",
-                "duration_seconds": 0.009,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload",
                 "test_name": "Listing uses reserve durably and survive repository reload"
               },
               {
                 "class_name": "com.storynpcs.domain.P7DomainTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P7DomainTest#twoInputsAndOutputValidateBeforeCommit()",
                 "test_name": "twoInputsAndOutputValidateBeforeCommit()"
@@ -5292,7 +5292,7 @@
               },
               {
                 "class_name": "com.storynpcs.ai.FollowerFormationGoalTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.FollowerFormationGoalTest#Follower in auto slot mode dynamically resolves unique position in formation",
                 "test_name": "Follower in auto slot mode dynamically resolves unique position in formation"
@@ -5306,7 +5306,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#companionProfileBoundsAndStageSelection()",
                 "test_name": "companionProfileBoundsAndStageSelection()"
@@ -5368,7 +5368,7 @@
               },
               {
                 "class_name": "com.storynpcs.ai.FollowerFormationGoalTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.FollowerFormationGoalTest#Follower in auto slot mode dynamically resolves unique position in formation",
                 "test_name": "Follower in auto slot mode dynamically resolves unique position in formation"
@@ -5382,7 +5382,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#companionProfileBoundsAndStageSelection()",
                 "test_name": "companionProfileBoundsAndStageSelection()"
@@ -5416,7 +5416,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.creator.P8DomainTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.creator.P8DomainTest#spawnerRuleIsDeterministicAndBounded()",
                 "test_name": "spawnerRuleIsDeterministicAndBounded()"
@@ -5473,7 +5473,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.creator.P8DomainTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.creator.P8DomainTest#spawnerRuleIsDeterministicAndBounded()",
                 "test_name": "spawnerRuleIsDeterministicAndBounded()"
@@ -5515,14 +5515,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#Single mark type, color, and text survive definition JSON round-trip",
                 "test_name": "Single mark type, color, and text survive definition JSON round-trip"
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcInventoryTest#markCollectionsBoundAndCarryAvailability()",
                 "test_name": "markCollectionsBoundAndCarryAvailability()"
@@ -5570,14 +5570,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#Single mark type, color, and text survive definition JSON round-trip",
                 "test_name": "Single mark type, color, and text survive definition JSON round-trip"
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcInventoryTest#markCollectionsBoundAndCarryAvailability()",
                 "test_name": "markCollectionsBoundAndCarryAvailability()"
@@ -5733,7 +5733,7 @@
               },
               {
                 "class_name": "com.storynpcs.creator.P8DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.creator.P8DomainTest#carpentryRecipeValidatesGridAndSlots()",
                 "test_name": "carpentryRecipeValidatesGridAndSlots()"
@@ -5797,7 +5797,7 @@
               },
               {
                 "class_name": "com.storynpcs.creator.P8DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.creator.P8DomainTest#carpentryRecipeValidatesGridAndSlots()",
                 "test_name": "carpentryRecipeValidatesGridAndSlots()"
@@ -5845,7 +5845,7 @@
               },
               {
                 "class_name": "com.storynpcs.P9DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.P9DomainTest#schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()",
                 "test_name": "schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()"
@@ -5906,7 +5906,7 @@
               },
               {
                 "class_name": "com.storynpcs.P9DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.P9DomainTest#schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()",
                 "test_name": "schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()"
@@ -5941,7 +5941,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.command.StoryNpcsCommandsTest#Command tree registers /storynpcs and /sn alias with all subcommands",
                 "test_name": "Command tree registers /storynpcs and /sn alias with all subcommands"
@@ -5962,14 +5962,14 @@
               },
               {
                 "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.command.StoryNpcsCommandsTest#questCompletionCommandFeedbackReflectsServiceOutcome()",
                 "test_name": "questCompletionCommandFeedbackReflectsServiceOutcome()"
               },
               {
                 "class_name": "com.storynpcs.P9DomainTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.P9DomainTest#suggestionsRejectInvalidIdsAndFields()",
                 "test_name": "suggestionsRejectInvalidIdsAndFields()"
@@ -6012,7 +6012,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.command.StoryNpcsCommandsTest#Command tree registers /storynpcs and /sn alias with all subcommands",
                 "test_name": "Command tree registers /storynpcs and /sn alias with all subcommands"
@@ -6033,14 +6033,14 @@
               },
               {
                 "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.command.StoryNpcsCommandsTest#questCompletionCommandFeedbackReflectsServiceOutcome()",
                 "test_name": "questCompletionCommandFeedbackReflectsServiceOutcome()"
               },
               {
                 "class_name": "com.storynpcs.P9DomainTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.P9DomainTest#suggestionsRejectInvalidIdsAndFields()",
                 "test_name": "suggestionsRejectInvalidIdsAndFields()"
@@ -6330,7 +6330,7 @@
               },
               {
                 "class_name": "com.storynpcs.network.NetworkPayloadsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects trailing frame bytes",
                 "test_name": "payload codec rejects trailing frame bytes"
@@ -6392,7 +6392,7 @@
               },
               {
                 "class_name": "com.storynpcs.network.NetworkPayloadsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects trailing frame bytes",
                 "test_name": "payload codec rejects trailing frame bytes"
@@ -6433,21 +6433,21 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                "duration_seconds": 0.007,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
                 "test_name": "readsLegacyRawRecordAndMigratesOnNextWrite()"
               },
               {
                 "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
                 "test_name": "failedFinalRenameRecoversPreviousGenerationFromBackup()"
               },
               {
                 "class_name": "com.storynpcs.persistence.ProgressionRepositoryTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()",
                 "test_name": "shouldAtomicallyPersistAndReloadProgression()"
@@ -6497,21 +6497,21 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                "duration_seconds": 0.007,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
                 "test_name": "readsLegacyRawRecordAndMigratesOnNextWrite()"
               },
               {
                 "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
                 "test_name": "failedFinalRenameRecoversPreviousGenerationFromBackup()"
               },
               {
                 "class_name": "com.storynpcs.persistence.ProgressionRepositoryTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()",
                 "test_name": "shouldAtomicallyPersistAndReloadProgression()"
@@ -6707,7 +6707,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#pushMovesVictimAway()",
                 "test_name": "pushMovesVictimAway()"
@@ -6754,7 +6754,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#pushMovesVictimAway()",
                 "test_name": "pushMovesVictimAway()"
@@ -6950,7 +6950,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#teleportUpdateApproachesTarget()",
                 "test_name": "teleportUpdateApproachesTarget()"
@@ -6997,7 +6997,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#teleportUpdateApproachesTarget()",
                 "test_name": "teleportUpdateApproachesTarget()"
@@ -7038,7 +7038,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.support.NbtBookServiceTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.support.NbtBookServiceTest#buildViewFlattensNestedTagsToDottedPaths()",
                 "test_name": "buildViewFlattensNestedTagsToDottedPaths()"
@@ -7091,7 +7091,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.support.NbtBookServiceTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.support.NbtBookServiceTest#buildViewFlattensNestedTagsToDottedPaths()",
                 "test_name": "buildViewFlattensNestedTagsToDottedPaths()"
@@ -7284,14 +7284,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#spongeSchemParsesDimsPaletteAndVarintIndices()",
                 "test_name": "spongeSchemParsesDimsPaletteAndVarintIndices()"
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#legacySchematicTranslatesNumericIdsThroughBlockTable()",
                 "test_name": "legacySchematicTranslatesNumericIdsThroughBlockTable()"
@@ -7312,14 +7312,14 @@
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                "duration_seconds": 0.149,
+                "duration_seconds": 0.169,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledTargetSchematicsLoadAndBuild()",
                 "test_name": "bundledTargetSchematicsLoadAndBuild()"
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledDirectoryMatchesExpectedCatalog()",
                 "test_name": "bundledDirectoryMatchesExpectedCatalog()"
@@ -7362,14 +7362,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#spongeSchemParsesDimsPaletteAndVarintIndices()",
                 "test_name": "spongeSchemParsesDimsPaletteAndVarintIndices()"
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#legacySchematicTranslatesNumericIdsThroughBlockTable()",
                 "test_name": "legacySchematicTranslatesNumericIdsThroughBlockTable()"
@@ -7390,14 +7390,14 @@
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                "duration_seconds": 0.149,
+                "duration_seconds": 0.169,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledTargetSchematicsLoadAndBuild()",
                 "test_name": "bundledTargetSchematicsLoadAndBuild()"
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledDirectoryMatchesExpectedCatalog()",
                 "test_name": "bundledDirectoryMatchesExpectedCatalog()"
@@ -7438,7 +7438,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BuildPlanTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BuildPlanTest#airAndStructureVoidAreNoOps()",
                 "test_name": "airAndStructureVoidAreNoOps()"
@@ -7490,7 +7490,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BuildPlanTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BuildPlanTest#airAndStructureVoidAreNoOps()",
                 "test_name": "airAndStructureVoidAreNoOps()"
@@ -7524,7 +7524,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#questLogHidesNotStartedAndSurfacesPendingCompletions()",
                 "test_name": "questLogHidesNotStartedAndSurfacesPendingCompletions()"
@@ -7577,7 +7577,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#questLogHidesNotStartedAndSurfacesPendingCompletions()",
                 "test_name": "questLogHidesNotStartedAndSurfacesPendingCompletions()"
@@ -7618,14 +7618,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#mailViewPresentsNewestFirstWithAllFields()",
                 "test_name": "mailViewPresentsNewestFirstWithAllFields()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#sendMailDeliversToRecipientMailboxUnderSenderAuth()",
                 "test_name": "sendMailDeliversToRecipientMailboxUnderSenderAuth()"
@@ -7679,14 +7679,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#mailViewPresentsNewestFirstWithAllFields()",
                 "test_name": "mailViewPresentsNewestFirstWithAllFields()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#sendMailDeliversToRecipientMailboxUnderSenderAuth()",
                 "test_name": "sendMailDeliversToRecipientMailboxUnderSenderAuth()"
@@ -7727,7 +7727,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#factionPanelClassifiesStandingFromAuthoredThresholds()",
                 "test_name": "factionPanelClassifiesStandingFromAuthoredThresholds()"
@@ -7773,7 +7773,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#factionPanelClassifiesStandingFromAuthoredThresholds()",
                 "test_name": "factionPanelClassifiesStandingFromAuthoredThresholds()"
@@ -7807,7 +7807,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#transportViewFlagsUnlockedRows()",
                 "test_name": "transportViewFlagsUnlockedRows()"
@@ -7853,7 +7853,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#transportViewFlagsUnlockedRows()",
                 "test_name": "transportViewFlagsUnlockedRows()"
@@ -7894,7 +7894,7 @@
               },
               {
                 "class_name": "com.storynpcs.network.PlayerPanelPayloadsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.network.PlayerPanelPayloadsTest#mail payload bounds reject oversized content",
                 "test_name": "mail payload bounds reject oversized content"
@@ -7963,7 +7963,7 @@
               },
               {
                 "class_name": "com.storynpcs.network.PlayerPanelPayloadsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.network.PlayerPanelPayloadsTest#mail payload bounds reject oversized content",
                 "test_name": "mail payload bounds reject oversized content"
@@ -8057,11 +8057,11 @@
   },
   "gradle_exit_code": 0,
   "gradle_test_command": ".\\gradlew.bat cleanTest test --rerun-tasks --console=plain",
-  "junit_test_case_count": 1173,
-  "junit_test_suite_count": 123,
+  "junit_test_case_count": 1207,
+  "junit_test_suite_count": 126,
   "missing_test_selectors": [],
   "parity_status": "BLOCKED",
-  "source_fingerprint": "02b26865aff609152befa061907aceb3c107cacf8d615e7ea92cdcefe1f5109d",
+  "source_fingerprint": "5aa6c05aeb0ee3632490f9ccb898a3b7a6fb5efc90b5800bf0c65f6d225cc780",
   "status": "BLOCKED",
   "storynpcs_fixture_counts": {
     "blocked": 0,
@@ -8087,14 +8087,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#replacementPreservesLogicalIdentityAndPublishesReasonedEvents()",
                 "test_name": "replacementPreservesLogicalIdentityAndPublishesReasonedEvents()"
               },
               {
                 "class_name": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.runtime.actor.ActorLifecycleServiceTest#unloadThenReloadKeepsActorIdButReplacesProjection()",
                 "test_name": "unloadThenReloadKeepsActorIdButReplacesProjection()"
@@ -8238,14 +8238,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                "duration_seconds": 0.756,
+                "duration_seconds": 0.742,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Should resolve custom skin texture when specified in NpcDisplay",
                 "test_name": "Should resolve custom skin texture when specified in NpcDisplay"
               },
               {
                 "class_name": "com.storynpcs.client.render.StoryNpcRenderModelTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.client.render.StoryNpcRenderModelTest#Name mode can hide names or show them only during attack",
                 "test_name": "Name mode can hide names or show them only during attack"
@@ -8281,7 +8281,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#NpcDefinition round-trips through JSON serialization with all fields intact",
                 "test_name": "NpcDefinition round-trips through JSON serialization with all fields intact"
@@ -8310,21 +8310,21 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Immobilized entity triggers progressive recovery actions as stall persists",
                 "test_name": "Immobilized entity triggers progressive recovery actions as stall persists"
               },
               {
                 "class_name": "com.storynpcs.ai.pathing.NpcStuckDetectorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.pathing.NpcStuckDetectorTest#Stopping navigation immediately clears stall state",
                 "test_name": "Stopping navigation immediately clears stall state"
               },
               {
                 "class_name": "com.storynpcs.domain.ai.WaypointPathTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.ai.WaypointPathTest#LOOP mode cycles continuously from start to end and wraps back",
                 "test_name": "LOOP mode cycles continuously from start to end and wraps back"
@@ -8352,7 +8352,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcAiPolicyTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcAiPolicyTest#threatTargetChangesEmitReasonsThroughTheSink()",
                 "test_name": "threatTargetChangesEmitReasonsThroughTheSink()"
@@ -8445,7 +8445,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcInventoryTest#equipReplacesAndUnequipsWithoutLoss()",
                 "test_name": "equipReplacesAndUnequipsWithoutLoss()"
@@ -8495,14 +8495,14 @@
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.016,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#saveDialogueShouldWriteYamlFileWhenLoaderIsBound()",
                 "test_name": "saveDialogueShouldWriteYamlFileWhenLoaderIsBound()"
               },
               {
                 "class_name": "com.storynpcs.domain.DialogueGraphSerdeTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.DialogueGraphSerdeTest#JSON round-trip preserves all graph fields",
                 "test_name": "JSON round-trip preserves all graph fields"
@@ -8516,7 +8516,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.dialogue.DialogueGraphValidatorTest#cyclesDiagnosedAsWarningsNotErrors()",
                 "test_name": "cyclesDiagnosedAsWarningsNotErrors()"
@@ -8545,28 +8545,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.025,
+                "duration_seconds": 0.029,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()",
                 "test_name": "shouldDriveInteractiveDirectedDialogueGraphWithConditionsAndActions()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()",
                 "test_name": "shouldSafelyHandleOutOfBoundsDialogueOptionWithoutException()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.007,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()",
                 "test_name": "shouldCloseDialogueImmediatelyWhenActionIsCloseDialogue()"
               },
               {
                 "class_name": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.dialogue.DialogueChoiceProtocolTest#acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()",
                 "test_name": "acceptedTokenCarriesBoundChoiceAndConsumesExactlyOnce()"
@@ -8616,28 +8616,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidQuestDefinition()",
                 "test_name": "shouldLoadValidQuestDefinition()"
               },
               {
                 "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldDetectCircularQuestPrerequisites()",
                 "test_name": "shouldDetectCircularQuestPrerequisites()"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.012,
+                "duration_seconds": 0.011,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Written quest YAML round-trips every definition field",
                 "test_name": "Written quest YAML round-trips every definition field"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.023,
+                "duration_seconds": 0.022,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Namespaced quest saves migrate matching legacy files without overwriting another namespace",
                 "test_name": "Namespaced quest saves migrate matching legacy files without overwriting another namespace"
@@ -8651,28 +8651,28 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Malformed existing YAML is preserved when its definition identity cannot be checked",
                 "test_name": "Malformed existing YAML is preserved when its definition identity cannot be checked"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Unrelated malformed YAML does not block saving a different definition",
                 "test_name": "Unrelated malformed YAML does not block saving a different definition"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.024,
+                "duration_seconds": 0.023,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Writer updates a renamed definition and fails closed on duplicate IDs",
                 "test_name": "Writer updates a renamed definition and fails closed on duplicate IDs"
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Loader refuses duplicate-ID deletion without removing either source",
                 "test_name": "Loader refuses duplicate-ID deletion without removing either source"
@@ -8686,7 +8686,7 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionWriterTest",
-                "duration_seconds": 0.06,
+                "duration_seconds": 0.052,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionWriterTest#Concurrent writes to one definition use separate atomic temporary files",
                 "test_name": "Concurrent writes to one definition use separate atomic temporary files"
@@ -8700,14 +8700,14 @@
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()",
                 "test_name": "failedQuestFileDeleteKeepsDefinitionRegisteredAndCanonicalDeleteRejected()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.25,
+                "duration_seconds": 0.254,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()",
                 "test_name": "concurrentQuestSaveAndDeleteLeaveRegistryAndYamlInAgreement()"
@@ -8736,14 +8736,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.021,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldManageQuestProgressionAndRewards()",
                 "test_name": "shouldManageQuestProgressionAndRewards()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.014,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldNotDuplicateQuestRewardsOnRepeatedCompletion()",
                 "test_name": "shouldNotDuplicateQuestRewardsOnRepeatedCompletion()"
@@ -8757,35 +8757,35 @@
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.023,
+                "duration_seconds": 0.025,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()",
                 "test_name": "experienceRewardIsDeliveredExactlyOnceAcrossFailedCommitAndRestart()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.027,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()",
                 "test_name": "rewardDeliveryCrashAfterDurableMarkIsNeverRedelivered()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.027,
+                "duration_seconds": 0.025,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()",
                 "test_name": "rewardMarkPersistenceFailureAbortsBeforeAnyDelivery()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()",
                 "test_name": "loginRecoveryResumesInterruptedRewardFanOutExactlyOnce()"
               },
               {
                 "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                "duration_seconds": 0.039,
+                "duration_seconds": 0.036,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#mailSurvivesReopenAndClaimsExactlyOnce(Path)",
                 "test_name": "mailSurvivesReopenAndClaimsExactlyOnce(Path)"
@@ -8799,7 +8799,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.quest.QuestMailStoreTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.quest.QuestMailStoreTest#teamProgressionSurvivesMemberChangesAndRevisions()",
                 "test_name": "teamProgressionSurvivesMemberChangesAndRevisions()"
@@ -8828,70 +8828,70 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()",
                 "test_name": "typedProgressIsPlayerScopedRevisionedAndReplaySafeAcrossRestart()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.014,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()",
                 "test_name": "playerRevisionsAreIndependentAndStaleRequestsDoNotMutate()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#reusingAProgressionRequestIdForDifferentPayloadFailsClosed()",
                 "test_name": "reusingAProgressionRequestIdForDifferentPayloadFailsClosed()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()",
                 "test_name": "objectiveCompletionKeepsTheExistingAutomaticTurnInBehavior()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#anotherPlayerCannotMutateTheSubjectsQuestProgression()",
                 "test_name": "anotherPlayerCannotMutateTheSubjectsQuestProgression()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()",
                 "test_name": "commandCannotChangeAnotherPlayersQuestWithoutOperatorPermission()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.026,
+                "duration_seconds": 0.054,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()",
                 "test_name": "concurrentQuestTurnInsApplyFactionRewardsOnlyOnce()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.007,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#legacyProgressionFileLoadsWithRevisionZero()",
                 "test_name": "legacyProgressionFileLoadsWithRevisionZero()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.008,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()",
                 "test_name": "failedDurableWriteRestoresTheCachedProgressionWithoutPublishingSuccess()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.015,
+                "duration_seconds": 0.016,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()",
                 "test_name": "completionAdvancesRevisionAndRejectsAStartPreparedBeforeCompletion()"
@@ -8905,7 +8905,7 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.CrossReferenceValidatorTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.CrossReferenceValidatorTest#shouldRejectQuestObjectiveAboveProgressionCountLimit()",
                 "test_name": "shouldRejectQuestObjectiveAboveProgressionCountLimit()"
@@ -8919,49 +8919,49 @@
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.145,
+                "duration_seconds": 0.156,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#concurrentProgressCommitsKeepTheirNotificationGroupsTogether()",
                 "test_name": "concurrentProgressCommitsKeepTheirNotificationGroupsTogether()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()",
                 "test_name": "registeringAListenerDuringDeliveryDoesNotStrandTheQuestEventQueue()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.014,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()",
                 "test_name": "nonfatalListenerErrorDoesNotStrandQuestNotificationDelivery()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.018,
+                "duration_seconds": 0.017,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()",
                 "test_name": "failedAutomaticCompletionCanBeRetriedWithoutRepeatingProgress()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.03,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()",
                 "test_name": "pendingCompletionReplayAfterRestartUsesDurableIntentWithoutRepeatingProgress()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.022,
+                "duration_seconds": 0.028,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()",
                 "test_name": "pendingCompletionReplayCannotCompleteAfterObjectiveProgressIsWithdrawn()"
               },
               {
                 "class_name": "com.storynpcs.service.QuestProgressionMutationTest",
-                "duration_seconds": 0.013,
+                "duration_seconds": 0.019,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.QuestProgressionMutationTest#publisherFailureDoesNotStrandLaterQuestNotificationGroups()",
                 "test_name": "publisherFailureDoesNotStrandLaterQuestNotificationGroups()"
@@ -8990,7 +8990,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#shouldClampFactionPointsOnArithmeticOverflow()",
                 "test_name": "shouldClampFactionPointsOnArithmeticOverflow()"
@@ -9004,14 +9004,14 @@
               },
               {
                 "class_name": "com.storynpcs.yaml.YamlDefinitionLoaderTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.yaml.YamlDefinitionLoaderTest#shouldLoadValidFactionDefinition()",
                 "test_name": "shouldLoadValidFactionDefinition()"
               },
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#factionMatrixFieldsAndBounds()",
                 "test_name": "factionMatrixFieldsAndBounds()"
@@ -9054,7 +9054,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.role.RoleSerdeTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.008,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.RoleSerdeTest#TraderRole, BankerRole, BankVault and score map survive JSON round-trip",
                 "test_name": "TraderRole, BankerRole, BankVault and score map survive JSON round-trip"
@@ -9119,7 +9119,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.005,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#transportEvaluationFailsBeforeFee()",
                 "test_name": "transportEvaluationFailsBeforeFee()"
@@ -9148,28 +9148,28 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.016,
+                "duration_seconds": 0.015,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#BankRepository saves and reloads vaults atomically from disk",
                 "test_name": "BankRepository saves and reloads vaults atomically from disk"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.063,
+                "duration_seconds": 0.044,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events",
                 "test_name": "unlockBankTab unlocks up to maxTabs and publishes UNLOCK_TAB events"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.02,
+                "duration_seconds": 0.027,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#Whole-stack withdrawal request IDs replay without withdrawing twice",
                 "test_name": "Whole-stack withdrawal request IDs replay without withdrawing twice"
               },
               {
                 "class_name": "com.storynpcs.persistence.BankRepositoryTest",
-                "duration_seconds": 0.028,
+                "duration_seconds": 0.031,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.BankRepositoryTest#Recovery cannot abort a withdrawal between prepare and bank commit",
                 "test_name": "Recovery cannot abort a withdrawal between prepare and bank commit"
@@ -9183,7 +9183,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.P7DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P7DomainTest#tabCountCannotExceedSix()",
                 "test_name": "tabCountCannotExceedSix()"
@@ -9219,14 +9219,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#TradeListing enforces stock limits and restocks properly",
                 "test_name": "TradeListing enforces stock limits and restocks properly"
               },
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.017,
+                "duration_seconds": 0.019,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#A repeated trade request replays without charging another listing use",
                 "test_name": "A repeated trade request replays without charging another listing use"
@@ -9240,21 +9240,21 @@
               },
               {
                 "class_name": "com.storynpcs.domain.role.TraderRoleTest",
-                "duration_seconds": 0.128,
+                "duration_seconds": 0.117,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
                 "test_name": "Concurrent executeTrade calls cannot exceed a listing's maxUses"
               },
               {
                 "class_name": "com.storynpcs.persistence.TradeStateRepositoryTest",
-                "duration_seconds": 0.009,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload",
                 "test_name": "Listing uses reserve durably and survive repository reload"
               },
               {
                 "class_name": "com.storynpcs.domain.P7DomainTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P7DomainTest#twoInputsAndOutputValidateBeforeCommit()",
                 "test_name": "twoInputsAndOutputValidateBeforeCommit()"
@@ -9311,7 +9311,7 @@
               },
               {
                 "class_name": "com.storynpcs.ai.FollowerFormationGoalTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.FollowerFormationGoalTest#Follower in auto slot mode dynamically resolves unique position in formation",
                 "test_name": "Follower in auto slot mode dynamically resolves unique position in formation"
@@ -9325,7 +9325,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.P6DomainTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.P6DomainTest#companionProfileBoundsAndStageSelection()",
                 "test_name": "companionProfileBoundsAndStageSelection()"
@@ -9354,7 +9354,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.creator.P8DomainTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.creator.P8DomainTest#spawnerRuleIsDeterministicAndBounded()",
                 "test_name": "spawnerRuleIsDeterministicAndBounded()"
@@ -9390,14 +9390,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest",
-                "duration_seconds": 0.004,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcDefinitionSerdeTest#Single mark type, color, and text survive definition JSON round-trip",
                 "test_name": "Single mark type, color, and text survive definition JSON round-trip"
               },
               {
                 "class_name": "com.storynpcs.domain.npc.NpcInventoryTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.npc.NpcInventoryTest#markCollectionsBoundAndCarryAvailability()",
                 "test_name": "markCollectionsBoundAndCarryAvailability()"
@@ -9548,7 +9548,7 @@
               },
               {
                 "class_name": "com.storynpcs.creator.P8DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.creator.P8DomainTest#carpentryRecipeValidatesGridAndSlots()",
                 "test_name": "carpentryRecipeValidatesGridAndSlots()"
@@ -9591,7 +9591,7 @@
               },
               {
                 "class_name": "com.storynpcs.P9DomainTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.P9DomainTest#schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()",
                 "test_name": "schedulerAggregatesBudgetAndQuarantinesRepeatOffenders()"
@@ -9620,7 +9620,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.command.StoryNpcsCommandsTest#Command tree registers /storynpcs and /sn alias with all subcommands",
                 "test_name": "Command tree registers /storynpcs and /sn alias with all subcommands"
@@ -9641,14 +9641,14 @@
               },
               {
                 "class_name": "com.storynpcs.command.StoryNpcsCommandsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.command.StoryNpcsCommandsTest#questCompletionCommandFeedbackReflectsServiceOutcome()",
                 "test_name": "questCompletionCommandFeedbackReflectsServiceOutcome()"
               },
               {
                 "class_name": "com.storynpcs.P9DomainTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.P9DomainTest#suggestionsRejectInvalidIdsAndFields()",
                 "test_name": "suggestionsRejectInvalidIdsAndFields()"
@@ -9933,7 +9933,7 @@
               },
               {
                 "class_name": "com.storynpcs.network.NetworkPayloadsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.network.NetworkPayloadsTest#payload codec rejects trailing frame bytes",
                 "test_name": "payload codec rejects trailing frame bytes"
@@ -9969,21 +9969,21 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                "duration_seconds": 0.007,
+                "duration_seconds": 0.006,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.DurableJsonStoreTest#readsLegacyRawRecordAndMigratesOnNextWrite()",
                 "test_name": "readsLegacyRawRecordAndMigratesOnNextWrite()"
               },
               {
                 "class_name": "com.storynpcs.persistence.DurableJsonStoreTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.012,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
                 "test_name": "failedFinalRenameRecoversPreviousGenerationFromBackup()"
               },
               {
                 "class_name": "com.storynpcs.persistence.ProgressionRepositoryTest",
-                "duration_seconds": 0.01,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()",
                 "test_name": "shouldAtomicallyPersistAndReloadProgression()"
@@ -10070,7 +10070,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#pushMovesVictimAway()",
                 "test_name": "pushMovesVictimAway()"
@@ -10157,7 +10157,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.ai.combat.NpcAbilityControllerTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.ai.combat.NpcAbilityControllerTest#teleportUpdateApproachesTarget()",
                 "test_name": "teleportUpdateApproachesTarget()"
@@ -10193,7 +10193,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.support.NbtBookServiceTest",
-                "duration_seconds": 0.008,
+                "duration_seconds": 0.01,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.support.NbtBookServiceTest#buildViewFlattensNestedTagsToDottedPaths()",
                 "test_name": "buildViewFlattensNestedTagsToDottedPaths()"
@@ -10280,14 +10280,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#spongeSchemParsesDimsPaletteAndVarintIndices()",
                 "test_name": "spongeSchemParsesDimsPaletteAndVarintIndices()"
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.SchematicReaderTest",
-                "duration_seconds": 0.0,
+                "duration_seconds": 0.001,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.SchematicReaderTest#legacySchematicTranslatesNumericIdsThroughBlockTable()",
                 "test_name": "legacySchematicTranslatesNumericIdsThroughBlockTable()"
@@ -10308,14 +10308,14 @@
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                "duration_seconds": 0.149,
+                "duration_seconds": 0.169,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledTargetSchematicsLoadAndBuild()",
                 "test_name": "bundledTargetSchematicsLoadAndBuild()"
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BundledSchematicTest",
-                "duration_seconds": 0.006,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BundledSchematicTest#bundledDirectoryMatchesExpectedCatalog()",
                 "test_name": "bundledDirectoryMatchesExpectedCatalog()"
@@ -10351,7 +10351,7 @@
               },
               {
                 "class_name": "com.storynpcs.domain.schematic.BuildPlanTest",
-                "duration_seconds": 0.001,
+                "duration_seconds": 0.0,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.domain.schematic.BuildPlanTest#airAndStructureVoidAreNoOps()",
                 "test_name": "airAndStructureVoidAreNoOps()"
@@ -10380,7 +10380,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.004,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#questLogHidesNotStartedAndSurfacesPendingCompletions()",
                 "test_name": "questLogHidesNotStartedAndSurfacesPendingCompletions()"
@@ -10416,14 +10416,14 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#mailViewPresentsNewestFirstWithAllFields()",
                 "test_name": "mailViewPresentsNewestFirstWithAllFields()"
               },
               {
                 "class_name": "com.storynpcs.service.StoryNpcsApplicationServiceTest",
-                "duration_seconds": 0.011,
+                "duration_seconds": 0.009,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.StoryNpcsApplicationServiceTest#sendMailDeliversToRecipientMailboxUnderSenderAuth()",
                 "test_name": "sendMailDeliversToRecipientMailboxUnderSenderAuth()"
@@ -10459,7 +10459,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.005,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#factionPanelClassifiesStandingFromAuthoredThresholds()",
                 "test_name": "factionPanelClassifiesStandingFromAuthoredThresholds()"
@@ -10488,7 +10488,7 @@
             "tests": [
               {
                 "class_name": "com.storynpcs.service.PlayerPanelViewsTest",
-                "duration_seconds": 0.002,
+                "duration_seconds": 0.003,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.service.PlayerPanelViewsTest#transportViewFlagsUnlockedRows()",
                 "test_name": "transportViewFlagsUnlockedRows()"
@@ -10524,7 +10524,7 @@
               },
               {
                 "class_name": "com.storynpcs.network.PlayerPanelPayloadsTest",
-                "duration_seconds": 0.003,
+                "duration_seconds": 0.002,
                 "outcome": "PASSED",
                 "selector": "com.storynpcs.network.PlayerPanelPayloadsTest#mail payload bounds reject oversized content",
                 "test_name": "mail payload bounds reject oversized content"

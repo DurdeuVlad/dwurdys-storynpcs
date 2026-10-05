@@ -1,6 +1,6 @@
 # P4 — Performance foundations progress (P4-1, P4-2, P4-3)
 
-Status: `IN-PROGRESS` for all three issues (local implementation; `SimulationScheduler` is driven from the `StoryNpcs` server tick and goals now consume tier budgets — squad/navigation-request consumption still open).
+Status: `DONE-LOCAL` for P4-1 (#62, PR #166), P4-2 (#63, verified no-delta close), P4-3 (#64, contract + headless artifacts + hardened release gate). Live-runtime benchmark evidence remains issue #126's explicit scope — the artifacts label `HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED` honestly.
 
 ## P4-1 — Archetypes, simulation tiers, LOD
 
