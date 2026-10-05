@@ -211,6 +211,20 @@ public final class StoryNpcsCommands {
                                 .then(Commands.literal("name")
                                         .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                                 .suggests(NPC_IDS)
+                                                .then(Commands.literal("random")
+                                                        .then(Commands.argument("culture", ResourceLocationArgument.id())
+                                                                .suggests((ctx, builder) -> {
+                                                                    var mod = mod(ctx);
+                                                                    var server = ctx.getSource().getServer();
+                                                                    var svc = mod != null && server != null
+                                                                            ? mod.getNameGenerationService(server) : null;
+                                                                    return net.minecraft.commands.SharedSuggestionProvider.suggest(
+                                                                            svc != null ? svc.cultures().stream()
+                                                                                    .map(com.storynpcs.domain.common.NamespacedId::asString)
+                                                                                    .toList() : java.util.List.of(),
+                                                                            builder);
+                                                                })
+                                                                .executes(StoryNpcsCommands::randomizeNpcName)))
                                                 .then(Commands.argument("value", StringArgumentType.greedyString())
                                                         .executes(StoryNpcsCommands::setNpcName))))
                                 .then(Commands.literal("title")
@@ -1237,6 +1251,51 @@ public final class StoryNpcsCommands {
         }
         refreshLoadedEntities(ctx.getSource(), npcId);
         ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Set name of '" + npcId + "' to '" + value + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    /**
+     * {@code npc set name <id> random <culture>} — server-side seeded Markov
+     * generation applied through the canonical mutation path (#123).
+     */
+    private static int randomizeNpcName(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        var server = ctx.getSource().getServer();
+        var service = mod != null && server != null
+                ? mod.getNameGenerationService(server) : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Name generation is unavailable on this server."));
+            return 0;
+        }
+        var cultureId = NamespacedId.of(ctx.getArgument("culture", net.minecraft.resources.ResourceLocation.class).toString());
+        if (!service.cultures().contains(cultureId)) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Unknown name culture '" + cultureId
+                    + "' — available: " + service.cultures().stream()
+                            .map(NamespacedId::asString).sorted()
+                            .collect(java.util.stream.Collectors.joining(", "))));
+            return 0;
+        }
+        var npcOpt = mod.getRegistry().getNpc(npcId);
+        if (npcOpt.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        var suggested = service.suggest(cultureId, ctx.getSource().getLevel().getGameTime());
+        if (suggested.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Culture '" + cultureId
+                    + "' produced no name — check its dictionary."));
+            return 0;
+        }
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                def -> def.getDisplay().setName(suggested.get()));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal("[StoryNPCs] Named '" + npcId
+                + "' '" + suggested.get() + "' (culture " + cultureId + ", persisted to YAML)."), true);
         return 1;
     }
 

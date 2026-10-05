@@ -48,6 +48,9 @@ public class StoryNpcs {
     private final Map<MinecraftServer, ActorLifecycleService> serverActorServices = new ConcurrentHashMap<>();
     private final Map<MinecraftServer, ActorStateRepository> serverActorRepositories = new ConcurrentHashMap<>();
     private final Map<MinecraftServer, RuntimeSessionRegistry> serverRuntimeSessions = new ConcurrentHashMap<>();
+
+    private final Map<MinecraftServer, com.storynpcs.service.NameGenerationService>
+            serverNameServices = new ConcurrentHashMap<>();
     private final Map<MinecraftServer, FollowerGroup> serverFollowerGroups = new ConcurrentHashMap<>();
     /** World-scoped quest-mail store; installed by the world lifecycle on open. */
     private volatile com.storynpcs.domain.quest.QuestMailStore questMailStore;
@@ -416,6 +419,20 @@ public class StoryNpcs {
         }
         serverActorServices.remove(server);
         serverActorRepositories.remove(server);
+        serverNameServices.remove(server);
+    }
+
+    /**
+     * Name-dictionary catalog + seeded generator (#123), loaded per server
+     * from bundled resources plus creator overrides — never a static.
+     */
+    public com.storynpcs.service.NameGenerationService getNameGenerationService(
+            MinecraftServer server) {
+        if (server == null) {
+            return com.storynpcs.service.NameGenerationService.load(null);
+        }
+        return serverNameServices.computeIfAbsent(server,
+                com.storynpcs.service.NameGenerationService::load);
     }
 
     public com.storynpcs.service.SchematicBuildService getSchematicBuildService() {

@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:spanish"
+culture: "Spanish"
+order: 2
+names:
+  - Alejandro
+  - Baltasar
+  - Cristobal
+  - Domingo
+  - Esteban
+  - Fermin
+  - Gonzalo
+  - Ignacio
+  - Joaquin
+  - Marcelo
+  - Rodrigo
+  - Sancho
+  - Vicente
+  - Alejandra
+  - Beatriz
+  - Catalina
+  - Dolores
+  - Estrella
+  - Fernanda
+  - Isadora
+  - Lucinda
+  - Paloma
+  - Soledad
+  - Yolanda

@@ -692,6 +692,210 @@
       "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
       "storynpcs_ref": "op:config.mutate path:src/main/java/com/storynpcs/creator",
       "rationale": "Config mutation op + creator tools package exist."
+    },
+    {
+      "inventory_id": "target.target_classes.0001",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator",
+      "rationale": "Clean-room: the target's 2D transition-map utility is internal to our chain builder."
+    },
+    {
+      "inventory_id": "target.target_classes.0002",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.service.NameGenerationService class:com.storynpcs.StoryNpcs",
+      "rationale": "Catalog/service entry point replaces the target's library bootstrap Main."
+    },
+    {
+      "inventory_id": "target.target_classes.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.NameDictionary",
+      "rationale": "Versioned YAML dictionary model replaces the target's txt-file dictionary."
+    },
+    {
+      "inventory_id": "target.target_classes.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.NameDictionaryLoader",
+      "rationale": "Strict YAML loader replaces the target's SPA txt loader."
+    },
+    {
+      "inventory_id": "target.target_classes.0008",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Seeded deterministic Markov walk over a char-level chain; no global RNG state."
+    },
+    {
+      "inventory_id": "target.target_classes.0005",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/ancient_greek.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room ancient_greek dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0006",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/aztec.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room aztec dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/customnpcs_classic.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room customnpcs_classic dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0009",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/japanese.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room japanese dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0010",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/old_norse.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room old_norse dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0011",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/roman.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room roman dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0012",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/saami.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room saami dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0013",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/slavic.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room slavic dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0014",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/spanish.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room spanish dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.target_classes.0015",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "class:com.storynpcs.domain.namegen.MarkovNameGenerator path:src/main/resources/data/storynpcs/namegen/welsh.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Clean-room welsh dictionary + shared seeded generator; no target code or dictionary text."
+    },
+    {
+      "inventory_id": "target.data.0003",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/ancient_greek.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room ancient_greek YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0004",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/ancient_greek.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room ancient_greek YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0005",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/aztec.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room aztec YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0006",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/customnpcs_classic.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room customnpcs_classic YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0007",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/japanese.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room japanese YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0008",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/japanese.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room japanese YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0009",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/japanese.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room japanese YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0010",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/old_norse.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room old_norse YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0011",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/roman.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room roman YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0012",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/roman.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room roman YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0013",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/roman.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room roman YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0014",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/saami.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room saami YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0015",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/slavic.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room slavic YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0016",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/slavic.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room slavic YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0017",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/spanish.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room spanish YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0018",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/spanish.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room spanish YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0019",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/spanish.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room spanish YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0020",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/welsh.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room welsh YAML dictionary (target text not reused; CC BY-NC)."
+    },
+    {
+      "inventory_id": "target.data.0021",
+      "mapping_state": "MAPPED_STORYNPCS_OBSERVED",
+      "storynpcs_ref": "path:src/main/resources/data/storynpcs/namegen/welsh.yaml test:com.storynpcs.service.NameGenerationServiceTest",
+      "rationale": "Target's gendered txt list is covered by the clean-room welsh YAML dictionary (target text not reused; CC BY-NC)."
     }
   ],
   "deviations": [
@@ -707,7 +911,7 @@
     },
     {
       "deviation_id": "command-grammar",
-      "rationale": "The /noppes grammar predates Brigadier conventions; /storynpcs uses typed literals, namespaced IDs, and deterministic suggestions \u2014 see P9-PROGRESS.md for the leaf mapping.",
+      "rationale": "The /noppes grammar predates Brigadier conventions; /storynpcs uses typed literals, namespaced IDs, and deterministic suggestions — see P9-PROGRESS.md for the leaf mapping.",
       "migration_impact": "Command scripts written for /noppes require translation; every leaf maps to a /storynpcs equivalent or an explicit gap in the parity register."
     },
     {

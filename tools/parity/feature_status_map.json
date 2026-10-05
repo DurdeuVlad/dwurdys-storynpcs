@@ -1215,17 +1215,37 @@
   {
    "id": "markov-names",
    "feature": "Markov name generation",
-   "status": "planned",
-   "issue": "#123 (needs-input)",
-   "summary": "None â€” engine choice undecided",
+   "status": "implemented",
+   "issue": "#123",
+   "summary": "Clean-room seeded Markov generator + 14 versioned YAML culture dictionaries covering every target culture (aztec, saami, customnpcs_classic, roman, ancient_greek, japanese, old_norse, slavic, spanish, welsh) plus extras. Creator overrides at config/storynpcs/namegen; /storynpcs npc set name <id> random <culture>; editor 🎲 button via save-payload flag; canonical replaceNpc mutation.",
    "evidence": {
-    "files": [],
-    "wired": [],
+    "files": [
+     "src/main/java/com/storynpcs/domain/namegen/NameDictionary.java",
+     "src/main/java/com/storynpcs/domain/namegen/MarkovNameGenerator.java",
+     "src/main/java/com/storynpcs/domain/namegen/NameDictionaryLoader.java",
+     "src/main/java/com/storynpcs/service/NameGenerationService.java",
+     "src/main/resources/data/storynpcs/namegen/roman.yaml"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"random\"\\)"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "randomizeNameCulture"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/StoryNpcs.java",
+      "pattern": "getNameGenerationService"
+     }
+    ],
     "registered": [],
-    "tests": [],
-    "absent": [
-     "[Mm]arkov"
-    ]
+    "tests": [
+     "src/test/java/com/storynpcs/service/NameGenerationServiceTest.java",
+     "src/test/java/com/storynpcs/network/NetworkPayloadsTest.java"
+    ],
+    "absent": []
    }
   },
   {

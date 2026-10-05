@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:customnpcs_classic"
+culture: "CustomNPCs Classic"
+order: 2
+names:
+  - Aleron
+  - Brannigan
+  - Cassiel
+  - Dorian
+  - Eldrin
+  - Ferris
+  - Garrick
+  - Halvar
+  - Idris
+  - Jareth
+  - Kaelen
+  - Lorcan
+  - Merrick
+  - Althea
+  - Brynn
+  - Cordelia
+  - Danika
+  - Elspeth
+  - Faylen
+  - Gwendolyn
+  - Illyria
+  - Jessamine
+  - Katriona
+  - Marisol

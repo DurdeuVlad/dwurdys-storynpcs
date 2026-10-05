@@ -79,10 +79,25 @@ public class NpcEditorScreen extends Screen {
         int colWidth = Math.min(178, panelWidth - 222);
 
         // Left Column: Identity & Appearance
-        nameField = new EditBox(this.font, leftX, startY + 34, colWidth, 16, Component.literal("Name"));
+        nameField = new EditBox(this.font, leftX, startY + 34, colWidth - 56, 16, Component.literal("Name"));
         nameField.setMaxLength(64);
         nameField.setValue(definition.getDisplay() != null ? definition.getDisplay().getName() : "StoryNPC");
         this.addRenderableWidget(nameField);
+
+        // #123: server-authoritative name randomize — the server generates
+        // from its loaded dictionaries ("*" = any culture) and applies it
+        // through the canonical save; the field refreshes on reopen and the
+        // generated name echoes in the save-result message.
+        this.addRenderableWidget(Button.builder(Component.literal("🎲"), b -> {
+            saveCurrentState();
+            statusMessage = "Randomizing name...";
+            statusColor = 0xFFEAB308;
+            String submittedJson = NpcDefinitionSerde.toJson(definition);
+            UUID requestId = saveRequestId.forPayload(submittedJson);
+            PacketDistributor.sendToServer(new ServerboundNpcSavePayload(
+                    definition.getId().toString(), submittedJson,
+                    expectedRevision, requestId, "*"));
+        }).bounds(leftX + colWidth - 50, startY + 34, 48, 16).build());
 
         titleField = new EditBox(this.font, leftX, startY + 62, colWidth, 16, Component.literal("Title"));
         titleField.setMaxLength(64);

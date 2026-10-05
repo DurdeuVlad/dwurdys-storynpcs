@@ -770,6 +770,63 @@ public class StoryNpcsNetwork {
             return;
         }
         com.storynpcs.domain.npc.NpcDefinition def = npcOpt.get();
+        // #123: a requested name randomization is generated server-side —
+        // clients never supply the generated text. Unknown cultures reject
+        // the whole save rather than silently saving without a name.
+        String generatedName = null;
+        if (!payload.randomizeNameCulture().isBlank()) {
+            var nameService = StoryNpcsAccess.mod(player)
+                    .getNameGenerationService(player.getServer());
+            long seed = player.level().getGameTime();
+            // "*" lets the server pick a culture — deterministic under the
+            // same seed and catalog.
+            if ("*".equals(payload.randomizeNameCulture().trim())) {
+                var cultures = nameService != null
+                        ? nameService.cultures().stream().sorted(
+                                java.util.Comparator.comparing(
+                                        com.storynpcs.domain.common.NamespacedId::asString)).toList()
+                        : java.util.List.<com.storynpcs.domain.common.NamespacedId>of();
+                if (cultures.isEmpty()) {
+                    sendNpcSaveResult(player, false,
+                            "No name dictionaries loaded — save rejected.",
+                            payload.requestId(), "INVALID_PAYLOAD", payload.expectedRevision());
+                    return;
+                }
+                var picked = cultures.get((int) Math.floorMod(seed, cultures.size()));
+                var suggested = nameService.suggest(picked, seed);
+                if (suggested.isEmpty()) {
+                    sendNpcSaveResult(player, false,
+                            "Name generation produced no name — save rejected.",
+                            payload.requestId(), "INVALID_PAYLOAD", payload.expectedRevision());
+                    return;
+                }
+                generatedName = suggested.get();
+            } else {
+                com.storynpcs.domain.common.NamespacedId cultureId;
+                try {
+                    cultureId = com.storynpcs.domain.common.NamespacedId.of(payload.randomizeNameCulture());
+                } catch (Exception e) {
+                    sendNpcSaveResult(player, false,
+                            "Malformed name culture '" + payload.randomizeNameCulture() + "' — save rejected.",
+                            payload.requestId(), "INVALID_PAYLOAD", payload.expectedRevision());
+                    return;
+                }
+                var suggested = nameService != null
+                        ? nameService.suggest(cultureId, seed)
+                        : java.util.Optional.<String>empty();
+                if (suggested.isEmpty()) {
+                    sendNpcSaveResult(player, false,
+                            "Unknown or empty name culture '" + payload.randomizeNameCulture() + "' — save rejected.",
+                            payload.requestId(), "INVALID_PAYLOAD", payload.expectedRevision());
+                    return;
+                }
+                generatedName = suggested.get();
+            }
+            if (def.getDisplay() == null) {
+                def.setDisplay(new com.storynpcs.domain.npc.NpcDisplay());
+            }
+            def.getDisplay().setName(generatedName);
+        }
         var mutation = service.replaceNpc(new MutationRequest(
                 "npc.replace", "player:" + player.getUUID(), "npc.edit", id,
                 payload.expectedRevision(), payload.requestId(), 2), def);
@@ -792,7 +849,8 @@ public class StoryNpcsNetwork {
             }
             String message = mutation.duplicate()
                     ? "NPC '" + id + "' was already saved; the duplicate request was acknowledged without refreshing entities."
-                    : "NPC '" + id + "' saved to disk and updated in world.";
+                    : "NPC '" + id + "' saved to disk and updated in world."
+                            + (generatedName != null ? " Random name applied: '" + generatedName + "'." : "");
             sendNpcSaveResult(player, true, message,
                     payload.requestId(), mutation.duplicate() ? "DUPLICATE" : "APPLIED", mutation.revision());
         }

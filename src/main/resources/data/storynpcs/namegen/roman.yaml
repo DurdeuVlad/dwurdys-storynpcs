@@ -1,0 +1,31 @@
+schemaVersion: 1
+id: "storynpcs:roman"
+culture: "Roman"
+order: 2
+names:
+  - Aelius
+  - Brutus
+  - Cassius
+  - Decimus
+  - Fabius
+  - Gallus
+  - Horatius
+  - Julius
+  - Lucius
+  - Marcus
+  - Octavius
+  - Quintus
+  - Rufus
+  - Severus
+  - Tiberius
+  - Valerius
+  - Aurelia
+  - Claudia
+  - Cornelia
+  - Flavia
+  - Julia
+  - Livia
+  - Octavia
+  - Portia
+  - Sabina
+  - Tullia

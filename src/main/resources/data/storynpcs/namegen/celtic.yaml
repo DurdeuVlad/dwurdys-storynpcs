@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:celtic"
+culture: "Celtic"
+order: 2
+names:
+  - Artur
+  - Bran
+  - Conall
+  - Cormac
+  - Diarmuid
+  - Eoghan
+  - Fintan
+  - Lugh
+  - Niall
+  - Ossian
+  - Padraig
+  - Ronan
+  - Tadhg
+  - Aisling
+  - Boudica
+  - Brigid
+  - Deirdre
+  - Emer
+  - Fionnuala
+  - Maeve
+  - Nessa
+  - Orlaith
+  - Saoirse
+  - Eithne

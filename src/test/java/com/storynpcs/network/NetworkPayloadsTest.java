@@ -224,6 +224,25 @@ class NetworkPayloadsTest {
     }
 
     @Test
+    @DisplayName("ServerboundNpcSavePayload randomize-name field survives codec roundtrip")
+    void testServerboundNpcSavePayloadRandomizeField() {
+        UUID requestId = UUID.randomUUID();
+        ServerboundNpcSavePayload payload = new ServerboundNpcSavePayload(
+                "storynpcs:guard_captain", "{}", 1L, requestId, "storynpcs:old_norse");
+
+        ByteBuf buf = Unpooled.buffer();
+        ServerboundNpcSavePayload.STREAM_CODEC.encode(buf, payload);
+        ServerboundNpcSavePayload decoded = ServerboundNpcSavePayload.STREAM_CODEC.decode(buf);
+
+        assertEquals(payload, decoded);
+        assertEquals("storynpcs:old_norse", decoded.randomizeNameCulture());
+        // The 4-arg convenience form carries no randomization request.
+        ServerboundNpcSavePayload plain = new ServerboundNpcSavePayload(
+                "storynpcs:guard_captain", "{}", 1L, requestId);
+        assertEquals("", plain.randomizeNameCulture());
+    }
+
+    @Test
     @DisplayName("ClientboundNpcSaveResultPayload encode and decode matches")
     void testClientboundNpcSaveResultPayloadCodec() {
         ClientboundNpcSaveResultPayload payload =

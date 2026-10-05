@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: "storynpcs:old_norse"
+culture: "Old Norse"
+order: 2
+names:
+  - Asgeir
+  - Bjorn
+  - Eirik
+  - Floki
+  - Gunnar
+  - Halfdan
+  - Ivar
+  - Kettil
+  - Leif
+  - Orvar
+  - Sigurd
+  - Skarde
+  - Trygve
+  - Ulf
+  - Astrid
+  - Freydis
+  - Gudrun
+  - Helga
+  - Ingrid
+  - Ranveig
+  - Signe
+  - Sigrun
+  - Thyra
+  - Yrsa
