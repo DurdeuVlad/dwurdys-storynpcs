@@ -119,6 +119,7 @@ final class LegacyBlockTable {
         id(48, "minecraft:mossy_cobblestone");
         id(49, "minecraft:obsidian");
         id(50, "minecraft:torch"); // data 1-4 decode to wall torches below
+        id(51, "minecraft:fire"); // faithful where it can survive; first update pops it where not
         id(52, "minecraft:spawner");
         id(54, "minecraft:chest");
         id(56, "minecraft:diamond_ore");
@@ -191,6 +192,7 @@ final class LegacyBlockTable {
         id(131, "minecraft:tripwire_hook");
         id(133, "minecraft:emerald_block");
         id(137, "minecraft:command_block");
+        id(138, "minecraft:beacon");
         id(139, "minecraft:cobblestone_wall");
         idData(139, 1, "minecraft:mossy_cobblestone_wall");
         id(140, "minecraft:flower_pot");
@@ -287,6 +289,7 @@ final class LegacyBlockTable {
 
         // Saplings + more terrain ids.
         woodFamily(6, "minecraft:%s_sapling");
+        id(34, "minecraft:air"); // piston head — extension detail never persisted
         id(36, "minecraft:air"); // moving piston extension
         id(55, "minecraft:redstone_wire");
         id(115, "minecraft:nether_wart");

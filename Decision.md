@@ -40,11 +40,12 @@
   - Safe, backward-compatible API boundary.
 
 ## ADR-006: File-First Data — No SQL Store; Categories and Bundled Schematic Decisions
-- **Context**: CustomNPCs ships a `DatabaseController` SQL-backed player-data store, organizes dialogs/quests into named folders, and bundles 27 `.schematic` structures for the Builder job. StoryNPCs needed owner decisions on each.
+- **Context**: CustomNPCs ships a `DatabaseController` SQL-backed player-data store, organizes dialogs/quests into named folders, and bundles 28 `.schematic` structures for the Builder job. StoryNPCs needed owner decisions on each.
 - **Decision** (owner: Vlad, 2026-10-05):
   1. **No SQL store — intentional deviation.** Everything admins may edit must be human-editable YAML/TOML/files. Only concurrency-sensitive runtime state (player progression, trade/bank, operation journals, mail) uses managed durable stores, and admins must not hand-edit those files.
   2. **Categories — parity.** Dialogue and quest schemas gain a `category` (folder) field; editors group by it; the P11-1 importer maps target folder trees onto it.
-  3. **Bundled schematics — port all 27** target structures as mod assets consumed by the Builder job and schema commands.
+  3. **Bundled schematics — port all 28** target structures as mod assets consumed by the Builder job and schema commands.
 - **Consequences**:
   - `persistence_stores.database` / `noppes.npcs.db` is a recorded deviation; CustomNPCs SQL users migrate via export-to-files through the importer.
   - G-A1/G-A2 decision issues not needed; scope folded into #65, #68, #86 and gap issues G-B3.
+  - Schematic redistribution terms resolved 2026-10-05: the pinned target jar declares `license="CC BY-NC"` (`META-INF/neoforge.mods.toml`), so the 28 `.schematic` files ship in `data/storynpcs/schematics/` for non-commercial use with the bundled `ATTRIBUTION.txt` crediting Noppes. Commercial redistribution is not permitted under CC BY-NC. The jar-level `license` field declares the split (`mod_license="MIT (code); bundled schematics CC BY-NC"`) so the shipped artifact does not claim MIT over NC-restricted assets.

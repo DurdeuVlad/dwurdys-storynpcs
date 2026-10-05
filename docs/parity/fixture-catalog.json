@@ -1110,7 +1110,9 @@
       "com.storynpcs.domain.schematic.SchematicReaderTest#spongeSchemParsesDimsPaletteAndVarintIndices()",
       "com.storynpcs.domain.schematic.SchematicReaderTest#legacySchematicTranslatesNumericIdsThroughBlockTable()",
       "com.storynpcs.domain.schematic.SchematicReaderTest#malformedContainersFailWithSourceAndReason()",
-      "com.storynpcs.domain.schematic.SchematicStoreTest#creatorFilesLoadAndList()"
+      "com.storynpcs.domain.schematic.SchematicStoreTest#creatorFilesLoadAndList()",
+      "com.storynpcs.domain.schematic.BundledSchematicTest#bundledTargetSchematicsLoadAndBuild()",
+      "com.storynpcs.domain.schematic.BundledSchematicTest#bundledDirectoryMatchesExpectedCatalog()"
     ],
     "P8-2.schematic-build": [
       "com.storynpcs.domain.schematic.BuildPlanTest#quarterTurnRotatesWithinFootprint()",
@@ -1277,8 +1279,8 @@
       "uncovered_scope": "No live spawn/reload fixture for the display puppet or its renderer."
     },
     "P8-2.schematic-reader": {
-      "observed_scope": "SchematicReaderTest covers Sponge v2 varint decoding, legacy numeric-id translation with orientation bits, malformed/truncated/oversized rejection, and block-entity payloads; SchematicStoreTest covers name validation and file loading.",
-      "uncovered_scope": "No bundled-asset fixture (27 target schematics pending source assets); no live chunk placement fixture."
+      "observed_scope": "SchematicReaderTest covers Sponge v2 varint decoding, legacy numeric-id translation with orientation bits, malformed/truncated/oversized rejection, and block-entity payloads; SchematicStoreTest covers name validation and file loading; BundledSchematicTest loads every shipped data/storynpcs/schematics asset (28 target-catalog files) and builds each at all four rotations.",
+      "uncovered_scope": "No live ServerLevel chunk placement fixture."
     },
     "P8-2.schematic-build": {
       "observed_scope": "BuildPlanTest covers rotation across all four turns, air/void no-ops, and block-entity offset rotation.",

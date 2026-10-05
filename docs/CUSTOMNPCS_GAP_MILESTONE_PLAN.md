@@ -1,8 +1,8 @@
 # CustomNPCs parity — gap milestone plan
 
-Status: `draft` — local plan. No GitHub issues have been created or modified; that requires explicit authorization.
-Compiled: 2026-10-05.
-Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part 4 + verified `target-surface-manifest.json`.
+Status: `active` — MG-A–MG-D issues filed on GitHub (#147–#151) and implemented on the open PR stack #152–#157. Post-stack milestone set MG-E–MG-L added 2026-10-05 (same-day refresh).
+Compiled: 2026-10-05. Refreshed: 2026-10-05 (post-implementation stack).
+Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part 4 + verified `target-surface-manifest.json` + `tools/parity/check_feature_status.py` floor evidence.
 
 ## Contract
 
@@ -17,6 +17,7 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - `NpcJobRuntime` dispatches 9 of 11 `JobType`s (BUILDER, FOLLOWER fail validation). Zero block registrations exist. No script interpreter dependency exists.
 - `NpcDefinition` already binds: display, stats, ai, dialogueId, factionId, marks, inventory, rules, trader, banker, job, companion, bard, healer, postman, transporter.
 - Open `needs-input` issues already exist: #122 (resistance contract), #123 (markov names), #126 (live benchmark evidence).
+- **Refresh facts (2026-10-05):** G-B1–G-B4 + G-D1 are implemented on the open PR stack #152–#157 (unmerged). Feature-status checker floor on the stack tip: `missing=8, declared=10, wired=13, tested=32` across 63 rows. Every missing/declared/wired row has an open owning issue except `integrations` — #87 closed COMPLETED as a documented no-code deviation, so its map claim was corrected `planned → deviation` in this refresh. Genuinely unowned residual: schematic lifecycle/placement hardening → new issue G-E1 below.
 
 ---
 
@@ -65,6 +66,7 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - **Non-goals:** new ability types beyond the six; script-driven abilities (P9-2 territory).
 - **Dependencies:** #59 P3-2, #60 P3-3, #51 P1-1.
 - **Verification:** per-ability behavior fixture, bounded-parameter rejection, reload round-trip, unload cleanup.
+- **Status:** implemented in open PR [#154](https://github.com/DurdeuVlad/dwurdys-storynpcs/pull/154) (unmerged) — all six abilities authored + runtime-wired; resistance-scaled i-frame comparison and additive bonus-damage via `invulnerableTime` reset verified in review.
 
 ### Issue G-B2 — Implement NBT book and support entities (chair mount, fake living)
 
@@ -76,6 +78,7 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - **Non-goals:** generic world-edit NBT access; soulstone/teleporter/remover (owned by #78 P8-2); scripted item execution (P9-2).
 - **Dependencies:** #61 P3-4, #78 P8-2, #54 P1-4.
 - **Verification:** permission matrix, session isolation, unload cleanup, allowlist rejection fixtures.
+- **Status:** implemented in open PR [#155](https://github.com/DurdeuVlad/dwurdys-storynpcs/pull/155) (unmerged) — 5-key allowlist via typed setters (deviation from arbitrary-write parity, per the recorded context), perm-2 + session + range + throttle gates; chair/fake-living entities registered and cleaned up.
 
 ### Issue G-B3 — Ship the bundled schematic content pipeline
 
@@ -87,6 +90,7 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - **Non-goals:** world-edit-class tooling; runtime schematic authoring UI.
 - **Dependencies:** #73 P6-4, #85 P9-3.
 - **Verification:** per-structure load/build fixture, malformed/oversize rejection, bounded build fixture, command parity entries.
+- **Status:** delivered — the pinned jar actually ships **28** `.schematic` files (the "27" figures here and in the filed issue were a miscount); all 28 are bundled at `data/storynpcs/schematics/` and covered by `BundledSchematicTest` (per-structure load + 4-rotation build). Redistribution terms resolved: the jar declares `license="CC BY-NC"` — assets ship with `ATTRIBUTION.txt` crediting Noppes (non-commercial use only). Remaining honest gap: no live `ServerLevel` chunk-placement fixture.
 
 ### Issue G-B4 — Implement player-facing screen suite
 
@@ -98,6 +102,7 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - **Non-goals:** creator/authoring screens (P10-1); scripted-GUI *authoring* (P8-6 — this issue only renders the runtime side).
 - **Dependencies:** #69 P5-5, #70 P6-1, #71 P6-2, #72 P6-3, #74 P6-5, #75/#76, #79 (mailbox block), #80 (carpentry), #82 (custom GUI runtime).
 - **Verification:** UI automation per screen, stale-revision rejection, permission denial, minimum-resolution (854×480, GUI scale 2) fixtures.
+- **Status:** wave 1 implemented in open PR [#157](https://github.com/DurdeuVlad/dwurdys-storynpcs/pull/157) (unmerged) — quest log, faction standing, mail list/read/write, transport picker; server-built views + session-token commits + durable mail/transport journals. Wave-2 screens (follower hire, companion inv/stats/talents, achievement view, carpentry bench, custom GUI renderer) remain open under #150 — sequenced in MG-J below.
 
 ### G-B5 — Cosmetic parts / emote animations scope: resolved without a new issue
 
@@ -106,6 +111,8 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 ---
 
 ## Milestone MG-C — Declared-to-wired closure
+
+> **Refresh note (2026-10-05):** MG-C's ordering is absorbed into milestones MG-G–MG-L below; its per-issue "what wired means" column remains the exit-evidence definition for those milestones. Keep both — this table is still the sharpest wiring contract.
 
 **Outcome:** zero 🧩 "declared" rows remain in the comparison doc — every domain package is consumed by an entity tick, screen, packet, command, or service path.
 **Scope:** execution ordering of **existing** issues only — no new issues. This milestone exists because the recurring failure mode is "domain types land, runtime wiring and acceptance stay open".
@@ -145,6 +152,101 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - **Scope:** tooling only. Type: tooling; priority P2; milestone: M11; unassigned.
 - **Non-goals:** replacing the engineering register/traceability docs.
 - **Dependencies:** existing `tools/parity/` harness. **Verification:** regeneration is byte-stable; a planted drift is caught.
+- **Status:** implemented in open PR [#153](https://github.com/DurdeuVlad/dwurdys-storynpcs/pull/153) (unmerged) — `check_feature_status.py` derives per-row floor (missing/declared/wired/tested) from file/wired/registered/test signals, regenerates the doc's marked section (`--write`), enforces 2-hop declared-isolation, and runs in CI.
+
+---
+
+# Refresh — 2026-10-05: post-stack milestone set
+
+MG-A–MG-D covered issue *coverage*. With the stack delivered, the remaining gap is pure **execution**: 6 unowned missing rows (all inside existing P-issue scope), 10 declared rows awaiting wiring, 13 wired rows awaiting test evidence, ~40 partial rows inside open P-issue scope, 4 open decisions, and 1 uncovered residual (G-E1).
+
+## Floor snapshot (stack tip, `check_feature_status.py`)
+
+| Floor | Count | Meaning | Rows |
+|---|---|---|---|
+| missing | 8 | no code evidence | entity-variants, cosmetic-parts, emote-animations (#58) · companion-jobs (#74) · creator-blocks (#79/#80) · markov-names (#123, needs-input) · **sql-store**, **integrations** — intentional deviations, not work |
+| declared | 10 | types exist, unconsumed | advanced-surfaces (#81/#86), spawner-blocks (#77), scripted-block-door (#79/#84), mailbox-carpentry (#79/#80), scenes (#81), linked-transform-timer-spawn (#81), recipes-carpentry (#80), custom-gui (#82), overlays-presets (#82), authoring-hub (#88) |
+| wired | 13 | consumed, untested | availability-gates, marks, melee, ranged, resistances-immunities, dialog-categories, quest-deps-team, moving-path-tool, mount-teleport-soulstone, scripting, config-toggles, api-events, public-api |
+| tested | 32 | test evidence present | — |
+
+## Milestone MG-E — Land the delivery stack (gate)
+
+**Outcome:** PRs #152–#157 merged to `main`; issues #147–#151 closed; the milestone baseline moves to merged code.
+**Scope:** process gate — no new implementation issues. Merge order (stack dependency): #152 docs → #153 checker → #154 abilities → #155 NBT book → #156 schematics → #157 screens. Each `chore(stack)` reconcile commit already carries the merged-forward state.
+**Proof:** `gh pr list --state open` shows none of #152–#157; CI green on `main` post-merge; `check_feature_status --check` + `check_truth_gate` pass on `main`.
+**Blocks:** all milestones below — new work should branch from merged `main`, not extend the stack.
+
+## Milestone MG-F — Decision gate (existing `needs-input` issues)
+
+**Outcome:** all four open decision issues carry recorded owner decisions; no implementation issue stays blocked on an unmade decision.
+**Scope:** decisions only — already filed; nothing new to implement.
+
+| Issue | Decision needed | Unblocks |
+|---|---|---|
+| #122 | canonical stats/resistance/immunity contract | #59 P3-2; reconciles open PR #116 vs merged #117 |
+| #123 | markov name-generation parity scope | bundled name content (G-B3 shipped schematics; names still pending) |
+| #125 | scripting engine pin | #84 P9-2 |
+| #126 | live-runtime benchmark evidence source | #64 P4-3 certification |
+
+**Proof:** each issue gets a decision comment + `Decision.md`/register entry; dependent issues' blocked notes removed.
+
+## Milestone MG-G — Core NPC capability (GitHub M3–M4)
+
+**Outcome:** every combat/display/AI/sim row reaches ≥ `wired` floor; the 3 missing rows under #58 land; sim certification evidence is published.
+**Scope:** #58 (display, entity-variants, cosmetic-parts, emote-animations), #59 (stats/melee/ranged/resistances/defeat — gated on #122), #60 (AI/movement/targeting), #61 (inventory/equipment/marks), #62–#64 (sim tiers, path/squad, certification — #64 gated on #126), #118 (resistance overlap — resolve via #122).
+**Proof:** Part-2 combat/display/sim rows at ≥ wired floor; `./gradlew test` green; #64 certification report published; #116 closed or rebased per #122 outcome.
+
+## Milestone MG-H — Social & economy runtime (GitHub M5–M7)
+
+**Outcome:** dialogue/quest/faction/role/job/transport/companion/trade/bank rows reach ≥ `wired` floor; companion-jobs missing row lands.
+**Scope:** #65–#67 (dialogue runtime/UI/editor incl. D-A2 `category` field), #68/#69 (quests: deps, team, repeats, completion), #70 (factions), #71 (service/social roles + postman/mail e2e), #72 (transport), #73 (all 11 JobTypes dispatch — BUILDER/FOLLOWER included), #74 (companion lifecycle + companion-jobs), #75/#76 (trader/banker).
+**Proof:** per-issue acceptance; transport executes real safe teleports incl. cross-dimension; mail write→send→receive e2e; `NpcJobRuntime` dispatches all 11 types.
+
+## Milestone MG-I — World systems & creator tools (GitHub M8)
+
+**Outcome:** zero `declared` floor rows — every declared package is runtime-consumed or carries a recorded deviation; creator blocks exist; schematic residuals closed.
+**Scope:** #77 (clone library + spawner-blocks), #78 (moving-path tool, mount/teleport/soulstone — 2 wired rows awaiting tests), #79 (creator-blocks incl. scripted door + mailbox), #80 (recipes/carpentry), #81 (linked NPCs, scenes, transforms, timers, natural spawn + advanced-surfaces shared with #86), #82 (custom GUI + overlays + presets), **G-E1** (new issue below).
+**Ordering:** #79 block registrations before #84 scripted-door hooks; #80 carpentry before the MG-J bench screen; #81 is the riskiest wiring (scenes/transforms/timers all share it).
+**Proof:** `declared=0` in checker output; per-surface wiring evidence per MG-C's exit-evidence table (absorbed into this milestone set).
+
+## Milestone MG-J — Player surfaces wave 2 (GitHub M12)
+
+**Outcome:** every player-facing target screen has a StoryNPCs screen or a recorded deviation.
+**Scope:** continuation under #150 (still open) — split into per-screen issues only when one independently blocks.
+
+| Wave | Screens | Unblocked by |
+|---|---|---|
+| 1 — delivered, PR #157 | quest log, faction standing, mail read/write, transport picker | — |
+| 2a | follower hire/setup | #71 |
+| 2b | companion inventory/stats/talents | #74 |
+| 2c | achievement / quest-completion view | #69 |
+| 2d | carpentry bench | #80 |
+| 2e | custom GUI runtime renderer | #82 |
+
+**Proof:** per-screen open/data/commit fixtures; stale-revision rejection; 854×480 @ GUI-scale-2 fixtures (per #150 acceptance).
+
+## Milestone MG-K — Extension & admin surfaces (GitHub M9)
+
+**Outcome:** public API, scripting host, command parity, and admin/config surfaces reach ≥ `wired` floor.
+**Scope:** #83 (public API + api-events), #84 (scripting host — gated on #125; scripted-door hooks depend on #79), #85 (command parity vs the target's 70 commands), #86 (admin/remote/player-data/global/config + advanced-surfaces shared with #81).
+**Proof:** API surface compiles with event fixtures; bounded-script execution fixtures on the hook matrix; command parity matrix; permission matrix per P1-4 capability rules.
+
+## Milestone MG-L — Authoring, import & certification (GitHub M10–M11)
+
+**Outcome:** authoring hub consumes the M3–M8 surfaces; AI patch plans apply; creator docs ship; real CustomNPCs exports import; evidence closes; release gate passes.
+**Scope:** #88 (authoring hub — currently `declared`, depends on MG-G–MG-I), #89 (patch plans), #90 (creator docs), #91 (import contract — real export → YAML families), #92 (evidence closure), #93 (release certification), #95 (headless GameTest harness — unblocks G-E1 criterion 1).
+**Proof:** release-gate report green; import round-trip fixture against a real CustomNPCs export; GameTest run in CI.
+
+## New issue — G-E1: Schematic lifecycle hardening + live placement fixture
+
+- **Intent:** close the honest residuals left by #149 — the pipeline is verified against files/domain but not a live world, and two lifecycle details remain open.
+- **Expectation:** (1) a schematic build places blocks in a real `ServerLevel` via the headless GameTest harness (#95) — at minimum one bundled structure builds in-world with correct placed-block count, applied rotation, and unloaded-chunk cells skipped; (2) `SchematicBuildService.stopAll()` is invoked on server stop so active builds cannot hold stale `ServerLevel` references across save reloads; (3) `*.schematic binary` is declared in `.gitattributes` (all 28 assets are gzip so `text=auto` sniffs correctly today — this makes the classification explicit).
+- **Acceptance criteria:** live-level fixture asserts placed-block parity for ≥1 bundled schematic incl. a non-zero rotation; the server-stop path calls `stopAll` (test or registered hook evidence); `.gitattributes` contains `*.schematic binary`; `BundledSchematicTest`'s `file:`-protocol assumption is relaxed or documented as Gradle-only.
+- **Context code cannot infer:** none — all surfaces are internal.
+- **Scope:** `SchematicBuildService`, `StoryNpcs` lifecycle wiring, `.gitattributes`, GameTest/live fixture. Type: hardening; priority P3; milestone M8; unassigned.
+- **Non-goals:** new schematic formats, world-edit tooling, runtime authoring UI.
+- **Dependencies:** #95 for criterion 1; none for criteria 2–3 (can land independently).
+- **Verification:** fixture report shows in-world placement; `./gradlew test` + GameTest green.
 
 ---
 
@@ -152,13 +254,16 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 
 - Each G-issue carries intent, expectation, acceptance criteria, non-code context, scope/non-goals, dependencies, and verification — consumable by `/flux-close-issue`.
 - **Filed on GitHub (2026-10-05):** G-B1 → [#147](https://github.com/DurdeuVlad/dwurdys-storynpcs/issues/147), G-B2 → [#148](https://github.com/DurdeuVlad/dwurdys-storynpcs/issues/148), G-B3 → [#149](https://github.com/DurdeuVlad/dwurdys-storynpcs/issues/149), G-B4 → [#150](https://github.com/DurdeuVlad/dwurdys-storynpcs/issues/150) (new milestone `CustomNPCs parity M12: Player-facing surfaces`, #21), G-D1 → [#151](https://github.com/DurdeuVlad/dwurdys-storynpcs/issues/151). Scope/decision comments posted on #58, #65, #68, #86.
-- **Resolved without new issues:** D-A1 (SQL → deviation, ADR-006), D-A2 (categories → parity, folded into #65/#68), G-B5 (parts/emotes → #58 scope amendment).
-- **Still needs owner input:** existing #122/#123/#125/#126.
+- **Filed on GitHub (2026-10-05, refresh):** G-E1 → [#158](https://github.com/DurdeuVlad/dwurdys-storynpcs/issues/158) (milestone M8).
+- **Resolved without new issues:** D-A1 (SQL → deviation, ADR-006), D-A2 (categories → parity, folded into #65/#68), G-B5 (parts/emotes → #58 scope amendment). Refresh: `integrations` map claim corrected to `deviation` (#87 closeout is the contract record); wave-2 player screens stay under open #150 per MG-J.
+- **Still needs owner input:** existing #122/#123/#125/#126 (MG-F).
 - **PR contract:** every PR for these issues must repeat intent, expectation, acceptance criteria, non-code context, scope/non-goals, affected areas/ownership, dependencies, and verification evidence — `Not applicable`/`Unknown—blocked` where honest. A link to the issue alone does not satisfy review.
-- **Milestone placement:** G-B1 → M3; G-B2, G-B3 → M8; G-B4 → new milestone `CustomNPCs parity M12: Player-facing surfaces`; G-D1 → M11. MG-C is an ordering overlay on existing issues.
+- **Milestone placement:** G-B1 → M3; G-B2, G-B3 → M8; G-B4 → new milestone `CustomNPCs parity M12: Player-facing surfaces`; G-D1 → M11; G-E1 → M8. MG-C/MG-E–MG-L are ordering overlays on existing issues.
 
 ## Residual risks
 
-- G-B4 is large; expect to split per screen during implementation rather than up-front.
+- G-B4 is large; expect to split per screen during implementation rather than up-front. Wave-2 screens are each backend-blocked (MG-J table) — a screen that blocks independently should fork into its own issue at that point, not before.
 - Abilities (G-B1) and the rule engine overlap — implementers must reuse `domain/rule` conditions or justify a second trigger engine in the PR.
 - "Wiring" evidence for P-issues in MG-C is only honest if tests exercise the entity/packet boundary, not just domain round-trips — the register already requires this; do not accept domain-only closes.
+- The open stack (#152–#157) is unmerged; every milestone below MG-E assumes it lands first. If the stack stalls or is abandoned, re-derive the floor snapshot before re-planning.
+- `markov-names` (#123) is the only content surface with no committed parity decision — MG-F resolves it before any bundled-name work is scheduled.

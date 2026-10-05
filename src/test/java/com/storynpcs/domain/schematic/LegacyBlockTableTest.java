@@ -187,6 +187,17 @@ class LegacyBlockTableTest {
     }
 
     @Test
+    void fireBeaconAndPistonHeadResolve() {
+        // 51 fire is faithful where it can survive (the first neighbor update
+        // pops it to air where it cannot); 138 beacon is inert; 34 piston head
+        // is an extension detail that must never persist — deliberate air like
+        // 36/90/119/253.
+        assertThat(LegacyBlockTable.resolve(51, 0)).contains("minecraft:fire");
+        assertThat(LegacyBlockTable.resolve(138, 0)).contains("minecraft:beacon");
+        assertThat(LegacyBlockTable.resolve(34, 0)).contains("minecraft:air");
+    }
+
+    @Test
     void unmappedIdsStayUnmapped() {
         // The contract: unknown ids return empty so the reader reports them —
         // never a guess.

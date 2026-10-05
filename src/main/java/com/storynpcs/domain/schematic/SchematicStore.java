@@ -66,7 +66,10 @@ public final class SchematicStore {
                     .keySet()
                     .forEach(id -> {
                         if (id.getNamespace().equals(NAMESPACE)) {
-                            names.add(stripExt(id.getPath().substring(BUNDLED_DIR.length() + 1)));
+                            String name = stripExt(id.getPath().substring(BUNDLED_DIR.length() + 1));
+                            if (isLoadableName(name)) {
+                                names.add(name);
+                            }
                         }
                     });
         }
@@ -76,7 +79,9 @@ public final class SchematicStore {
                 stream.filter(Files::isRegularFile)
                         .map(p -> p.getFileName().toString())
                         .filter(n -> n.endsWith(".schem") || n.endsWith(".schematic"))
-                        .forEach(n -> names.add(stripExt(n)));
+                        .map(SchematicStore::stripExt)
+                        .filter(SchematicStore::isLoadableName)
+                        .forEach(names::add);
             } catch (IOException ignored) {
                 // An unreadable creator dir degrades to bundled-only.
             }
@@ -96,8 +101,7 @@ public final class SchematicStore {
     static LoadResult load(MinecraftServer server, String name, Path creatorDir) {
         // VALID_NAME permits dots for names like "tier_house1.v2" — the segment
         // check rejects traversal before the normalized-path guard below ever runs.
-        if (name == null || !VALID_NAME.matcher(name).matches()
-                || name.contains("..") || name.contains("\\") || name.startsWith("/")) {
+        if (!isLoadableName(name)) {
             return LoadResult.error("invalid schematic name '" + name + "'");
         }
         // 1. Creator file.
@@ -109,12 +113,15 @@ public final class SchematicStore {
             if (!file.startsWith(creatorDir) || !Files.isRegularFile(file)) {
                 continue;
             }
-            try {
-                long size = Files.size(file);
-                if (size > MAX_FILE_BYTES) {
+            // Bounded read — the same readNBytes cap as the bundled path, so a
+            // file that grows past the limit after resolve() cannot balloon
+            // the buffer before the compressed-NBT accounter runs.
+            try (var in = Files.newInputStream(file)) {
+                byte[] bytes = in.readNBytes((int) (MAX_FILE_BYTES + 1));
+                if (bytes.length > MAX_FILE_BYTES) {
                     return LoadResult.error("'" + name + ext + "' exceeds 32 MiB file bound");
                 }
-                return LoadResult.ok(SchematicReader.read(name + ext, Files.readAllBytes(file)));
+                return LoadResult.ok(SchematicReader.read(name + ext, bytes));
             } catch (SchematicParseException e) {
                 return LoadResult.error(e.getMessage());
             } catch (IOException e) {
@@ -147,6 +154,12 @@ public final class SchematicStore {
             }
         }
         return LoadResult.error("unknown schematic '" + name + "'");
+    }
+
+    /** Single name-validity rule shared by {@link #list} and {@link #load}. */
+    private static boolean isLoadableName(String name) {
+        return name != null && VALID_NAME.matcher(name).matches()
+                && !name.contains("..") && !name.contains("\\") && !name.startsWith("/");
     }
 
     private static String stripExt(String n) {

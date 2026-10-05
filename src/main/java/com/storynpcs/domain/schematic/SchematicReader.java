@@ -13,8 +13,12 @@ import java.util.Optional;
 import java.util.TreeMap;
 
 /**
- * Schematic container reader (issue #149): Sponge {@code .schem} v2/v3 and the
- * legacy MCEdit {@code .schematic} format, detected from the NBT root shape.
+ * Schematic container reader (issue #149): Sponge {@code .schem} — the flat
+ * v1-v3 root layout (v1 keeps its block entities under {@code TileEntities},
+ * renamed to {@code BlockEntities} in v2) and the spec v3 layout, which wraps
+ * everything in a {@code Schematic} compound whose {@code Blocks} child
+ * carries the block container — and the legacy MCEdit {@code .schematic}
+ * format, detected from the NBT root shape.
  *
  * <p>Bounded on every axis: the compressed payload is accounted (8 MiB),
  * dimensions are capped by {@link Schematic#MAX_DIMENSION} /
@@ -35,10 +39,25 @@ public final class SchematicReader {
     /** Reads a schematic container (gzip or uncompressed NBT). */
     public static Schematic read(String source, byte[] bytes) throws SchematicParseException {
         CompoundTag root = readContainer(source, bytes);
-        if (root.contains("Palette") && root.contains("BlockData")) {
-            return readSponge(source, root);
+        // The NBT root is the schematic body for flat v1/v2 and legacy files;
+        // spec v3 nests it one level down in a "Schematic" compound
+        // (root -> Schematic -> {Version, Width/Height/Length, Blocks:
+        // {Palette, Data, BlockEntities}, Entities, Biomes, ...}). A nested
+        // "Blocks" compound at the root is also tolerated — same parse —
+        // so non-spec writers do not produce "unrecognized" failures.
+        // Tag-type checks keep the shapes unambiguous: a v3 "Blocks" is a
+        // compound, a legacy "Blocks" is a byte array.
+        CompoundTag body = root.contains("Schematic", Tag.TAG_COMPOUND)
+                ? root.getCompound("Schematic") : root;
+        if (body.contains("Palette", Tag.TAG_COMPOUND)
+                && body.contains("BlockData", Tag.TAG_BYTE_ARRAY)) {
+            return readSponge(source, body, body, "BlockData");
         }
-        if (root.contains("Blocks") && root.contains("Data")) {
+        if (body.contains("Blocks", Tag.TAG_COMPOUND)) {
+            return readSponge(source, body, body.getCompound("Blocks"), "Data");
+        }
+        if (root.contains("Blocks", Tag.TAG_BYTE_ARRAY)
+                && root.contains("Data", Tag.TAG_BYTE_ARRAY)) {
             return readLegacy(source, root);
         }
         throw new SchematicParseException(source,
@@ -66,27 +85,46 @@ public final class SchematicReader {
         throw new SchematicParseException(source, "empty NBT container");
     }
 
-    // ---- Sponge .schem (v2/v3) ----
+    // ---- Sponge .schem (v1-v3) ----
 
-    private static Schematic readSponge(String source, CompoundTag root)
+    /**
+     * Parses the Sponge block container. {@code body} is the schematic object —
+     * the NBT root for flat v1/v2, the {@code Schematic} wrapper compound for
+     * v3. {@code container} is the palette/block-data holder ({@code body}
+     * itself flat, the {@code Blocks} compound nested); {@code blockDataKey}
+     * is {@code "BlockData"} flat / {@code "Data"} nested. Dimensions,
+     * {@code Version}, and the ignored {@code Entities}/{@code Biomes}
+     * sections all live on {@code body} for every layout.
+     */
+    private static Schematic readSponge(String source, CompoundTag body, CompoundTag container,
+                                        String blockDataKey)
             throws SchematicParseException {
-        int version = root.getInt("Version");
-        if (version != 2 && version != 3) {
+        int version = body.getInt("Version");
+        boolean nested = container != body;
+        // The nested container is defined by v3 — anything else fail-closes.
+        // The flat layout keeps accepting v1-v3: flat v1 differs only in the
+        // block-entity key name and PaletteMax semantics (handled below), and
+        // a flat file claiming v3 is inconsistent but parses identically.
+        if (nested ? version != 3 : (version < 1 || version > 3)) {
             throw new SchematicParseException(source,
-                    "unsupported Sponge schematic version " + version + " (expected 2 or 3)");
+                    "unsupported Sponge schematic version " + version + (nested
+                            ? " (nested Blocks container requires version 3)"
+                            : " (expected 1-3)"));
         }
-        int width = dim(source, root, "Width");
-        int height = dim(source, root, "Height");
-        int length = dim(source, root, "Length");
+        int width = dim(source, body, "Width");
+        int height = dim(source, body, "Height");
+        int length = dim(source, body, "Length");
         int[] blocks = requireIndexArray(source, width, height, length);
 
-        CompoundTag paletteTag = root.getCompound("Palette");
-        int paletteMax = root.getInt("PaletteMax");
+        CompoundTag paletteTag = container.getCompound("Palette");
+        int paletteMax = container.getInt("PaletteMax");
         if (paletteTag.size() > MAX_PALETTE || paletteMax > MAX_PALETTE) {
             throw new SchematicParseException(source, "palette exceeds bound " + MAX_PALETTE);
         }
         List<String> diagnostics = new ArrayList<>();
-        if (paletteMax != 0 && paletteMax != paletteTag.size()) {
+        // v1's PaletteMax counts the bytes needed for the largest index, not
+        // palette entries — the mismatch diagnostic is only meaningful in v2+.
+        if (version != 1 && paletteMax != 0 && paletteMax != paletteTag.size()) {
             diagnostics.add("PaletteMax=" + paletteMax + " disagrees with palette size "
                     + paletteTag.size());
         }
@@ -112,14 +150,29 @@ public final class SchematicReader {
             diagnostics.add(holes + " unassigned palette index(es) treated as air");
         }
 
-        byte[] blockData = root.getByteArray("BlockData");
+        byte[] blockData = container.getByteArray(blockDataKey);
         if (blockData.length == 0) {
-            throw new SchematicParseException(source, "missing BlockData");
+            throw new SchematicParseException(source, "missing " + blockDataKey);
         }
         decodeVarintIndices(source, blockData, blocks, palette.length);
 
+        // v1 named the block-entity section "TileEntities" — read whichever
+        // the container carries so accepting flat v1 does not silently drop
+        // the payloads (the section was renamed to "BlockEntities" in v2).
+        String blockEntitiesKey = container.contains("BlockEntities", Tag.TAG_LIST)
+                ? "BlockEntities" : "TileEntities";
         List<Schematic.BlockEntityRecord> blockEntities = readBlockEntities(
-                source, root, "BlockEntities", width, height, length, diagnostics);
+                source, container, blockEntitiesKey, width, height, length, diagnostics);
+        // Empty sections are routine — spec-conformant writers emit them
+        // unconditionally. Only a non-empty section means anything was lost.
+        boolean entitiesPresent = body.get("Entities") instanceof ListTag entities
+                && !entities.isEmpty();
+        boolean biomesPresent = body.get("Biomes") instanceof CompoundTag biomes
+                && biomes.size() > 0;
+        if (entitiesPresent || biomesPresent) {
+            diagnostics.add("Sponge Entities/Biomes sections present but not placed "
+                    + "(schematic builds place blocks and block entities only)");
+        }
 
         return new Schematic(source, width, height, length,
                 List.of(palette), blocks, blockEntities, diagnostics);
@@ -222,6 +275,17 @@ public final class SchematicReader {
                     + " block-entity payloads (applied only when the placed block entity's"
                     + " type matches; legacy item fields are not translated)");
         }
+        // Same loud-loss contract as the Sponge path — the bundled target
+        // assets are all legacy files, and several carry Entities
+        // (minecarts, ...) that builds do not place.
+        if (root.get("Entities") instanceof ListTag entities && !entities.isEmpty()) {
+            diagnostics.add("legacy Entities section carries " + entities.size()
+                    + " entit(ies) — not placed (builds place blocks and block entities only)");
+        }
+        if (root.get("TileTicks") instanceof ListTag tileTicks && !tileTicks.isEmpty()) {
+            diagnostics.add("legacy TileTicks section carries " + tileTicks.size()
+                    + " scheduled tick(s) — dropped (block update scheduling is not modeled)");
+        }
 
         return new Schematic(source, width, height, length, palette, blocks,
                 blockEntities, diagnostics);
@@ -269,8 +333,9 @@ public final class SchematicReader {
         for (Tag tag : list) {
             if (!(tag instanceof CompoundTag entry)) continue;
             int[] pos = entry.getIntArray("Pos");
+            boolean spongePos = pos.length == 3;
             int x, y, z;
-            if (pos.length == 3) {
+            if (spongePos) {
                 x = pos[0];
                 y = pos[1];
                 z = pos[2];
@@ -292,13 +357,23 @@ public final class SchematicReader {
             String id = entry.contains("Id") ? entry.getString("Id")
                     : entry.getString("id");
             if (id.isEmpty()) continue;
-            CompoundTag data = entry.copy();
-            data.remove("Pos");
-            data.remove("x");
-            data.remove("y");
-            data.remove("z");
-            data.remove("Id");
-            data.remove("id");
+            CompoundTag data;
+            if (spongePos && entry.contains("Data", Tag.TAG_COMPOUND)) {
+                // Spec-conformant Sponge entries nest the block-entity payload
+                // under a "Data" compound — apply that, not a wrapper.
+                data = entry.getCompound("Data").copy();
+            } else {
+                // Flattened entries (legacy TileEntities and hand-built or
+                // pre-Data Sponge records) carry payload fields alongside the
+                // position keys — copy everything except the envelope.
+                data = entry.copy();
+                data.remove("Pos");
+                data.remove("x");
+                data.remove("y");
+                data.remove("z");
+                data.remove("Id");
+                data.remove("id");
+            }
             out.add(new Schematic.BlockEntityRecord(x, y, z, id, data));
         }
         if (dropped > 0) {

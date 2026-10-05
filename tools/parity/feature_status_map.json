@@ -468,9 +468,9 @@
     {
       "id": "quest-log-ui",
       "feature": "Quest log / player UI",
-      "status": "implemented",
+      "status": "partial",
       "issue": "#150",
-      "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> PlayerQuestLogScreen et al; session-bound commits, server-built JSON views (4 panels; remaining screens tracked separately)",
+      "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> player screens; session-bound commits, server-built JSON views (4 of the #150 acceptance surfaces; follower hire -> #71/#74, companion inv/stats -> #74, achievement view -> #86/#88, carpentry bench -> #80, custom GUI renderer -> #82)",
       "evidence": {
         "files": ["src/main/java/com/storynpcs/service/PlayerPanelViews.java", "src/main/java/com/storynpcs/client/gui/player/PlayerQuestLogScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerMailScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java"],
         "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "ClientboundPlayerPanelPayload|sendPlayerPanel"}],
@@ -649,15 +649,15 @@
     },
     {
       "id": "schematics",
-      "feature": "Schematics (27 bundled + build commands)",
-      "status": "partial",
+      "feature": "Schematics (28 bundled + build commands)",
+      "status": "implemented",
       "issue": "#149",
-      "summary": "Bounded reader (Sponge v2/v3 + legacy), traversal-proof store, budgeted multi-tick build pipeline + schema commands; 27 bundled assets still absent (target JAR unavailable)",
+      "summary": "Bounded reader (Sponge v1-v3 + legacy MCEdit), traversal-proof store, budgeted multi-tick build pipeline + schema commands; all 28 bundled .schematic assets shipped at data/storynpcs/schematics/ (ported from the pinned target jar, datapack-overridable)",
       "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/schematic/Schematic.java", "src/main/java/com/storynpcs/domain/schematic/BuildPlan.java", "src/main/java/com/storynpcs/domain/schematic/SchematicReader.java", "src/main/java/com/storynpcs/domain/schematic/SchematicStore.java", "src/main/java/com/storynpcs/service/SchematicBuildService.java"],
+        "files": ["src/main/java/com/storynpcs/domain/schematic/Schematic.java", "src/main/java/com/storynpcs/domain/schematic/BuildPlan.java", "src/main/java/com/storynpcs/domain/schematic/SchematicReader.java", "src/main/java/com/storynpcs/domain/schematic/SchematicStore.java", "src/main/java/com/storynpcs/service/SchematicBuildService.java", "src/main/resources/data/storynpcs/schematics/archery_range.schematic", "src/main/resources/data/storynpcs/schematics/bakery.schematic", "src/main/resources/data/storynpcs/schematics/barn.schematic", "src/main/resources/data/storynpcs/schematics/building_site.schematic", "src/main/resources/data/storynpcs/schematics/chapel.schematic", "src/main/resources/data/storynpcs/schematics/church.schematic", "src/main/resources/data/storynpcs/schematics/gate.schematic", "src/main/resources/data/storynpcs/schematics/glassworks.schematic", "src/main/resources/data/storynpcs/schematics/guard_tower.schematic", "src/main/resources/data/storynpcs/schematics/guild_house.schematic", "src/main/resources/data/storynpcs/schematics/house.schematic", "src/main/resources/data/storynpcs/schematics/house_small.schematic", "src/main/resources/data/storynpcs/schematics/inn.schematic", "src/main/resources/data/storynpcs/schematics/library.schematic", "src/main/resources/data/storynpcs/schematics/lighthouse.schematic", "src/main/resources/data/storynpcs/schematics/mill.schematic", "src/main/resources/data/storynpcs/schematics/observatory.schematic", "src/main/resources/data/storynpcs/schematics/ship.schematic", "src/main/resources/data/storynpcs/schematics/shop.schematic", "src/main/resources/data/storynpcs/schematics/stall.schematic", "src/main/resources/data/storynpcs/schematics/stall2.schematic", "src/main/resources/data/storynpcs/schematics/stall3.schematic", "src/main/resources/data/storynpcs/schematics/tier_house1.schematic", "src/main/resources/data/storynpcs/schematics/tier_house2.schematic", "src/main/resources/data/storynpcs/schematics/tier_house3.schematic", "src/main/resources/data/storynpcs/schematics/tower.schematic", "src/main/resources/data/storynpcs/schematics/wall.schematic", "src/main/resources/data/storynpcs/schematics/wall_corner.schematic"],
         "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "SchematicStore|SchematicBuildService|literal\\(\"schema\"\\)"}],
         "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/schematic/SchematicReaderTest.java", "src/test/java/com/storynpcs/domain/schematic/SchematicStoreTest.java", "src/test/java/com/storynpcs/domain/schematic/BuildPlanTest.java"],
+        "tests": ["src/test/java/com/storynpcs/domain/schematic/SchematicReaderTest.java", "src/test/java/com/storynpcs/domain/schematic/SchematicStoreTest.java", "src/test/java/com/storynpcs/domain/schematic/BuildPlanTest.java", "src/test/java/com/storynpcs/domain/schematic/BundledSchematicTest.java"],
         "absent": []
       }
     },
@@ -804,9 +804,9 @@
     {
       "id": "integrations",
       "feature": "Optional-mod integrations (mixins)",
-      "status": "planned",
-      "issue": "#87 P9-5",
-      "summary": "None",
+      "status": "deviation",
+      "issue": "#87 P9-5 (closed: documented deviation)",
+      "summary": "Recorded deviation — P9-5 closeout enumerates the target's 7-class Pixelmon/Cobblemon surface; StoryNPCs implements no optional-mod integration; absent-check + P9-5 tests enforce it",
       "evidence": {
         "files": [],
         "wired": [],

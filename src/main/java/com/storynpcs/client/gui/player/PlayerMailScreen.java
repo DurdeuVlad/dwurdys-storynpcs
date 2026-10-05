@@ -165,7 +165,7 @@ public class PlayerMailScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (!composing) {
+        if (!composing && button == 0) {
             int cx = this.width / 2;
             if (mouseX >= cx - 190 && mouseX <= cx + 170
                     && mouseY >= listTop() && mouseY <= listBottom()) {

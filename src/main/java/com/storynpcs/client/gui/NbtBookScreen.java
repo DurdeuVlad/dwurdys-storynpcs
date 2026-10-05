@@ -100,7 +100,7 @@ public class NbtBookScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (canEdit) {
+        if (canEdit && button == 0) {
             int idx = rowAt(mouseY);
             if (idx >= 0 && idx < entries.size() && entries.get(idx).editable()
                     && mouseX >= this.width / 2 - 170 && mouseX <= this.width / 2 + 170) {
@@ -128,7 +128,9 @@ public class NbtBookScreen extends Screen {
             applyEdit();
             return true;
         }
-        if (this.editField.isFocused()) {
+        // ESC must still close the screen while the edit box holds focus —
+        // EditBox.keyPressed would swallow it otherwise.
+        if (this.editField.isFocused() && keyCode != 256) {
             return this.editField.keyPressed(keyCode, scanCode, modifiers);
         }
         return super.keyPressed(keyCode, scanCode, modifiers);

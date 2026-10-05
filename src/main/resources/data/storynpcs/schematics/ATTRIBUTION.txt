@@ -1,0 +1,13 @@
+The .schematic files in this directory are ported from CustomNPCs
+(CustomNPCs-Unofficial-NeoForge-1.21.1.20251230.jar,
+data/customnpcs/schematics/), originally authored by Noppes.
+
+CustomNPCs is licensed CC BY-NC (Creative Commons Attribution-
+NonCommercial), per the target jar's META-INF/neoforge.mods.toml.
+These assets are redistributed under that same license with
+attribution to the original author:
+
+  CustomNPCs by Noppes — http://www.kodevelopment.nl/minecraft/customnpcs/
+
+Non-commercial use only; commercial redistribution is not permitted
+under CC BY-NC.
