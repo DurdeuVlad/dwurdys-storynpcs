@@ -23,6 +23,8 @@ public class DefinitionRegistry {
     private final Map<NamespacedId, TransportLocation> transportLocations = new ConcurrentHashMap<>();
     private final com.storynpcs.creator.template.TemplateLibrary templates =
             new com.storynpcs.creator.template.TemplateLibrary();
+    private final Map<NamespacedId, com.storynpcs.creator.template.SpawnerRule> spawners =
+            new ConcurrentHashMap<>();
     /**
      * Monotonic registry revision — bumped on every register/remove. Authoring
      * patch plans capture it as their baseRevision so staleness is detectable.
@@ -271,6 +273,61 @@ public class DefinitionRegistry {
         }
     }
 
+    /**
+     * Register a spawner rule (P8-1). The rule's {@code templateId} is recorded
+     * as a dependent on that template — a template delete reports its spawners.
+     * A rule retargeted to a different template drops its stale dependency.
+     */
+    public void registerSpawnerRule(com.storynpcs.creator.template.SpawnerRule rule) {
+        rwLock.writeLock().lock();
+        try {
+            var previous = spawners.put(rule.getId(), rule);
+            if (previous != null && !previous.getTemplateId().equals(rule.getTemplateId())) {
+                templates.unregisterSpawner(previous.getTemplateId(), rule.getId());
+            }
+            templates.registerSpawner(rule.getTemplateId(), rule.getId());
+            revision.incrementAndGet();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public Optional<com.storynpcs.creator.template.SpawnerRule> getSpawnerRule(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(spawners.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.template.SpawnerRule> getAllSpawnerRules() {
+        rwLock.readLock().lock();
+        try {
+            return spawners.values().stream()
+                    .sorted(Comparator.comparing(r -> r.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    /** Removes a spawner rule and its template dependency record. */
+    public boolean removeSpawnerRule(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            var removed = spawners.remove(id);
+            if (removed == null) {
+                return false;
+            }
+            templates.unregisterSpawner(removed.getTemplateId(), id);
+            revision.incrementAndGet();
+            return true;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     /** Deterministic template search — delegated to the library's matcher. */
     public java.util.List<NamespacedId> searchTemplates(String query) {
         rwLock.readLock().lock();
@@ -316,6 +373,8 @@ public class DefinitionRegistry {
             for (var template : other.templates.all()) {
                 templates.put(template);
             }
+            spawners.clear();
+            spawners.putAll(other.spawners);
             for (var template : other.templates.all()) {
                 for (var dependent : other.templates.dependentSpawners(template.getId())) {
                     templates.registerSpawner(template.getId(), dependent);
@@ -337,6 +396,7 @@ public class DefinitionRegistry {
             quests.clear();
             transportLocations.clear();
             templates.clear();
+            spawners.clear();
             revision.incrementAndGet();
         } finally {
             rwLock.writeLock().unlock();

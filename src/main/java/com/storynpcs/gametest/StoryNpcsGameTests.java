@@ -475,6 +475,70 @@ public final class StoryNpcsGameTests {
         helper.succeed();
     }
 
+    /**
+     * P8-1 live spawn: an anchored, quota-1 spawner rule must instantiate its
+     * template through the canonical create path and spawn exactly one owned
+     * actor — the {@code TemplateSpawner} persistent tag binds ownership so the
+     * leave-event ledger can resolve deaths and unloads.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 300)
+    public static void templateSpawnerSpawnsOwnedNpcInLiveWorld(GameTestHelper helper) {
+        var level = helper.getLevel();
+        StoryNpcs mod = StoryNpcsAccess.mod(level);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        var service = mod.getApplicationService();
+        helper.assertTrue(service != null, "Application service must be available");
+
+        // Canonical template save (adapter convenience boundary).
+        var templateId = NamespacedId.of("storynpcs:test/gametest_template");
+        var template = new com.storynpcs.creator.template.NpcTemplate();
+        template.setId(templateId);
+        var embedded = new NpcDefinition(
+                NamespacedId.of("storynpcs:test/gametest_embedded"), "Templated NPC");
+        template.setDefinition(embedded);
+        helper.assertFalse(service.saveTemplate(template).hasErrors(),
+                "template save must apply");
+
+        // Anchored rule at the test origin — canonical spawner.replace.
+        var spawnerId = NamespacedId.of("storynpcs:test/gametest_spawner");
+        var anchor = helper.absolutePos(new BlockPos(1, 1, 1));
+        var rule = new com.storynpcs.creator.template.SpawnerRule();
+        rule.setId(spawnerId);
+        rule.setTemplateId(templateId);
+        rule.setQuota(1);
+        rule.setSpawnIntervalTicks(20);
+        rule.setPlacementRadiusBlocks(8.0);
+        rule.setDimension(level.dimension().location().toString());
+        rule.setAnchorX(anchor.getX());
+        rule.setAnchorY(anchor.getY());
+        rule.setAnchorZ(anchor.getZ());
+        helper.assertFalse(service.saveSpawner(rule).hasErrors(),
+                "spawner save must apply");
+        helper.assertTrue(
+                mod.getRegistry().templateSpawnerDependents(templateId).contains(spawnerId),
+                "spawner must register as a template dependent");
+
+        var watch = new net.minecraft.world.phys.AABB(anchor).inflate(48);
+        helper.succeedWhen(() -> {
+            var owned = level.getEntities(
+                    net.minecraft.world.level.entity.EntityTypeTest.forClass(StoryNpcEntity.class),
+                    watch, e -> spawnerId.toString().equals(
+                            e.getPersistentData().getString(
+                                    com.storynpcs.runtime.spawner.NpcSpawnerRuntime.OWNER_KEY)));
+            helper.assertFalse(owned.isEmpty(),
+                    "spawner must produce an owned actor within the interval");
+            helper.assertTrue(owned.size() == 1,
+                    "quota-1 spawner must never exceed one owned actor, got " + owned.size());
+            var npc = owned.get(0);
+            helper.assertTrue(npc.getDefinition().isPresent(),
+                    "spawned actor must resolve the lazily instantiated definition");
+            helper.assertTrue(
+                    npc.getDefinitionId() != null && npc.getDefinitionId().startsWith("storynpcs:spawned/"),
+                    "spawned actor must bind a storynpcs:spawned/ definition id, got "
+                            + npc.getDefinitionId());
+        });
+    }
+
     private static void drain(com.storynpcs.service.SchematicBuildService service,
                               GameTestHelper helper) {
         for (int i = 0; i < 4000 && !service.status().isEmpty(); i++) {

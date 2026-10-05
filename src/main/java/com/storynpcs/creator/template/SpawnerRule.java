@@ -10,8 +10,13 @@ import com.storynpcs.domain.common.NamespacedId;
  */
 public class SpawnerRule {
 
+    public static final int SCHEMA_VERSION = 1;
+
     @JsonProperty(required = true)
     private NamespacedId id;
+
+    @JsonProperty
+    private int schemaVersion = SCHEMA_VERSION;
 
     @JsonProperty(required = true)
     private NamespacedId templateId;
@@ -35,10 +40,34 @@ public class SpawnerRule {
     @JsonProperty
     private boolean respawnOnDeath = true;
 
+    /**
+     * World anchor: dimension id (e.g. {@code minecraft:overworld}) plus the
+     * anchor block position. A rule without an anchor is an inert preset —
+     * spawner evaluation skips it. All-or-none: partial anchors fail load.
+     */
+    @JsonProperty
+    private String dimension;
+
+    @JsonProperty
+    private Integer anchorX;
+
+    @JsonProperty
+    private Integer anchorY;
+
+    @JsonProperty
+    private Integer anchorZ;
+
+    /** Disabled spawners persist but never evaluate. */
+    @JsonProperty
+    private boolean enabled = true;
+
     public SpawnerRule() {}
 
     public NamespacedId getId() { return id; }
     public void setId(NamespacedId id) { this.id = id; }
+
+    public int getSchemaVersion() { return schemaVersion; }
+    public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
 
     public NamespacedId getTemplateId() { return templateId; }
     public void setTemplateId(NamespacedId templateId) { this.templateId = templateId; }
@@ -72,6 +101,37 @@ public class SpawnerRule {
 
     public boolean isRespawnOnDeath() { return respawnOnDeath; }
     public void setRespawnOnDeath(boolean respawnOnDeath) { this.respawnOnDeath = respawnOnDeath; }
+
+    public String getDimension() { return dimension; }
+    public void setDimension(String dimension) { this.dimension = dimension; }
+
+    public Integer getAnchorX() { return anchorX; }
+    public void setAnchorX(Integer anchorX) { this.anchorX = anchorX; }
+
+    public Integer getAnchorY() { return anchorY; }
+    public void setAnchorY(Integer anchorY) { this.anchorY = anchorY; }
+
+    public Integer getAnchorZ() { return anchorZ; }
+    public void setAnchorZ(Integer anchorZ) { this.anchorZ = anchorZ; }
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    /** True when a full dimension + position anchor is authored. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isAnchored() {
+        return dimension != null && !dimension.isBlank()
+                && anchorX != null && anchorY != null && anchorZ != null;
+    }
+
+    /** True when some — but not all — anchor fields are set; fails load. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean hasPartialAnchor() {
+        int set = (dimension != null && !dimension.isBlank() ? 1 : 0)
+                + (anchorX != null ? 1 : 0) + (anchorY != null ? 1 : 0)
+                + (anchorZ != null ? 1 : 0);
+        return set > 0 && set < 4;
+    }
 
     /**
      * Deterministic spawn decision: quota not exceeded, interval elapsed.

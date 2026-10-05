@@ -232,6 +232,20 @@ public class WorldLifecycleHandler {
             mod.setTeamProgressionStore(null);
         }
 
+        // P8-1: durable spawner ledger — owned-actor quota state survives
+        // restarts, so a spawner cannot over-spawn while prior actors persist.
+        Path spawnerDir = storyNpcsDir.resolve("spawner_state");
+        try {
+            var spawnerStore = new com.storynpcs.persistence.SpawnerRuntimeStore(
+                    spawnerDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            spawnerStore.open();
+            mod.setSpawnerRuntimeStore(spawnerStore);
+        } catch (Exception spawnerFailure) {
+            LOGGER.error("Spawner runtime store could not be opened at {}: {}",
+                    spawnerDir, spawnerFailure.getMessage());
+            mod.setSpawnerRuntimeStore(null);
+        }
+
         // The logical actor scope is a durable world identity (scope.id), not the
         // world directory path — relocating a world must not orphan its actors.
         ActorLifecycleService actorService;
@@ -500,6 +514,9 @@ public class WorldLifecycleHandler {
         // Same for the shared-party store — a new world must never inherit
         // another world's teams.
         mod.setTeamProgressionStore(null);
+        // Same for the spawner ledger — writes are durable per-op and the
+        // binding is world-scoped.
+        mod.setSpawnerRuntimeStore(null);
         if (mod.getApplicationService() != null) {
             mod.getApplicationService().setQuestMailStore(null);
             mod.getApplicationService().setTeamProgressionStore(null);

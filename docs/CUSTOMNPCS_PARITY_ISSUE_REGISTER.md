@@ -434,7 +434,7 @@ Status: `IN-REVIEW` — six-tab bound on role + vault; PRIVATE/SHARED access pol
 
 ### P8-1 — Implement persistent templates, cloning, and spawners
 
-Status: `IN-REVIEW` — `templates/*.yaml` is a loadable standalone family with `schemaVersion` bounds, `NpcTemplate.instantiate()` deep-copy isolation, registry storage, canonical import-sink write path, and template commands. Spawner quotas/placement/chunk rules and dependent-spawner reporting remain open.
+Status: `DONE` — `templates/*.yaml` + `spawners/*.yaml` loadable families; canonical `template.replace/delete` + `spawner.replace/delete` ops with revision/replay/fingerprint handling; `NpcSpawnerRuntime` enforces quota ≤64, staggered ≥20-tick intervals, loaded-chunk placement, `cleanupOnChunkUnload` discard, and `respawnOnDeath=false` permanent quota consumption; durable `SpawnerRuntimeStore` owned-actor ledger survives restart; template delete reports dependent spawners; `spawner list/info/place/delete` commands mint canonical ops; `NpcSpawnerLifecycleEvent` audit trail; live ServerLevel GameTest evidence (12/12). Verification: 1253 tests, 0 failures.
 
 - **Intent:** Replace the in-memory cloner with the named-template/spawner workflows creators expect.
 - **Expectation:** Creators capture, name, version, search, preview, export/import, clone and spawn NPC templates; spawners enforce quotas, placement rules, cleanup and permissions.

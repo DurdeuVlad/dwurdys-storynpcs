@@ -52,10 +52,10 @@ class PersistenceStoreCatalogTest {
         long deviation = count(PersistenceStoreStatus.INTENTIONAL_DEVIATION);
         long unmapped = count(PersistenceStoreStatus.UNMAPPED);
 
-        assertThat(mapped).isEqualTo(3);
-        assertThat(partiallyMapped).isEqualTo(4);
+        assertThat(mapped).isEqualTo(4);
+        assertThat(partiallyMapped).isEqualTo(5);
         assertThat(deviation).isEqualTo(1);
-        assertThat(unmapped).isEqualTo(10);
+        assertThat(unmapped).isEqualTo(8);
         assertThat(mapped + partiallyMapped + deviation + unmapped).isEqualTo(18);
     }
 

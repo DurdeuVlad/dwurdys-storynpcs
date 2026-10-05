@@ -35,6 +35,9 @@ public final class CapabilityRegistry {
             Map.entry("transport.edit", Policy.DEFINITION),
             Map.entry("transport.delete", Policy.DEFINITION),
             Map.entry("template.mutate", Policy.DEFINITION),
+            Map.entry("spawner.mutate", Policy.DEFINITION),
+            Map.entry("spawner.edit", Policy.DEFINITION),
+            Map.entry("spawner.delete", Policy.DEFINITION),
             Map.entry("template.edit", Policy.DEFINITION),
             Map.entry("template.delete", Policy.DEFINITION),
             // Player-scoped progression operations

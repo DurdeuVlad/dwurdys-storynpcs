@@ -55,6 +55,8 @@ public class StoryNpcs {
     /** World-scoped quest-mail store; installed by the world lifecycle on open. */
     private volatile com.storynpcs.domain.quest.QuestMailStore questMailStore;
     private volatile com.storynpcs.domain.quest.TeamProgressionStore teamProgressionStore;
+    /** World-scoped spawner ledger (P8-1); installed by the world lifecycle on open. */
+    private volatile com.storynpcs.persistence.SpawnerRuntimeStore spawnerRuntimeStore;
     /** Bounded live runtime configuration (P9-4) — shared with the app service. */
     private final com.storynpcs.admin.RuntimeTunables runtimeTunables;
     /** Bounded script dispatch host (P9-2) — per-instance, never static. */
@@ -69,6 +71,8 @@ public class StoryNpcs {
     private final com.storynpcs.sim.PathScheduler pathScheduler;
     /** Bounded schematic build executor (P8-2/#149) — per-instance, never static. */
     private final com.storynpcs.service.SchematicBuildService schematicBuildService;
+    /** Bounded template-spawner driver (P8-1) — per-instance, never static. */
+    private final com.storynpcs.runtime.spawner.NpcSpawnerRuntime spawnerRuntime;
     /**
      * Squad target coordinators keyed {@code "dimension|factionId"} (P4-2).
      * Bounded by live faction count; entries with no live assignments are
@@ -102,6 +106,9 @@ public class StoryNpcs {
         this.pathScheduler = new com.storynpcs.sim.PathScheduler();
         this.schematicBuildService = com.storynpcs.service.SchematicBuildService
                 .create(runtimeTunables.readOnlyView());
+        this.spawnerRuntime = new com.storynpcs.runtime.spawner.NpcSpawnerRuntime(
+                () -> registry, this::getApplicationService, eventPublisher,
+                () -> spawnerRuntimeStore);
     }
 
     public static StoryNpcs createForTesting() {
@@ -129,6 +136,9 @@ public class StoryNpcs {
         this.pathScheduler = new com.storynpcs.sim.PathScheduler();
         this.schematicBuildService = com.storynpcs.service.SchematicBuildService
                 .create(runtimeTunables.readOnlyView());
+        this.spawnerRuntime = new com.storynpcs.runtime.spawner.NpcSpawnerRuntime(
+                () -> registry, this::getApplicationService, eventPublisher,
+                () -> spawnerRuntimeStore);
 
         StoryNpcRegistry.register(modEventBus);
         com.storynpcs.item.StoryNpcsItems.register(modEventBus);
@@ -151,6 +161,7 @@ public class StoryNpcs {
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onPlayerLoggedOut);
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onLevelSave); // VULN-53: save on world auto-save
         NeoForge.EVENT_BUS.addListener(lifecycleHandler::onEntityJoinLevel);
+        NeoForge.EVENT_BUS.addListener(spawnerRuntime::onEntityLeaveLevel);
         NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDamage);
         NeoForge.EVENT_BUS.addListener(com.storynpcs.ai.combat.WitnessProtectionManager::onLivingDeath);
         NeoForge.EVENT_BUS.addListener(com.storynpcs.entity.StoryNpcHitboxHandler::onEntitySize);
@@ -173,6 +184,7 @@ public class StoryNpcs {
         scriptScheduler.beginTick();
         MinecraftServer server = event.getServer();
         schematicBuildService.tick();
+        spawnerRuntime.tick(server);
         drainPathRequests(server);
         var appService = getApplicationService();
         if (appService != null) {
@@ -448,6 +460,18 @@ public class StoryNpcs {
         }
         return serverNameServices.computeIfAbsent(server,
                 com.storynpcs.service.NameGenerationService::load);
+    }
+
+    public com.storynpcs.persistence.SpawnerRuntimeStore getSpawnerRuntimeStore() {
+        return spawnerRuntimeStore;
+    }
+
+    public void setSpawnerRuntimeStore(com.storynpcs.persistence.SpawnerRuntimeStore store) {
+        this.spawnerRuntimeStore = store;
+    }
+
+    public com.storynpcs.runtime.spawner.NpcSpawnerRuntime getSpawnerRuntime() {
+        return spawnerRuntime;
     }
 
     public com.storynpcs.service.SchematicBuildService getSchematicBuildService() {
