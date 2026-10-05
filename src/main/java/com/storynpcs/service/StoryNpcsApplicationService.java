@@ -178,6 +178,17 @@ public class StoryNpcsApplicationService {
         this.questMailStore = questMailStore;
     }
 
+    /** Shared-party progression store (P5-5); null degrades team ops to a typed denial. */
+    private volatile com.storynpcs.domain.quest.TeamProgressionStore teamProgressionStore;
+
+    public void setTeamProgressionStore(com.storynpcs.domain.quest.TeamProgressionStore store) {
+        this.teamProgressionStore = store;
+    }
+
+    public com.storynpcs.domain.quest.TeamProgressionStore getTeamProgressionStore() {
+        return teamProgressionStore;
+    }
+
     public StoryNpcsApplicationService(DefinitionRegistry registry,
                                        ProgressionRepository progressionRepository,
                                        EventPublisher eventPublisher) {
@@ -3163,6 +3174,339 @@ public class StoryNpcsApplicationService {
     }
 
     // ==========================================
+    // 3b. Shared-party team operations (P5-5)
+    // ==========================================
+
+    /**
+     * Deterministic team id derived from the create request id — a replayed
+     * create resolves to the same team instead of forking a second record.
+     */
+    public static UUID teamIdForRequest(UUID requestId) {
+        return UUID.nameUUIDFromBytes(("storynpcs:team/" + requestId).getBytes(
+                java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** Create a team with the subject as owner; no-op when already teamed. */
+    public AuthorizedActionResult teamCreate(PlayerProgressionActionRequest request) {
+        Objects.requireNonNull(request, "request");
+        return runProgressionAction(request, "team.create", "create", null,
+                () -> applyTeamCreate(request));
+    }
+
+    private AuthorizedActionResult applyTeamCreate(PlayerProgressionActionRequest request) {
+        var store = teamProgressionStore;
+        if (store == null) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "TEAM_STORE_UNAVAILABLE", "Team progression store is not open"));
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            UUID existing = progression.getTeamId();
+            if (existing != null) {
+                // Heal a dangling ref (a team write that failed mid-op leaves
+                // the player's ref pointing at a record that lacks them).
+                try {
+                    var existingTeam = store.get(existing);
+                    if (existingTeam.isPresent() && existingTeam.get().isMember(request.playerUuid())) {
+                        return AuthorizedActionResult.of(false); // really already teamed
+                    }
+                } catch (Exception e) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "TEAM_STORE_UNAVAILABLE", "Team record could not be read"));
+                }
+                progression.setTeamId(null);
+            }
+            UUID teamId = teamIdForRequest(request.requestId());
+            try {
+                if (store.get(teamId).isPresent()) {
+                    return AuthorizedActionResult.of(false); // deterministic id collides
+                }
+                com.storynpcs.domain.quest.TeamProgression team =
+                        new com.storynpcs.domain.quest.TeamProgression(teamId, request.playerUuid());
+                // Player ref first: a failure after this leaves a dangling
+                // ref that the next op self-heals, never a ghost team.
+                progression.setTeamId(teamId);
+                saveProgression(request.playerUuid(), progression);
+                store.save(team);
+                return AuthorizedActionResult.of(true);
+            } catch (Exception e) {
+                progression.setTeamId(null);
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "TEAM_STORE_UNAVAILABLE", "Team record could not be persisted"));
+            }
+        }
+    }
+
+    /**
+     * Invite a player to the subject's team. The subject must be the team
+     * owner (self-service) — invitations are the explicit join gate so no
+     * player can party-join uninvited.
+     */
+    public AuthorizedActionResult teamInvite(PlayerProgressionActionRequest request, UUID inviteeUuid) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(inviteeUuid, "inviteeUuid");
+        return runProgressionAction(request, "team.invite", inviteeUuid.toString(), null,
+                () -> applyTeamInvite(request, inviteeUuid));
+    }
+
+    private AuthorizedActionResult applyTeamInvite(PlayerProgressionActionRequest request, UUID inviteeUuid) {
+        var store = teamProgressionStore;
+        if (store == null) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "TEAM_STORE_UNAVAILABLE", "Team progression store is not open"));
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            UUID teamId = progression.getTeamId();
+            if (teamId == null) {
+                return AuthorizedActionResult.of(false); // not in a team
+            }
+            try {
+                var teamOpt = store.get(teamId);
+                if (teamOpt.isEmpty()) {
+                    return AuthorizedActionResult.of(false);
+                }
+                var team = teamOpt.get();
+                if (!request.playerUuid().equals(team.getOwnerUuid())) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "NOT_OWNER", "Only the team owner can invite members"));
+                }
+                if (team.isMember(inviteeUuid)) {
+                    return AuthorizedActionResult.of(false); // already a member
+                }
+                if (!team.invite(inviteeUuid)) {
+                    return AuthorizedActionResult.of(false); // already invited
+                }
+                store.save(team);
+                return AuthorizedActionResult.of(true);
+            } catch (Exception e) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "TEAM_STORE_UNAVAILABLE", "Team record could not be persisted"));
+            }
+        }
+    }
+
+    /**
+     * Join the team owned by {@code ownerUuid}. The joiner must hold an
+     * invitation (consumed on success); an admin-scope command actor bypasses
+     * the invite gate as the documented operator override.
+     */
+    public AuthorizedActionResult teamJoin(PlayerProgressionActionRequest request, UUID ownerUuid) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(ownerUuid, "ownerUuid");
+        return runProgressionAction(request, "team.join", ownerUuid.toString(), null,
+                () -> applyTeamJoin(request, ownerUuid));
+    }
+
+    private AuthorizedActionResult applyTeamJoin(PlayerProgressionActionRequest request, UUID ownerUuid) {
+        var store = teamProgressionStore;
+        if (store == null) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "TEAM_STORE_UNAVAILABLE", "Team progression store is not open"));
+        }
+        // Read the owner's ref WITHOUT holding the subject lock — nesting
+        // player locks in inconsistent order could deadlock two players
+        // joining each other's teams concurrently.
+        PlayerProgression ownerProgression = progressionRepository.getOrCreate(ownerUuid);
+        UUID teamId;
+        synchronized (ownerProgression) {
+            teamId = ownerProgression.getTeamId();
+        }
+        if (teamId == null) {
+            return AuthorizedActionResult.of(false); // owner has no team
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            UUID existing = progression.getTeamId();
+            if (existing != null) {
+                try {
+                    var existingTeam = store.get(existing);
+                    if (existingTeam.isPresent() && existingTeam.get().isMember(request.playerUuid())) {
+                        return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                                "ALREADY_IN_TEAM", "Leave the current team before joining another"));
+                    }
+                } catch (Exception e) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "TEAM_STORE_UNAVAILABLE", "Team record could not be read"));
+                }
+                progression.setTeamId(null); // dangling ref — self-heal and continue
+            }
+            try {
+                var teamOpt = store.get(teamId);
+                if (teamOpt.isEmpty()) {
+                    return AuthorizedActionResult.of(false);
+                }
+                var team = teamOpt.get();
+                boolean adminOverride = "command".equals(request.actorType())
+                        && request.permissionLevel() >= 2;
+                if (!adminOverride && !team.isInvited(request.playerUuid())) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "NOT_INVITED", "Joining a team requires an invitation from its owner"));
+                }
+                // Player ref first: a failure after this leaves a dangling
+                // ref that the next op self-heals — never a ghost member.
+                progression.setTeamId(teamId);
+                saveProgression(request.playerUuid(), progression);
+                team.addMember(request.playerUuid());
+                team.consumeInvite(request.playerUuid());
+                store.save(team);
+                return AuthorizedActionResult.of(true);
+            } catch (Exception e) {
+                progression.setTeamId(null);
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "TEAM_STORE_UNAVAILABLE", "Team record could not be persisted"));
+            }
+        }
+    }
+
+    /**
+     * Leave the subject's team. The last member disbands the record; an owner
+     * leaving with survivors transfers ownership to a deterministic successor
+     * (lowest member UUID — stable across durable rewrites).
+     */
+    public AuthorizedActionResult teamLeave(PlayerProgressionActionRequest request) {
+        Objects.requireNonNull(request, "request");
+        return runProgressionAction(request, "team.leave", "leave", null,
+                () -> applyTeamLeave(request));
+    }
+
+    private AuthorizedActionResult applyTeamLeave(PlayerProgressionActionRequest request) {
+        var store = teamProgressionStore;
+        if (store == null) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "TEAM_STORE_UNAVAILABLE", "Team progression store is not open"));
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            UUID teamId = progression.getTeamId();
+            if (teamId == null) {
+                return AuthorizedActionResult.of(false); // not in a team
+            }
+            try {
+                // Team record first: a failure after it leaves a dangling
+                // player ref that a retried leave self-heals — never a ghost
+                // member who can never be removed from the roster.
+                var teamOpt = store.get(teamId);
+                if (teamOpt.isPresent()) {
+                    var team = teamOpt.get();
+                    team.removeMember(request.playerUuid());
+                    team.revokeInvite(request.playerUuid());
+                    if (team.getMemberUuids().isEmpty()) {
+                        store.delete(teamId);
+                    } else {
+                        if (request.playerUuid().equals(team.getOwnerUuid())) {
+                            UUID successor = team.getMemberUuids().stream()
+                                    .sorted().findFirst().orElse(null);
+                            team.setOwnerUuid(successor);
+                        }
+                        store.save(team);
+                    }
+                }
+                progression.setTeamId(null);
+                saveProgression(request.playerUuid(), progression);
+                return AuthorizedActionResult.of(true);
+            } catch (Exception e) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "TEAM_STORE_UNAVAILABLE", "Team record could not be persisted"));
+            }
+        }
+    }
+
+    /**
+     * Transfer ownership to another member. The subject is the CURRENT owner
+     * (self-service transfer) or any member under an admin-scope command;
+     * {@code newOwnerUuid} must already be a team member — ownership never
+     * leaves the membership set.
+     */
+    public AuthorizedActionResult teamTransferOwner(PlayerProgressionActionRequest request,
+                                                    UUID newOwnerUuid) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(newOwnerUuid, "newOwnerUuid");
+        return runProgressionAction(request, "team.owner", newOwnerUuid.toString(), null,
+                () -> applyTeamTransferOwner(request, newOwnerUuid));
+    }
+
+    private AuthorizedActionResult applyTeamTransferOwner(PlayerProgressionActionRequest request,
+                                                          UUID newOwnerUuid) {
+        var store = teamProgressionStore;
+        if (store == null) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "TEAM_STORE_UNAVAILABLE", "Team progression store is not open"));
+        }
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            UUID teamId = progression.getTeamId();
+            if (teamId == null) {
+                return AuthorizedActionResult.of(false);
+            }
+            try {
+                var teamOpt = store.get(teamId);
+                if (teamOpt.isEmpty()) {
+                    return AuthorizedActionResult.of(false);
+                }
+                var team = teamOpt.get();
+                if (!team.isMember(newOwnerUuid)) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "NOT_A_MEMBER", "Ownership can only transfer to a team member"));
+                }
+                boolean selfService = request.playerUuid().equals(request.actorId());
+                if (selfService && !request.playerUuid().equals(team.getOwnerUuid())) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "NOT_OWNER", "Only the team owner can transfer ownership"));
+                }
+                if (newOwnerUuid.equals(team.getOwnerUuid())) {
+                    return AuthorizedActionResult.of(false);
+                }
+                team.setOwnerUuid(newOwnerUuid);
+                store.save(team);
+                return AuthorizedActionResult.of(true);
+            } catch (Exception e) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "TEAM_STORE_UNAVAILABLE", "Team record could not be persisted"));
+            }
+        }
+    }
+
+    /**
+     * Post-commit mirror (P5-5): when a team member's quest state changes,
+     * the shared team record picks it up so "team progress and ownership
+     * survive reconnect". Completion also records the explicit claim — the
+     * first committing member owns the shared slot, durably. Best-effort:
+     * the player-scoped commit already landed, so a store failure is logged
+     * rather than rolling a completed quest back.
+     */
+    private void propagateTeamQuestState(UUID playerUuid, NamespacedId questId,
+                                         PlayerProgression progression) {
+        var store = teamProgressionStore;
+        UUID teamId = progression.getTeamId();
+        if (store == null || teamId == null) {
+            return;
+        }
+        try {
+            var teamOpt = store.get(teamId);
+            if (teamOpt.isEmpty()) {
+                return;
+            }
+            var team = teamOpt.get();
+            if (!team.isMember(playerUuid)) {
+                return; // dangling ref — never write into a record lacking the member
+            }
+            var state = progression.peekQuestState(questId);
+            if (state == null) {
+                return;
+            }
+            team.putQuestState(questId, state.copy());
+            if (state.getStatus() == com.storynpcs.domain.progression.QuestProgressState.Status.COMPLETED) {
+                team.claim(questId, playerUuid);
+            }
+            store.save(team);
+        } catch (Exception e) {
+            System.err.println("[StoryNPCs] team progression mirror failed for " + questId
+                    + " (player " + playerUuid + "): " + e.getMessage());
+        }
+    }
+
+    // ==========================================
     // 4. Quest Operations
     // ==========================================
 
@@ -3249,6 +3593,11 @@ public class StoryNpcsApplicationService {
                                 rememberQuestMutation(request, fingerprint, result, false);
                             }
                         }
+                    }
+                    if (result.newlyApplied()) {
+                        // P5-5: mirror the member's committed state into the
+                        // shared team record (progress + completion claim).
+                        propagateTeamQuestState(request.playerUuid(), request.questId(), progression);
                     }
                     if (publishCanonical) notifications.add(0, questMutationEvent(request, result));
                 }
@@ -3646,6 +3995,9 @@ public class StoryNpcsApplicationService {
                         committedRevision[0] = progression.getQuestRevision();
                     }
                     if (!replayed && result.outcome() == QuestCompletionResult.Outcome.COMPLETED) {
+                        // P5-5: mirror the completion into the shared team
+                        // record and record the explicit claim.
+                        propagateTeamQuestState(request.playerUuid(), request.questId(), progression);
                         notifications.addAll(factionEvents);
                         notifications.add(new QuestCompleteEvent(request.playerUuid(), request.questId()));
                     }
@@ -3729,7 +4081,7 @@ public class StoryNpcsApplicationService {
                     String rewardKey = index++ + "|" + reward.getType()
                             + "|" + reward.getTarget() + "|" + reward.getAmount();
                     switch (reward.getType()) {
-                        case EXPERIENCE, ITEM -> {
+                        case EXPERIENCE, ITEM, COMMAND -> {
                             Set<String> delivered = progression.getDeliveredQuestRewards().get(questId);
                             if (delivered != null && delivered.contains(rewardKey)) {
                                 break; // granted before a failed commit — never deliver twice
@@ -3746,11 +4098,12 @@ public class StoryNpcsApplicationService {
                                 throw markFailure;
                             }
                             // If delivery throws now the durable mark stays: a retry may
-                            // lose this reward but can never grant it twice.
+                            // lose this reward but can never grant it twice. For COMMAND
+                            // rewards the mark additionally means "attempted" — a failed
+                            // command is reported and never re-executed (non-atomic policy).
                             deliverQuestReward(playerUuid, questId, reward);
                             rewardsApplied++;
                         }
-                        case COMMAND -> throw new IllegalStateException("command rewards are non-atomic");
                         default -> { }
                     }
                 }
@@ -3830,6 +4183,27 @@ public class StoryNpcsApplicationService {
         if (player == null) throw new IllegalStateException("player is offline");
         switch (reward.getType()) {
             case EXPERIENCE -> player.giveExperiencePoints(reward.getAmount());
+            case COMMAND -> {
+                // Non-atomic reward: runs once under the durable delivered
+                // mark; %player% is sanitized exactly like the dialogue
+                // EXECUTE_COMMAND path so a crafted player name cannot inject
+                // extra command syntax.
+                String cmd = reward.getTarget().trim();
+                String safeName = player.getScoreboardName().replaceAll("[^a-zA-Z0-9_]", "");
+                if (safeName.length() < 2 || safeName.length() > 16) safeName = "unknown";
+                cmd = cmd.replace("%player%", safeName);
+                if (cmd.startsWith("/")) cmd = cmd.substring(1);
+                try {
+                    minecraftServer.getCommands().performPrefixedCommand(
+                            minecraftServer.createCommandSourceStack()
+                                    .withSuppressedOutput().withMaximumPermission(4), cmd);
+                } catch (Exception commandFailure) {
+                    System.err.println("[StoryNPCs] non-atomic quest command reward failed for "
+                            + questId + " (policy: marked attempted, not retried): "
+                            + commandFailure.getMessage());
+                    throw commandFailure;
+                }
+            }
             case ITEM -> {
                 var itemRl = net.minecraft.resources.ResourceLocation.tryParse(reward.getTarget().trim());
                 var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElseThrow();
@@ -4145,7 +4519,15 @@ public class StoryNpcsApplicationService {
                         }
                     }
                     case COMMAND -> {
-                        return QuestCompletionResult.rejected("NON_ATOMIC_COMMAND_REWARD");
+                        // Non-atomic by policy: validated up-front, executed
+                        // once under a durable delivered mark, and a failure is
+                        // reported rather than retried (never silently replayed).
+                        if (reward.getTarget() == null || reward.getTarget().isBlank()) {
+                            return QuestCompletionResult.rejected("COMMAND_REWARD_TARGET_MISSING");
+                        }
+                        if (minecraftServer != null && minecraftServer.getPlayerList().getPlayer(playerUuid) == null) {
+                            return QuestCompletionResult.rejected("PLAYER_OFFLINE");
+                        }
                     }
                 }
             } catch (RuntimeException e) {

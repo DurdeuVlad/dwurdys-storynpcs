@@ -135,6 +135,21 @@ public final class StoryNpcsCommands {
                         .executes(StoryNpcsCommands::listTransports)
                         .then(Commands.argument("location_id", ResourceLocationArgument.id())
                                 .executes(StoryNpcsCommands::transport)))
+                // P5-5 shared-party teams: self-service create/invite/join/leave;
+                // owner transfer is self-service for the owner, admin otherwise.
+                .then(Commands.literal("team")
+                        .executes(StoryNpcsCommands::teamStatus)
+                        .then(Commands.literal("create").executes(StoryNpcsCommands::teamCreate))
+                        .then(Commands.literal("invite")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(StoryNpcsCommands::teamInvite)))
+                        .then(Commands.literal("join")
+                                .then(Commands.argument("owner", EntityArgument.player())
+                                        .executes(StoryNpcsCommands::teamJoin)))
+                        .then(Commands.literal("leave").executes(StoryNpcsCommands::teamLeave))
+                        .then(Commands.literal("owner")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(StoryNpcsCommands::teamOwner))))
                 // P8-1 templates: list + instantiate-into-NPC through saveNpc
                 .then(Commands.literal("template")
                         .requires(source -> source.hasPermission(2))
@@ -2122,6 +2137,123 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("Failed to start quest: " + e.getMessage()));
             return 0;
         }
+    }
+
+    private static ServerPlayer teamActor(CommandContext<CommandSourceStack> ctx) {
+        return ctx.getSource().getEntity() instanceof ServerPlayer sp ? sp : null;
+    }
+
+    private static com.storynpcs.service.PlayerProgressionActionRequest teamRequest(
+            CommandContext<CommandSourceStack> ctx, String operation, ServerPlayer subject) {
+        ServerPlayer actor = teamActor(ctx);
+        return new com.storynpcs.service.PlayerProgressionActionRequest(
+                operation, actor != null ? "player" : "command",
+                actor != null ? actor.getUUID() : null, subject.getUUID(),
+                UUID.randomUUID(), ctx.getSource().hasPermission(2) ? 2 : 0);
+    }
+
+    private static int teamResult(CommandContext<CommandSourceStack> ctx,
+                                  com.storynpcs.service.AuthorizedActionResult result,
+                                  String success) {
+        if (!result.applied()) {
+            String reason = result.decision() != null && !result.decision().allowed()
+                    ? result.decision().message() : "not applicable";
+            ctx.getSource().sendFailure(Component.literal("Team action failed: " + reason));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(success), true);
+        return 1;
+    }
+
+    private static int teamStatus(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player = teamActor(ctx);
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        var service = mod(ctx).getApplicationService();
+        var store = service.getTeamProgressionStore();
+        var prog = mod(ctx).getProgressionRepository().getOrCreate(player.getUUID());
+        if (prog == null || prog.getTeamId() == null || store == null) {
+            ctx.getSource().sendSuccess(() -> Component.literal("Not in a team"), false);
+            return 1;
+        }
+        try {
+            var team = store.get(prog.getTeamId());
+            if (team.isEmpty()) {
+                ctx.getSource().sendSuccess(() -> Component.literal("Not in a team"), false);
+                return 1;
+            }
+            var t = team.get();
+            StringBuilder sb = new StringBuilder("Team " + t.getTeamId()
+                    + " — " + t.getMemberUuids().size() + " member(s)");
+            if (player.getUUID().equals(t.getOwnerUuid())) sb.append(" (you own it)");
+            t.getQuests().forEach((qid, state) -> sb.append("\n  ").append(qid)
+                    .append(": ").append(state.getStatus()));
+            ctx.getSource().sendSuccess(() -> Component.literal(sb.toString()), false);
+            return 1;
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("Team state unavailable: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int teamCreate(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player = teamActor(ctx);
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        var result = mod(ctx).getApplicationService()
+                .teamCreate(teamRequest(ctx, "team.create", player));
+        return teamResult(ctx, result, "Team created — invite members with /storynpcs team invite <player>");
+    }
+
+    private static int teamInvite(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = teamActor(ctx);
+        ServerPlayer invitee = EntityArgument.getPlayer(ctx, "player");
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        var result = mod(ctx).getApplicationService()
+                .teamInvite(teamRequest(ctx, "team.invite", player), invitee.getUUID());
+        return teamResult(ctx, result, "Invited " + invitee.getScoreboardName() + " to your team");
+    }
+
+    private static int teamJoin(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = teamActor(ctx);
+        ServerPlayer owner = EntityArgument.getPlayer(ctx, "owner");
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        var result = mod(ctx).getApplicationService()
+                .teamJoin(teamRequest(ctx, "team.join", player), owner.getUUID());
+        return teamResult(ctx, result, "Joined " + owner.getScoreboardName() + "'s team");
+    }
+
+    private static int teamLeave(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player = teamActor(ctx);
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        var result = mod(ctx).getApplicationService()
+                .teamLeave(teamRequest(ctx, "team.leave", player));
+        return teamResult(ctx, result, "Left the team");
+    }
+
+    private static int teamOwner(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = teamActor(ctx);
+        ServerPlayer newOwner = EntityArgument.getPlayer(ctx, "player");
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("Team commands require a player"));
+            return 0;
+        }
+        var result = mod(ctx).getApplicationService()
+                .teamTransferOwner(teamRequest(ctx, "team.owner", player), newOwner.getUUID());
+        return teamResult(ctx, result, "Ownership transferred to " + newOwner.getScoreboardName());
     }
 
     private static int resetQuest(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
