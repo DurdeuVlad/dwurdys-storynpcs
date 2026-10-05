@@ -399,4 +399,94 @@ public final class StoryNpcsGameTests {
                     "Squad coordination must allocate distinct targets, got duplicate " + t0.get());
         });
     }
+
+    /**
+     * G-E1 (#158) live placement: a bundled schematic must write real blocks
+     * into a live {@code ServerLevel} — the pipeline was previously proven
+     * against files and domain plans only. Builds one bundled structure at a
+     * non-zero rotation inside the loaded test area, drains the bounded
+     * executor synchronously, then asserts: placed-block parity against the
+     * rotated plan, non-air blocks observable at rotated world offsets,
+     * unloaded-chunk cells skipped (never force-loaded), and {@code stopAll}
+     * draining an in-flight build — the semantics the server-stop hook relies
+     * on (registered at {@code StoryNpcs} init → {@code onServerStopping} →
+     * {@code handleServerStop}).
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 200)
+    public static void bundledSchematicPlacesBlocksInLiveWorld(GameTestHelper helper) {
+        var level = helper.getLevel();
+        StoryNpcs mod = StoryNpcsAccess.mod(level);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        var service = mod.getSchematicBuildService();
+        service.stopAll(); // isolate: no earlier test's build may pollute this tally
+
+        var loaded = com.storynpcs.domain.schematic.SchematicStore.load(
+                level.getServer(), "house_small");
+        helper.assertTrue(loaded.schematic().isPresent(),
+                "bundled schematic must load through the resource manager: " + loaded.error());
+        var schematic = loaded.schematic().get();
+        var plan = com.storynpcs.domain.schematic.BuildPlan.of(schematic, 1);
+        helper.assertFalse(plan.placements().isEmpty(),
+                "quarter-turn plan must yield placeable cells");
+
+        // Non-zero rotation into a live level, outside the 3x3 template box.
+        BlockPos origin = helper.absolutePos(new BlockPos(16, 1, 16));
+        var rejected = service.startBuild(level, schematic, origin, 1);
+        helper.assertTrue(rejected.isEmpty(), "startBuild rejected: " + rejected.orElse(""));
+        drain(service, helper);
+
+        var result = lastResult(service);
+        helper.assertTrue(schematic.name().equals(result.name()),
+                "result name mismatch: " + result.name());
+        helper.assertTrue(result.placed() > 0, "live build must place real blocks");
+        helper.assertTrue(result.placed() + result.skippedUnloaded() + result.unresolved()
+                        == result.total(),
+                "placed/skipped/unresolved must account for every plan cell");
+        int occupied = 0;
+        for (var p : plan.placements()) {
+            if (!level.getBlockState(origin.offset(p.dx(), p.dy(), p.dz())).isAir()) {
+                occupied++;
+            }
+        }
+        helper.assertTrue(occupied > 0,
+                "placed blocks must be observable at rotated plan offsets");
+
+        // Cells whose chunk is not loaded are skipped — never force-loaded.
+        BlockPos farOrigin = new BlockPos(
+                origin.getX() + 65536, 64, origin.getZ() + 65536);
+        var farRejected = service.startBuild(level, schematic, farOrigin, 0);
+        helper.assertTrue(farRejected.isEmpty(),
+                "far build rejected: " + farRejected.orElse(""));
+        drain(service, helper);
+        var farResult = lastResult(service);
+        helper.assertTrue(farResult.placed() == 0,
+                "unloaded-chunk cells must not place, placed=" + farResult.placed());
+        helper.assertTrue(farResult.skippedUnloaded() == farResult.total(),
+                "every far cell must count as skipped-unloaded, skipped="
+                        + farResult.skippedUnloaded() + " total=" + farResult.total());
+
+        // stopAll drains in-flight builds — the server-stop hook contract.
+        var third = service.startBuild(level, schematic, origin, 0);
+        helper.assertTrue(third.isEmpty(), "third build rejected: " + third.orElse(""));
+        helper.assertFalse(service.status().isEmpty(), "build must be in-flight");
+        helper.assertTrue(service.stopAll() == 1, "stopAll must report the stopped build");
+        helper.assertTrue(service.status().isEmpty(), "stopAll must drain active builds");
+
+        helper.succeed();
+    }
+
+    private static void drain(com.storynpcs.service.SchematicBuildService service,
+                              GameTestHelper helper) {
+        for (int i = 0; i < 4000 && !service.status().isEmpty(); i++) {
+            service.tick();
+        }
+        helper.assertTrue(service.status().isEmpty(),
+                "build must drain within the synchronous tick budget");
+    }
+
+    private static com.storynpcs.service.SchematicBuildService.BuildResult lastResult(
+            com.storynpcs.service.SchematicBuildService service) {
+        var results = service.recentResults();
+        return results.get(results.size() - 1);
+    }
 }

@@ -51,9 +51,15 @@ class BundledSchematicTest {
     void bundledDirectoryMatchesExpectedCatalog() throws IOException {
         // Test classpath resolves main resources as files — guard both a
         // dropped asset and an undocumented extra file landing in the bundle.
+        // G-E1 (#158): the `file` protocol is a Gradle-test-classpath contract —
+        // directory enumeration needs a jar-aware strategy under a jar-packaged
+        // runner; the load/parse coverage above is classpath-protocol agnostic.
         var url = BundledSchematicTest.class.getClassLoader().getResource(RESOURCE_DIR);
         assertThat(url).as("bundled schematics resource dir").isNotNull();
-        assertThat(url.getProtocol()).isEqualTo("file");
+        assertThat(url.getProtocol())
+                .as("Gradle test classpath must expose resources as files (documented "
+                        + "Gradle-only assumption, #158 — jar runners need jar-aware enumeration)")
+                .isEqualTo("file");
         var names = new TreeSet<String>();
         try (var stream = java.nio.file.Files.list(
                 java.nio.file.Path.of(java.net.URI.create(url.toExternalForm())))) {

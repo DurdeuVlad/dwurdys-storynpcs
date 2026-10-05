@@ -33,3 +33,4 @@ gradlew   text eol=lf
 *.gif     binary
 *.ico     binary
 *.zip     binary
+*.schematic binary
