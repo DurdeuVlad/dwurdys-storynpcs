@@ -43,8 +43,11 @@ public final class FieldMappingRegistry {
 
     private static final Map<String, Set<String>> KNOWN_KEYS = Map.of(
             "npc", Set.of("id", "display", "stats", "ai", "dialogueId", "factionId",
-                    "mark", "marks", "inventory", "rules", "trader", "banker"),
-            "dialogue", Set.of("id", "title", "entryNodeId", "nodes"),
+                    "mark", "marks", "inventory", "rules", "trader", "banker",
+                    // NPC-attached role sections loadable since P6/P8 slices —
+                    // importer must not quarantine valid NPC docs carrying them.
+                    "job", "companion", "bard", "healer", "postman", "transporter"),
+            "dialogue", Set.of("id", "title", "titleKey", "availability", "entryNodeId", "nodes"),
             "quest", Set.of("id", "title", "description", "category", "repeatType",
                     "prerequisites", "objectives", "rewards"),
             "faction", Set.of("id", "name", "defaultPoints", "hostileThreshold",

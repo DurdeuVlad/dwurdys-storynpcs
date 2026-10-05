@@ -96,7 +96,9 @@ class NpcDefinitionSerdeTest {
                 NpcItemStack.single(NamespacedId.of("minecraft:iron_helmet")));
         inventory.setDrop(0, NpcItemStack.single(NamespacedId.of("minecraft:bread")), 50);
         inventory.setDrop(9, new NpcItemStack(NamespacedId.of("minecraft:emerald"), 3, ""), 25);
-        inventory.setLootMode(NpcInventory.LootMode.NPC_ONLY);
+        inventory.setLootMode(NpcInventory.LootMode.AUTO_PICKUP);
+        inventory.setMinExp(10);
+        inventory.setMaxExp(40);
         original.setInventory(inventory);
 
         NpcDefinition restored = NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(original)).orElseThrow();
@@ -111,7 +113,9 @@ class NpcDefinitionSerdeTest {
         assertEquals(50, restoredInv.getDrops().get(0).getChancePercent());
         assertEquals(3, restoredInv.getDrops().get(9).getItem().count());
         assertEquals(25, restoredInv.getDrops().get(9).getChancePercent());
-        assertEquals(NpcInventory.LootMode.NPC_ONLY, restoredInv.getLootMode());
+        assertEquals(NpcInventory.LootMode.AUTO_PICKUP, restoredInv.getLootMode());
+        assertEquals(10, restoredInv.getMinExp());
+        assertEquals(40, restoredInv.getMaxExp());
         assertEquals(21, restoredInv.getDrops().size());
     }
 

@@ -34,6 +34,9 @@ public final class CapabilityRegistry {
             Map.entry("transport.mutate", Policy.DEFINITION),
             Map.entry("transport.edit", Policy.DEFINITION),
             Map.entry("transport.delete", Policy.DEFINITION),
+            Map.entry("template.mutate", Policy.DEFINITION),
+            Map.entry("template.edit", Policy.DEFINITION),
+            Map.entry("template.delete", Policy.DEFINITION),
             // Player-scoped progression operations
             Map.entry("quest.start", Policy.PLAYER_SCOPED),
             Map.entry("quest.progress", Policy.PLAYER_SCOPED),
@@ -49,7 +52,13 @@ public final class CapabilityRegistry {
             Map.entry("bank.withdraw", Policy.PLAYER_SCOPED),
             Map.entry("bank.share", Policy.PLAYER_SCOPED),
             Map.entry("bank.unlock", Policy.PLAYER_SCOPED),
-            Map.entry("trade.execute", Policy.PLAYER_SCOPED)
+            Map.entry("trade.execute", Policy.PLAYER_SCOPED),
+            // Player-scoped progression actions (PlayerProgressionActionRequest)
+            Map.entry("mail.read", Policy.PLAYER_SCOPED),
+            Map.entry("mail.delete", Policy.PLAYER_SCOPED),
+            Map.entry("transport.unlock", Policy.PLAYER_SCOPED),
+            Map.entry("transport.request", Policy.PLAYER_SCOPED),
+            Map.entry("dialogue.visit.record", Policy.PLAYER_SCOPED)
     );
 
     private CapabilityRegistry() {}

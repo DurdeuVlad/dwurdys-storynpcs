@@ -98,6 +98,19 @@ public final class HeadlessBenchmark {
         int maxDepth = 0;
         long requestSeq = 0;
 
+        // Per-phase attribution: a regression report names WHERE time went.
+        // One timer pair per phase per tick (5 pairs + the tick pair ≈ 11
+        // nanoTime calls/tick) — per-actor boundaries would put ~4·npcCount
+        // nanoTime() calls inside the gated window and dominate the cheap
+        // buckets with measurement overhead.
+        long phaseEvaluateNanos = 0;
+        long phaseSensingNanos = 0;
+        long phasePathNanos = 0;
+        long phaseCombatNanos = 0;
+        long phaseSquadNanos = 0;
+        long totalTickNanos = 0;
+        double sensed = 0; // consumed so the sensing read can't be dead-code-eliminated
+
         // Unmeasured warmup: let the JIT reach steady state so cross-seed
         // repeatability measures the workload, not compilation noise.
         long warmupTicks = Math.max(250, spec.ticks() / 2);
@@ -107,14 +120,21 @@ public final class HeadlessBenchmark {
 
         for (long tick = 0; tick < spec.ticks(); tick++) {
             long start = System.nanoTime();
+            long phaseStart = start;
             scheduler.evaluate(actors);
+            phaseEvaluateNanos += System.nanoTime() - phaseStart;
             tierEvaluations++;
 
-            // Capability-gated work per actor at this tick.
+            phaseStart = System.nanoTime();
             for (SimulationScheduler.ActorInput a : actors) {
                 if (scheduler.shouldRun(a.actorId(), SimulationScheduler.Capability.SENSING, tick)) {
-                    a.distanceBlocks(); // observable input read — the sensing unit of work
+                    sensed += a.distanceBlocks(); // the sensing unit of work
                 }
+            }
+            phaseSensingNanos += System.nanoTime() - phaseStart;
+
+            phaseStart = System.nanoTime();
+            for (SimulationScheduler.ActorInput a : actors) {
                 if (a.inCombat() && scheduler.shouldRun(a.actorId(),
                         SimulationScheduler.Capability.PATHING, tick)) {
                     pathSubmissions++;
@@ -127,6 +147,11 @@ public final class HeadlessBenchmark {
                         paths.poll();
                     }
                 }
+            }
+            phasePathNanos += System.nanoTime() - phaseStart;
+
+            phaseStart = System.nanoTime();
+            for (SimulationScheduler.ActorInput a : actors) {
                 if (a.inCombat() && scheduler.shouldRun(a.actorId(),
                         SimulationScheduler.Capability.COMBAT, tick)) {
                     long eventId = ++eventSeq;
@@ -134,17 +159,29 @@ public final class HeadlessBenchmark {
                     if (!delivered.add(eventId)) duplicated++;
                 }
             }
+            phaseCombatNanos += System.nanoTime() - phaseStart;
+
+            phaseStart = System.nanoTime();
             if (!squad.isEmpty()) {
                 squads.coordinate(squad, enemies, actor -> rng.nextDouble());
                 squadCoordinations++;
             }
+            phaseSquadNanos += System.nanoTime() - phaseStart;
+
             maxDepth = Math.max(maxDepth, paths.depth());
-            windowNanos += System.nanoTime() - start;
+            long elapsed = System.nanoTime() - start;
+            windowNanos += elapsed;
+            totalTickNanos += elapsed;
             if ((tick + 1) % window == 0 || tick + 1 == spec.ticks()) {
                 long span = (tick + 1) % window == 0 ? window : (tick + 1) % window;
                 tickNanos.add(windowNanos / (span * 1_000_000.0));
                 windowNanos = 0;
             }
+        }
+        if (sensed < 0) {
+            // Impossible (distances are non-negative) — the check exists so the
+            // accumulator is observable and the sensing read can't be DCE'd.
+            throw new IllegalStateException("sensing accumulator went negative");
         }
 
         // Dormant incremental memory: serialize the durable per-actor record the
@@ -181,7 +218,13 @@ public final class HeadlessBenchmark {
                         + " far actors, " + spec.ticks() + " ticks, seed " + seed);
         WorkFingerprint fingerprint = new WorkFingerprint(tierEvaluations, emitted.size(),
                 delivered.size(), pathSubmissions, squadCoordinations);
-        return new BenchmarkReport(env, workload, metrics, fingerprint);
+        long instrumented = phaseEvaluateNanos + phaseSensingNanos + phasePathNanos
+                + phaseCombatNanos + phaseSquadNanos;
+        return new BenchmarkReport(env, workload, metrics, fingerprint,
+                new PerformanceContract.PhaseBreakdown(
+                        phaseEvaluateNanos, phaseSensingNanos, phasePathNanos,
+                        phaseCombatNanos, phaseSquadNanos,
+                        Math.max(0, totalTickNanos - instrumented)));
     }
 
     /**

@@ -34,10 +34,17 @@ public class NpcInventory {
         PROJECTILE
     }
 
+    /**
+     * VERIFIED_TARGET_SOURCE: the target's {@code lootMode} is an int —
+     * {@code 0} drops items as world entities at the NPC position, {@code 1}
+     * (GUI "inv.auto") transfers drops into the killer player's inventory with
+     * leftovers staying in the world. {@link #NOTHING} is a StoryNPCs
+     * extension that suppresses the authored drop table and inventory XP.
+     */
     public enum LootMode {
         NORMAL,
         NOTHING,
-        NPC_ONLY
+        AUTO_PICKUP
     }
 
     public enum EquipOutcome {
@@ -99,6 +106,17 @@ public class NpcInventory {
     @JsonProperty
     private LootMode lootMode = LootMode.NORMAL;
 
+    /**
+     * Authored experience-drop range — mirrors the target's {@code MinExp} /
+     * {@code MaxExp} NBT fields. A kill awards {@code minExp} plus a uniform
+     * roll in {@code [0, maxExp - minExp)} when {@code maxExp > minExp}.
+     */
+    @JsonProperty
+    private int minExp = 0;
+
+    @JsonProperty
+    private int maxExp = 0;
+
     public NpcInventory() {}
 
     private static List<DropEntry> freshDropList() {
@@ -139,6 +157,18 @@ public class NpcInventory {
     public LootMode getLootMode() { return lootMode; }
     public void setLootMode(LootMode lootMode) {
         this.lootMode = lootMode != null ? lootMode : LootMode.NORMAL;
+    }
+
+    public int getMinExp() { return minExp; }
+    public void setMinExp(int minExp) {
+        if (minExp < 0) throw new IllegalArgumentException("minExp cannot be negative");
+        this.minExp = minExp;
+    }
+
+    public int getMaxExp() { return maxExp; }
+    public void setMaxExp(int maxExp) {
+        if (maxExp < 0) throw new IllegalArgumentException("maxExp cannot be negative");
+        this.maxExp = maxExp;
     }
 
     /** Equips a stack into a slot, returning the displaced stack when any. */
@@ -213,56 +243,125 @@ public class NpcInventory {
             return inventory;
         }
         if (node.isObject()) {
+            // Strict boundary (issue #55 / P2-1): unknown keys, unknown slot
+            // names, malformed stacks, and out-of-range values are rejected
+            // with field-path diagnostics instead of being silently dropped.
+            for (Iterator<String> it = node.fieldNames(); it.hasNext();) {
+                String key = it.next();
+                if (!key.equals("equipment") && !key.equals("drops") && !key.equals("lootMode")
+                        && !key.equals("minExp") && !key.equals("maxExp")) {
+                    throw new IllegalArgumentException("inventory." + key + ": unknown field");
+                }
+            }
             JsonNode equipment = node.get("equipment");
-            if (equipment != null && equipment.isObject()) {
+            if (equipment != null) {
+                if (!equipment.isObject()) {
+                    throw new IllegalArgumentException("inventory.equipment must be a slot-name mapping");
+                }
                 for (Iterator<Map.Entry<String, JsonNode>> it = equipment.fields(); it.hasNext();) {
                     Map.Entry<String, JsonNode> field = it.next();
+                    ItemSlot slot;
                     try {
-                        ItemSlot slot = ItemSlot.valueOf(field.getKey().trim().toUpperCase());
-                        inventory.equip(slot, itemFromNode(field.getValue()));
-                    } catch (IllegalArgumentException ignored) {
-                        // Unknown slot names or malformed stacks are skipped, not fatal.
+                        slot = ItemSlot.valueOf(field.getKey().trim().toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        throw new IllegalArgumentException(
+                                "inventory.equipment." + field.getKey() + ": unknown equipment slot");
                     }
+                    inventory.equip(slot, requireItem(field.getValue(),
+                            "inventory.equipment." + field.getKey()));
                 }
             }
             JsonNode drops = node.get("drops");
-            if (drops != null && drops.isArray()) {
+            if (drops != null) {
+                if (!drops.isArray()) {
+                    throw new IllegalArgumentException("inventory.drops must be an array");
+                }
                 if (drops.size() > DROP_SLOTS) {
                     throw new IllegalArgumentException("drops exceeds " + DROP_SLOTS + " supported slots");
                 }
                 int index = 0;
                 for (JsonNode drop : drops) {
-                    if (index >= DROP_SLOTS) break;
-                    NpcItemStack item = itemFromNode(drop.get("item"));
-                    if (item != null) {
-                        int chance = drop.has("chancePercent") ? drop.get("chancePercent").asInt(100) : 100;
-                        inventory.setDrop(index, item, chance);
+                    if (!drop.isObject()) {
+                        throw new IllegalArgumentException(
+                                "inventory.drops[" + index + "] must be an object with item/chancePercent");
                     }
+                    rejectUnknownKeys(drop, java.util.Set.of("item", "chancePercent"),
+                            "inventory.drops[" + index + "]");
+                    JsonNode itemNode = drop.get("item");
+                    if (itemNode == null || itemNode.isNull()) {
+                        index++; // serialized empty slot — a gap, not dropped content
+                        continue;
+                    }
+                    NpcItemStack item = requireItem(itemNode, "inventory.drops[" + index + "].item");
+                    int chance = requireBoundedInt(drop.get("chancePercent"),
+                            "inventory.drops[" + index + "].chancePercent", 0, 100, 100);
+                    inventory.setDrop(index, item, chance);
                     index++;
                 }
             }
             JsonNode lootMode = node.get("lootMode");
-            if (lootMode != null && lootMode.isTextual()) {
+            if (lootMode != null) {
+                if (!lootMode.isTextual()) {
+                    throw new IllegalArgumentException("inventory.lootMode must be a string");
+                }
                 try {
                     inventory.setLootMode(LootMode.valueOf(lootMode.asText().trim().toUpperCase()));
-                } catch (IllegalArgumentException ignored) {}
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException(
+                            "inventory.lootMode: unknown value '" + lootMode.asText() + "'");
+                }
             }
+            inventory.setMinExp(requireBoundedInt(node.get("minExp"),
+                    "inventory.minExp", 0, Integer.MAX_VALUE, 0));
+            inventory.setMaxExp(requireBoundedInt(node.get("maxExp"),
+                    "inventory.maxExp", 0, Integer.MAX_VALUE, 0));
             return inventory;
         }
         throw new IllegalArgumentException("inventory must be an object or legacy item-id array");
     }
 
-    private static NpcItemStack itemFromNode(JsonNode node) {
-        if (node == null || node.isNull() || !node.isObject()) return null;
-        JsonNode id = node.get("itemId");
-        if (id == null || !id.isTextual() || id.asText().isBlank()) return null;
-        int count = node.has("count") ? node.get("count").asInt(1) : 1;
-        String components = node.has("components") ? node.get("components").asText("") : "";
-        try {
-            return new NpcItemStack(NamespacedId.of(id.asText()), count, components);
-        } catch (IllegalArgumentException invalid) {
-            return null;
+    private static void rejectUnknownKeys(JsonNode object, java.util.Set<String> known,
+                                          String fieldPath) {
+        for (Iterator<String> it = object.fieldNames(); it.hasNext();) {
+            String key = it.next();
+            if (!known.contains(key)) {
+                throw new IllegalArgumentException(fieldPath + "." + key + ": unknown field");
+            }
         }
+    }
+
+    private static int requireBoundedInt(JsonNode node, String fieldPath, int min, int max,
+                                         int defaultValue) {
+        if (node == null || node.isNull()) return defaultValue;
+        if (!node.isIntegralNumber() || !node.canConvertToInt()) {
+            throw new IllegalArgumentException(fieldPath + " must be an integer, got " + node);
+        }
+        int value = node.intValue();
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(
+                    fieldPath + " must be " + min + ".." + max + ", got " + value);
+        }
+        return value;
+    }
+
+    private static NpcItemStack requireItem(JsonNode node, String fieldPath) {
+        if (node == null || !node.isObject()) {
+            throw new IllegalArgumentException(
+                    fieldPath + ": malformed item stack (requires an object with itemId)");
+        }
+        rejectUnknownKeys(node, java.util.Set.of("itemId", "count", "components"), fieldPath);
+        JsonNode id = node.get("itemId");
+        if (id == null || !id.isTextual() || id.asText().isBlank()) {
+            throw new IllegalArgumentException(fieldPath + ".itemId: textual namespaced id required");
+        }
+        int count = requireBoundedInt(node.get("count"), fieldPath + ".count",
+                1, NpcItemStack.MAX_COUNT, 1);
+        JsonNode componentsNode = node.get("components");
+        if (componentsNode != null && !componentsNode.isNull() && !componentsNode.isTextual()) {
+            throw new IllegalArgumentException(fieldPath + ".components must be a string");
+        }
+        String components = componentsNode != null ? componentsNode.asText("") : "";
+        return new NpcItemStack(NamespacedId.of(id.asText()), count, components);
     }
 
 }

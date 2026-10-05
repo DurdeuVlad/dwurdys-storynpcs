@@ -1,6 +1,60 @@
 # P1-1 closeout — typed canonical mutation boundary
 
-Status: `IN-REVIEW` — definition create/replace requests bind canonical payload fingerprints; quest start/progress, quest completion, faction standing, and follower state/formation now use player-scoped typed requests with persisted revisions, request-ID replay protection, and actor/subject authorization. XP/item rewards use durable mark-before-deliver. This does not close P1-1: template/tool operations are not a typed family, bank/trade runtime mutations use request-ID journals rather than `MutationRequest` envelopes, dialogue node-visit recording bypasses the boundary, and remaining protocol/session/policy coverage is incomplete.
+Status: `IN-REVIEW` — every mutation family listed in the acceptance criteria now routes through a typed request boundary: definition create/replace/delete (`MutationRequest` + canonical payload fingerprints), quest start/progress/completion, faction standing, follower state/formation, template replace/delete, bank vault access and operations (`BankAccessMutationRequest`/`BankOperationRequest`), trade execution (`TradeExecutionRequest`), and player-scoped progression actions (`PlayerProgressionActionRequest` — transport unlock, mail read/delete, and dialogue node-visit recording). Residuals scoped below: system-internal progression writes (`deliverMail`, faction repair paths, pending-completion cleanup), a mutating `getQuestState` read on dialogue condition evaluation, and the fact that the `PlayerProgressionActionRequest` family carries no expected-revision/request-ID replay machinery (proportionate for flag-set writes, but thinner than the definition/progression envelopes).
+
+## Dialogue node-visit typed migration (current)
+
+- `PlayerProgression.recordDialogueNodeVisit` was the last *session-driven*
+  progression write issued by raw field mutation inside
+  `StoryNpcsApplicationService` (`startDialogue` and `advanceAlongEdge`), and —
+  worse — it mutated cached state with **no durable save**, so visits only
+  survived if a later periodic `saveAll` ran.
+- Added `recordDialogueNodeVisit(PlayerProgressionActionRequest, NamespacedId, String)`:
+  the same authorized player-scoped boundary used by transport unlock and mail
+  read/delete. Dialogue navigation submits `"dialogue"`-actor requests bound to
+  the visiting player (`playerUuid == actorId`), so visit recording honors the
+  same actor/subject policy as every other progression mutation and every
+  rejection carries a machine-readable `AuthorizationDecision` code. The public
+  boundary additionally rejects node ids absent from the named dialogue
+  (`DIALOGUE_NODE_NOT_FOUND`) so privileged callers cannot persist arbitrary keys.
+- Visits are now keyed per dialogue (`dialogueId#nodeId` via scoped
+  `PlayerProgression` overloads): bare node ids collide across graphs — every
+  dialogue conventionally has a `"start"` entry — and nothing consumed the flat
+  set yet, so the durable format was scoped before it gained readers. Legacy
+  bare-node-id entries remain readable through the unscoped accessors.
+- `recordDialogueNodeVisitInternal(...)` writes through only when the node is
+  newly visited and persists via `saveProgression(...)` in the same critical
+  section: first visits are durable, repeat navigation is a side-effect-free
+  `applied=false` no-op, and session paths reuse the `PlayerProgression`
+  instance already fetched for the view build.
+- Consistent with the rest of the `PlayerProgressionActionRequest` family, this
+  path emits no `CanonicalMutationEvent` and `applied=true` means in-memory
+  commit (a swallowed `IOException` during save is reported on stderr only) —
+  thinner than the definition/faction envelopes, proportionate for a flag-set
+  write, recorded here as a known envelope gap.
+- `DialogueVisitMutationTest` covers: root-node visit on `startDialogue`,
+  target-node visit on `chooseDialogueOption`, durability across a repository
+  reload, per-dialogue scoping, idempotent repeats, `DIALOGUE_NODE_NOT_FOUND`
+  rejection, and denial diagnostics for script actors, cross-subject dialogue
+  actors, and under-privileged command actors.
+
+## Stale-gap corrections (current tree vs. older wording)
+
+- **Faction via rules/combat**: `adjustFactionReputation(...)` (used by
+  `WitnessProtectionManager` and `RuleContext`/`AdjustFactionAction` handlers)
+  now delegates to `adjustFactionPoints(...)`, which submits a typed
+  `FactionProgressionMutationRequest` with system actor. The earlier note that
+  these paths were deliberately unmigrated is obsolete.
+- **Bank/trade**: `BankOperationRequest`, `BankAccessMutationRequest`, and
+  `TradeExecutionRequest` are typed actor-scoped envelopes evaluated by
+  `AuthorizationPolicy` — not bare request-ID journals. The durable journal is
+  the recovery substrate *behind* the typed request, not a substitute for it.
+- **Templates**: `template.replace`/`template.delete` route through
+  `executeCanonicalMutation` with capability checks, revision binding, and
+  payload fingerprints (merged separately).
+- **Remaining honest residuals** are tracked in *Explicit residual risks* below:
+  non-journaled world side-effects of `GIVE_ITEM`/`EXECUTE_COMMAND` dialogue
+  actions, and in-process replay-cache bounds.
 
 ## Faction progression typed migration (2026-09-25)
 
@@ -76,7 +130,7 @@ Status: `IN-REVIEW` — definition create/replace requests bind canonical payloa
 - Expected revisions follow the established optimistic-concurrency pattern, but must be captured from the same read that supplies any adapter-side decision (such as an indexed removal). Kubernetes uses `resourceVersion` to reject stale writes with a conflict; StoryNPCs should preserve that read-version-write relationship as remaining adapters migrate ([Kubernetes API concurrency](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources)).
 - Public compatibility methods remain callable without caller-supplied request envelopes; they now construct system-actor typed requests internally, so adapters cannot bypass authorization, replay, or revision checks — but callers cannot supply their own expected revisions or request IDs through those signatures. Bank tab unlock/deposit/withdraw and trade execution use request-ID durable journals rather than `MutationRequest` envelopes (tracked under P2-3/P7), and no typed template/tool operation family exists yet (P8-1 scope). These remain part of P1-1 acceptance, not certified coverage.
 - Ordinary quest start/progress, faction, completion, and follower receipts remain cached in-process (bounded at 4,096); successful old-revision requests still return stale after restart rather than restoring their original receipt. Rejected no-op requests are not durably remembered. Completion-pending requests are a durable exception, and XP/item rewards now use durable mark-before-deliver, but no live process-kill/inventory-delivery fixture exists under the no-live-MC constraint.
-- `PlayerProgression.recordDialogueNodeVisit` still mutates cached progression in-memory outside the typed boundary (dialogue-runtime scope, P5-1); dialogue `GIVE_ITEM`/`EXECUTE_COMMAND` action effects are non-journaled world side-effects inside committed operations.
+- `PlayerProgression.recordDialogueNodeVisit` is now routed through the typed `PlayerProgressionActionRequest` boundary and persists on first visit (see *Dialogue node-visit typed migration* above). Dialogue `GIVE_ITEM`/`EXECUTE_COMMAND` action effects remain non-journaled world side-effects inside committed operations.
 - Historical independent follow-up findings for stale completion revision and event order were fixed. The 2026-09-24 review additionally found stale pending-retry eligibility, lost pending state on restart, XP/item duplication risk, and queue wedge on publisher failure. Eligibility, pending-intent durability, and queue recovery have now been remediated with regression tests; XP/item delivery remains open. See `docs/parity/reviews/2026-09-24-p1-1-completion-retry-followup.md`. No target-runtime behavior is claimed.
 - The same review found the cross-reference validator accepts `requiredCount=100001` although `QuestProgressState` clamps progress at 100,000. P2-1 now requires rejecting objectives above the supported state maximum; a validator boundary test is required.
 - Revision advancement, the objective-count bound, and reentrant notification ordering have now been implemented and regression-tested; reward duplication after progression-save failure remains open under P2-3.

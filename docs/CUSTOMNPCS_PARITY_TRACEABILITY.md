@@ -82,6 +82,28 @@ Use only these states in the matrix:
 - `INTENTIONAL_DEVIATION`: documented improvement or incompatibility approved in the issue and release notes.
 - `UNKNOWN`: evidence missing; this blocks certification and cannot be silently upgraded.
 
+## Mapping-state semantics (issue #124)
+
+`MAPPED_STORYNPCS_OBSERVED` means **feature-mapped**: a concrete StoryNPCs
+artifact exists that implements the row's function — not merely a mechanism
+that *could* represent it. Since #124, every `MAPPED_STORYNPCS_OBSERVED` row's
+`storynpcs_ref` must be a whitespace-separated list of verifiable artifact
+tokens, validated by `tools/parity/compatibility_report.py`:
+
+| Token kind | Meaning |
+|---|---|
+| `path:<repo-relative>` | file or directory exists on disk |
+| `class:<fqcn>` | Java source exists under `src/main/java` or `src/test/java` |
+| `test:<fqcn>` | Java source exists under `src/test/java` |
+| `op:<name>` | canonical operation registered in `CapabilityRegistry` |
+
+Rows that previously claimed `MAPPED_STORYNPCS_OBSERVED` with only a milestone
+label or mechanism description (e.g. "P2-1: versioned YAML families") were
+reclassified to `INVENTORY_ONLY` in the #124 sweep — including all 19
+`markovnames` data rows and all asset rows without a shipped StoryNPCs
+counterpart file. The reclassification delta is visible in the regenerated
+`docs/parity/reports/compatibility-report.json`.
+
 ## Truth-gate requirements
 
 The following existing claims must be marked as aspirational or removed until their referenced implementation and evidence exist: `100% mutation parity`, public scripting/API parity, crash-safe progression, 500-NPC/25v25/LOD/async-path performance, and complete UI parity. This is tracked by issue P0-2.

@@ -28,6 +28,9 @@ public class ThreatManager {
     private final Map<UUID, Integer> threatTable = new ConcurrentHashMap<>();
     private UUID currentTarget = null;
     private int aggroTimer = 0;
+    // Authored calm-down window (NpcAi.aggroDurationTicks); the entity applies
+    // it per definition refresh. Floor matches NpcAi's own lower bound.
+    private int aggroDurationTicks = 400;
     private volatile AggroEventSink aggroEventSink;
 
     /** Optional sink for target-change reasons; a null sink keeps prior silent behavior. */
@@ -84,10 +87,26 @@ public class ThreatManager {
         }
     }
 
+    /**
+     * Sets the authored calm-down duration (game ticks) — a hit keeps the NPC
+     * hostile for at least this long after the last threat write. A shorter
+     * authored duration clamps a running timer (to a fresh window of the new
+     * duration, not elapsed-since-write); a longer one leaves the current
+     * window untouched until the next threat write re-arms it.
+     */
+    public void setAggroDurationTicks(int ticks) {
+        this.aggroDurationTicks = Math.max(40, ticks);
+        this.aggroTimer = Math.min(this.aggroTimer, this.aggroDurationTicks);
+    }
+
+    public int getAggroDurationTicks() {
+        return aggroDurationTicks;
+    }
+
     public void addThreat(UUID targetUuid, int amount) {
         if (targetUuid == null || amount <= 0) return;
         threatTable.merge(targetUuid, amount, (a, b) -> (int) Math.min(100_000, (long) a + b));
-        this.aggroTimer = Math.max(this.aggroTimer, 400); // 20s minimum
+        this.aggroTimer = Math.max(this.aggroTimer, aggroDurationTicks);
         recalculateTarget();
     }
 
@@ -111,7 +130,14 @@ public class ThreatManager {
         setCurrentTarget(highest, reason);
     }
 
-    public void tick(int decayRate) {
+    /**
+     * Advances the calm-down clock. {@code elapsedTicks} is the number of real
+     * game ticks since the previous call — the entity drives this on a
+     * seconds-cadence sensing schedule, so decrementing by one per invocation
+     * would stretch the authored duration ~20x. Decay still applies once per
+     * call after the window expires (by design — decay is a coarse pulse).
+     */
+    public void tick(int decayRate, int elapsedTicks) {
         if (threatTable.isEmpty()) {
             setCurrentTarget(null, "THREAT_CLEARED");
             this.aggroTimer = 0;
@@ -119,7 +145,7 @@ public class ThreatManager {
         }
 
         if (aggroTimer > 0) {
-            aggroTimer--;
+            aggroTimer = Math.max(0, aggroTimer - Math.max(1, elapsedTicks));
         }
 
         if (aggroTimer == 0) {

@@ -34,6 +34,9 @@ public final class DurableJsonStore {
     private static final String VERSION_FIELD = "schemaVersion";
     private static final String DATA_FIELD = "data";
 
+    private static final java.util.Set<String> NON_ATOMIC_FALLBACK_WARNED =
+            new java.util.concurrent.ConcurrentSkipListSet<>();
+
     private final Path target;
     private final ObjectMapper mapper;
     private final FailureInjector failureInjector;
@@ -68,9 +71,13 @@ public final class DurableJsonStore {
         Path parent = target.getParent();
         if (parent != null) Files.createDirectories(parent);
 
+        JsonNode payload = mapper.valueToTree(value);
+        if (payload == null || payload.isNull() || payload.isMissingNode()) {
+            throw new IllegalArgumentException("value must serialize to a non-null JSON payload");
+        }
         ObjectNode envelope = mapper.createObjectNode();
         envelope.put(VERSION_FIELD, CURRENT_VERSION);
-        envelope.set(DATA_FIELD, mapper.valueToTree(value));
+        envelope.set(DATA_FIELD, payload);
         byte[] bytes = mapper.writeValueAsBytes(envelope);
         Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
         boolean installed = false;
@@ -81,6 +88,7 @@ public final class DurableJsonStore {
             rotateBackups();
             failureInjector.before(FailurePoint.TARGET_RENAME);
             moveReplace(temporary, target);
+            syncDirectory(target);
             installed = true;
         } finally {
             if (!installed) Files.deleteIfExists(temporary);
@@ -93,7 +101,7 @@ public final class DurableJsonStore {
      * by freshly initialized state. Callers that would otherwise invent an empty record must
      * fail closed while these artifacts remain.
      */
-    public boolean hasProtectedArtifacts() throws IOException {
+    public synchronized boolean hasProtectedArtifacts() throws IOException {
         Path parent = target.getParent();
         if (parent == null || !Files.isDirectory(parent)) {
             return false;
@@ -135,11 +143,16 @@ public final class DurableJsonStore {
             if (!Files.exists(backup)) continue;
             try {
                 T value = decode(backup, type);
-                try {
-                    restoreBackup(backup);
-                } catch (IOException restoreFailure) {
-                    diagnostics.add("Recovered " + backup + " in memory but could not restore target: "
-                            + messageOf(restoreFailure));
+                if (Files.exists(target)) {
+                    diagnostics.add("Recovered " + backup + " in memory but the invalid target "
+                            + target + " could not be quarantined; leaving it in place as evidence");
+                } else {
+                    try {
+                        restoreBackup(backup);
+                    } catch (IOException restoreFailure) {
+                        diagnostics.add("Recovered " + backup + " in memory but could not restore target: "
+                                + messageOf(restoreFailure));
+                    }
                 }
                 return new ReadResult<>(value, true, true, diagnostics);
             } catch (Exception failure) {
@@ -211,6 +224,7 @@ public final class DurableJsonStore {
             Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
             force(temporary);
             moveReplace(temporary, target);
+            syncDirectory(target);
             installed = true;
         } finally {
             if (!installed) Files.deleteIfExists(temporary);
@@ -239,11 +253,35 @@ public final class DurableJsonStore {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException e) {
+            warnNonAtomicFallback(target);
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
-    private static void quarantine(Path source, List<String> diagnostics) {
+    /**
+     * Best-effort flush of the parent directory so a rename survives power
+     * loss. Not every filesystem exposes a syncable directory handle
+     * (notably Windows), so failures are ignored.
+     */
+    private static void syncDirectory(Path path) {
+        Path parent = path.getParent();
+        if (parent == null) return;
+        try (FileChannel channel = FileChannel.open(parent, StandardOpenOption.READ)) {
+            channel.force(true);
+        } catch (IOException | RuntimeException ignored) {
+        }
+    }
+
+    private static void warnNonAtomicFallback(Path path) {
+        Path parent = path.getParent();
+        String location = parent == null ? path.toString() : parent.toString();
+        if (NON_ATOMIC_FALLBACK_WARNED.add(location)) {
+            System.err.println("[StoryNPCs] durable store: filesystem does not support atomic moves for "
+                    + location + "; falling back to non-atomic replace");
+        }
+    }
+
+    static void quarantine(Path source, List<String> diagnostics) {
         if (!Files.exists(source)) return;
         Path quarantine = source.resolveSibling(source.getFileName() + ".corrupted." + Instant.now().toEpochMilli());
         int suffix = 1;
@@ -263,6 +301,7 @@ public final class DurableJsonStore {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException e) {
+            warnNonAtomicFallback(target);
             Files.move(source, target);
         }
     }

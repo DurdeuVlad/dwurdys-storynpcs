@@ -175,28 +175,58 @@ public final class DurableOperationJournal {
         return transition(operationId, State.ABORTED, outcomeCode, detail);
     }
 
-    /** Reads one operation record without changing it. */
+    /**
+     * Reads one operation record without changing it.
+     *
+     * <p>Fail-closed note: when no live record exists but a quarantined
+     * {@code .corrupted.} artifact does, this throws — that operation id stays
+     * poisoned until an operator inspects and removes the artifact (or restores
+     * a valid record file) under the journal directory. There is intentionally
+     * no automated un-quarantine path.
+     */
     public synchronized OperationRecord read(UUID operationId) throws IOException {
         if (operationId == null) throw new IllegalArgumentException("operationId cannot be null");
         return readExisting(recordPath(operationId));
     }
 
-    /** Returns pending operations in deterministic ID order for recovery services. */
-    public synchronized List<OperationRecord> pending() throws IOException {
+    /** Pending recovery scan: readable PREPARED records plus per-record diagnostics. */
+    public record PendingScan(List<OperationRecord> records, List<String> diagnostics) {
+        public PendingScan {
+            records = records == null ? List.of() : List.copyOf(records);
+            diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
+        }
+    }
+
+    /**
+     * Returns pending operations in deterministic filename order for recovery
+     * services. A record that cannot be decoded or fails field validation is
+     * quarantined (preserved as {@code .corrupted.*} evidence) and reported
+     * through {@link PendingScan#diagnostics()} — one invalid record must not
+     * block recovery of every other pending operation.
+     */
+    public synchronized PendingScan pending() throws IOException {
         return pendingForSubject(null);
     }
 
     /** Returns only pending operations owned by one subject, or all when subject is null. */
-    public synchronized List<OperationRecord> pendingForSubject(String subject) throws IOException {
+    public synchronized PendingScan pendingForSubject(String subject) throws IOException {
         if (subject != null) validateRequiredText(subject, "subject", MAX_SUBJECT_LENGTH);
-        if (!Files.exists(storageDirectory)) return List.of();
+        List<String> diagnostics = new ArrayList<>();
+        if (!Files.exists(storageDirectory)) return new PendingScan(List.of(), diagnostics);
         List<OperationRecord> pending = new ArrayList<>();
         try (var paths = Files.list(storageDirectory)) {
             for (Path path : paths
                     .filter(candidate -> candidate.getFileName().toString().endsWith(".json"))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString()))
                     .toList()) {
-                OperationRecord record = readExisting(path);
+                OperationRecord record;
+                try {
+                    record = readExisting(path);
+                } catch (IOException | RuntimeException invalid) {
+                    diagnostics.add("Skipped invalid journal record " + path + ": " + invalid.getMessage());
+                    DurableJsonStore.quarantine(path, diagnostics);
+                    continue;
+                }
                 if (record != null && record.state() == State.PREPARED
                         && (subject == null || subject.equals(record.subject()))) pending.add(record);
                 if (pending.size() > MAX_PENDING_RECORDS) {
@@ -205,7 +235,7 @@ public final class DurableOperationJournal {
                 }
             }
         }
-        return List.copyOf(pending);
+        return new PendingScan(List.copyOf(pending), List.copyOf(diagnostics));
     }
 
     /**
@@ -403,12 +433,23 @@ public final class DurableOperationJournal {
         validateRequiredText(subject, "subject", MAX_SUBJECT_LENGTH);
     }
 
+    /**
+     * Thrown when an operation ID is reused with a different operation type or
+     * subject — a request-identity conflict, distinct from storage failures.
+     */
+    public static final class OperationIdentityMismatchException extends IOException {
+        public OperationIdentityMismatchException(String message) {
+            super(message);
+        }
+    }
+
     private static void verifyIdentity(OperationRecord existing, UUID operationId,
                                        String operationType, String subject) throws IOException {
         if (!operationId.equals(existing.operationId())
                 || !operationType.equals(existing.operationType())
                 || !subject.equals(existing.subject())) {
-            throw new IOException("operation ID is already bound to a different operation identity: " + operationId);
+            throw new OperationIdentityMismatchException(
+                    "operation ID is already bound to a different operation identity: " + operationId);
         }
     }
 

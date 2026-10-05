@@ -49,6 +49,34 @@ public class PlayerProgression {
     @JsonProperty
     private Set<NamespacedId> unlockedTransportLocations = new HashSet<>();
 
+    /**
+     * Durable idempotency ledger for request-id-keyed mutations whose effect
+     * commits in the same save as this record (issue #57 — P2-3). Value is
+     * {@code fingerprint\n<outcome payload>} — the fingerprint blocks a reused
+     * request id bound to different input, and the payload lets a replay after
+     * restart return the recorded outcome instead of re-executing (which would
+     * double-apply non-idempotent mutations like faction ADJUST). Bounded FIFO
+     * so the ledger cannot grow without limit.
+     */
+    @JsonProperty
+    private LinkedHashMap<String, String> appliedActionRequests = new LinkedHashMap<>();
+
+    private static final int MAX_APPLIED_ACTION_REQUESTS = 512;
+
+    /**
+     * Durable companion-wage backstop (issue #57 — P2-3): companion entity UUID
+     * string -> last charged wage period. The entity-owned {@code WageLedger}
+     * only persists on periodic entity NBT saves, so a crash between the
+     * emerald deduction and that save loses the period marker and the next
+     * period boundary would double-charge. This map is force-saved on each
+     * successful charge, narrowing the uncovered window to the deduction-to-
+     * save gap itself. Bounded FIFO — dismissed companions' entries evict.
+     */
+    @JsonProperty
+    private LinkedHashMap<String, Long> companionWagePeriods = new LinkedHashMap<>();
+
+    private static final int MAX_COMPANION_WAGE_PERIODS = 256;
+
 
     public PlayerProgression() {}
 
@@ -116,6 +144,97 @@ public class PlayerProgression {
         this.unlockedTransportLocations = unlocked == null ? new HashSet<>() : new HashSet<>(unlocked);
     }
 
+    /**
+     * Durable request ledger — raw map for serde only; mutate via
+     * {@link #recordAppliedActionRequest}.
+     */
+    public Map<String, String> getAppliedActionRequests() { return appliedActionRequests; }
+    public void setAppliedActionRequests(Map<String, String> applied) {
+        this.appliedActionRequests = new LinkedHashMap<>();
+        if (applied == null) return;
+        applied.forEach((id, value) -> {
+            if (id == null || id.isBlank() || value == null) {
+                throw new IllegalArgumentException("applied action requests require non-blank ids and non-null values");
+            }
+            this.appliedActionRequests.put(id, value);
+        });
+        while (this.appliedActionRequests.size() > MAX_APPLIED_ACTION_REQUESTS) {
+            this.appliedActionRequests.remove(this.appliedActionRequests.keySet().iterator().next());
+        }
+    }
+
+    /** Recorded outcome for a request id, or {@code null} when this request never committed. */
+    public String appliedActionOutcome(UUID requestId) {
+        return requestId == null ? null : appliedActionRequests.get(requestId.toString());
+    }
+
+    /**
+     * Records a committed request outcome. Must be called inside the same
+     * mutation critical section so the marker and the effect land in one
+     * durable save — that atomicity is what makes replay dedup crash-safe.
+     * The ledger is bounded ({@link #MAX_APPLIED_ACTION_REQUESTS}, FIFO);
+     * after a marker is evicted the dedup guarantee degrades to the
+     * operation's natural idempotency — faction replays are bounded by
+     * monotonically increasing revisions and transport unlocks are
+     * idempotent set additions, so eviction cannot double-apply effects.
+     */
+    public void recordAppliedActionRequest(UUID requestId, String fingerprint, String outcome) {
+        if (requestId == null) throw new IllegalArgumentException("requestId cannot be null");
+        if (fingerprint == null || fingerprint.isBlank()) {
+            throw new IllegalArgumentException("fingerprint cannot be blank");
+        }
+        if (outcome == null) throw new IllegalArgumentException("outcome cannot be null");
+        String key = requestId.toString();
+        if (appliedActionRequests.size() >= MAX_APPLIED_ACTION_REQUESTS
+                && !appliedActionRequests.containsKey(key)) {
+            appliedActionRequests.remove(appliedActionRequests.keySet().iterator().next());
+        }
+        appliedActionRequests.put(key, fingerprint + "\n" + outcome);
+    }
+
+    /**
+     * Durable companion-wage backstop — raw map for serde only; mutate via
+     * {@link #recordCompanionWagePeriod}.
+     */
+    public Map<String, Long> getCompanionWagePeriods() { return companionWagePeriods; }
+    public void setCompanionWagePeriods(Map<String, Long> periods) {
+        this.companionWagePeriods = new LinkedHashMap<>();
+        if (periods == null) return;
+        periods.forEach((companionId, period) -> {
+            if (companionId == null || companionId.isBlank() || period == null || period < 0) {
+                throw new IllegalArgumentException("companion wage periods require non-blank ids and non-negative periods");
+            }
+            this.companionWagePeriods.put(companionId, period);
+        });
+        while (this.companionWagePeriods.size() > MAX_COMPANION_WAGE_PERIODS) {
+            this.companionWagePeriods.remove(this.companionWagePeriods.keySet().iterator().next());
+        }
+    }
+
+    /**
+     * Records a charged wage period for one companion. Call inside the same
+     * critical section as the deduction it keys so the marker and the charge
+     * land in one durable save. Re-recording refreshes eviction recency —
+     * actively charging companions are never evicted while dormant ones
+     * (typically dismissed) age out first.
+     */
+    public void recordCompanionWagePeriod(UUID companionId, long period) {
+        if (companionId == null) throw new IllegalArgumentException("companionId cannot be null");
+        if (period < 0) throw new IllegalArgumentException("period cannot be negative");
+        String key = companionId.toString();
+        companionWagePeriods.remove(key); // LinkedHashMap.put does not refresh position
+        if (companionWagePeriods.size() >= MAX_COMPANION_WAGE_PERIODS) {
+            companionWagePeriods.remove(companionWagePeriods.keySet().iterator().next());
+        }
+        companionWagePeriods.put(key, period);
+    }
+
+    /** Last durably-recorded charged wage period for one companion, or {@code -1}. */
+    public long chargedWagePeriod(UUID companionId) {
+        Long recorded = companionId == null ? null : companionWagePeriods.get(companionId.toString());
+        return recorded == null ? -1L : recorded;
+    }
+
     /** Durable mailbox — newest-last. */
     public List<MailMessage> getMailbox() { return mailbox; }
     public void setMailbox(List<MailMessage> mailbox) {
@@ -144,6 +263,8 @@ public class PlayerProgression {
         copy.mailbox = new ArrayList<>();
         for (MailMessage m : mailbox) copy.mailbox.add(m.copy());
         copy.unlockedTransportLocations = new HashSet<>(unlockedTransportLocations);
+        copy.appliedActionRequests = new LinkedHashMap<>(appliedActionRequests);
+        copy.companionWagePeriods = new LinkedHashMap<>(companionWagePeriods);
         return copy;
     }
 
@@ -164,6 +285,8 @@ public class PlayerProgression {
         mailbox = new ArrayList<>();
         for (MailMessage m : snapshot.mailbox) mailbox.add(m.copy());
         unlockedTransportLocations = new HashSet<>(snapshot.unlockedTransportLocations);
+        appliedActionRequests = new LinkedHashMap<>(snapshot.appliedActionRequests);
+        companionWagePeriods = new LinkedHashMap<>(snapshot.companionWagePeriods);
     }
 
     public QuestProgressState getQuestState(NamespacedId questId) {
@@ -192,5 +315,20 @@ public class PlayerProgression {
 
     public boolean hasVisitedDialogueNode(String nodeId) {
         return visitedDialogueNodes.contains(nodeId);
+    }
+
+    /**
+     * Dialogue-scoped visit tracking: two dialogues may share a node id (e.g.
+     * every graph conventionally has a {@code "start"} entry), so visits are
+     * keyed {@code dialogueId#nodeId} to keep per-dialogue state distinct.
+     * Bare-node-id entries written by older builds remain in the set and stay
+     * readable through the unscoped accessors above.
+     */
+    public void recordDialogueNodeVisit(NamespacedId dialogueId, String nodeId) {
+        visitedDialogueNodes.add(dialogueId + "#" + nodeId);
+    }
+
+    public boolean hasVisitedDialogueNode(NamespacedId dialogueId, String nodeId) {
+        return visitedDialogueNodes.contains(dialogueId + "#" + nodeId);
     }
 }

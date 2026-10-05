@@ -98,7 +98,11 @@ public final class IndexedRecordStore {
         requireOpened();
         requireId(id);
         Objects.requireNonNull(value, "value");
-        recordStore(id).write(new StoredRecord(id, mapper.valueToTree(value)));
+        JsonNode tree = mapper.valueToTree(value);
+        if (tree == null || tree.isNull() || tree.isMissingNode()) {
+            throw new IllegalArgumentException("record value must serialize to non-null JSON");
+        }
+        recordStore(id).write(new StoredRecord(id, tree));
         failureInjector.before(DurableJsonStore.FailurePoint.INDEX_UPDATE);
         files.put(id, fileNameOf(id));
         indexStore.write(new IndexSnapshot(++indexGeneration, Map.copyOf(files)));
@@ -171,14 +175,27 @@ public final class IndexedRecordStore {
                     .filter(p -> {
                         String name = p.getFileName().toString();
                         return name.startsWith(RECORD_PREFIX) && name.endsWith(RECORD_SUFFIX);
-                    }).toList()) {
+                    })
+                    .sorted(java.util.Comparator.comparing(p -> p.getFileName().toString()))
+                    .toList()) {
                 try {
                     var read = new DurableJsonStore(file, mapper, failureInjector).read(StoredRecord.class);
                     diagnostics.addAll(read.diagnostics());
-                    if (read.hasValue() && read.value().id() != null && !read.value().id().isBlank()) {
-                        scanned.put(read.value().id(), file.getFileName().toString());
-                    } else {
+                    String embeddedId = read.hasValue() ? read.value().id() : null;
+                    if (embeddedId == null || embeddedId.isBlank()) {
                         diagnostics.add("Skipped record file without a readable id: " + file);
+                        continue;
+                    }
+                    String fileName = file.getFileName().toString();
+                    if (!fileNameOf(embeddedId).equals(fileName)) {
+                        // The index must never point an id at a name read(id) cannot resolve.
+                        diagnostics.add("Skipped record file " + file + " whose embedded id "
+                                + embeddedId + " belongs in " + fileNameOf(embeddedId));
+                        continue;
+                    }
+                    if (scanned.putIfAbsent(embeddedId, fileName) != null) {
+                        diagnostics.add("Skipped record file " + file
+                                + " duplicating already-indexed id " + embeddedId);
                     }
                 } catch (Exception failure) {
                     diagnostics.add("Skipped invalid record file " + file + ": " + failure.getMessage());

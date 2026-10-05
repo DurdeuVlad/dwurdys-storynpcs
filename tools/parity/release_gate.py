@@ -146,7 +146,7 @@ def dependency_graph(register: dict[str, Any], order_index: dict[str, int]) -> t
     for issue_id, body in issues.items():
         deps, dep_errors = expand_dependencies(body, milestones)
         errors.extend(f"{issue_id}: {e}" for e in dep_errors)
-        for dep in deps:
+        for dep in sorted(deps):
             if dep == issue_id:
                 continue  # self-reference from own milestone expansion — not a cycle
             if dep not in issues:
@@ -156,7 +156,9 @@ def dependency_graph(register: dict[str, Any], order_index: dict[str, int]) -> t
                 forward_refs.append(f"{issue_id} -> {dep} (forward ownership/fixture reference)")
                 continue
             graph.setdefault(issue_id, set()).add(dep)
-    return graph, errors, forward_refs
+    # Set-sourced sequences must serialize deterministically: sorted order keeps
+    # report bytes identical across runs regardless of hash-seed iteration order.
+    return graph, errors, sorted(forward_refs)
 
 
 def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
@@ -167,7 +169,7 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
     def visit(node: str, stack: list[str]) -> None:
         color[node] = GRAY
         stack.append(node)
-        for nxt in graph.get(node, ()):
+        for nxt in sorted(graph.get(node, ())):
             if color.get(nxt, WHITE) == GRAY:
                 cycles.append(stack[stack.index(nxt):] + [nxt])
             elif color.get(nxt, WHITE) == WHITE:
@@ -175,7 +177,7 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
         stack.pop()
         color[node] = BLACK
 
-    for node in list(graph):
+    for node in sorted(graph):
         if color[node] == WHITE:
             visit(node, [])
     return cycles
@@ -184,7 +186,7 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
 def issue_status(register: dict[str, Any], docs_dir: Path) -> dict[str, str]:
     """Prefer register status, then issue-specific progress, then phase status."""
     statuses: dict[str, str] = {}
-    progress_docs = {p.name.upper(): p.name for p in docs_dir.glob("*.md")}
+    progress_docs = {p.name.upper(): p.name for p in sorted(docs_dir.glob("*.md"))}
     for issue_id, body in register["issues"].items():
         match = STATUS_LINE.search(body)
         if match:
@@ -268,6 +270,22 @@ def fixture_evidence_checks(root: Path, expected_fixture_count: int) -> tuple[di
     certification_eligible = evidence.get("certification_eligible") is True
     target_verified = parity_status == "VERIFIED" and certification_eligible
     runtime_blocked = not target_verified
+    imported = sum(
+        1
+        for row in evidence.get("fixtures", [])
+        if isinstance(row, dict) and row.get("evidence_state") == "VERIFIED_TARGET_RUNTIME"
+    )
+    runtime_findings: list[str] = []
+    if not target_verified:
+        if imported:
+            runtime_findings.append(
+                f"{imported} fixture(s) carry imported VERIFIED_TARGET_RUNTIME observations; "
+                "no fixture reaches VERIFIED_PARITY, so target parity remains BLOCKED"
+            )
+        else:
+            runtime_findings.append(
+                "target-runtime observations are unavailable; target parity remains BLOCKED"
+            )
     return (
         {
             "pass": current,
@@ -282,10 +300,11 @@ def fixture_evidence_checks(root: Path, expected_fixture_count: int) -> tuple[di
         {
             "pass": certification_eligible and parity_status == "VERIFIED",
             "blocked": runtime_blocked,
-            "findings": [] if target_verified else [
-                "target-runtime observations are unavailable; target parity remains BLOCKED"
-            ],
-            "detail": {"parity_status": parity_status},
+            "findings": runtime_findings,
+            "detail": {
+                "parity_status": parity_status,
+                "imported_target_observation_count": imported,
+            },
         },
     )
 
@@ -403,6 +422,26 @@ def run_gate(root: Path) -> dict[str, Any]:
         runs = artifact.get("runs", [])
         if not runs:
             bench_findings.append(f"{scenario}: no recorded runs")
+        elif len(runs) < 3:
+            bench_findings.append(
+                f"{scenario}: only {len(runs)} run(s) — repeatability requires >=3")
+        for run in runs:
+            if not isinstance(run, dict):
+                bench_findings.append(f"{scenario}: malformed run entry")
+                continue
+            breakdown = run.get("phase_breakdown")
+            required_keys = ("evaluate_ms", "sensing_ms", "path_ms",
+                             "combat_ms", "squad_ms", "unattributed_ms")
+            if not isinstance(breakdown, dict) or any(
+                    not isinstance(breakdown.get(k), (int, float))
+                    for k in required_keys):
+                bench_findings.append(
+                    f"{scenario}: run seed={run.get('seed')} missing or malformed "
+                    f"phase_breakdown attribution")
+        observed = artifact.get("timing_repeatability_observed_pct")
+        if not isinstance(observed, (int, float)):
+            bench_findings.append(
+                f"{scenario}: timing_repeatability_observed_pct not recorded")
         failed = [c for run in runs for c in run.get("threshold_results", [])
                   if not c.get("pass")]
         if failed:
@@ -414,6 +453,7 @@ def run_gate(root: Path) -> dict[str, Any]:
             "runs": len(runs),
             "certification_state": artifact.get("certification_state"),
             "timing_repeatable_within_10pct": artifact.get("timing_repeatable_within_10pct"),
+            "timing_repeatability_observed_pct": observed,
         }
     checks["benchmark_artifacts"] = {
         "pass": not bench_findings, "findings": bench_findings, "detail": bench_detail,
@@ -431,11 +471,19 @@ def run_gate(root: Path) -> dict[str, Any]:
             "checks": checks}
 
 
+def write_report(report: dict[str, Any], out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # newline="\n" keeps generated bytes LF on every platform — os.linesep
+    # translation would otherwise reintroduce CRLF on Windows checkouts (#127).
+    out_path.write_text(
+        json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
     report = run_gate(root)
     out = root / "docs" / "parity" / "reports" / "release-gate-report.json"
-    out.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    write_report(report, out)
     print(f"gate={report['gate_status']} -> {out}")
     for name, check in report["checks"].items():
         status = "BLOCKED" if check.get("blocked") else "PASS" if check["pass"] else "FAIL"

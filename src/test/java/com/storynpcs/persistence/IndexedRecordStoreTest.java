@@ -111,6 +111,31 @@ class IndexedRecordStoreTest {
     }
 
     @Test
+    void recordWhoseEmbeddedIdDoesNotMatchItsFileNameIsNotIndexed() throws IOException {
+        var store = openStore();
+        store.write("storynpcs:a", Map.of("v", 1));
+
+        Path storeDir = tempDir.resolve("store");
+        Path original;
+        try (var stream = Files.list(storeDir)) {
+            original = stream.filter(p -> p.getFileName().toString().startsWith("record-"))
+                    .findFirst().orElseThrow();
+        }
+        Path misplaced = storeDir.resolve("record-forged-" + original.getFileName());
+        Files.move(original, misplaced);
+
+        var reopened = new IndexedRecordStore(storeDir, mapper);
+        var result = reopened.open();
+
+        // An id embedded under a foreign file name is unreachable via read(id)
+        // (the file name is deterministic), so the index must not list it.
+        assertThat(result.recordCount()).isZero();
+        assertThat(reopened.listIds()).isEmpty();
+        assertThat(result.diagnostics().toString()).contains("belongs in record-storynpcs_a-");
+        assertThat(reopened.read("storynpcs:a", Map.class)).isEmpty();
+    }
+
+    @Test
     void deleteCommitsRecordRemovalThroughIndexUpdate() throws IOException {
         var store = openStore();
         store.write("storynpcs:a", Map.of("v", 1));

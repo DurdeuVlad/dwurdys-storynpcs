@@ -47,6 +47,20 @@ public final class SquadCoordinator {
      */
     public List<Assignment> coordinate(Set<UUID> squad, Set<UUID> candidates,
                                        ToDoubleFunction<UUID> threatScore) {
+        return coordinate(squad, candidates, threatScore, Map.of());
+    }
+
+    /**
+     * {@code engagedClaims} pins actor→target pairs for squad members already
+     * fighting a target: their claim is re-asserted verbatim (never
+     * re-allocated) and their target is removed from the free pool, so an
+     * idle member can never claim a target an engaged ally is already on.
+     * Engaged actors are kept in the assignment map without consuming an
+     * allocation slot.
+     */
+    public List<Assignment> coordinate(Set<UUID> squad, Set<UUID> candidates,
+                                       ToDoubleFunction<UUID> threatScore,
+                                       Map<UUID, UUID> engagedClaims) {
         List<UUID> boundedSquad = squad.stream()
                 .sorted(Comparator.<UUID>comparingDouble(threatScore::applyAsDouble).reversed()
                         .thenComparing(UUID::toString))
@@ -59,24 +73,36 @@ public final class SquadCoordinator {
                 .toList();
 
         java.util.Set<UUID> claimed = new java.util.HashSet<>();
-        java.util.Set<UUID> engaged = new java.util.HashSet<>();
+        for (var entry : engagedClaims.entrySet()) {
+            // Re-assert the in-flight claim — engaged actors keep their real
+            // target and are never re-allocated a fresh one this round.
+            assignments.put(entry.getKey(),
+                    new Assignment(entry.getKey(), entry.getValue(),
+                            threatScore.applyAsDouble(entry.getValue())));
+            claimed.add(entry.getValue());
+        }
         List<Assignment> result = new java.util.ArrayList<>();
         for (UUID actor : boundedSquad) {
+            if (engagedClaims.containsKey(actor)) {
+                continue; // pinned claim — not allocatable this round
+            }
             Optional<UUID> target = boundedCandidates.stream()
-                    .filter(c -> !claimed.contains(c) && !engaged.contains(c))
+                    .filter(c -> !claimed.contains(c))
                     .findFirst();
             target.ifPresent(t -> {
                 claimed.add(t);
-                engaged.add(t);
                 Assignment a = new Assignment(actor, t, threatScore.applyAsDouble(t));
                 assignments.put(actor, a);
                 result.add(a);
             });
         }
-        // Members without a target keep any previous assignment until retargeted;
-        // actors no longer in the squad release theirs — otherwise despawned
-        // members would accumulate in the assignment map forever.
-        assignments.keySet().removeIf(actor -> !squad.contains(actor));
+        // Actors absent from both the allocation squad and the engaged set
+        // release their claims — otherwise despawned members would accumulate
+        // in the assignment map forever. Members without a target keep any
+        // previous assignment until retargeted.
+        java.util.Set<UUID> members = new java.util.HashSet<>(squad);
+        members.addAll(engagedClaims.keySet());
+        assignments.keySet().removeIf(actor -> !members.contains(actor));
         return List.copyOf(result);
     }
 

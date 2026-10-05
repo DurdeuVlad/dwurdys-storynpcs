@@ -10,6 +10,10 @@ import java.util.*;
 public class DialogueGraphLayout {
 
     private String entryNodeId;
+    // Preserved graph-level domain fields (same VULN-44 rule as edge fields):
+    // a GUI save must not erase authored titleKey/availability.
+    private String titleKey = "";
+    private List<com.storynpcs.domain.dialogue.DialogueCondition> availability = new ArrayList<>();
     private final Map<String, VisualNode> nodes = new LinkedHashMap<>();
     private final List<VisualEdge> edges = new ArrayList<>();
 
@@ -19,6 +23,14 @@ public class DialogueGraphLayout {
     public void setEntryNodeId(String entryNodeId) {
         this.entryNodeId = entryNodeId;
         updateEntryFlags();
+    }
+
+    public String getTitleKey() { return titleKey; }
+    public void setTitleKey(String titleKey) { this.titleKey = titleKey != null ? titleKey : ""; }
+
+    public List<com.storynpcs.domain.dialogue.DialogueCondition> getAvailability() { return availability; }
+    public void setAvailability(List<com.storynpcs.domain.dialogue.DialogueCondition> availability) {
+        this.availability = availability != null ? availability : new ArrayList<>();
     }
 
     public Map<String, VisualNode> getNodes() { return Collections.unmodifiableMap(nodes); }
@@ -63,6 +75,9 @@ public class DialogueGraphLayout {
         if (graph == null) return layout;
 
         layout.entryNodeId = graph.getEntryNodeId();
+        layout.titleKey = graph.getTitleKey() != null ? graph.getTitleKey() : "";
+        layout.availability = graph.getAvailability() != null
+                ? new ArrayList<>(graph.getAvailability()) : new ArrayList<>();
 
         // Hierarchical autolayout BFS to determine column/row levels
         Map<String, Integer> levels = new HashMap<>();
@@ -78,6 +93,9 @@ public class DialogueGraphLayout {
                 int currentLevel = levels.get(currentId);
 
                 graph.getNode(currentId).ifPresent(node -> {
+                    if (node.getOptions() == null) {
+                        return; // null options are legal YAML (terminal node)
+                    }
                     for (DialogueEdge edge : node.getOptions()) {
                         String target = edge.getTargetNodeId();
                         if (target != null && !levels.containsKey(target)) {
@@ -102,12 +120,17 @@ public class DialogueGraphLayout {
             // VULN-44: preserve node sound
             vNode.setSound(domainNode.getSound() != null ? domainNode.getSound() : "");
             vNode.setSpeaker(domainNode.getSpeaker() != null ? domainNode.getSpeaker() : "");
+            vNode.setTextKey(domainNode.getTextKey());
             layout.addNode(vNode);
 
+            if (domainNode.getOptions() == null) {
+                continue;
+            }
             for (DialogueEdge domainEdge : domainNode.getOptions()) {
                 VisualEdge vEdge = new VisualEdge(domainNode.getId(), domainEdge.getTargetNodeId(), domainEdge.getText());
                 // VULN-44: preserve all edge semantic fields
                 vEdge.setOnceOnly(domainEdge.isOnceOnly());
+                vEdge.setTextKey(domainEdge.getTextKey());
                 vEdge.setConditions(domainEdge.getConditions() != null
                         ? new java.util.ArrayList<>(domainEdge.getConditions())
                         : new java.util.ArrayList<>());
@@ -124,12 +147,15 @@ public class DialogueGraphLayout {
 
     public DialogueGraph toDialogueGraph(NamespacedId graphId, String title) {
         DialogueGraph graph = new DialogueGraph(graphId, title, entryNodeId);
+        graph.setTitleKey(titleKey);
+        graph.setAvailability(new ArrayList<>(availability));
 
         for (VisualNode vNode : nodes.values()) {
             DialogueNode domainNode = new DialogueNode(vNode.getId(), vNode.getText());
             // VULN-44: restore node sound
             domainNode.setSound(vNode.getSound() != null ? vNode.getSound() : "");
             domainNode.setSpeaker(vNode.getSpeaker() != null ? vNode.getSpeaker() : "");
+            domainNode.setTextKey(vNode.getTextKey());
             graph.addNode(domainNode);
         }
 
@@ -138,6 +164,7 @@ public class DialogueGraphLayout {
                 DialogueEdge edge = new DialogueEdge(vEdge.getText(), vEdge.getTargetNodeId());
                 // VULN-44: restore all edge semantic fields
                 edge.setOnceOnly(vEdge.isOnceOnly());
+                edge.setTextKey(vEdge.getTextKey());
                 edge.setConditions(vEdge.getConditions() != null
                         ? new java.util.ArrayList<>(vEdge.getConditions())
                         : new java.util.ArrayList<>());

@@ -19,6 +19,7 @@ public class VisualEdge {
 
     // Preserved domain fields — VULN-44: previously stripped on every GUI save
     private boolean onceOnly = false;
+    private String textKey = "";
     private List<DialogueCondition> conditions = new ArrayList<>();
     private List<DialogueAction> actions = new ArrayList<>();
 
@@ -44,6 +45,9 @@ public class VisualEdge {
 
     public boolean isOnceOnly() { return onceOnly; }
     public void setOnceOnly(boolean onceOnly) { this.onceOnly = onceOnly; }
+
+    public String getTextKey() { return textKey; }
+    public void setTextKey(String textKey) { this.textKey = textKey != null ? textKey : ""; }
 
     public List<DialogueCondition> getConditions() { return conditions; }
     public void setConditions(List<DialogueCondition> conditions) {

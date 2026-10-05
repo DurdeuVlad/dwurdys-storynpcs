@@ -109,6 +109,12 @@ public final class StoryNpcsClient {
             } else if (mc.screen instanceof com.storynpcs.client.gui.NpcRulesScreen rulesEditor) {
                 rulesEditor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
                         payload.revision());
+            } else if (mc.screen instanceof com.storynpcs.client.gui.NpcDisplayScreen displayEditor) {
+                displayEditor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
+                        payload.revision());
+            } else if (mc.screen instanceof com.storynpcs.client.gui.TraderBankerAdminScreen traderEditor) {
+                traderEditor.onSaveResult(payload.requestId(), payload.success(), payload.message(),
+                        payload.revision());
             }
         });
     }

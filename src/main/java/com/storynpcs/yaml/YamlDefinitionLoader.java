@@ -264,6 +264,11 @@ public class YamlDefinitionLoader {
                         "Transport definition must declare an 'id'");
                 return null;
             }
+            var contractErrors = location.validateDestinationContract();
+            for (String contractError : contractErrors) {
+                result.addError(sourceName, 1, 1, "TRANSPORT_CONTRACT_INVALID", contractError);
+            }
+            if (!contractErrors.isEmpty()) return null;
             if (registry.getTransportLocation(location.getId()).isPresent()) {
                 result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
                         "Duplicate Transport ID '" + location.getId() + "' is already defined in another file");
@@ -560,7 +565,7 @@ public class YamlDefinitionLoader {
         try (Stream<Path> stream = Files.walk(rootPath)) {
             stream.filter(Files::isRegularFile)
                   .filter(p -> p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"))
-                  .forEach(p -> loadFile(p, result));
+                  .forEach(p -> loadFile(p, rootPath, result));
         }
 
         // Run cross reference validation after all files are registered
@@ -589,18 +594,28 @@ public class YamlDefinitionLoader {
             "bank", "banks", "follower", "followers",
             "scene", "scenes", "linked_npc", "linked_npcs");
 
-    private void loadFile(Path file, ValidationResult result) {
+    private void loadFile(Path file, Path rootPath, ValidationResult result) {
         try {
             String content = Files.readString(file);
             Path parent = file.getParent();
             String parentName = parent != null ? parent.getFileName().toString().toLowerCase() : "";
             String fileName = file.getFileName().toString().toLowerCase();
-            if (RESERVED_UNSUPPORTED_FAMILIES.contains(parentName)) {
-                result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
-                        "Definition family '" + parentName + "' is recognized but not yet loadable;"
-                                + " remove the file or move it to a supported family directory"
-                                + " (npcs/, dialogues/, factions/, quests/, transports/, templates/)");
-                return;
+            // Reserved families fail closed at ANY depth below the definitions
+            // root — a nested subdirectory cannot launder a reserved family doc
+            // into another domain by hiding it one level deeper.
+            Path relativeParent = parent != null && parent.startsWith(rootPath)
+                    ? rootPath.relativize(parent) : parent;
+            if (relativeParent != null) {
+                for (Path component : relativeParent) {
+                    String dirName = component.getFileName().toString().toLowerCase();
+                    if (RESERVED_UNSUPPORTED_FAMILIES.contains(dirName)) {
+                        result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
+                                "Definition family '" + dirName + "' is recognized but not yet loadable;"
+                                        + " remove the file or move it to a supported family directory"
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/)");
+                        return;
+                    }
+                }
             }
             String type = definitionType(parentName, fileName, content);
 

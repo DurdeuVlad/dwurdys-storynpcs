@@ -82,6 +82,12 @@ public class WitnessProtectionManager {
     }
 
     public static void handleDirectNpcHit(StoryNpcEntity npc, ServerPlayer attacker, long gameTime) {
+        // A hidden-defeat statue is not provocable — bypass-invulnerability
+        // hits reach this handler below the hurt() threat guard, so strikes,
+        // rules, and threat bookkeeping must all be suppressed here too.
+        if (npc.isHiddenDefeat()) {
+            return;
+        }
         var defOpt = npc.getDefinition();
         NpcAi ai = defOpt.map(d -> d.getAi()).orElse(null);
         if (ai == null || ai.getTacticalStance() == TacticalStance.PASSIVE) {
@@ -134,7 +140,7 @@ public class WitnessProtectionManager {
                     npc.level().getEntitiesOfClass(
                             StoryNpcEntity.class,
                             npc.getBoundingBox().inflate(safeRadius),
-                            other -> other != npc
+                            other -> other != npc && !other.isHiddenDefeat()
                     ).forEach(other -> other.getThreatManager().addThreat(attacker.getUUID(), 100));
                     npc.level().players().forEach(p -> {
                         if (p.distanceToSqr(npc) <= safeRadius * safeRadius) {
@@ -216,6 +222,7 @@ public class WitnessProtectionManager {
                 StoryNpcEntity.class,
                 victim.getBoundingBox().inflate(maxScanRadius),
                 npc -> {
+                    if (!npc.isAlive() || npc.isHiddenDefeat()) return false;
                     var def = npc.getDefinition();
                     if (def.isEmpty() || def.get().getAi() == null) return false;
                     var ai = def.get().getAi();
@@ -225,8 +232,11 @@ public class WitnessProtectionManager {
                                     ? com.storynpcs.StoryNpcsAccess.mod(attacker).getRegistry() : null);
                     if (stance == null) stance = ai.getTacticalStance();
                     if (stance != TacticalStance.GUARD && stance != TacticalStance.DEFENSIVE) return false;
-                    // Honor the authored bounded radius — never the scan bound itself.
-                    double radius = ai.getAllyDefenseRadius();
+                    // Honor the authored bounded radius — never the scan bound
+                    // itself. Both authored bounds apply: the assault must fall
+                    // inside the guard's witness detection radius AND inside its
+                    // ally-defense radius (0 in either disables the response).
+                    double radius = guardWitnessRadius(ai);
                     return radius > 0 && npc.distanceToSqr(victim) <= radius * radius;
                 }
         );
@@ -291,6 +301,17 @@ public class WitnessProtectionManager {
                 }
             }
         }
+    }
+
+    /**
+     * Effective guard↔victim distance for an assault response: the tighter of
+     * the authored witness radius (assault detection range) and the authored
+     * ally-defense radius (defense engagement range). Either bound at 0
+     * disables the response entirely.
+     */
+    static double guardWitnessRadius(NpcAi ai) {
+        if (ai == null) return 0;
+        return Math.min(ai.getAllyDefenseRadius(), ai.getWitnessRadius());
     }
 
     @SubscribeEvent

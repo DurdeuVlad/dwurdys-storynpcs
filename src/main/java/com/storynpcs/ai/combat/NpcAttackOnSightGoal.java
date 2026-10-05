@@ -33,6 +33,8 @@ public class NpcAttackOnSightGoal extends Goal {
 
     /** Ticks between world scans — bounded, never per-tick. */
     private static final int SCAN_INTERVAL_TICKS = 10;
+    /** Re-check the sensing budget at this cadence while the tier disables it. */
+    private static final int TIER_RECHECK_TICKS = 20;
     /** Threat written for a sight-acquired target — enough to engage, decaying if it escapes. */
     private static final int SIGHT_THREAT = 200;
 
@@ -51,7 +53,16 @@ public class NpcAttackOnSightGoal extends Goal {
         if (--scanDelay > 0) {
             return false;
         }
-        scanDelay = SCAN_INTERVAL_TICKS;
+        // P4-1: the sensing budget owns sight-scan cadence. Disabled tiers
+        // (DORMANT) never scan — re-check on a fixed cadence so a tier upgrade
+        // re-arms acquisition; degraded tiers widen the interval.
+        int sensingPeriod = npc.simulationCapabilityPeriod(
+                com.storynpcs.sim.SimulationScheduler.Capability.SENSING);
+        if (sensingPeriod < 0) {
+            scanDelay = TIER_RECHECK_TICKS;
+            return false;
+        }
+        scanDelay = Math.max(SCAN_INTERVAL_TICKS, sensingPeriod);
         if (!sensePreconditions()) {
             return false;
         }
@@ -133,9 +144,19 @@ public class NpcAttackOnSightGoal extends Goal {
         double rangeSq = range * range;
 
         var candidates = new ArrayList<TargetingPolicy.Candidate>();
+        // P4-2 squad state, collected for free inside the scan the goal
+        // already performs — no extra world query. Allies' engaged targets
+        // are excluded from acquisition; idle allies join the allocation
+        // round so simultaneous scans cannot claim the same target twice.
+        var idleSquadmates = new LinkedHashSet<UUID>();
+        var allyEngagedTargets = new LinkedHashSet<UUID>();
+        var engagedAllies = new java.util.LinkedHashMap<UUID, UUID>();
         for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class,
                 npc.getBoundingBox().inflate(range),
-                e -> e != npc && e.isAlive() && !e.isRemoved())) {
+                // A HIDE-resolved defeat statue is not a valid hostile target.
+                e -> e != npc && e.isAlive() && !e.isRemoved()
+                        && !(e instanceof com.storynpcs.entity.StoryNpcEntity sn
+                        && sn.isHiddenDefeat()))) {
             double distSq = npc.distanceToSqr(entity);
             if (distSq > rangeSq || !npc.hasLineOfSight(entity)) {
                 continue;
@@ -146,6 +167,13 @@ public class NpcAttackOnSightGoal extends Goal {
             if (entity instanceof StoryNpcEntity otherNpc) {
                 NamespacedId candidateFaction = otherNpc.getState()
                         .getFactionId(registry).orElse(null);
+                if (ownFactionId != null && ownFactionId.equals(candidateFaction)) {
+                    otherNpc.getThreatManager().getCurrentTarget()
+                            .ifPresentOrElse(t -> {
+                                        allyEngagedTargets.add(t);
+                                        engagedAllies.put(otherNpc.getUUID(), t);
+                                    }, () -> idleSquadmates.add(otherNpc.getUUID()));
+                }
                 candidates.add(new TargetingPolicy.Candidate(
                         entity.getUUID(), candidateFaction, distSq,
                         entity.getHealth(), entity.getMaxHealth(),
@@ -165,6 +193,21 @@ public class NpcAttackOnSightGoal extends Goal {
             return false;
         }
 
+        // P4-2: same-faction squad coordination — unique target allocation
+        // through the shared coordinator instead of every scanner piling onto
+        // the same best candidate. Targets already engaged by allies or
+        // claimed in the coordinator are excluded before choosing.
+        if (ownFactionId != null && (!idleSquadmates.isEmpty() || !allyEngagedTargets.isEmpty())) {
+            // Squad allocation only ever sees policy-eligible candidates —
+            // the authored targeting rules gate membership before assignment.
+            var eligible = candidates.stream()
+                    .filter(c -> TargetingPolicy.isEligible(
+                            ai, ownFactionId, false, relationships(), c))
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            return acquireSquadTarget(mod, level, ai, eligible,
+                    idleSquadmates, allyEngagedTargets, engagedAllies);
+        }
+
         boolean ownPassive = false; // preconditions already excluded a passive own faction
         Optional<UUID> chosen = TargetingPolicy.chooseTarget(
                 ai, ownFactionId, ownPassive, relationships(), candidates);
@@ -173,6 +216,77 @@ public class NpcAttackOnSightGoal extends Goal {
         }
         npc.getThreatManager().addThreat(chosen.get(), SIGHT_THREAT);
         return true;
+    }
+
+    /**
+     * Squad-coordinated acquisition: the (dimension, faction) coordinator
+     * allocates distinct targets to the idle squad. Targets already engaged
+     * by an ally, or claimed by another actor's live assignment, are removed
+     * from my candidate set; an assignment I already hold and which is still
+     * live is reused rather than churned. When the round allocates nothing
+     * to me (candidates exhausted by higher-priority squadmates), I stay
+     * idle — no duplicate targets, no lost threat.
+     */
+    private boolean acquireSquadTarget(StoryNpcs mod, ServerLevel level, NpcAi ai,
+                                       java.util.List<TargetingPolicy.Candidate> candidates,
+                                       Set<UUID> idleSquadmates, Set<UUID> allyEngagedTargets,
+                                       java.util.Map<UUID, UUID> engagedAllies) {
+        NamespacedId ownFactionId = ownFactionId();
+        if (ownFactionId == null) {
+            return false;
+        }
+        var coordinator = mod.squadCoordinator(
+                level.dimension().location().toString(), ownFactionId);
+
+        if (!allyEngagedTargets.isEmpty()) {
+            candidates.removeIf(c -> allyEngagedTargets.contains(c.id()));
+        }
+
+        // Live target ids for pruning: my scan candidates plus whatever the
+        // allies are already engaged on.
+        var liveIds = new java.util.HashSet<UUID>();
+        candidates.forEach(c -> liveIds.add(c.id()));
+        liveIds.addAll(allyEngagedTargets);
+        coordinator.unassigned(liveIds).forEach(coordinator::release);
+
+        // A claim I already hold stays mine while the target remains live and
+        // unengaged — prevents scan-to-scan target churn.
+        var mine = coordinator.assignmentOf(npc.getUUID());
+        if (mine.isPresent() && liveIds.contains(mine.get().targetId())
+                && !allyEngagedTargets.contains(mine.get().targetId())) {
+            npc.getThreatManager().addThreat(mine.get().targetId(), SIGHT_THREAT);
+            return true;
+        }
+
+        // Exclude targets already claimed by other actors in this round.
+        var claimedByOthers = new java.util.HashSet<UUID>();
+        coordinator.assignments().values().forEach(a -> {
+            if (!a.actorId().equals(npc.getUUID())) {
+                claimedByOthers.add(a.targetId());
+            }
+        });
+        if (!claimedByOthers.isEmpty()) {
+            candidates.removeIf(c -> claimedByOthers.contains(c.id()));
+        }
+        if (candidates.isEmpty()) {
+            return false;
+        }
+
+        var squad = new LinkedHashSet<UUID>(idleSquadmates);
+        squad.add(npc.getUUID());
+        var candidateIds = candidates.stream()
+                .map(TargetingPolicy.Candidate::id)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        var assignments = coordinator.coordinate(squad, candidateIds,
+                this::threatOf, engagedAllies);
+        return assignments.stream()
+                .filter(a -> a.actorId().equals(npc.getUUID()))
+                .findFirst()
+                .map(a -> {
+                    npc.getThreatManager().addThreat(a.targetId(), SIGHT_THREAT);
+                    return true;
+                })
+                .orElse(false);
     }
 
     private int threatOf(UUID entityUuid) {

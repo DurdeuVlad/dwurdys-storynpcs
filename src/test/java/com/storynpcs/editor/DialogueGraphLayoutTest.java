@@ -119,6 +119,33 @@ class DialogueGraphLayoutTest {
     }
 
     @Test
+    @DisplayName("titleKey/availability/textKey survive a graph -> layout -> graph round-trip")
+    void testLocalizationAndAvailabilityRoundTrip() {
+        DialogueGraph graph = new DialogueGraph(NamespacedId.of("test:keys"), "Keyed", "start");
+        graph.setTitleKey("storynpcs:dialogue/keys_title");
+        graph.getAvailability().add(new com.storynpcs.domain.dialogue.DialogueCondition(
+                com.storynpcs.domain.dialogue.DialogueCondition.Type.FACTION_STANDING,
+                "storynpcs:knights", "==", "FRIENDLY"));
+        DialogueNode start = new DialogueNode("start", "Hello");
+        start.setTextKey("storynpcs:dialogue/start");
+        DialogueEdge edge = new DialogueEdge("Bye", "end");
+        edge.setTextKey("storynpcs:dialogue/bye");
+        start.addOption(edge);
+        graph.addNode(start);
+        graph.addNode(new DialogueNode("end", "Bye."));
+
+        DialogueGraphLayout layout = DialogueGraphLayout.fromDialogueGraph(graph);
+        DialogueGraph reexported = layout.toDialogueGraph(NamespacedId.of("test:keys"), "Keyed");
+
+        assertEquals("storynpcs:dialogue/keys_title", reexported.getTitleKey());
+        assertEquals(1, reexported.getAvailability().size());
+        assertEquals("storynpcs:knights", reexported.getAvailability().get(0).getTarget());
+        assertEquals("storynpcs:dialogue/start", reexported.getNode("start").orElseThrow().getTextKey());
+        assertEquals("storynpcs:dialogue/bye",
+                reexported.getNode("start").orElseThrow().getOptions().get(0).getTextKey());
+    }
+
+    @Test
     @DisplayName("Canvas coordinate transformations with pan and zoom")
     void testCoordinateTransformations() {
         double panX = 100;

@@ -139,6 +139,10 @@ public final class AuthorizationPolicy {
      * overloads above exactly.
      */
     public static AuthorizationDecision evaluate(PlayerProgressionActionRequest request) {
+        if (CapabilityRegistry.policyOf(request.operation()) != CapabilityRegistry.Policy.PLAYER_SCOPED) {
+            return AuthorizationDecision.deny("UNKNOWN_CAPABILITY",
+                    "Operation is not a registered player progression action: " + request.operation());
+        }
         String actor = request.actorType();
         if (actor.equals("script")) {
             return AuthorizationDecision.deny("SCRIPT_CAPABILITY_REQUIRED",

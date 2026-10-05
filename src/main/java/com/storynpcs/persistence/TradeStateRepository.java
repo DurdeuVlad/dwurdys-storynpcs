@@ -28,6 +28,9 @@ public final class TradeStateRepository {
     private final Path target;
     private final ObjectMapper mapper;
     private State state;
+    // Fail-closed latch: once a durable record proves invalid, every access
+    // throws for the life of this instance. Recovery requires reconstructing
+    // the repository (world lifecycle reload) after the file is resolved.
     private boolean unavailable;
 
     public TradeStateRepository(Path storageDirectory) {

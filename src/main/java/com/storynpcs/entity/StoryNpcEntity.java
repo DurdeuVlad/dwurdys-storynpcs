@@ -53,6 +53,25 @@ public class StoryNpcEntity extends PathfinderMob {
     private final StoryNpcState state = new StoryNpcState();
     private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
     private BlockPos startPosition;
+    /**
+     * HIDE-defeat state: {@code >0} counts down to reappearance,
+     * {@code <0} means hidden indefinitely, {@code 0} means not hidden.
+     */
+    private int hiddenDefeatTicksLeft = 0;
+    /** Game time of the last threat-manager tick pulse (for real elapsed accounting). */
+    private long lastThreatTickTime = Long.MIN_VALUE;
+    /** Equipment items already warned as unresolvable — dedups refresh spam. */
+    private final java.util.Set<String> unresolvableEquipmentItems = new java.util.HashSet<>();
+    /**
+     * Set once the authored drop table rolled on a real death and persisted in
+     * NBT — a corpse reloaded mid-window re-resolves defeat for cleanup only;
+     * authored drops and events must never fire twice (duplication exploit).
+     */
+    private boolean deathDropsResolved = false;
+    /** Whether the entity was already invulnerable before entering hidden defeat. */
+    private boolean wasInvulnerableBeforeHide = false;
+    /** Whether the entity already had noPhysics before entering hidden defeat. */
+    private boolean wasNoPhysicsBeforeHide = false;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
 
@@ -115,6 +134,12 @@ public class StoryNpcEntity extends PathfinderMob {
 
         @Override
         public boolean canUse() {
+            // P4-1: pathing-disabled tiers never start a stroll — dormant
+            // wanderers stand still instead of spending path finds.
+            if (npc.simulationCapabilityPeriod(
+                    com.storynpcs.sim.SimulationScheduler.Capability.PATHING) < 0) {
+                return false;
+            }
             var defOpt = npc.getDefinition();
             if (defOpt.isEmpty()) return false;
             var ai = defOpt.get().getAi();
@@ -123,14 +148,72 @@ public class StoryNpcEntity extends PathfinderMob {
             }
             return super.canUse();
         }
+
+        @Override
+        public boolean canContinueToUse() {
+            return npc.simulationCapabilityPeriod(
+                    com.storynpcs.sim.SimulationScheduler.Capability.PATHING) >= 0
+                    && super.canContinueToUse();
+        }
+
+        @Override
+        public void stop() {
+            npc.getNavigation().stop();
+            super.stop();
+        }
     }
 
     public com.storynpcs.ai.combat.ThreatManager getThreatManager() {
         return threatManager;
     }
 
+    /**
+     * P4-1 goal-facing accessor for the simulation-tier budget: the effective
+     * period in ticks for {@code capability} at this entity's current tier,
+     * {@code -1} when the capability is disabled, {@code 1} when the scheduler
+     * is absent or the entity is unevaluated (full fidelity). Consumers must
+     * throttle on elapsed game ticks — see
+     * {@link com.storynpcs.sim.SimulationScheduler#capabilityPeriod}.
+     */
+    public int simulationCapabilityPeriod(
+            com.storynpcs.sim.SimulationScheduler.Capability capability) {
+        var mod = com.storynpcs.StoryNpcsAccess.mod(this);
+        var sim = mod != null ? mod.getSimulationScheduler() : null;
+        return sim == null ? 1 : sim.capabilityPeriod(getUUID(), capability);
+    }
+
     @Override
     public void aiStep() {
+        // Hidden-defeat statues freeze: no super tick, no goals, no drift,
+        // no portal progress — only the respawn countdown advances
+        // (negative = hidden indefinitely).
+        if (!this.level().isClientSide && hiddenDefeatTicksLeft != 0) {
+            if (this.getHealth() <= 0.0F) {
+                // tickDeath() runs in tick(), outside this freeze — a statue
+                // left at 0 HP (data merge, corrupt load) would corpse-remove.
+                this.setHealth(Math.min(1.0f, this.getMaxHealth()));
+            }
+            this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+            this.getNavigation().stop();
+            if (hiddenDefeatTicksLeft > 0) {
+                hiddenDefeatTicksLeft--;
+                if (hiddenDefeatTicksLeft == 0) {
+                    reappearFromHiddenDefeat();
+                }
+            }
+            return;
+        }
+        // Fail-safe for entities forced to 0 HP without resolving die()
+        // (external setHealth / corrupt NBT): LivingEntity.isAlive() is
+        // health-based in 1.21.1, so the guard is the `dead` flag — a husk
+        // (dead=false, health=0) re-resolves through the defeat contract
+        // instead of standing inert forever; an entity already dying
+        // (dead=true) is left to vanilla corpse handling.
+        if (!this.level().isClientSide && !this.dead && !this.isRemoved()
+                && this.getHealth() <= 0.0F) {
+            die(this.damageSources().generic());
+            return;
+        }
         super.aiStep();
         if (this.level().isClientSide) {
             return;
@@ -149,10 +232,24 @@ public class StoryNpcEntity extends PathfinderMob {
                 || sim.shouldRun(this.getUUID(),
                         com.storynpcs.sim.SimulationScheduler.Capability.ANIMATION, now);
 
+        // Threat calm-down runs on the sensing grid, throttled to ~20 game
+        // ticks per pulse by the elapsed-time marker itself. Gating on
+        // tickCount % 20 instead would intersect a per-entity phase with the
+        // scheduler's global-grid sensing window — for NEARBY/DISTANT tiers
+        // most phases never coincide, so the timer would stall forever
+        // (self-locking aggro: in-combat actors can never leave DISTANT).
+        if (sensingDue && (lastThreatTickTime == Long.MIN_VALUE
+                || now - lastThreatTickTime >= 20)) {
+            // The sensing budget can defer pulses — pass the real elapsed
+            // ticks so the authored calm-down duration stays in game ticks
+            // instead of stretching with the call cadence.
+            int elapsed = lastThreatTickTime == Long.MIN_VALUE
+                    ? 20 : (int) Math.min(20_000, now - lastThreatTickTime);
+            lastThreatTickTime = now;
+            this.threatManager.tick(5, elapsed);
+        }
+
         if (this.tickCount % 20 == 0) {
-            if (sensingDue) {
-                this.threatManager.tick(5);
-            }
             if (animationDue) {
                 updateBossBar();
             }
@@ -251,6 +348,13 @@ public class StoryNpcEntity extends PathfinderMob {
                 this.discard();
             }
             case OWNER_OFFLINE_PAUSED -> companionPaused = true;
+            case PROGRESSION_UNAVAILABLE -> {
+                companionPaused = true;
+                if (owner != null) {
+                    owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§c" + getName().getString() + " paused service — your progression data is unreadable."), true);
+                }
+            }
             default -> { }
         }
     }
@@ -388,7 +492,13 @@ public class StoryNpcEntity extends PathfinderMob {
 
     public BlockPos getStartPosition() {
         if (startPosition == null) {
-            startPosition = this.blockPosition();
+            // Never pin a below-world position — a lazy snapshot taken while
+            // the entity falls out of the world would make every future
+            // return-to-start unreachable.
+            BlockPos here = this.blockPosition();
+            if (here.getY() >= this.level().dimensionType().minY()) {
+                startPosition = here;
+            }
         }
         return startPosition;
     }
@@ -457,16 +567,28 @@ public class StoryNpcEntity extends PathfinderMob {
         var mod = StoryNpcsAccess.mod(this);
         if (mod == null) return;
 
-        state.getDisplayName(mod.getRegistry()).ifPresent(name -> {
-            this.setCustomName(Component.literal(name));
-            this.setCustomNameVisible(true);
-        });
+        // The whole nameplate projection is hidden-guarded: re-writing
+        // customName while hidden would re-arm the crosshair-pick plate
+        // (shouldShowName renders hasCustomName on invisible entities).
+        // Reappearance re-applies the authored name.
+        if (!isHiddenDefeat()) {
+            state.getDisplayName(mod.getRegistry()).ifPresent(name -> {
+                this.setCustomName(Component.literal(name));
+                this.setCustomNameVisible(true);
+            });
+        }
 
         state.getStats(mod.getRegistry()).ifPresent(stats -> {
             var maxHealthAttr = this.getAttribute(Attributes.MAX_HEALTH);
+            // A resolved-corpse husk reloading mid-window must stay at 0 HP —
+            // restoring health here would resurrect it carrying
+            // deathDropsResolved, silently eating the next real death's
+            // authored drops and events.
             if (maxHealthAttr != null && stats.getMaxHealth() > 0) {
                 maxHealthAttr.setBaseValue(stats.getMaxHealth());
-                this.setHealth((float) stats.getMaxHealth());
+                if (!deathDropsResolved) {
+                    this.setHealth((float) stats.getMaxHealth());
+                }
             }
             var speedAttr = this.getAttribute(Attributes.MOVEMENT_SPEED);
             if (speedAttr != null && stats.getMovementSpeed() > 0) {
@@ -495,14 +617,32 @@ public class StoryNpcEntity extends PathfinderMob {
                     groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
                 }
                 this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
-                applyAnimationStance(def.getAi().getAnimationStance());
+                this.threatManager.setAggroDurationTicks(def.getAi().getAggroDurationTicks());
+                if (!isHiddenDefeat()) {
+                    // A hidden statue re-asserts its own posture — a definition
+                    // refresh must not visibly resurface it mid-countdown.
+                    applyAnimationStance(def.getAi().getAnimationStance());
+                }
             }
             var display = def.getDisplay();
             if (display != null) {
                 // Display flags are authoritative entity state: glowing outline
                 // and hidden visibility come from the projection contract.
-                this.setGlowingTag(display.isOverlayGlowing());
-                this.setInvisible(display.getVisibility() == 1);
+                // Neither may resurface a hidden-defeat statue mid-countdown —
+                // glowing renders on invisible entities, so both fields are
+                // skipped while hidden (the statue asserts its own posture).
+                if (!isHiddenDefeat()) {
+                    this.setGlowingTag(display.isOverlayGlowing());
+                    this.setInvisible(display.getVisibility() == 1);
+                }
+            }
+
+            // P3-4: authored equipment projects onto the live equipment slots —
+            // armor renders/protects and hand items are visible. Drop chances
+            // are pinned to 0 so vanilla never double-dips the authored drop
+            // table; drops are exclusively the authored contract.
+            if (def.getInventory() != null) {
+                applyEquipmentProjection(def.getInventory());
             }
 
             // P6 bindings: scheduled job instance + social/companion profiles.
@@ -558,6 +698,60 @@ public class StoryNpcEntity extends PathfinderMob {
                 }
             }
         });
+    }
+
+    /**
+     * Projects authored equipment onto the live entity slots: armor and hand
+     * items render for clients and feed vanilla combat/attribute behavior.
+     * Slots absent from the authored map are cleared so a definition refresh
+     * that removes an item strips it. The PROJECTILE slot is authored intent
+     * for the ranged contract only — it has no live equipment position.
+     */
+    private void applyEquipmentProjection(com.storynpcs.domain.npc.NpcInventory inventory) {
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.HEAD,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.HELMET);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.CHEST,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.CHESTPLATE);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.LEGS,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.LEGGINGS);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.FEET,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.BOOTS);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.RIGHT_HAND);
+        applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot.OFFHAND,
+                inventory, com.storynpcs.domain.npc.NpcInventory.ItemSlot.LEFT_HAND);
+    }
+
+    private void applyEquipmentSlot(net.minecraft.world.entity.EquipmentSlot slot,
+                                    com.storynpcs.domain.npc.NpcInventory inventory,
+                                    com.storynpcs.domain.npc.NpcInventory.ItemSlot authored) {
+        // Authored drops are the only drop contract — pin the vanilla drop
+        // chance to 0 so equipped gear can never double-dip the drop table.
+        this.setDropChance(slot, 0.0F);
+        var authoredStack = inventory.getEquipment().get(authored);
+        if (authoredStack == null) {
+            this.setItemSlot(slot, net.minecraft.world.item.ItemStack.EMPTY);
+            return;
+        }
+        var itemRl = net.minecraft.resources.ResourceLocation.tryParse(
+                authoredStack.itemId().toString());
+        var item = itemRl != null
+                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemRl).orElse(null)
+                : null;
+        if (item == null || item == net.minecraft.world.item.Items.AIR) {
+            if (unresolvableEquipmentItems.add(authored + "=" + authoredStack.itemId())) {
+                com.storynpcs.StoryNpcs.LOGGER.warn(
+                        "NPC {} equipment {}: unknown item '{}' — slot cleared",
+                        this.getUUID(), authored, authoredStack.itemId());
+            }
+            this.setItemSlot(slot, net.minecraft.world.item.ItemStack.EMPTY);
+            return;
+        }
+        // components is a server-authored opaque payload — no canonical
+        // DataComponentPatch format is defined yet, so count+item apply and
+        // the payload stays stored-but-unapplied (documented P3-4 residual).
+        this.setItemSlot(slot, new net.minecraft.world.item.ItemStack(item,
+                Math.min(authoredStack.count(), item.getDefaultMaxStackSize())));
     }
 
     /**
@@ -670,24 +864,383 @@ public class StoryNpcEntity extends PathfinderMob {
         }
     }
 
-    /** Defeat resolution emits the authored mode/respawn contract as a lifecycle event. */
+    /** Defeat resolution honors the authored mode contract (P3-2, issue #59). */
     @Override
     public void die(net.minecraft.world.damagesource.DamageSource source) {
+        // An already-dead entity never re-resolves — prevents a second
+        // NpcDefeatedEvent during the corpse window (kill() reaches die()
+        // directly, bypassing hurt()'s isDeadOrDying check).
+        if (this.dead) {
+            return;
+        }
+        if (this.deathDropsResolved) {
+            // Reloaded corpse-husk: the defeat contract already resolved and
+            // authored drops already rolled before unload — run only the
+            // vanilla corpse path so the body cleans up normally.
+            super.die(source);
+            return;
+        }
+        // A resolved defeat never re-resolves: bypass-invulnerability sources
+        // (void, /kill) hitting a hidden statue must not reset the respawn
+        // countdown or republish the defeat event. The forced health is
+        // restored because vanilla tickDeath() (driven by tick(), not our
+        // frozen aiStep) would corpse-remove a hidden statue left at 0 HP.
+        if (hiddenDefeatTicksLeft != 0) {
+            this.setHealth(Math.min(1.0f, this.getMaxHealth()));
+            return;
+        }
         if (!this.level().isClientSide && !this.isRemoved()) {
             var mod = StoryNpcsAccess.mod(this);
-            if (mod != null && mod.getEventPublisher() != null) {
-                state.getStats(mod.getRegistry()).ifPresent(stats -> {
-                    NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
-                            .map(NpcDefinition::getId).orElse(null);
-                    var defeat = stats.getDefeat();
-                    mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
-                            definitionId, this.getUUID(),
-                            defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
-                            stats.getRespawnTimeSeconds(), stats.getXpReward()));
-                });
+            if (mod != null && mod.getRegistry() != null) {
+                // Resolve unconditionally — authored defeat semantics are not
+                // coupled to the event bus being reachable.
+                var statsOpt = state.getStats(mod.getRegistry());
+                if (statsOpt.isPresent()) {
+                    var stats = statsOpt.get();
+                    var decision = com.storynpcs.domain.npc.DefeatResolution.resolve(stats);
+                    // DIE (and unresolved stats) take the normal death path;
+                    // HIDE/FLEE suppress it — no corpse, drops, XP, or removal.
+                    // The event publishes AFTER the mode dispatch so
+                    // subscribers observe post-dispatch state (a HIDE
+                    // subscriber sees isHiddenDefeat()==true, a FLEE
+                    // subscriber sees the threshold-restored health).
+                    if (!decision.performsDeath()) {
+                        switch (decision.mode()) {
+                            case HIDE -> enterHiddenDefeat(decision.hiddenTicks());
+                            case FLEE -> fleeDefeat(decision, source);
+                            default -> { }
+                        }
+                        publishDefeatedEvent(mod, stats);
+                        return;
+                    }
+                    publishDefeatedEvent(mod, stats);
+                }
             }
         }
         super.die(source);
+    }
+
+    private void publishDefeatedEvent(StoryNpcs mod,
+                                      com.storynpcs.domain.npc.NpcStats stats) {
+        if (mod.getEventPublisher() == null) {
+            return;
+        }
+        NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                .map(NpcDefinition::getId).orElse(null);
+        var defeat = stats.getDefeat();
+        mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcDefeatedEvent(
+                definitionId, this.getUUID(),
+                defeat != null ? defeat.getMode() : com.storynpcs.domain.npc.NpcStats.Defeat.Mode.DIE,
+                stats.getRespawnTimeSeconds(), stats.getXpReward()));
+    }
+
+    /**
+     * Authored drop contract (P3-4, VERIFIED_TARGET_SOURCE): on a real death
+     * each occupied drop entry rolls independently against its authored
+     * chance, winning stacks spawn as world items at the NPC's eye position
+     * (40-tick pickup delay, small random scatter), and the authored
+     * {@code minExp}..{@code maxExp} range rolls into experience orbs.
+     * {@code AUTO_PICKUP} delivers to the killer player's inventory instead
+     * (leftovers stay in the world; orbs spawn at the killer); {@code NOTHING}
+     * suppresses the table entirely. HIDE/FLEE never reach this — they skip
+     * {@code super.die}. Equipment itself never drops: its vanilla drop
+     * chances are pinned to 0 in {@link #applyEquipmentProjection}.
+     */
+    @Override
+    protected void dropAllDeathLoot(net.minecraft.server.level.ServerLevel level,
+                                    DamageSource source) {
+        if (this.deathDropsResolved) {
+            // A resolved corpse reloading mid-window never re-rolls.
+            return;
+        }
+        this.deathDropsResolved = true;
+        super.dropAllDeathLoot(level, source);
+        var mod = StoryNpcsAccess.mod(this);
+        var inventory = mod != null
+                ? state.resolveDefinition(mod.getRegistry())
+                        .map(NpcDefinition::getInventory).orElse(null)
+                : null;
+        if (inventory == null
+                || inventory.getLootMode() == com.storynpcs.domain.npc.NpcInventory.LootMode.NOTHING) {
+            return;
+        }
+        // Seeded off the world RNG — the roller itself stays headless and
+        // fixed-seed fixtures exercise identical semantics in JUnit.
+        var roll = com.storynpcs.domain.npc.NpcDropRoll.roll(inventory,
+                new java.util.Random(this.getRandom().nextLong()));
+        // VERIFIED_TARGET_SOURCE: the target resolves tameable/pet kills to
+        // the owner (NoppesUtilServer.GetDamageSourcee) — a wolf kill is the
+        // owner's kill for AUTO_PICKUP delivery.
+        net.minecraft.world.entity.Entity killer = source.getEntity();
+        if (killer instanceof net.minecraft.world.entity.OwnableEntity ownable
+                && ownable.getOwner() != null) {
+            killer = ownable.getOwner();
+        }
+        boolean autoPickup = inventory.getLootMode()
+                == com.storynpcs.domain.npc.NpcInventory.LootMode.AUTO_PICKUP
+                && killer instanceof Player;
+
+        java.util.List<com.storynpcs.domain.npc.NpcItemStack> dropped =
+                new java.util.ArrayList<>(roll.drops().size());
+        for (var rolled : roll.drops()) {
+            var stack = resolveDropStack(rolled.item());
+            if (stack == null) continue;
+            if (autoPickup && killer instanceof Player player) {
+                // Faithful port of the target's AUTO_PICKUP branch: the item
+                // entity exists in the world with a short pickup delay, the
+                // killer's inventory absorbs what it can (mutating the entity's
+                // stack to the remainder), take() credits that entity so the
+                // pickup packet/statistics fire, and a fully-absorbed entity
+                // discards — leftovers stay in the world.
+                var entity = new net.minecraft.world.entity.item.ItemEntity(
+                        level, this.getX(), this.getY() - 0.3F + this.getEyeHeight(),
+                        this.getZ(), stack);
+                entity.setPickUpDelay(2);
+                level.addFreshEntity(entity);
+                net.minecraft.world.item.Item pickedItem = stack.getItem();
+                int before = stack.getCount();
+                player.getInventory().add(stack);
+                int absorbed = before - stack.getCount();
+                if (absorbed > 0) {
+                    player.take(entity, absorbed);
+                    player.awardStat(net.minecraft.stats.Stats.ITEM_PICKED_UP.get(pickedItem), absorbed);
+                    player.onItemPickup(entity);
+                    level.playSound(null, player.getX(), player.getY(), player.getZ(),
+                            net.minecraft.sounds.SoundEvents.ITEM_PICKUP,
+                            net.minecraft.sounds.SoundSource.PLAYERS, 0.2F,
+                            ((this.getRandom().nextFloat() - this.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
+                }
+                if (stack.isEmpty()) {
+                    entity.remove(net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+                }
+                dropped.add(com.storynpcs.domain.npc.NpcItemStack.of(
+                        rolled.item().itemId(), before, rolled.item().components()));
+                continue;
+            }
+            spawnWorldDrop(stack);
+            dropped.add(com.storynpcs.domain.npc.NpcItemStack.of(
+                    rolled.item().itemId(), stack.getCount(), rolled.item().components()));
+        }
+        int exp = roll.experience();
+        while (exp > 0) {
+            int value = net.minecraft.world.entity.ExperienceOrb.getExperienceValue(exp);
+            exp -= value;
+            var orbPos = autoPickup ? killer : this;
+            level.addFreshEntity(new net.minecraft.world.entity.ExperienceOrb(
+                    level, orbPos.getX(), orbPos.getY(), orbPos.getZ(), value));
+        }
+        if (mod != null && mod.getEventPublisher() != null
+                && (!dropped.isEmpty() || roll.experience() > 0)) {
+            NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                    .map(NpcDefinition::getId).orElse(null);
+            mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcLootDroppedEvent(
+                    definitionId, this.getUUID(),
+                    killer != null ? killer.getUUID() : null,
+                    java.util.List.copyOf(dropped), roll.experience()));
+        }
+    }
+
+    /** Resolves an authored stack to a live {@code ItemStack}, or null when the item is unknown. */
+    private net.minecraft.world.item.ItemStack resolveDropStack(
+            com.storynpcs.domain.npc.NpcItemStack authored) {
+        var rl = net.minecraft.resources.ResourceLocation.tryParse(authored.itemId().toString());
+        var item = rl != null
+                ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl).orElse(null)
+                : null;
+        if (item == null || item == net.minecraft.world.item.Items.AIR) {
+            if (unresolvableEquipmentItems.add("drop=" + authored.itemId())) {
+                com.storynpcs.StoryNpcs.LOGGER.warn("NPC {} drop '{}' is an unknown item — skipped",
+                        this.getUUID(), authored.itemId());
+            }
+            return null;
+        }
+        return new net.minecraft.world.item.ItemStack(item,
+                Math.min(authored.count(), item.getDefaultMaxStackSize()));
+    }
+
+    /** World-drop spawn — VERIFIED_TARGET_SOURCE geometry: eye-level, 40-tick delay, random scatter. */
+    private void spawnWorldDrop(net.minecraft.world.item.ItemStack stack) {
+        var entity = new net.minecraft.world.entity.item.ItemEntity(
+                this.level(), this.getX(), this.getY() - 0.3F + this.getEyeHeight(), this.getZ(), stack);
+        entity.setPickUpDelay(40);
+        float spread = this.getRandom().nextFloat() * 0.5F;
+        float angle = this.getRandom().nextFloat() * (float) Math.PI * 2.0F;
+        entity.setDeltaMovement(
+                -net.minecraft.util.Mth.sin(angle) * spread, 0.2F,
+                net.minecraft.util.Mth.cos(angle) * spread);
+        this.level().addFreshEntity(entity);
+    }
+
+    /**
+     * /kill and Entity.kill() are removal intent, not damage — they discard a
+     * defeat-resolved projection outright (a hidden statue or authored-FLEE
+     * NPC would otherwise survive, still reporting "Killed" to the admin).
+     * DIE-mode NPCs take the normal death path so corpse/drops resolve.
+     */
+    @Override
+    public void kill() {
+        if (hiddenDefeatTicksLeft != 0) {
+            this.discard();
+            return;
+        }
+        var mod = StoryNpcsAccess.mod(this);
+        boolean survives = !this.level().isClientSide && mod != null && mod.getRegistry() != null
+                && state.getStats(mod.getRegistry())
+                        .map(stats -> !com.storynpcs.domain.npc.DefeatResolution.resolve(stats).performsDeath())
+                        .orElse(false);
+        if (survives) {
+            this.discard();
+            return;
+        }
+        super.kill();
+    }
+
+    /**
+     * HIDE defeat: the projection becomes an invisible, invulnerable,
+     * non-physical statue and reappears at its start position once the
+     * authored respawn timer elapses. {@code ticks < 0} stays hidden until
+     * removal (authored respawn time <= 0).
+     */
+    private void enterHiddenDefeat(int ticks) {
+        this.hiddenDefeatTicksLeft = ticks;
+        this.setHealth(Math.min(1.0f, this.getMaxHealth()));
+        this.threatManager.clearAll();
+        this.setTarget(null);
+        this.getNavigation().stop();
+        // Clear transient pose/use state so the statue never reappears
+        // mid-action (e.g. still sleeping or drawing a bow).
+        this.setPose(net.minecraft.world.entity.Pose.STANDING);
+        this.stopUsingItem();
+        this.stopRiding();
+        this.ejectPassengers();
+        this.setInvisible(true);
+        // Glowing outline renders on invisible entities — suppress it while
+        // hidden and restore the authored flag on reappearance.
+        this.setGlowingTag(false);
+        // Custom nameplates render on invisible entities too — including the
+        // crosshair-pick plate (shouldShowName checks hasCustomName). Clearing
+        // the synced name suppresses it; reappear re-applies the authored one.
+        this.setCustomNameVisible(false);
+        this.setCustomName(null);
+        this.wasInvulnerableBeforeHide = this.isInvulnerable();
+        this.wasNoPhysicsBeforeHide = this.noPhysics;
+        this.setInvulnerable(true);
+        this.noPhysics = true;
+        if (bossBar != null) {
+            bossBar.removeAllPlayers();
+            bossBar = null;
+        }
+    }
+
+    /**
+     * FLEE defeat: survive at the authored threshold, disengage, return home.
+     * Bypass-invulnerability sources (void, /kill) teleport home directly —
+     * pathfinding cannot resolve a position below the world floor, so
+     * navigation would leave the NPC in an endless void-flee treadmill.
+     */
+    private void fleeDefeat(com.storynpcs.domain.npc.DefeatResolution.Decision decision,
+                            net.minecraft.world.damagesource.DamageSource source) {
+        this.setHealth(Math.max(1.0f, this.getMaxHealth() * decision.healthAfterFraction()));
+        this.threatManager.clearAll();
+        this.setTarget(null);
+        this.getNavigation().stop();
+        if (decision.returnsHome()) {
+            net.minecraft.core.BlockPos home = getStartPosition();
+            this.fallDistance = 0.0F; // banked fall damage must not kill on arrival
+            if (home == null || home.getY() < this.level().dimensionType().minY()) {
+                // A lazy-snapshotted or corrupted home below the world floor
+                // can never resolve — flee in place instead.
+                return;
+            }
+            if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+                this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
+            } else {
+                this.getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 1.2);
+            }
+        }
+    }
+
+    /**
+     * Ends the hidden window: teleport home, restore to full health, and
+     * re-activate physics/visibility. Emits {@link com.storynpcs.api.event.NpcRespawnedEvent}.
+     */
+    private void reappearFromHiddenDefeat() {
+        net.minecraft.core.BlockPos home = getStartPosition();
+        // A home below the world floor (lazy snapshot, corrupt NBT) resolves
+        // in place — never teleport into the void.
+        if (home != null && home.getY() >= this.level().dimensionType().minY()) {
+            this.teleportTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5);
+        }
+        this.fallDistance = 0.0F;
+        this.setHealth(this.getMaxHealth());
+        // Restore the *authored* visibility flag — an authored visibility=1
+        // NPC must stay invisible after the hide/respawn cycle.
+        boolean authoredInvisible = getDefinition()
+                .map(d -> d.getDisplay() != null && d.getDisplay().getVisibility() == 1)
+                .orElse(false);
+        this.setInvisible(authoredInvisible);
+        this.setGlowingTag(getDefinition()
+                .map(d -> d.getDisplay() != null && d.getDisplay().isOverlayGlowing())
+                .orElse(false));
+        this.setInvulnerable(wasInvulnerableBeforeHide);
+        this.noPhysics = wasNoPhysicsBeforeHide;
+        // Re-apply the authored nameplate the same way applyDefinition does.
+        var modForName = StoryNpcsAccess.mod(this);
+        if (modForName != null) {
+            state.getDisplayName(modForName.getRegistry()).ifPresent(name -> {
+                this.setCustomName(net.minecraft.network.chat.Component.literal(name));
+                this.setCustomNameVisible(true);
+            });
+        }
+        // Nothing seeded during the frozen window may survive reappearance —
+        // event-bus threat writes (witness scans, shout alerts) are suppressed
+        // while hidden, and this clears any path that slipped through.
+        this.threatManager.clearAll();
+        this.setTarget(null);
+        getDefinition().map(d -> d.getAi())
+                .ifPresent(ai -> applyAnimationStance(ai.getAnimationStance()));
+        var mod = StoryNpcsAccess.mod(this);
+        if (mod != null && mod.getEventPublisher() != null) {
+            NamespacedId definitionId = state.resolveDefinition(mod.getRegistry())
+                    .map(NpcDefinition::getId).orElse(null);
+            mod.getEventPublisher().publish(new com.storynpcs.api.event.NpcRespawnedEvent(
+                    definitionId, this.getUUID()));
+        }
+    }
+
+    /**
+     * A HIDE-resolved statue is not a valid hostile target and must not
+     * change dimensions (a portal transfer mid-countdown would restore it at
+     * start coordinates in the wrong dimension).
+     */
+    /**
+     * Hidden-defeat invisibility is posture, not effect-derived. Vanilla
+     * recomputes the flag from {@code activeEffects} whenever
+     * {@code effectsDirty} fires — any effect add/update/remove on a statue
+     * clears it, resurfacing the NPC mid-countdown. Re-pin it here.
+     */
+    @Override
+    protected void updateInvisibilityStatus() {
+        if (isHiddenDefeat()) {
+            this.setInvisible(true);
+            return;
+        }
+        super.updateInvisibilityStatus();
+    }
+
+    public boolean isHiddenDefeat() {
+        return hiddenDefeatTicksLeft != 0;
+    }
+
+    /**
+     * A hidden-defeat statue must not dimension-transfer mid-countdown — the
+     * restored entity would reappear at start coordinates in the wrong
+     * dimension.
+     */
+    @Override
+    public boolean canChangeDimensions(net.minecraft.world.level.Level oldLevel,
+                                       net.minecraft.world.level.Level newLevel) {
+        return hiddenDefeatTicksLeft == 0 && super.canChangeDimensions(oldLevel, newLevel);
     }
 
     public FollowerRole getFollowerRole() {
@@ -700,6 +1253,13 @@ public class StoryNpcEntity extends PathfinderMob {
 
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
+        // A hidden-defeat statue is not interactable — FAIL (not PASS) so the
+        // item-use fallback (name tags, leads) cannot reach it either. This
+        // check precedes the hand filter so off-hand items are blocked too.
+        if (hiddenDefeatTicksLeft != 0) {
+            return InteractionResult.FAIL;
+        }
+
         if (hand != InteractionHand.MAIN_HAND) {
             return InteractionResult.PASS;
         }
@@ -904,8 +1464,6 @@ public class StoryNpcEntity extends PathfinderMob {
         }
         // VULN-52: OUT_OF_WORLD (void) must NEVER grant invulnerability; otherwise a PASSIVE NPC
         // falling into the void runs the hurt tick forever, causing a CPU-saturating loop.
-        var damageTypes = this.level().registryAccess().registryOrThrow(
-                net.minecraft.core.registries.Registries.DAMAGE_TYPE);
         if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
             return false;
         }
@@ -964,7 +1522,9 @@ public class StoryNpcEntity extends PathfinderMob {
         if (isInvulnerableTo(source)) {
             return false;
         }
-        if (!this.level().isClientSide && source.getEntity() instanceof LivingEntity attacker) {
+        // A hidden statue absorbs hits but never provokes — no threat writes.
+        if (!this.level().isClientSide && hiddenDefeatTicksLeft == 0
+                && source.getEntity() instanceof LivingEntity attacker) {
             // Prevent self-targeting loop (VULN-19)
             if (attacker != this && !attacker.getUUID().equals(this.getUUID())) {
                 boolean sameFaction = false;
@@ -1055,6 +1615,10 @@ public class StoryNpcEntity extends PathfinderMob {
                 jobInstance.onActorUnload();
             }
             releaseJobForcedChunks();
+            // P4-2: drop any squad target claim so the slot is reclaimable.
+            if (mod != null) {
+                mod.releaseSquadAssignment(this.getUUID());
+            }
         }
         if (bossBar != null) {
             bossBar.removeAllPlayers();
@@ -1089,7 +1653,12 @@ public class StoryNpcEntity extends PathfinderMob {
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
-        compound.putString("StoryNpcActorId", getActorId());
+        // Never persist a blank actor ID — an entity loaded before the actor
+        // runtime existed would otherwise carry StoryNpcActorId:"" forever,
+        // permanently skipping legacy reconciliation on every later load.
+        if (getActorId() != null && !getActorId().isBlank()) {
+            compound.putString("StoryNpcActorId", getActorId());
+        }
         if (startPosition != null) {
             compound.putInt("StartX", startPosition.getX());
             compound.putInt("StartY", startPosition.getY());
@@ -1115,6 +1684,14 @@ public class StoryNpcEntity extends PathfinderMob {
             companionTag.putBoolean("Paused", companionPaused);
             compound.put("Companion", companionTag);
         }
+        if (hiddenDefeatTicksLeft != 0) {
+            compound.putInt("HiddenDefeatTicksLeft", hiddenDefeatTicksLeft);
+            compound.putBoolean("HiddenDefeatWasInvulnerable", wasInvulnerableBeforeHide);
+            compound.putBoolean("HiddenDefeatWasNoPhysics", wasNoPhysicsBeforeHide);
+        }
+        if (deathDropsResolved) {
+            compound.putBoolean("StoryNpcDeathResolved", true);
+        }
     }
 
     @Override
@@ -1127,6 +1704,15 @@ public class StoryNpcEntity extends PathfinderMob {
             if (compound.contains("StoryNpcActorId")) {
                 this.state.setActorId(compound.getString("StoryNpcActorId"));
             }
+            // Hidden-defeat state must be restored BEFORE definition binding:
+            // applyDefinition re-projects nameplate/glow/visibility and would
+            // resurface a counting-down statue if it ran while hiddenTicks==0.
+            if (compound.contains("HiddenDefeatTicksLeft")) {
+                this.hiddenDefeatTicksLeft = compound.getInt("HiddenDefeatTicksLeft");
+            }
+            // Resolved-corpse flag: a husk reloading mid-corpse-window runs
+            // die() for cleanup only — authored drops/events never re-fire.
+            this.deathDropsResolved = compound.getBoolean("StoryNpcDeathResolved");
             if (compound.contains("StoryNpcDefinitionId")) {
                 setDefinitionId(compound.getString("StoryNpcDefinitionId"));
             }
@@ -1167,15 +1753,49 @@ public class StoryNpcEntity extends PathfinderMob {
                         companionTag.getLong("LastChargedWagePeriod"));
                 this.companionPaused = companionTag.getBoolean("Paused");
             }
+            if (this.hiddenDefeatTicksLeft != 0) {
+                this.wasInvulnerableBeforeHide = compound.getBoolean("HiddenDefeatWasInvulnerable");
+                this.wasNoPhysicsBeforeHide = compound.getBoolean("HiddenDefeatWasNoPhysics");
+                // Restore the full hidden-defeat posture — the countdown
+                // surviving a world save must restore the suppression too.
+                this.setInvisible(true);
+                this.setInvulnerable(true);
+                this.noPhysics = true;
+                this.setGlowingTag(false);
+                this.setCustomNameVisible(false);
+                this.setCustomName(null);
+            }
         } finally {
             loadingSavedData = false;
         }
 
+        reconcileActorBinding();
+    }
+
+    /**
+     * Binds this entity's projection to its logical actor. Spawn-area and forced
+     * chunks deserialize entities during level load — before ServerStartedEvent
+     * registers the server-scoped actor runtime — so the world lifecycle handler
+     * re-runs this reconciliation once the runtime exists. A blank actor ID is
+     * treated as unbound (legacy reconciliation), never persisted, so a
+     * pre-runtime load cannot poison future migrations with an empty
+     * {@code StoryNpcActorId} NBT value.
+     */
+    public void reconcileActorBinding() {
+        // Discarded entities must not bind a projection they no longer hold —
+        // a stale PROJECTED record would block the actor's next real projection.
+        if (this.level().isClientSide || this.isRemoved()) {
+            return;
+        }
         StoryNpcs mod = StoryNpcsAccess.mod(this);
         net.minecraft.server.MinecraftServer server = this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel
                 ? serverLevel.getServer()
                 : null;
-        if (!compound.contains("StoryNpcActorId") && mod != null && mod.getActorLifecycleService(server) != null) {
+        if (mod == null || mod.getActorLifecycleService(server) == null) {
+            return;
+        }
+        String actorId = getActorId();
+        if (actorId == null || actorId.isBlank()) {
             try {
                 NamespacedId definitionId = NamespacedId.of(getDefinitionId());
                 var result = mod.getActorLifecycleService(server).bindLegacyProjection(definitionId, this.getUUID());
@@ -1187,7 +1807,7 @@ public class StoryNpcEntity extends PathfinderMob {
             } catch (RuntimeException e) {
                 StoryNpcs.LOGGER.warn("Could not reconcile legacy StoryNPC projection {}: {}", this.getUUID(), e.getMessage());
             }
-        } else if (compound.contains("StoryNpcActorId")) {
+        } else {
             refreshActorProjection();
         }
     }

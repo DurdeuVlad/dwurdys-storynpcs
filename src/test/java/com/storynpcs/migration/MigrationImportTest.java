@@ -397,6 +397,47 @@ class MigrationImportTest {
         assertThat(sink.templates).containsKey("template|storynpcs:t_guard");
     }
 
+    @Test
+    void templateImportHonorsVersionEnvelopeAndStrictFields() {
+        // The template probe path must reject future schema versions and
+        // unknown fields like every other family — previously it bypassed the
+        // envelope entirely via raw tree binding (P2-1 review).
+        var futureVersion = """
+                id: "storynpcs:t_future"
+                schemaVersion: 99
+                definition:
+                  id: "storynpcs:guard_def"
+                """;
+        ImportPlan futurePlan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("template", "t_future.yaml", futureVersion), sink);
+        assertThat(futurePlan.steps().get(0).resolution())
+                .isEqualTo(Step.Resolution.QUARANTINE);
+        assertThat(futurePlan.steps().get(0).detail()).contains("schema validation failed");
+
+        var unknownField = """
+                id: "storynpcs:t_typo"
+                schemaVersion: 1
+                descripton: "typo'd field name"
+                definition:
+                  id: "storynpcs:guard_def"
+                """;
+        ImportPlan typoPlan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("template", "t_typo.yaml", unknownField), sink);
+        assertThat(typoPlan.steps().get(0).resolution())
+                .isEqualTo(Step.Resolution.QUARANTINE);
+
+        var missingDefinition = """
+                id: "storynpcs:t_nodef"
+                schemaVersion: 1
+                """;
+        ImportPlan noDefPlan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("template", "t_nodef.yaml", missingDefinition), sink);
+        assertThat(noDefPlan.steps().get(0).resolution())
+                .isEqualTo(Step.Resolution.QUARANTINE);
+
+        assertThat(sink.templates).isEmpty();
+    }
+
     private static com.storynpcs.domain.npc.NpcDefinition loadableNpc(String id) {
         var loader = new com.storynpcs.yaml.YamlDefinitionLoader(
                 new com.storynpcs.yaml.DefinitionRegistry());

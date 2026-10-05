@@ -53,6 +53,12 @@ public class StoryNpcsApplicationService {
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
     private final BoundedReplayCache<UUID, CompletedFollowerMutation> completedFollowerMutations =
             new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    /** Recent progression-action receipts; replays return the recorded outcome instead of re-applying. */
+    private final BoundedReplayCache<UUID, CompletedProgressionAction> completedProgressionActions =
+            new BoundedReplayCache<>(MAX_REPLAY_RECORDS);
+    /** Durable request journal for transport — survives restart, unlike a replay cache. */
+    private final com.storynpcs.persistence.DurableOperationJournal transportOperationJournal;
+    private final Object[] progressionActionLocks = createMutationLocks();
 
     /**
      * Bounded live runtime configuration (P9-4) — shared with the owning mod
@@ -188,6 +194,8 @@ public class StoryNpcsApplicationService {
         this.minecraftServer = minecraftServer; // nullable — degrades gracefully
         this.tradeOperationJournal = new com.storynpcs.persistence.DurableOperationJournal(
                 progressionRepository.storageDirectory().resolve("trade-operations"));
+        this.transportOperationJournal = new com.storynpcs.persistence.DurableOperationJournal(
+                progressionRepository.storageDirectory().resolve("transport-operations"));
     }
 
     // ==========================================
@@ -515,6 +523,10 @@ public class StoryNpcsApplicationService {
     private record CompletedQuestCompletion(
             String payloadFingerprint, QuestCompletionResult result) {}
 
+    private record CompletedProgressionAction(String fingerprint, AuthorizedActionResult result) {}
+
+
+
     private record CompletedFollowerMutation(
             String payloadFingerprint, CanonicalMutationResult result) {}
 
@@ -597,6 +609,90 @@ public class StoryNpcsApplicationService {
         eventPublisher.publish(new CanonicalMutationEvent(
                 request.operation(), request.actorType(), request.targetId(), request.requestId(),
                 result.applied(), result.revision(), result.recoveryOutcome()));
+    }
+
+    /**
+     * Shared pipeline for {@link PlayerProgressionActionRequest} operations
+     * (issue #54): request-id replay dedup, authorization (capability, actor
+     * rules, and operation binding to the invoked method), then the mutation.
+     * Every attempt — allowed, denied, or replayed — publishes a
+     * {@link CanonicalMutationEvent} so denials stay observable. Denied
+     * requests are never journaled, so privilege changes apply on retry.
+     */
+    private AuthorizedActionResult runProgressionAction(
+            PlayerProgressionActionRequest request, String expectedOperation,
+            String fingerprintKey, NamespacedId eventTarget,
+            java.util.function.Supplier<AuthorizedActionResult> action) {
+        String fingerprint = request.playerUuid() + "|" + expectedOperation + "|" + fingerprintKey;
+        Object requestLock = progressionActionLocks[request.requestId().hashCode()
+                & (progressionActionLocks.length - 1)];
+        AuthorizedActionResult result;
+        synchronized (requestLock) {
+            CompletedProgressionAction prior = completedProgressionActions.get(request.requestId());
+            if (prior != null) {
+                if (!expectedOperation.equals(request.operation())) {
+                    result = AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "OPERATION_MISMATCH",
+                            "Request operation '" + request.operation()
+                                    + "' does not match " + expectedOperation));
+                } else {
+                    result = prior.fingerprint().equals(fingerprint)
+                            ? AuthorizedActionResult.replayOf(prior.result())
+                            : AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                                    "REQUEST_PAYLOAD_MISMATCH",
+                                    "Request ID is already bound to a different progression action"));
+                }
+            } else {
+                AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+                if (decision.allowed() && !expectedOperation.equals(request.operation())) {
+                    decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
+                            "Request operation '" + request.operation()
+                                    + "' does not match " + expectedOperation);
+                }
+                if (decision.allowed()) {
+                    try {
+                        result = action.get();
+                    } catch (RuntimeException unavailable) {
+                        // A quarantined/unreadable progression record throws out
+                        // of the store — convert it to a typed denial so the
+                        // boundary still returns a result and emits its audit
+                        // event instead of escaping the adapter.
+                        result = AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                                "PROGRESSION_UNAVAILABLE",
+                                "Player progression data is unavailable: " + unavailable.getMessage()));
+                    }
+                } else {
+                    result = AuthorizedActionResult.denied(decision);
+                }
+                // Infrastructure failures are not terminal outcomes — memoizing
+                // them would replay the phantom failure to in-process retries.
+                // The durable marker rolled back, so a retry must re-execute.
+                if (decision.allowed() && !isNonTerminalOutcome(result)) {
+                    completedProgressionActions.put(request.requestId(),
+                            new CompletedProgressionAction(fingerprint, result));
+                }
+            }
+        }
+        publishProgressionActionEvent(request, eventTarget, result.applied(), result);
+        return result;
+    }
+
+    /** Infrastructure failures (commit write, unreadable record) must not be memoized — they are not business outcomes and a retry must re-evaluate. */
+    private static boolean isNonTerminalOutcome(AuthorizedActionResult result) {
+        return !result.applied() && result.decision() != null && !result.decision().allowed()
+                && ("PROGRESSION_COMMIT_FAILED".equals(result.decision().code())
+                        || "PROGRESSION_UNAVAILABLE".equals(result.decision().code()));
+    }
+
+    private void publishProgressionActionEvent(PlayerProgressionActionRequest request,
+                                               NamespacedId targetId, boolean applied,
+                                               AuthorizedActionResult result) {
+        String outcome = !result.decision().allowed() ? result.decision().code()
+                : result.duplicate() ? "REPLAYED"
+                : applied ? "COMMITTED" : "REJECTED_NO_SIDE_EFFECTS";
+        dispatchQuestEvents(request.playerUuid(), List.of(new CanonicalMutationEvent(
+                request.operation(), request.actorType(), targetId, request.requestId(),
+                applied, 0L, outcome, request.actorId(), request.playerUuid())));
     }
 
     /** Revision tokens for every definition of one kind, keyed by bare definition id. */
@@ -757,12 +853,34 @@ public class StoryNpcsApplicationService {
         DialogueGraph graph = registry.getDialogue(dialogueId)
                 .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + dialogueId));
 
+        // Progression record is materialized before the availability gate —
+        // denied opens still cache it (it is needed to evaluate FACTION_* /
+        // QUEST_* conditions either way, and persists at the next saveAll).
+        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
+        // Graph-level availability (the target's Dialog.availability) gates the
+        // open itself — fail closed, deny is observable, no session is created.
+        if (!evalConditions(graph.getAvailability(), progression, null)) {
+            eventPublisher.publish(new DialogueOpenDeniedEvent(playerUuid, dialogueId, "AVAILABILITY"));
+            return DialogueView.closed(dialogueId);
+        }
+
+        // A new open supersedes any prior session: tear it down first so its
+        // tokens are revoked and a DialogueClosedEvent fires (P3 — previously
+        // the old session was overwritten silently, orphaning its tokens).
+        DialogueSession existing = activeSessions.get(playerUuid);
+        if (existing != null) {
+            endSession(playerUuid, existing, DialogueClosedEvent.Reason.SERVER_CLOSE);
+        }
+
         DialogueSession session = new DialogueSession(playerUuid, graph, npcEntityUuid, dimensionId, originX, originY, originZ);
         session.setNpcDisplayName(resolveNpcDisplayName(npcEntityUuid));
         activeSessions.put(playerUuid, session);
 
-        PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
-        progression.recordDialogueNodeVisit(session.getCurrentNodeId());
+        // Self-scoped "dialogue" request is always allowed; the visit record is
+        // session bookkeeping and its result is intentionally not consulted.
+        recordDialogueVisitChecked(new PlayerProgressionActionRequest(
+                "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
+                UUID.randomUUID(), -1), dialogueId, session.getCurrentNodeId(), progression);
 
         eventPublisher.publish(new DialogueOpenEvent(playerUuid, dialogueId, session.getCurrentNodeId()));
         return buildDialogueView(session, progression);
@@ -865,13 +983,13 @@ public class StoryNpcsApplicationService {
         eventPublisher.publish(new DialogueOptionSelectEvent(playerUuid, session.getDialogueId(),
                 fromNodeId, toNodeId, optionIndex));
         session.advanceTo(toNodeId);
-        progression.recordDialogueNodeVisit(toNodeId);
+        // Self-scoped "dialogue" request is always allowed; result intentionally unused.
+        recordDialogueVisitChecked(new PlayerProgressionActionRequest(
+                "dialogue.visit.record", "dialogue", playerUuid, playerUuid,
+                UUID.randomUUID(), -1), session.getDialogueId(), toNodeId, progression);
 
-        DialogueView view = buildDialogueView(session, progression);
-        if (view.isTerminal()) {
-            endSession(playerUuid, session, DialogueClosedEvent.Reason.GRAPH_END);
-        }
-        return view;
+        // buildDialogueView tears down terminal sessions itself (GRAPH_END).
+        return buildDialogueView(session, progression);
     }
 
     private static DialogueChoiceProtocol.ChoiceToken parseChoiceToken(String text) {
@@ -883,6 +1001,73 @@ public class StoryNpcsApplicationService {
         }
     }
 
+    /**
+     * Records a player's dialogue-node visit into durable progression on the
+     * already-held {@link PlayerProgression}. Writes through only when the
+     * visit is new, so repeat navigation does not rewrite the store. Visits are
+     * keyed per dialogue ({@code dialogueId#nodeId}) so node ids shared across
+     * dialogues do not collide. Returns whether the node was newly recorded.
+     */
+    private boolean recordDialogueNodeVisitInternal(
+            UUID playerUuid, PlayerProgression progression, NamespacedId dialogueId, String nodeId) {
+        if (!playerUuid.equals(progression.getPlayerUuid())) {
+            throw new IllegalArgumentException(
+                    "progression instance does not belong to the request subject");
+        }
+        synchronized (progression) {
+            if (progression.hasVisitedDialogueNode(dialogueId, nodeId)) {
+                return false;
+            }
+            progression.recordDialogueNodeVisit(dialogueId, nodeId);
+            saveProgression(playerUuid, progression);
+            return true;
+        }
+    }
+
+    /**
+     * Evaluates authorization then applies the visit to the supplied progression
+     * instance, so session paths reuse the object already fetched for the view.
+     */
+    private AuthorizedActionResult recordDialogueVisitChecked(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId, String nodeId,
+            PlayerProgression progression) {
+        return runProgressionAction(request, "dialogue.visit.record",
+                dialogueId + "#" + nodeId, dialogueId,
+                () -> AuthorizedActionResult.of(
+                        recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId)));
+    }
+
+    /**
+     * Authorization-checked dialogue node-visit recording (issue #51 — the last
+     * session-driven progression write that bypassed the typed boundary).
+     * Dialogue navigation submits a {@link PlayerProgressionActionRequest} with
+     * actor {@code "dialogue"} bound to the visiting player, so visit recording
+     * honors the same actor/subject policy as every other player-scoped
+     * mutation; denials carry machine-readable codes and are side-effect-free.
+     */
+    public AuthorizedActionResult recordDialogueNodeVisit(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId, String nodeId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(dialogueId, "dialogueId");
+        Objects.requireNonNull(nodeId, "nodeId");
+        return runProgressionAction(request, "dialogue.visit.record",
+                dialogueId + "#" + nodeId, dialogueId, () -> {
+            // Boundary hygiene: only nodes that exist in the named dialogue may
+            // be recorded — a privileged caller cannot persist arbitrary keys.
+            boolean nodeExists = registry.getDialogue(dialogueId)
+                    .flatMap(graph -> graph.getNode(nodeId))
+                    .isPresent();
+            if (!nodeExists) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "DIALOGUE_NODE_NOT_FOUND",
+                        "Dialogue " + dialogueId + " has no node '" + nodeId + "'."));
+            }
+            PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+            return AuthorizedActionResult.of(
+                    recordDialogueNodeVisitInternal(request.playerUuid(), progression, dialogueId, nodeId));
+        });
+    }
+
     private void rejectChoice(UUID playerUuid, DialogueSession session, String nodeId, String reason) {
         eventPublisher.publish(new DialogueChoiceRejectedEvent(
                 playerUuid, session.getDialogueId(), nodeId, reason));
@@ -892,10 +1077,76 @@ public class StoryNpcsApplicationService {
     /** Session teardown: close, remove, revoke outstanding choice tokens, notify. */
     private void endSession(UUID playerUuid, DialogueSession session, DialogueClosedEvent.Reason reason) {
         session.close();
-        activeSessions.remove(playerUuid);
+        // Identity remove: a stale handle must not evict a newer session that
+        // replaced this one in the map.
+        activeSessions.remove(playerUuid, session);
         choiceProtocol.revokeSession(session.getSessionId());
         eventPublisher.publish(new DialogueClosedEvent(
                 playerUuid, session.getDialogueId(), session.getCurrentNodeId(), reason));
+    }
+
+    /**
+     * Re-evaluates every live session pinned to a dialogue whose definition
+     * just changed (canonical mutate/replace/delete) or was reloaded
+     * (definitions reload). Sessions whose dialogue vanished, lost their
+     * current node, or now fail graph-level availability are closed with
+     * {@code SERVER_CLOSE}; surviving sessions rebind to the new graph
+     * instance so they never walk a superseded definition. Emits
+     * {@link DialogueReloadedEvent} with the affected/closed counts.
+     */
+    private void notifyDialogueReloaded(NamespacedId dialogueId) {
+        List<DialogueSession> sessions = activeSessions.values().stream()
+                .filter(s -> s.isActive() && dialogueId.equals(s.getDialogueId()))
+                .toList();
+        DialogueGraph fresh = registry.getDialogue(dialogueId).orElse(null);
+        int closed = 0;
+        for (DialogueSession session : sessions) {
+            // The snapshot was taken before any ClosedEvent listeners ran — a
+            // synchronous listener may already have ended this session.
+            if (!session.isActive()) {
+                continue;
+            }
+            try {
+                PlayerProgression progression = progressionRepository.getOrCreate(session.getPlayerUuid());
+                boolean keep = fresh != null
+                        && fresh.getNodes().containsKey(session.getCurrentNodeId())
+                        && evalConditions(fresh.getAvailability(), progression, session);
+                if (keep) {
+                    session.rebindGraph(fresh);
+                } else {
+                    endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+                    closed++;
+                }
+            } catch (RuntimeException e) {
+                // Fail closed per session: a corrupt progression record or a
+                // rebind fault must not abort re-evaluation of the remaining
+                // sessions or suppress the reload event — the mutation already
+                // committed, so half-processed is the worst honest state.
+                if (session.isActive()) {
+                    endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.SERVER_CLOSE);
+                }
+                closed++;
+            }
+        }
+        eventPublisher.publish(new DialogueReloadedEvent(dialogueId, sessions.size(), closed));
+    }
+
+    /**
+     * Definitions-reload hook (e.g. {@code /storynpcs reload}): the staging
+     * registry was swapped wholesale, so every dialogue with a live session is
+     * re-evaluated — the swap carries no per-definition diff. The revision of
+     * each touched dialogue is bumped first so choice tokens issued against a
+     * pre-swap definition become STALE_REVISION and fail closed instead of
+     * re-resolving against the new graph's edge list.
+     */
+    public void notifyDialogueDefinitionsReloaded() {
+        Set<NamespacedId> ids = activeSessions.values().stream()
+                .map(DialogueSession::getDialogueId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        for (NamespacedId id : ids) {
+            definitionRevisions.merge(revisionKey("dialogue", id), 1L, Long::sum);
+            notifyDialogueReloaded(id);
+        }
     }
 
     /** Test seam: bind the choice-token clock (e.g., a controlled tick counter). */
@@ -1000,21 +1251,25 @@ public class StoryNpcsApplicationService {
     public CanonicalMutationResult mutateDialogue(MutationRequest request, Consumer<DialogueGraph> mutation) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(mutation, "mutation");
-        return executeCanonicalMutation(request, "dialogue", "mutate", () -> {
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "mutate", () -> {
             DialogueGraph current = registry.getDialogue(request.targetId())
                     .orElseThrow(() -> new NoSuchElementException("Dialogue not found: " + request.targetId()));
             DialogueGraph working = DialogueGraphSerde.fromJson(DialogueGraphSerde.toJson(current))
                     .orElseThrow(() -> new IllegalStateException("Unable to copy dialogue for mutation: " + request.targetId()));
             mutation.accept(working);
             if (!request.targetId().equals(working.getId())) {
-                ValidationResult result = ValidationResult.valid();
-                result.addError("TARGET_ID_MISMATCH", "Dialogue mutation cannot change the request target ID");
-                return result;
+                ValidationResult validation = ValidationResult.valid();
+                validation.addError("TARGET_ID_MISMATCH", "Dialogue mutation cannot change the request target ID");
+                return validation;
             }
             DialogueGraph committed = DialogueGraphSerde.fromJson(DialogueGraphSerde.toJson(working))
                     .orElseThrow(() -> new IllegalStateException("Unable to detach dialogue mutation result: " + request.targetId()));
             return saveDialogue(request.targetId(), committed);
         });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /** Canonical full-graph replacement used by packet adapters after decoding detached input. */
@@ -1023,15 +1278,19 @@ public class StoryNpcsApplicationService {
         String payloadJson = DialogueGraphSerde.toJson(replacement);
         DialogueGraph payload = DialogueGraphSerde.fromJson(payloadJson)
                 .orElseThrow(() -> new IllegalArgumentException("Unable to snapshot dialogue replacement payload"));
-        return executeCanonicalMutation(request, "dialogue", "replace",
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "replace",
                 MutationPayloadFingerprint.ofJson("dialogue.replace", payloadJson), () -> {
                     if (!request.targetId().equals(payload.getId())) {
-                        ValidationResult result = ValidationResult.valid();
-                        result.addError("TARGET_ID_MISMATCH", "Replacement ID does not match request target");
-                        return result;
+                        ValidationResult validation = ValidationResult.valid();
+                        validation.addError("TARGET_ID_MISMATCH", "Replacement ID does not match request target");
+                        return validation;
                     }
                     return saveDialogue(request.targetId(), payload);
                 });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /**
@@ -1231,9 +1490,118 @@ public class StoryNpcsApplicationService {
      * @return validation result; on errors nothing is written or registered.
      */
     public ValidationResult saveTemplate(com.storynpcs.creator.template.NpcTemplate template) {
-        synchronized (canonicalMutationLock) {
-            return saveTemplateUnderCanonicalLock(template);
+        Objects.requireNonNull(template, "template");
+        if (template.getId() == null) {
+            ValidationResult result = ValidationResult.valid();
+            result.addError("TEMPLATE_ID_MISSING", "Template must have an ID");
+            return result;
         }
+        return saveTemplate(new MutationRequest(
+                "template.replace", "adapter", "template.mutate", template.getId(),
+                definitionRevisions.getOrDefault(revisionKey("template", template.getId()), 0L),
+                UUID.randomUUID()), template).diagnostics();
+    }
+
+    /**
+     * Typed, replay-safe template save (upsert) — mirrors {@link #replaceNpc}.
+     * The request binds actor, capability, target id, and expected revision; the
+     * payload fingerprint covers the full template (id, schema, revision,
+     * description, tags, embedded definition) so an identical retry replays the
+     * recorded result instead of re-writing YAML and re-registering.
+     */
+    public CanonicalMutationResult saveTemplate(MutationRequest request,
+            com.storynpcs.creator.template.NpcTemplate template) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(template, "template");
+        var payload = detachedTemplateCopy(template);
+        return executeCanonicalMutation(request, "template", "replace",
+                MutationPayloadFingerprint.ofFields("template.replace", canonicalTemplateFields(payload)),
+                () -> {
+                    if (payload.getId() == null) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TEMPLATE_ID_MISSING", "Template must have an ID");
+                        return result;
+                    }
+                    if (!request.targetId().equals(payload.getId())) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TARGET_ID_MISMATCH", "Template ID does not match request target");
+                        return result;
+                    }
+                    return saveTemplateUnderCanonicalLock(payload);
+                });
+    }
+
+    /**
+     * Replay-safe, revision-checked template deletion — mirrors
+     * {@link #deleteQuest(MutationRequest)}. Orphaned dependent spawners are
+     * surfaced as a diagnostic warning; callers that need the full
+     * {@code DeleteOutcome} use {@link #deleteTemplate(NamespacedId)}.
+     */
+    public CanonicalMutationResult deleteTemplate(MutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return executeCanonicalMutation(request, "template", "delete",
+                MutationPayloadFingerprint.of("template.delete", request.targetId().toString()), () -> {
+                    if (registry.getTemplate(request.targetId()).isEmpty()) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TEMPLATE_NOT_FOUND", "Template not found: " + request.targetId());
+                        return result;
+                    }
+                    var outcome = deleteTemplate(request.targetId());
+                    if (!outcome.removed()) {
+                        ValidationResult failure = ValidationResult.valid();
+                        failure.addError(registry.getTemplate(request.targetId()).isPresent()
+                                        ? "DEFINITION_DELETE_FAILED" : "TEMPLATE_NOT_FOUND",
+                                "Template '" + request.targetId() + "' could not be deleted");
+                        return failure;
+                    }
+                    ValidationResult result = ValidationResult.valid();
+                    if (!outcome.dependentSpawners().isEmpty()) {
+                        result.addWarning("TEMPLATE_SPAWNERS_ORPHANED",
+                                "Deleted template '" + request.targetId()
+                                        + "' leaves dependent spawners: " + outcome.dependentSpawners());
+                    }
+                    return result;
+                });
+    }
+
+    private static com.storynpcs.creator.template.NpcTemplate detachedTemplateCopy(
+            com.storynpcs.creator.template.NpcTemplate source) {
+        var copy = new com.storynpcs.creator.template.NpcTemplate();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setRevision(source.getRevision());
+        copy.setDescription(source.getDescription());
+        copy.setTags(source.getTags());
+        if (source.getDefinition() != null) {
+            copy.setDefinition(NpcDefinitionSerde.fromJson(NpcDefinitionSerde.toJson(source.getDefinition()))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Unable to detach template payload: " + source.getId())));
+        }
+        return copy;
+    }
+
+    /**
+     * Labeled, self-describing field sequence bound to a template save request.
+     * Labels and length-prefixed digesting make field boundaries unforgeable:
+     * sequence equality is exactly semantic payload equality.
+     */
+    private static java.util.List<String> canonicalTemplateFields(
+            com.storynpcs.creator.template.NpcTemplate template) {
+        var fields = new java.util.ArrayList<String>();
+        fields.add("id");
+        fields.add(template.getId() == null ? null : template.getId().toString());
+        fields.add("schemaVersion");
+        fields.add(Integer.toString(template.getSchemaVersion()));
+        fields.add("revision");
+        fields.add(Long.toString(template.getRevision()));
+        fields.add("description");
+        fields.add(template.getDescription());
+        fields.add("tags");
+        fields.addAll(template.getTags());
+        fields.add("definition");
+        fields.add(template.getDefinition() == null ? null
+                : NpcDefinitionSerde.toJson(template.getDefinition()));
+        return fields;
     }
 
     private synchronized ValidationResult saveTemplateUnderCanonicalLock(
@@ -1746,12 +2114,12 @@ public class StoryNpcsApplicationService {
 
     /** Replay-safe, revision-checked dialogue deletion for command/network adapters. */
     public CanonicalMutationResult deleteDialogue(MutationRequest request) {
-        return executeCanonicalMutation(request, "dialogue", "delete",
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "delete",
                 MutationPayloadFingerprint.of("dialogue.delete", request.targetId().toString()), () -> {
             if (registry.getDialogue(request.targetId()).isEmpty()) {
-                ValidationResult result = ValidationResult.valid();
-                result.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
-                return result;
+                ValidationResult missing = ValidationResult.valid();
+                missing.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
+                return missing;
             }
             if (!deleteDialogue(request.targetId())) {
                 ValidationResult failure = ValidationResult.valid();
@@ -1762,6 +2130,10 @@ public class StoryNpcsApplicationService {
             }
             return ValidationResult.valid();
         });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /**
@@ -1771,30 +2143,34 @@ public class StoryNpcsApplicationService {
      */
     public CanonicalMutationResult deleteUnreferencedDialogue(MutationRequest request) {
         Objects.requireNonNull(request, "request");
-        return executeCanonicalMutation(request, "dialogue", "delete",
+        CanonicalMutationResult result = executeCanonicalMutation(request, "dialogue", "delete",
                 MutationPayloadFingerprint.of("dialogue.delete.unreferenced", request.targetId().toString()), () -> {
             synchronized (this) {
                 if (registry.getDialogue(request.targetId()).isEmpty()) {
-                    ValidationResult result = ValidationResult.valid();
-                    result.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
-                    return result;
+                    ValidationResult missing = ValidationResult.valid();
+                    missing.addError("DIALOGUE_NOT_FOUND", "Dialogue not found: " + request.targetId());
+                    return missing;
                 }
                 List<NamespacedId> references = findNpcsReferencingDialogue(request.targetId());
                 if (!references.isEmpty()) {
-                    ValidationResult result = ValidationResult.valid();
-                    result.addError("DIALOGUE_REFERENCED",
+                    ValidationResult referenced = ValidationResult.valid();
+                    referenced.addError("DIALOGUE_REFERENCED",
                             "Dialogue '" + request.targetId() + "' is still referenced by NPCs: " + references);
-                    return result;
+                    return referenced;
                 }
                 if (!deleteDialogue(request.targetId())) {
-                    ValidationResult result = ValidationResult.valid();
-                    result.addError("DEFINITION_DELETE_FAILED",
+                    ValidationResult failure = ValidationResult.valid();
+                    failure.addError("DEFINITION_DELETE_FAILED",
                             "Unreferenced dialogue '" + request.targetId() + "' could not be removed");
-                    return result;
+                    return failure;
                 }
             }
             return ValidationResult.valid();
         });
+        if (result.newlyApplied()) {
+            notifyDialogueReloaded(request.targetId());
+        }
+        return result;
     }
 
     /**
@@ -1914,9 +2290,10 @@ public class StoryNpcsApplicationService {
         String speaker = speakerLabel(session);
         DialogueNode node = session.getCurrentNode();
         if (node == null || node.isTerminal()) {
-            session.close();
-            activeSessions.remove(session.getPlayerUuid());
-            choiceProtocol.revokeSession(session.getSessionId());
+            // Centralized teardown: every terminal close fires DialogueClosedEvent
+            // (GRAPH_END) — including a terminal entry node on open — and the
+            // identity-remove cannot evict a different session for this player.
+            endSession(session.getPlayerUuid(), session, DialogueClosedEvent.Reason.GRAPH_END);
             return new DialogueView(session.getDialogueId(), node != null ? node.getId() : "",
                     node != null ? node.getText() : "", node != null ? node.getSound() : "", List.of(), true,
                     speaker, List.of(), List.of());
@@ -2256,6 +2633,36 @@ public class StoryNpcsApplicationService {
                     prior.diagnostics(), prior.events(), prior.recoveryOutcome());
         }
 
+        // Durable replay check (issue #57 — P2-3): the in-memory cache dies
+        // with the process; the progression ledger survives restart. A recorded
+        // marker means the mutation already committed in the same save, so a
+        // replayed request id must return that outcome, never re-apply a
+        // non-idempotent ADJUST.
+        String durableOutcome = progression.appliedActionOutcome(request.requestId());
+        if (durableOutcome != null) {
+            String[] parts = durableOutcome.split("\n", -1);
+            if (!parts[0].equals(fingerprint)) {
+                return factionMutationFailure(progression.getFactionRevision(),
+                        "REQUEST_PAYLOAD_MISMATCH", "Request ID is already bound to a different faction mutation payload");
+            }
+            long recordedRevision;
+            try {
+                recordedRevision = parts.length > 1
+                        ? Long.parseLong(parts[1]) : progression.getFactionRevision();
+            } catch (NumberFormatException corruptMarker) {
+                // Fingerprint matched but the recorded revision is mangled —
+                // the ledger entry cannot be trusted, so fail closed rather
+                // than re-apply or report a fabricated revision.
+                return factionMutationFailure(progression.getFactionRevision(),
+                        "LEDGER_CORRUPT", "Recorded outcome for this request ID is malformed");
+            }
+            String recoveryOutcome = parts.length > 2 ? parts[2] : "COMMITTED";
+            List<String> events = parts.length > 3 && !parts[3].isEmpty()
+                    ? List.of(parts[3].split(";")) : List.of();
+            return new CanonicalMutationResult(true, true, recordedRevision,
+                    ValidationResult.valid(), events, recoveryOutcome);
+        }
+
         long currentRevision = progression.getFactionRevision();
         if (currentRevision != request.expectedRevision()) {
             CanonicalMutationResult stale = factionMutationFailure(currentRevision, "STALE_REVISION",
@@ -2284,6 +2691,10 @@ public class StoryNpcsApplicationService {
             }
             newPoints = progression.getFactionScore(request.factionId(), faction.getDefaultPoints());
             progression.setFactionRevision(Math.addExact(currentRevision, 1L));
+            // The replay marker commits inside the same save as the mutation —
+            // a failed save rolls the marker back with it via restoreFrom.
+            progression.recordAppliedActionRequest(request.requestId(), fingerprint,
+                    progression.getFactionRevision() + "\nCOMMITTED\nFactionReputationChangeEvent");
             progressionRepository.save(request.playerUuid(), progression);
         } catch (Exception failure) {
             progression.restoreFrom(snapshot);
@@ -2373,8 +2784,8 @@ public class StoryNpcsApplicationService {
     // check, non-obstructed landing, cross-dimension timeout/recovery) requires a
     // real ServerLevel and is intentionally NOT implemented here.
 
-    /** Creates a transport location definition after validating its destination contract. */
-    public ValidationResult createTransportLocation(
+    /** Creates a transport location definition after validating its destination contract. Internal-only (issue #54): adapters must use the typed {@code MutationRequest} overload. */
+    ValidationResult createTransportLocation(
             com.storynpcs.domain.transport.TransportLocation location) {
         Objects.requireNonNull(location, "location");
         Objects.requireNonNull(location.getId(), "location.id");
@@ -2396,7 +2807,7 @@ public class StoryNpcsApplicationService {
     /**
      * Creates a transport location through the revisioned, authorization-checked
      * canonical request boundary (issue #54 — P1-4 authorization policy coverage).
-     * The unguarded {@link #createTransportLocation(com.storynpcs.domain.transport.TransportLocation)}
+     * The package-private {@link #createTransportLocation(com.storynpcs.domain.transport.TransportLocation)}
      * overload remains for trusted internal/bootstrap callers; adapters that accept
      * untrusted actor input (commands, packets, scripts) must route through this
      * overload instead so definition mutation authorization is enforced uniformly,
@@ -2450,8 +2861,8 @@ public class StoryNpcsApplicationService {
         return unlockedTransportLocations(progression).contains(locationId);
     }
 
-    /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. */
-    public boolean unlockTransportLocation(UUID playerUuid, NamespacedId locationId) {
+    /** Unlocks a transport location for a player. Idempotent — unlocking twice is a no-op. Fails if the location doesn't exist. Internal-only (issue #54): adapters must use the typed request overload. */
+    boolean unlockTransportLocation(UUID playerUuid, NamespacedId locationId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(locationId, "locationId");
         if (registry.getTransportLocation(locationId).isEmpty()) return false;
@@ -2466,15 +2877,57 @@ public class StoryNpcsApplicationService {
     /**
      * Authorization-checked unlock (issue #54 — P1-4 coverage). Adapters that accept
      * untrusted actor input should route through this overload instead of the
-     * unguarded {@link #unlockTransportLocation(UUID, NamespacedId)}, which remains
-     * for trusted internal callers.
+     * package-private {@link #unlockTransportLocation(UUID, NamespacedId)}, which
+     * remains for trusted internal callers.
      */
     public AuthorizedActionResult unlockTransportLocation(PlayerProgressionActionRequest request, NamespacedId locationId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(locationId, "locationId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
-        return AuthorizedActionResult.of(unlockTransportLocation(request.playerUuid(), locationId));
+        return runProgressionAction(request, "transport.unlock", locationId.toString(), locationId,
+                () -> applyTransportUnlock(request, locationId));
+    }
+
+    /**
+     * Transport unlock with durable replay classification (issue #57 — P2-3):
+     * the request id and its outcome are recorded in the same progression save
+     * that grants the unlock, so a replay after restart returns the recorded
+     * outcome instead of re-executing and re-auditing the mutation.
+     */
+    private AuthorizedActionResult applyTransportUnlock(
+            PlayerProgressionActionRequest request, NamespacedId locationId) {
+        String fingerprint = request.playerUuid() + "|transport.unlock|" + locationId;
+        PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+        synchronized (progression) {
+            String recorded = progression.appliedActionOutcome(request.requestId());
+            if (recorded != null) {
+                String[] parts = recorded.split("\n", 2);
+                if (!parts[0].equals(fingerprint)) {
+                    return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                            "REQUEST_PAYLOAD_MISMATCH",
+                            "Request ID is already bound to a different progression action"));
+                }
+                boolean applied = parts.length > 1 && Boolean.parseBoolean(parts[1]);
+                return AuthorizedActionResult.replayOf(AuthorizedActionResult.of(applied));
+            }
+            if (registry.getTransportLocation(locationId).isEmpty()) {
+                return AuthorizedActionResult.of(false);
+            }
+            PlayerProgression snapshot = progression.copy();
+            try {
+                progression.getUnlockedTransportLocations().add(locationId);
+                // The replay marker commits inside the same save as the grant —
+                // a failed save rolls the marker back with it via restoreFrom so
+                // a retry re-executes instead of replaying a phantom success.
+                progression.recordAppliedActionRequest(request.requestId(), fingerprint, "true");
+                progressionRepository.save(request.playerUuid(), progression);
+            } catch (Exception failure) {
+                progression.restoreFrom(snapshot);
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "PROGRESSION_COMMIT_FAILED",
+                        "Could not durably save transport unlock: " + failure.getMessage()));
+            }
+            return AuthorizedActionResult.of(true);
+        }
     }
 
     // ==========================================
@@ -2491,7 +2944,10 @@ public class StoryNpcsApplicationService {
      * message first if the mailbox is at capacity. Returns the delivered message
      * (with its generated ID) so the caller can reference it.
      */
-    public com.storynpcs.domain.progression.MailMessage deliverMail(
+    // Issue #54: internal-only primitive — adapters must not call this; tests in
+    // this package seed mailbox fixtures with it. Player-facing paths use the
+    // typed overloads or deliverQuestMail (self-bound to the interactor).
+    com.storynpcs.domain.progression.MailMessage deliverMail(
             UUID playerUuid, String sender, String subject, String body) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         String boundedSender = bound(sender, MAIL_SENDER_MAX_LENGTH, "mail sender");
@@ -2525,7 +2981,7 @@ public class StoryNpcsApplicationService {
     }
 
     /** Marks a mail message read. Returns false if no message with that ID exists. */
-    public boolean markMailRead(UUID playerUuid, UUID mailId) {
+    boolean markMailRead(UUID playerUuid, UUID mailId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(mailId, "mailId");
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
@@ -2545,19 +3001,18 @@ public class StoryNpcsApplicationService {
     /**
      * Authorization-checked mail-read (issue #54 — P1-4 coverage). Adapters that
      * accept untrusted actor input should route through this overload instead of
-     * the unguarded {@link #markMailRead(UUID, UUID)}, which remains for trusted
-     * internal callers.
+     * the package-private {@link #markMailRead(UUID, UUID)}, which remains for
+     * trusted internal callers.
      */
     public AuthorizedActionResult markMailRead(PlayerProgressionActionRequest request, UUID mailId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(mailId, "mailId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
-        return AuthorizedActionResult.of(markMailRead(request.playerUuid(), mailId));
+        return runProgressionAction(request, "mail.read", mailId.toString(), null,
+                () -> AuthorizedActionResult.of(markMailRead(request.playerUuid(), mailId)));
     }
 
     /** Deletes a mail message. Returns false if no message with that ID exists. */
-    public boolean deleteMail(UUID playerUuid, UUID mailId) {
+    boolean deleteMail(UUID playerUuid, UUID mailId) {
         Objects.requireNonNull(playerUuid, "playerUuid");
         Objects.requireNonNull(mailId, "mailId");
         PlayerProgression progression = progressionRepository.getOrCreate(playerUuid);
@@ -2571,15 +3026,14 @@ public class StoryNpcsApplicationService {
     /**
      * Authorization-checked mail deletion (issue #54 — P1-4 coverage). Adapters that
      * accept untrusted actor input should route through this overload instead of
-     * the unguarded {@link #deleteMail(UUID, UUID)}, which remains for trusted
-     * internal callers.
+     * the package-private {@link #deleteMail(UUID, UUID)}, which remains for
+     * trusted internal callers.
      */
     public AuthorizedActionResult deleteMail(PlayerProgressionActionRequest request, UUID mailId) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(mailId, "mailId");
-        AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
-        if (!decision.allowed()) return AuthorizedActionResult.denied(decision);
-        return AuthorizedActionResult.of(deleteMail(request.playerUuid(), mailId));
+        return runProgressionAction(request, "mail.delete", mailId.toString(), null,
+                () -> AuthorizedActionResult.of(deleteMail(request.playerUuid(), mailId)));
     }
 
     private static String bound(String raw, int maxLength, String label) {
@@ -4674,7 +5128,12 @@ public class StoryNpcsApplicationService {
         try {
             String playerSubject = playerUuid.toString();
             String compoundSubjectPrefix = playerSubject + "|";
-            pendingRecords = bankRepo.operationJournal().pending().stream()
+            var journalScan = bankRepo.operationJournal().pending();
+            for (String diagnostic : journalScan.diagnostics()) {
+                System.err.println("[StoryNPCs] bank operation journal recovery for "
+                        + playerUuid + ": " + diagnostic);
+            }
+            pendingRecords = journalScan.records().stream()
                     .filter(record -> playerSubject.equals(record.subject())
                             || record.subject().startsWith(compoundSubjectPrefix))
                     .toList();
@@ -4812,7 +5271,12 @@ public class StoryNpcsApplicationService {
         java.util.List<com.storynpcs.persistence.DurableOperationJournal.OperationRecord> pending;
         try {
             String subjectPrefix = playerUuid + "|";
-            pending = tradeOperationJournal.pending().stream()
+            var journalScan = tradeOperationJournal.pending();
+            for (String diagnostic : journalScan.diagnostics()) {
+                System.err.println("[StoryNPCs] trade operation journal recovery for "
+                        + playerUuid + ": " + diagnostic);
+            }
+            pending = journalScan.records().stream()
                     .filter(record -> "trade.execute".equals(record.operationType()))
                     .filter(record -> record.subject() != null && record.subject().startsWith(subjectPrefix))
                     .toList();
@@ -5373,7 +5837,9 @@ public class StoryNpcsApplicationService {
         /** Owner could not pay; DISMISS policy — caller releases ownership. */
         INSUFFICIENT_DISMISSED,
         /** Owner could not pay; KEEP_ANYWAY policy — period consumed, service continues. */
-        INSUFFICIENT_KEPT
+        INSUFFICIENT_KEPT,
+        /** The owner's durable progression record is unreadable (quarantined/corrupt) — fail closed rather than risk an unverifiable charge; caller pauses companion behavior. */
+        PROGRESSION_UNAVAILABLE
     }
 
     /**
@@ -5387,12 +5853,37 @@ public class StoryNpcsApplicationService {
             com.storynpcs.domain.companion.CompanionProfile profile,
             com.storynpcs.domain.companion.WageLedger ledger,
             long hireTick, long nowTick) {
-        if (profile == null || ledger == null || ownerUuid == null || hireTick < 0) {
+        if (profile == null || ledger == null || ownerUuid == null || companionId == null
+                || hireTick < 0) {
             return CompanionWageOutcome.NOT_DUE;
         }
         int interval = Math.max(20, profile.getWageIntervalTicks());
         long period = com.storynpcs.domain.companion.WageLedger.periodFor(hireTick, nowTick, interval);
         if (period <= ledger.getLastChargedPeriod()) {
+            return CompanionWageOutcome.ALREADY_CHARGED;
+        }
+        // Durable backstop (issue #57): the entity ledger only persists on
+        // periodic NBT saves, so a crash between a deduction and that save
+        // loses the marker. The owner-progression record is force-written on
+        // every successful charge — consult it before re-charging the period.
+        // isUnavailable short-circuits first: a blocked record must not redo
+        // the quarantine scan + diagnostic on every wage tick.
+        if (progressionRepository.isUnavailable(ownerUuid)) {
+            return CompanionWageOutcome.PROGRESSION_UNAVAILABLE;
+        }
+        PlayerProgression ownerProgression;
+        try {
+            ownerProgression = progressionRepository.getOrCreate(ownerUuid);
+        } catch (RuntimeException unreadable) {
+            // Quarantined/corrupt owner data: the wage period cannot be
+            // verified or durably marked, so the charge must not run.
+            System.err.println("[StoryNPCs] companion wage for " + companionId
+                    + " blocked — owner progression unreadable: " + unreadable.getMessage());
+            return CompanionWageOutcome.PROGRESSION_UNAVAILABLE;
+        }
+        long durablePeriod = ownerProgression.chargedWagePeriod(companionId);
+        if (durablePeriod >= period) {
+            ledger.setLastChargedPeriod(Math.max(ledger.getLastChargedPeriod(), durablePeriod));
             return CompanionWageOutcome.ALREADY_CHARGED;
         }
         var player = minecraftServer != null ? minecraftServer.getPlayerList().getPlayer(ownerUuid) : null;
@@ -5410,16 +5901,49 @@ public class StoryNpcsApplicationService {
                     return true;
                 }, companionId);
         switch (outcome) {
-            case CHARGED -> { return CompanionWageOutcome.CHARGED; }
+            case CHARGED -> {
+                // The deduction already ran inside ledger.charge — persist the
+                // consumed period in owner progression immediately so a crash
+                // before the next entity NBT save cannot re-charge it. Free
+                // periods (wageAmount <= 0) move no value, so they skip the
+                // forced save — re-firing one after a restart is harmless.
+                if (profile.getWageAmount() > 0) {
+                    ownerProgression.recordCompanionWagePeriod(companionId, period);
+                    try {
+                        progressionRepository.save(ownerUuid, ownerProgression);
+                    } catch (Exception saveFailure) {
+                        // The entity ledger still carries the in-memory marker;
+                        // only a crash before BOTH this save and the next entity
+                        // save can double-charge — a documented residual window.
+                        System.err.println("[StoryNPCs] companion wage period " + period
+                                + " for " + companionId + " could not be durably marked: "
+                                + saveFailure.getMessage());
+                    }
+                }
+                return CompanionWageOutcome.CHARGED;
+            }
             case ALREADY_CHARGED -> { return CompanionWageOutcome.ALREADY_CHARGED; }
             default -> {
                 return switch (profile.getInsufficientFundsPolicy()) {
                     case PAUSE_SERVICE -> CompanionWageOutcome.INSUFFICIENT_PAUSED;
                     case DISMISS -> CompanionWageOutcome.INSUFFICIENT_DISMISSED;
                     case KEEP_ANYWAY -> {
-                        // Policy keeps the companion but the period is still
-                        // consumed — a free period can never be retried into a charge.
+                        // Policy keeps the companion and consumes the period —
+                        // it must never be retried into a charge, so the
+                        // consumption is durable (entity NBT alone could lose
+                        // it across a crash and re-charge the "free" period
+                        // once the owner is funded again).
                         ledger.setLastChargedPeriod(period);
+                        if (profile.getWageAmount() > 0) {
+                            ownerProgression.recordCompanionWagePeriod(companionId, period);
+                            try {
+                                progressionRepository.save(ownerUuid, ownerProgression);
+                            } catch (Exception saveFailure) {
+                                System.err.println("[StoryNPCs] companion wage period " + period
+                                        + " for " + companionId + " could not be durably marked: "
+                                        + saveFailure.getMessage());
+                            }
+                        }
                         yield CompanionWageOutcome.INSUFFICIENT_KEPT;
                     }
                 };
@@ -5440,6 +5964,224 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * Authorization-checked transport request (issue #54 — adapter coverage):
+     * a self-scoped {@code command}/{@code player}/{@code dialogue} actor may
+     * transport only themselves; transporting another player requires operator
+     * level 2 proof, matching the canonical player-scoped policy.
+     */
+    public TransportResult requestTransport(
+            PlayerProgressionActionRequest request, NamespacedId locationId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(locationId, "locationId");
+        Object requestLock = progressionActionLocks[request.requestId().hashCode()
+                & (progressionActionLocks.length - 1)];
+        TransportResult result = null;
+        String outcome = null;
+        synchronized (requestLock) {
+            // Durable record first: a replayed request id is classified from the
+            // journal without re-evaluating authorization (privilege changes only
+            // affect new request ids — denied attempts are never journaled).
+            com.storynpcs.persistence.DurableOperationJournal.OperationRecord existing = null;
+            boolean journalFailed = false;
+            try {
+                existing = transportOperationJournal.read(request.requestId());
+            } catch (IOException | RuntimeException journalFailure) {
+                journalFailed = true;
+            }
+            if (journalFailed) {
+                // A transport request without a readable record cannot be
+                // replay-classified — refuse rather than risk a duplicate fee.
+                result = new TransportResult(false, null, 0, "JOURNAL_UNAVAILABLE");
+                outcome = "JOURNAL_UNAVAILABLE";
+            } else if (existing != null) {
+                if (!"transport.request".equals(request.operation())) {
+                    result = new TransportResult(false, null, 0,
+                            "OPERATION_MISMATCH: Request operation '" + request.operation()
+                                    + "' does not match transport.request");
+                    outcome = "OPERATION_MISMATCH";
+                } else if (!"transport.request".equals(existing.operationType())) {
+                    result = new TransportResult(false, null, 0,
+                            "REQUEST_PAYLOAD_MISMATCH: Request ID is bound to operation '"
+                                    + existing.operationType() + "'");
+                    outcome = "REQUEST_PAYLOAD_MISMATCH";
+                } else if (!isTransportSubject(existing, request.playerUuid(), locationId)) {
+                    result = new TransportResult(false, null, 0,
+                            "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
+                    outcome = "REQUEST_PAYLOAD_MISMATCH";
+                } else if (existing.state()
+                        == com.storynpcs.persistence.DurableOperationJournal.State.PREPARED) {
+                    // A durable PREPARED means the fee/teleport leg may or may
+                    // not have run before a crash — never re-execute live side
+                    // effects on a guess.
+                    result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                    outcome = "RECOVERY_REQUIRED";
+                } else {
+                    try {
+                        result = decodeTransportResult(existing);
+                        outcome = "REPLAYED";
+                    } catch (RuntimeException corruptRecord) {
+                        // A readable-but-malformed terminal record is ambiguous —
+                        // never re-execute live side effects on a guess.
+                        result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                        outcome = "RECOVERY_REQUIRED";
+                    }
+                }
+            } else {
+                AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+                if (decision.allowed() && !"transport.request".equals(request.operation())) {
+                    decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
+                            "Request operation '" + request.operation()
+                                    + "' does not match transport.request");
+                }
+                if (!decision.allowed()) {
+                    result = new TransportResult(false, null, 0,
+                            decision.code() + ": " + decision.message());
+                    outcome = decision.code();
+                } else {
+                    try {
+                        var began = transportOperationJournal.begin(request.requestId(),
+                                "transport.request", request.playerUuid() + "|" + locationId);
+                        switch (began.status()) {
+                            case STARTED -> {
+                                result = requestTransport(request.playerUuid(), locationId);
+                                outcome = result.approved() ? "COMMITTED"
+                                        : result.detail() == null ? "REJECTED_NO_SIDE_EFFECTS"
+                                        : result.detail().split(":", 2)[0];
+                                finalizeTransportRequest(request.requestId(), result);
+                            }
+                            case PENDING -> {
+                                result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                                outcome = "RECOVERY_REQUIRED";
+                            }
+                            default -> {
+                                try {
+                                    result = decodeTransportResult(began.record());
+                                    outcome = "REPLAYED";
+                                } catch (RuntimeException corruptRecord) {
+                                    result = new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+                                    outcome = "RECOVERY_REQUIRED";
+                                }
+                            }
+                        }
+                    } catch (com.storynpcs.persistence.DurableOperationJournal
+                                     .OperationIdentityMismatchException mismatch) {
+                        result = new TransportResult(false, null, 0,
+                                "REQUEST_PAYLOAD_MISMATCH: Request ID is already bound to a different transport request");
+                        outcome = "REQUEST_PAYLOAD_MISMATCH";
+                    } catch (IOException | RuntimeException journalFailure) {
+                        result = new TransportResult(false, null, 0,
+                                "JOURNAL_UNAVAILABLE: " + journalFailure.getMessage());
+                        outcome = "JOURNAL_UNAVAILABLE";
+                    }
+                }
+            }
+        }
+        if (result == null || outcome == null) {
+            throw new IllegalStateException("transport request produced no outcome");
+        }
+        dispatchQuestEvents(request.playerUuid(), List.of(new CanonicalMutationEvent(
+                request.operation(), request.actorType(), locationId, request.requestId(),
+                result.approved(), 0L, outcome, request.actorId(), request.playerUuid())));
+        return result;
+    }
+
+    /**
+     * Terminals the durable transport record: approved requests commit so a
+     * post-restart replay returns the stored result; every rejected or
+     * compensated outcome aborts the record (no durable effect persists). If
+     * the journal write itself fails the record stays PREPARED and a later
+     * replay fails closed with {@code RECOVERY_REQUIRED} rather than
+     * re-executing live side effects.
+     */
+    private void finalizeTransportRequest(UUID requestId, TransportResult result) {
+        String encoded = encodeTransportResult(result);
+        try {
+            if (result.approved()) {
+                transportOperationJournal.commit(requestId, "APPLIED", encoded);
+            } else {
+                transportOperationJournal.abort(requestId,
+                        result.detail() == null ? "REJECTED" : result.detail().split(":", 2)[0], encoded);
+            }
+        } catch (IOException | RuntimeException terminalFailure) {
+            System.err.println("[StoryNPCs] transport request " + requestId
+                    + " could not be terminally journaled; it will recover fail-closed: "
+                    + terminalFailure.getMessage());
+        }
+    }
+
+    private static boolean isTransportSubject(
+            com.storynpcs.persistence.DurableOperationJournal.OperationRecord record,
+            UUID playerUuid, NamespacedId locationId) {
+        return (playerUuid + "|" + locationId).equals(record.subject());
+    }
+
+    private static String encodeTransportResult(TransportResult result) {
+        // The record detail is a flat 4-field newline-delimited format —
+        // user-authored names/details can carry newlines, which would corrupt
+        // the field boundaries on replay, so they are flattened here.
+        return result.approved() + "\n"
+                + flattenJournalField(result.destinationName()) + "\n"
+                + result.feeCharged() + "\n"
+                + flattenJournalField(result.detail());
+    }
+
+    private static String flattenJournalField(String value) {
+        return value == null ? "" : value.replace('\n', ' ').replace('\r', ' ');
+    }
+
+    private static TransportResult decodeTransportResult(
+            com.storynpcs.persistence.DurableOperationJournal.OperationRecord record) {
+        String detail = record.detail();
+        if (detail == null) return new TransportResult(false, null, 0, "RECOVERY_REQUIRED");
+        String[] parts = detail.split("\n", -1);
+        int fee = parts.length > 2 ? Integer.parseInt(parts[2]) : 0;
+        return new TransportResult(
+                Boolean.parseBoolean(parts[0]),
+                parts.length > 1 && !parts[1].isEmpty() ? parts[1] : null,
+                fee,
+                parts.length > 3 && !parts[3].isEmpty() ? parts[3] : null);
+    }
+
+    /**
+     * Login recovery for transport requests (issue #57 — P2-3): reports
+     * operations still PREPARED — the fee/teleport leg cannot be proven either
+     * way after a crash, so they are never auto-resolved.
+     *
+     * @return the number of unresolved prepared transport requests
+     */
+    public int recoverTransportOperations(UUID playerUuid) {
+        if (playerUuid == null) return 0;
+        try {
+            // Terminal record files cannot accumulate unbounded; pruning bounds
+            // replay dedup to the journal's documented retention window, same
+            // as the bank and trade journals.
+            transportOperationJournal.pruneTerminalRecords();
+        } catch (IOException | RuntimeException ignored) {
+            // Housekeeping must never block recovery.
+        }
+        com.storynpcs.persistence.DurableOperationJournal.PendingScan scan;
+        try {
+            scan = transportOperationJournal.pending();
+        } catch (IOException | RuntimeException failure) {
+            System.err.println("[StoryNPCs] transport operation journal recovery failed for "
+                    + playerUuid + ": " + failure.getMessage());
+            return 1;
+        }
+        for (String diagnostic : scan.diagnostics()) {
+            System.err.println("[StoryNPCs] transport operation journal recovery for "
+                    + playerUuid + ": " + diagnostic);
+        }
+        int unresolved = 0;
+        String subjectPrefix = playerUuid + "|";
+        for (var record : scan.records()) {
+            if (record.subject() != null && record.subject().startsWith(subjectPrefix)) {
+                unresolved++;
+            }
+        }
+        return unresolved;
+    }
+
+    /**
      * Authoritative transport operation (P6-3): evaluates the destination via
      * {@link com.storynpcs.domain.transport.TransportEvaluator} BEFORE any fee
      * is charged, then charges emeralds and teleports the player on the server
@@ -5447,7 +6189,9 @@ public class StoryNpcsApplicationService {
      * by returning the player to their origin when the target dimension cannot
      * accept them — matching the evaluator's bounded-recovery contract.
      */
-    public TransportResult requestTransport(UUID playerUuid, NamespacedId locationId) {
+    // Internal-only (issue #54): the typed request overload above is the
+    // adapter-facing entry point; this performs the authorized mutation.
+    TransportResult requestTransport(UUID playerUuid, NamespacedId locationId) {
         if (minecraftServer == null) {
             return new TransportResult(false, null, 0, "SERVER_UNAVAILABLE");
         }

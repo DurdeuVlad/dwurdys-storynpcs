@@ -167,6 +167,15 @@ class DurableJsonStoreTest {
         assertThat(Files.exists(stable.target().resolveSibling("rename.json.tmp"))).isFalse();
     }
 
+    @org.junit.jupiter.api.Test
+    void writeRejectsNullSerializingPayload() throws Exception {
+        DurableJsonStore stable = store("null-payload.json");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> stable.write(com.fasterxml.jackson.databind.node.NullNode.getInstance()));
+        org.junit.jupiter.api.Assertions.assertFalse(Files.exists(stable.target()),
+                "A null payload must never produce a file its own reader rejects");
+    }
+
     private DurableJsonStore store(String fileName) {
         return new DurableJsonStore(tempDir.resolve(fileName), mapper);
     }
