@@ -486,6 +486,12 @@ public class WorldLifecycleHandler {
                 LOGGER.error("Failed to save logical StoryNPC actors on server stop: {}", e.getMessage(), e);
             }
         }
+        // G-E1 (#158): in-flight schematic builds hold live ServerLevel
+        // references — they must drain on stop so a save reload never tick
+        // into a stale level.
+        if (mod.getSchematicBuildService() != null) {
+            mod.getSchematicBuildService().stopAll();
+        }
         mod.getFollowerGroup(stoppingServer).clearAll();
         mod.getRuntimeSessions(stoppingServer).clearAll();
         // Drop the world-scoped mail store binding — writes are durable per-op,
