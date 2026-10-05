@@ -637,6 +637,126 @@
     "entity_type": "minecraft:zombie"
    },
    "expected_result": "owner-bound display puppet persists across reload and discards when the owner session ends"
+  },
+  {
+   "fixture_id": "P3-2.abilities.block",
+   "issue_ids": [
+    "P3-2"
+   ],
+   "target_symbol": "noppes.npcs.ability.AbilityBlock",
+   "domain": "stats-and-combat",
+   "operation_family": "NPC-MODULE-MUTATION",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "ability_type": "BLOCK",
+    "trigger": "DAMAGED",
+    "bounds": "range/strength/duration/amplifier/bonusDamage/cooldown/chance validated"
+   },
+   "expected_result": "incoming damage multiplied by the authored damageMultiplier; cooldown, chance, and rule conditions gate firing"
+  },
+  {
+   "fixture_id": "P3-2.abilities.pull",
+   "issue_ids": [
+    "P3-2"
+   ],
+   "target_symbol": "noppes.npcs.ability.AbilityPull",
+   "domain": "stats-and-combat",
+   "operation_family": "NPC-MODULE-MUTATION",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "ability_type": "PULL",
+    "trigger": "UPDATE",
+    "bounds": "range/strength/duration/amplifier/bonusDamage/cooldown/chance validated"
+   },
+   "expected_result": "victim velocity pulled toward the NPC, bounded by range/strength; cooldown, chance, and rule conditions gate firing"
+  },
+  {
+   "fixture_id": "P3-2.abilities.push",
+   "issue_ids": [
+    "P3-2"
+   ],
+   "target_symbol": "noppes.npcs.ability.AbilityPush",
+   "domain": "stats-and-combat",
+   "operation_family": "NPC-MODULE-MUTATION",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "ability_type": "PUSH",
+    "trigger": "UPDATE",
+    "bounds": "range/strength/duration/amplifier/bonusDamage/cooldown/chance validated"
+   },
+   "expected_result": "victim velocity pushed away from the NPC, bounded by range/strength; cooldown, chance, and rule conditions gate firing"
+  },
+  {
+   "fixture_id": "P3-2.abilities.smash",
+   "issue_ids": [
+    "P3-2"
+   ],
+   "target_symbol": "noppes.npcs.ability.AbilitySmash",
+   "domain": "stats-and-combat",
+   "operation_family": "NPC-MODULE-MUTATION",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "ability_type": "SMASH",
+    "trigger": "ATTACK",
+    "bounds": "range/strength/duration/amplifier/bonusDamage/cooldown/chance validated"
+   },
+   "expected_result": "victim launched upward plus authored bonus damage on landed hits; cooldown, chance, and rule conditions gate firing"
+  },
+  {
+   "fixture_id": "P3-2.abilities.snare",
+   "issue_ids": [
+    "P3-2"
+   ],
+   "target_symbol": "noppes.npcs.ability.AbilitySnare",
+   "domain": "stats-and-combat",
+   "operation_family": "NPC-MODULE-MUTATION",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "ability_type": "SNARE",
+    "trigger": "UPDATE",
+    "bounds": "range/strength/duration/amplifier/bonusDamage/cooldown/chance validated"
+   },
+   "expected_result": "slowness outcome (durationTicks/amplifier) on the engaged target; cooldown, chance, and rule conditions gate firing"
+  },
+  {
+   "fixture_id": "P3-2.abilities.teleport",
+   "issue_ids": [
+    "P3-2"
+   ],
+   "target_symbol": "noppes.npcs.ability.AbilityTeleport",
+   "domain": "stats-and-combat",
+   "operation_family": "NPC-MODULE-MUTATION",
+   "required_layers": [
+    "server",
+    "storynpcs-runtime"
+   ],
+   "target_probe_policy": "optional",
+   "input": {
+    "ability_type": "TELEPORT",
+    "trigger": "UPDATE",
+    "bounds": "range/strength/duration/amplifier/bonusDamage/cooldown/chance validated"
+   },
+   "expected_result": "self-teleport within bounded range (approach on update, blink-away on damaged); cooldown, chance, and rule conditions gate firing"
   }
  ],
  "storynpcs_test_map": {
@@ -819,6 +939,24 @@
    "com.storynpcs.persistence.DurableJsonStoreTest#failedFinalRenameRecoversPreviousGenerationFromBackup()",
    "com.storynpcs.persistence.ProgressionRepositoryTest#shouldAtomicallyPersistAndReloadProgression()"
   ],
+  "P3-2.abilities.block": [
+   "com.storynpcs.ai.combat.NpcAbilityControllerTest#blockScalesIncomingDamage()"
+  ],
+  "P3-2.abilities.pull": [
+   "com.storynpcs.ai.combat.NpcAbilityControllerTest#pullMovesVictimTowardNpc()"
+  ],
+  "P3-2.abilities.push": [
+   "com.storynpcs.ai.combat.NpcAbilityControllerTest#pushMovesVictimAway()"
+  ],
+  "P3-2.abilities.smash": [
+   "com.storynpcs.ai.combat.NpcAbilityControllerTest#smashLaunchesVictimAndAddsBonusDamage()"
+  ],
+  "P3-2.abilities.snare": [
+   "com.storynpcs.ai.combat.NpcAbilityControllerTest#snareEmitsSlowness()"
+  ],
+  "P3-2.abilities.teleport": [
+   "com.storynpcs.ai.combat.NpcAbilityControllerTest#teleportUpdateApproachesTarget()"
+  ],
   "P8-2.nbt-book": [
    "com.storynpcs.domain.support.NbtBookServiceTest#planEditRejectsNonAllowlistedPathsAndBadValues()",
    "com.storynpcs.domain.support.NbtBookServiceTest#buildViewFlattensNestedTagsToDottedPaths()"
@@ -943,6 +1081,30 @@
   "P8-2.fake-living": {
    "observed_scope": "SupportEntityRulesTest verifies owner-bound discard and ownerless persistence decisions.",
    "uncovered_scope": "No live spawn/reload fixture for the display puppet or its renderer."
+  },
+  "P3-2.abilities.block": {
+   "observed_scope": "JVM tests cover the block ability outcome contract: dispatch on the authored trigger, cooldown/chance/condition gating, and bounded-parameter validation on load and canonical write.",
+   "uncovered_scope": "No live Minecraft runtime fixture (entity tick, damage pipeline, or velocity application in-world)."
+  },
+  "P3-2.abilities.pull": {
+   "observed_scope": "JVM tests cover the pull ability outcome contract: dispatch on the authored trigger, cooldown/chance/condition gating, and bounded-parameter validation on load and canonical write.",
+   "uncovered_scope": "No live Minecraft runtime fixture (entity tick, damage pipeline, or velocity application in-world)."
+  },
+  "P3-2.abilities.push": {
+   "observed_scope": "JVM tests cover the push ability outcome contract: dispatch on the authored trigger, cooldown/chance/condition gating, and bounded-parameter validation on load and canonical write.",
+   "uncovered_scope": "No live Minecraft runtime fixture (entity tick, damage pipeline, or velocity application in-world)."
+  },
+  "P3-2.abilities.smash": {
+   "observed_scope": "JVM tests cover the smash ability outcome contract: dispatch on the authored trigger, cooldown/chance/condition gating, and bounded-parameter validation on load and canonical write.",
+   "uncovered_scope": "No live Minecraft runtime fixture (entity tick, damage pipeline, or velocity application in-world)."
+  },
+  "P3-2.abilities.snare": {
+   "observed_scope": "JVM tests cover the snare ability outcome contract: dispatch on the authored trigger, cooldown/chance/condition gating, and bounded-parameter validation on load and canonical write.",
+   "uncovered_scope": "No live Minecraft runtime fixture (entity tick, damage pipeline, or velocity application in-world)."
+  },
+  "P3-2.abilities.teleport": {
+   "observed_scope": "JVM tests cover the teleport ability outcome contract: dispatch on the authored trigger, cooldown/chance/condition gating, and bounded-parameter validation on load and canonical write.",
+   "uncovered_scope": "No live Minecraft runtime fixture (entity tick, damage pipeline, or velocity application in-world)."
   }
  }
 }

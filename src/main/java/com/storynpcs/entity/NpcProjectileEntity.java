@@ -93,9 +93,18 @@ public class NpcProjectileEntity extends AbstractArrow {
 
     @Override
     protected void onHitEntity(EntityHitResult hitResult) {
+        LivingEntity victim = hitResult.getEntity() instanceof LivingEntity le ? le : null;
+        float healthBefore = victim != null ? victim.getHealth() : 0.0F;
         super.onHitEntity(hitResult);
         if (this.level().isClientSide) {
             return;
+        }
+        // #147: ATTACK-triggered abilities (smash etc.) fire on authored
+        // ranged hits the same as melee hits — but only when the hit actually
+        // damaged the victim, matching the melee path's doHurtTarget gate.
+        if (victim != null && victim.getHealth() < healthBefore
+                && getOwner() instanceof com.storynpcs.entity.StoryNpcEntity ownerNpc) {
+            ownerNpc.fireAbilitiesOnAttack(victim);
         }
         playAuthoredImpactSound();
         applyAuthoredAreaDamage(hitResult.getEntity());

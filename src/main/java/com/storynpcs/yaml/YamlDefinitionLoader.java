@@ -115,6 +115,27 @@ public class YamlDefinitionLoader {
                 }
                 if (!valid) return null;
             }
+            {
+                // #147: abilities are bounded effects — reject out-of-range
+                // parameters and trigger combinations before they reach the
+                // registry, mirroring the job/listing checks above.
+                boolean abilitiesValid = true;
+                var abilities = npc.getAbilities();
+                for (int i = 0; i < abilities.size(); i++) {
+                    var ability = abilities.get(i);
+                    try {
+                        if (ability == null) {
+                            throw new IllegalStateException("null ability");
+                        }
+                        ability.validate();
+                    } catch (RuntimeException abilityFailure) {
+                        result.addError(sourceName, 1, 1, "ABILITY_INVALID",
+                                "Invalid ability #" + i + ": " + abilityFailure.getMessage());
+                        abilitiesValid = false;
+                    }
+                }
+                if (!abilitiesValid) return null;
+            }
             if (registry.getNpc(npc.getId()).isPresent()) {
                 result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
                         "Duplicate NPC ID '" + npc.getId() + "' is already defined in another file");

@@ -274,6 +274,19 @@ public class NpcEditorScreen extends Screen {
         graphics.drawString(this.font, "§7AI Movement & Stance", startX + 210, startY + 82, 0xFFA1A1AA);
         graphics.drawString(this.font, "§7Dialogue Graph", startX + 210, startY + 126, 0xFFA1A1AA);
 
+        // Authored combat abilities (#147) — read-only summary; editing is
+        // via /storynpcs npc ability add|set|remove or the YAML definition.
+        var abilities = definition.getAbilities();
+        String abilityLine = abilities.isEmpty()
+                ? "none — /storynpcs npc ability add"
+                : abilities.stream()
+                        .map(a -> a.getType() != null ? a.getType().name() : "?")
+                        .collect(java.util.stream.Collectors.joining(", "));
+        graphics.drawString(this.font, "§7Abilities", startX + 210, startY + 190, 0xFFA1A1AA);
+        graphics.drawString(this.font,
+                this.font.plainSubstrByWidth("§f" + abilityLine, 176),
+                startX + 210, startY + 200, 0xFFFFFFFF);
+
         // Status message — inside the panel, below the action row
         if (!statusMessage.isEmpty()) {
             graphics.drawString(this.font,
