@@ -95,9 +95,9 @@ public class StoryNpcs {
         this.followerGroup = new FollowerGroup();
         this.runtimeTunables = new com.storynpcs.admin.RuntimeTunables();
         this.scriptScheduler = new com.storynpcs.script.ScriptScheduler(runtimeTunables.readOnlyView());
+        var simTunables = new com.storynpcs.sim.SimulationTunables(runtimeTunables.readOnlyView());
         this.simulationScheduler = new com.storynpcs.sim.SimulationScheduler(
-                com.storynpcs.sim.SimulationTierPolicy.defaults(),
-                com.storynpcs.sim.TierBudgets.defaults());
+                simTunables::policy, simTunables::budgets);
         this.pathScheduler = new com.storynpcs.sim.PathScheduler();
         this.schematicBuildService = com.storynpcs.service.SchematicBuildService
                 .create(runtimeTunables.readOnlyView());
@@ -122,9 +122,9 @@ public class StoryNpcs {
         this.followerGroup = new FollowerGroup();
         this.runtimeTunables = new com.storynpcs.admin.RuntimeTunables();
         this.scriptScheduler = new com.storynpcs.script.ScriptScheduler(runtimeTunables.readOnlyView());
+        var simTunables = new com.storynpcs.sim.SimulationTunables(runtimeTunables.readOnlyView());
         this.simulationScheduler = new com.storynpcs.sim.SimulationScheduler(
-                com.storynpcs.sim.SimulationTierPolicy.defaults(),
-                com.storynpcs.sim.TierBudgets.defaults());
+                simTunables::policy, simTunables::budgets);
         this.pathScheduler = new com.storynpcs.sim.PathScheduler();
         this.schematicBuildService = com.storynpcs.service.SchematicBuildService
                 .create(runtimeTunables.readOnlyView());
