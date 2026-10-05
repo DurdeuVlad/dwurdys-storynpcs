@@ -1528,9 +1528,13 @@ public final class StoryNpcsCommands {
     private static int playNpcEmote(CommandContext<CommandSourceStack> ctx) {
         NamespacedId npcId = getNamespacedId(ctx, "npc_id");
         String raw = StringArgumentType.getString(ctx, "type");
-        int duration = ctx.getNodes().size() > 3
-                ? IntegerArgumentType.getInteger(ctx, "duration")
-                : com.storynpcs.domain.npc.NpcEmote.DEFAULT_DURATION_TICKS;
+        int duration = com.storynpcs.domain.npc.NpcEmote.DEFAULT_DURATION_TICKS;
+        for (var node : ctx.getNodes()) {
+            if ("duration".equals(node.getNode().getName())) {
+                duration = IntegerArgumentType.getInteger(ctx, "duration");
+                break;
+            }
+        }
         com.storynpcs.domain.npc.NpcEmote emote;
         try {
             emote = com.storynpcs.domain.npc.NpcEmote.fromWire(raw);
