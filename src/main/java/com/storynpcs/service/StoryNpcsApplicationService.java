@@ -2386,7 +2386,7 @@ public class StoryNpcsApplicationService {
             switch (cond.getType()) {
                 case QUEST_STATUS -> {
                     NamespacedId qid = NamespacedId.of(cond.getTarget());
-                    QuestProgressState state = progression.getQuestState(qid);
+                    QuestProgressState state = progression.peekQuestState(qid);
                     return state.getStatus().name().equalsIgnoreCase(cond.getValue());
                 }
                 case FACTION_STANDING -> {

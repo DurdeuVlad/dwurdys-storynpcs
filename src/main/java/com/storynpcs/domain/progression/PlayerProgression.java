@@ -293,6 +293,16 @@ public class PlayerProgression {
         return quests.computeIfAbsent(questId, QuestProgressState::new);
     }
 
+    /**
+     * Non-mutating variant of {@link #getQuestState(NamespacedId)} for read-only
+     * paths (condition evaluation, views). Returns a detached default state for
+     * an unstarted quest instead of inserting one into the persisted map.
+     */
+    public QuestProgressState peekQuestState(NamespacedId questId) {
+        QuestProgressState state = quests.get(questId);
+        return state != null ? state : new QuestProgressState(questId);
+    }
+
     public int getFactionScore(NamespacedId factionId, int defaultPoints) {
         return factionPoints.getOrDefault(factionId, defaultPoints);
     }
