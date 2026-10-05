@@ -135,7 +135,9 @@
         "P0-4.creator-tools",
         "P8-2.chair-mount",
         "P8-2.fake-living",
-        "P8-2.nbt-book"
+        "P8-2.nbt-book",
+        "P8-2.schematic-build",
+        "P8-2.schematic-reader"
       ],
       "scripting": [
         "P0-4.scripting"
@@ -213,7 +215,9 @@
         "P0-4.creator-tools",
         "P8-2.chair-mount",
         "P8-2.fake-living",
-        "P8-2.nbt-book"
+        "P8-2.nbt-book",
+        "P8-2.schematic-build",
+        "P8-2.schematic-reader"
       ]
     }
   },
@@ -52132,7 +52136,9 @@
           "P0-4.creator-tools",
           "P8-2.chair-mount",
           "P8-2.fake-living",
-          "P8-2.nbt-book"
+          "P8-2.nbt-book",
+          "P8-2.schematic-build",
+          "P8-2.schematic-reader"
         ],
         "coverage_status": "FIXTURE_REFERENCED"
       },

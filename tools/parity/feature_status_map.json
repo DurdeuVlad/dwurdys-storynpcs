@@ -574,7 +574,7 @@
         "wired": [],
         "registered": [],
         "tests": [],
-        "absent": ["Registries\\.BLOCK"]
+        "absent": ["DeferredRegister<\\s*Block\\b|\\bBLOCKS\\.register\\(|Registries\\.BLOCK\\.register"]
       }
     },
     {
@@ -650,15 +650,15 @@
     {
       "id": "schematics",
       "feature": "Schematics (27 bundled + build commands)",
-      "status": "planned",
+      "status": "partial",
       "issue": "#149",
-      "summary": "None — 27-file port pending (asset access blocked)",
+      "summary": "Bounded reader (Sponge v2/v3 + legacy), traversal-proof store, budgeted multi-tick build pipeline + schema commands; 27 bundled assets still absent (target JAR unavailable)",
       "evidence": {
-        "files": [],
-        "wired": [],
+        "files": ["src/main/java/com/storynpcs/domain/schematic/Schematic.java", "src/main/java/com/storynpcs/domain/schematic/BuildPlan.java", "src/main/java/com/storynpcs/domain/schematic/SchematicReader.java", "src/main/java/com/storynpcs/domain/schematic/SchematicStore.java", "src/main/java/com/storynpcs/service/SchematicBuildService.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "SchematicStore|SchematicBuildService|literal\\(\"schema\"\\)"}],
         "registered": [],
-        "tests": [],
-        "absent": ["class\\s+\\w*Schematic\\w*"]
+        "tests": ["src/test/java/com/storynpcs/domain/schematic/SchematicReaderTest.java", "src/test/java/com/storynpcs/domain/schematic/SchematicStoreTest.java", "src/test/java/com/storynpcs/domain/schematic/BuildPlanTest.java"],
+        "absent": []
       }
     },
     {
