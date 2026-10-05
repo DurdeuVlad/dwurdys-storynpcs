@@ -51,6 +51,18 @@ public class StoryNpcEntity extends PathfinderMob {
     private static final EntityDataAccessor<Integer> ANIMATION_STANCE =
             SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.INT);
 
+    /** Synced active emote ordinal ({@link com.storynpcs.domain.npc.NpcEmote}); runtime-only. */
+    private static final EntityDataAccessor<Integer> EMOTE =
+            SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.INT);
+
+    /** Synced emote progress numerator (ticks elapsed); clients derive progress against EMOTE_TICKS_TOTAL. */
+    private static final EntityDataAccessor<Integer> EMOTE_ELAPSED =
+            SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.INT);
+
+    /** Synced emote duration denominator (total ticks). */
+    private static final EntityDataAccessor<Integer> EMOTE_TICKS_TOTAL =
+            SynchedEntityData.defineId(StoryNpcEntity.class, EntityDataSerializers.INT);
+
     private final StoryNpcState state = new StoryNpcState();
     private final com.storynpcs.ai.combat.ThreatManager threatManager = new com.storynpcs.ai.combat.ThreatManager();
     private final com.storynpcs.ai.combat.NpcAbilityController abilityController =
@@ -77,6 +89,9 @@ public class StoryNpcEntity extends PathfinderMob {
     private boolean wasNoPhysicsBeforeHide = false;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
+    /** Server-authoritative emote lifecycle; the three EMOTE_* accessors mirror it to clients. */
+    private final com.storynpcs.domain.npc.NpcEmoteState emoteState =
+            new com.storynpcs.domain.npc.NpcEmoteState();
 
     public StoryNpcEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -220,6 +235,12 @@ public class StoryNpcEntity extends PathfinderMob {
         super.aiStep();
         if (this.level().isClientSide) {
             return;
+        }
+        if (emoteState.tick()) {
+            pushEmoteSync();
+        } else if (emoteState.isActive()) {
+            this.entityData.set(EMOTE_ELAPSED,
+                    emoteState.totalTicks() - emoteState.remainingTicks());
         }
         long now = this.level().getGameTime();
 
@@ -569,6 +590,55 @@ public class StoryNpcEntity extends PathfinderMob {
         super.defineSynchedData(builder);
         builder.define(DEFINITION_ID, "");
         builder.define(ANIMATION_STANCE, com.storynpcs.domain.npc.NpcAi.AnimationStance.NORMAL.ordinal());
+        builder.define(EMOTE, com.storynpcs.domain.npc.NpcEmote.NONE.ordinal());
+        builder.define(EMOTE_ELAPSED, 0);
+        builder.define(EMOTE_TICKS_TOTAL, 0);
+    }
+
+    /**
+     * Starts an emote for {@code durationTicks} (clamped per
+     * {@link com.storynpcs.domain.npc.NpcEmote#MAX_DURATION_TICKS}); passing
+     * {@link com.storynpcs.domain.npc.NpcEmote#NONE} stops the active emote.
+     * Server-authoritative — client calls are ignored since the lifecycle lives
+     * on the server and mirrors down through the synced data.
+     */
+    public void playEmote(com.storynpcs.domain.npc.NpcEmote emote, int durationTicks) {
+        if (this.level().isClientSide) return;
+        emoteState.start(emote, durationTicks);
+        pushEmoteSync();
+    }
+
+    public void stopEmote() {
+        playEmote(com.storynpcs.domain.npc.NpcEmote.NONE, 0);
+    }
+
+    /** The emote currently rendered — resolved from synced data on the client. */
+    public com.storynpcs.domain.npc.NpcEmote activeEmote() {
+        if (this.level().isClientSide) {
+            int total = this.entityData.get(EMOTE_TICKS_TOTAL);
+            int elapsed = this.entityData.get(EMOTE_ELAPSED);
+            return total > 0 && elapsed < total
+                    ? com.storynpcs.domain.npc.NpcEmote.byOrdinal(this.entityData.get(EMOTE))
+                    : com.storynpcs.domain.npc.NpcEmote.NONE;
+        }
+        return emoteState.current();
+    }
+
+    /** Normalized emote progress in {@code [0,1]} for pose interpolation; 0 when inactive. */
+    public float emoteProgress() {
+        if (this.level().isClientSide) {
+            int total = this.entityData.get(EMOTE_TICKS_TOTAL);
+            return total <= 0 ? 0f
+                    : Math.min(1f, this.entityData.get(EMOTE_ELAPSED) / (float) total);
+        }
+        return emoteState.progress();
+    }
+
+    private void pushEmoteSync() {
+        this.entityData.set(EMOTE, emoteState.current().ordinal());
+        this.entityData.set(EMOTE_TICKS_TOTAL, emoteState.totalTicks());
+        this.entityData.set(EMOTE_ELAPSED,
+                emoteState.totalTicks() - emoteState.remainingTicks());
     }
 
     /** The authored resting animation stance resolved from the definition. */

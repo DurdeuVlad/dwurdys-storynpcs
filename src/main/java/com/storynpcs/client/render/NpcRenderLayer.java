@@ -4,7 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.storynpcs.domain.npc.DisplayProjection;
 import com.storynpcs.entity.StoryNpcEntity;
-import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
@@ -20,12 +20,12 @@ import net.minecraft.resources.ResourceLocation;
  * back or disabled themselves during resolution, so this layer never parses
  * raw strings and never throws into the render path.
  */
-public class NpcRenderLayer extends RenderLayer<StoryNpcEntity, PlayerModel<StoryNpcEntity>> {
+public class NpcRenderLayer extends RenderLayer<StoryNpcEntity, EntityModel<StoryNpcEntity>> {
 
     /** Vanilla "jacket" inflation factor for overlay passes. */
     private static final float OVERLAY_INFLATION = 1.0625f;
 
-    public NpcRenderLayer(RenderLayerParent<StoryNpcEntity, PlayerModel<StoryNpcEntity>> parent) {
+    public NpcRenderLayer(RenderLayerParent<StoryNpcEntity, EntityModel<StoryNpcEntity>> parent) {
         super(parent);
     }
 

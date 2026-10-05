@@ -22,6 +22,11 @@ public final class NpcDisplayScreenModel {
     public static final String[] BOSS_BAR_MODES = {"hidden", "always", "while_attacking"};
     public static final String[] BOSS_BAR_COLORS = {"pink", "blue", "red", "green", "yellow", "purple", "white"};
     public static final String[] ANIMATION_STANCES = {"normal", "sitting", "lying", "sneaking", "dancing", "aiming"};
+    public static final String[] VARIANTS = {"humanoid", "alex", "classic_64x32", "golem",
+            "flying", "dragon", "slime", "crystal", "pony"};
+    public static final String[] BODY_PARTS = {"beard", "ears", "horns", "snout",
+            "tail", "wings", "fin", "skirt", "eyes"};
+    public static final String[] PART_BEHAVIORS = {"none", "follow_head", "animated"};
 
     private final NpcDefinition npc;
 
@@ -50,6 +55,17 @@ public final class NpcDisplayScreenModel {
     private boolean showLayers;
     private boolean showName;
     private boolean livingAnimation;
+
+    private int variantIdx;
+    /** Selected part being edited; per-part working specs live in partSpecs. */
+    private int bodyPartIdx;
+    private boolean partEnabled;
+    private String partType = "0";
+    private String partColor = "FFFFFF";
+    private int partBehaviorIdx;
+    /** Staged specs across all parts — keyed by BODY_PARTS index. */
+    private final java.util.Map<Integer, com.storynpcs.domain.npc.NpcCosmeticPart> partSpecs =
+            new java.util.HashMap<>();
 
     private String statusMessage = "";
     private boolean statusError;
@@ -86,6 +102,12 @@ public final class NpcDisplayScreenModel {
         NpcAi ai = npc.getAi();
         this.stanceIdx = ai != null
                 ? indexByName(ANIMATION_STANCES, ai.getAnimationStance().name()) : 0;
+        this.variantIdx = indexByName(VARIANTS, display.getVariant().wire());
+        for (var entry : display.getParts().entrySet()) {
+            int idx = indexByName(BODY_PARTS, entry.getKey().wire());
+            partSpecs.put(idx, entry.getValue());
+        }
+        loadPartEditor();
     }
 
     public NpcDefinition getNpc() { return npc; }
@@ -131,6 +153,65 @@ public final class NpcDisplayScreenModel {
     public void cycleBossBarMode(int dir) { bossBarModeIdx = Math.floorMod(bossBarModeIdx + dir, BOSS_BAR_MODES.length); }
     public void cycleBossBarColor(int dir) { bossBarColorIdx = Math.floorMod(bossBarColorIdx + dir, BOSS_BAR_COLORS.length); }
     public void cycleStance(int dir) { stanceIdx = Math.floorMod(stanceIdx + dir, ANIMATION_STANCES.length); }
+    public void cycleVariant(int dir) { variantIdx = Math.floorMod(variantIdx + dir, VARIANTS.length); }
+    public int getVariantIdx() { return variantIdx; }
+
+    /** Switches the edited body part after flushing the current fields into partSpecs. */
+    public void cycleBodyPart(int dir) {
+        flushPartEditor(false);
+        bodyPartIdx = Math.floorMod(bodyPartIdx + dir, BODY_PARTS.length);
+        loadPartEditor();
+    }
+
+    public int getBodyPartIdx() { return bodyPartIdx; }
+    public boolean isPartEnabled() { return partEnabled; }
+    public String getPartType() { return partType; }
+    public String getPartColor() { return partColor; }
+    public int getPartBehaviorIdx() { return partBehaviorIdx; }
+    public void setPartEnabled(boolean enabled) { partEnabled = enabled; }
+    public void setPartType(String v) { partType = v; }
+    public void setPartColor(String v) { partColor = v; }
+    public void cyclePartBehavior(int dir) { partBehaviorIdx = Math.floorMod(partBehaviorIdx + dir, PART_BEHAVIORS.length); }
+
+    /** Live view of staged specs — read by the screen for the part list. */
+    public java.util.Map<Integer, com.storynpcs.domain.npc.NpcCosmeticPart> getPartSpecs() {
+        return java.util.Collections.unmodifiableMap(partSpecs);
+    }
+
+    /** Pulls the staged spec for the selected part into the edit fields. */
+    private void loadPartEditor() {
+        var spec = partSpecs.get(bodyPartIdx);
+        partEnabled = spec != null;
+        partType = spec != null ? String.valueOf(spec.type()) : "0";
+        partColor = spec != null ? String.format("%06X", spec.color()) : "FFFFFF";
+        partBehaviorIdx = spec != null
+                ? indexByName(PART_BEHAVIORS, spec.behavior().wire()) : 0;
+    }
+
+    /**
+     * Validates the current fields into a staged spec, or clears it when
+     * disabled. In non-strict mode an invalid field surfaces a status error
+     * and drops the spec; strict mode (apply) propagates so the atomic commit
+     * fails rather than silently losing the part.
+     */
+    private void flushPartEditor(boolean strict) {
+        if (!partEnabled) {
+            partSpecs.remove(bodyPartIdx);
+            return;
+        }
+        try {
+            var part = com.storynpcs.domain.npc.NpcBodyPart.fromWire(BODY_PARTS[bodyPartIdx]);
+            var behavior = com.storynpcs.domain.npc.NpcCosmeticPart.PartBehavior.fromWire(
+                    PART_BEHAVIORS[partBehaviorIdx]);
+            partSpecs.put(bodyPartIdx, new com.storynpcs.domain.npc.NpcCosmeticPart(
+                    part, parseInt(partType, "part type", 0, part.maxType()),
+                    parseTint(partColor), behavior));
+        } catch (IllegalArgumentException e) {
+            if (strict) throw e;
+            setStatus(e.getMessage(), true);
+            partSpecs.remove(bodyPartIdx);
+        }
+    }
 
     public boolean isOverlayGlowing() { return overlayGlowing; }
     public boolean isShowLayers() { return showLayers; }
@@ -190,6 +271,15 @@ public final class NpcDisplayScreenModel {
             staged.setBossBarMode(bossBarModeIdx);
             staged.setBossBarColor(NpcDisplay.BossBarColor.valueOf(
                     BOSS_BAR_COLORS[bossBarColorIdx].toUpperCase(java.util.Locale.ROOT)));
+            staged.setVariant(com.storynpcs.domain.npc.NpcVariant.fromWire(VARIANTS[variantIdx]));
+            flushPartEditor(true);
+            java.util.EnumMap<com.storynpcs.domain.npc.NpcBodyPart,
+                    com.storynpcs.domain.npc.NpcCosmeticPart> stagedParts =
+                    new java.util.EnumMap<>(com.storynpcs.domain.npc.NpcBodyPart.class);
+            for (var entry : partSpecs.entrySet()) {
+                stagedParts.put(entry.getValue().part(), entry.getValue());
+            }
+            staged.setParts(stagedParts);
             NpcAi.AnimationStance stance = NpcAi.AnimationStance.valueOf(
                     ANIMATION_STANCES[stanceIdx].toUpperCase(java.util.Locale.ROOT));
 

@@ -261,12 +261,47 @@ public final class StoryNpcsCommands {
                                                 .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
                                                         .suggests(DIALOGUE_IDS)
                                                         .executes(StoryNpcsCommands::setNpcDialogue))))
+                                .then(Commands.literal("variant")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("type", StringArgumentType.word())
+                                                        .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                                                List.of("humanoid", "alex", "classic_64x32",
+                                                                        "golem", "flying", "dragon", "slime",
+                                                                        "crystal", "pony"), b))
+                                                        .executes(StoryNpcsCommands::setNpcVariant))))
+                                .then(Commands.literal("part")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("part", StringArgumentType.word())
+                                                        .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                                                List.of("beard", "ears", "horns", "snout",
+                                                                        "tail", "wings", "fin", "skirt",
+                                                                        "eyes", "clear"), b))
+                                                        .then(Commands.argument("type", IntegerArgumentType.integer(0, 9))
+                                                                .then(Commands.argument("color", StringArgumentType.word())
+                                                                        .then(Commands.argument("behavior", StringArgumentType.word())
+                                                                                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                                                                        List.of("none", "follow_head", "animated"), b))
+                                                                                .executes(StoryNpcsCommands::setNpcPart))))
+                                                        .executes(StoryNpcsCommands::clearNpcPart))))
                                 .then(Commands.literal("faction")
                                         .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                                 .suggests(NPC_IDS)
                                                 .then(Commands.argument("faction_id", ResourceLocationArgument.id())
                                                         .suggests(FACTION_IDS)
                                                         .executes(StoryNpcsCommands::setNpcFaction)))))
+                        .then(Commands.literal("emote")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
+                                        .then(Commands.argument("type", StringArgumentType.word())
+                                                .suggests((c, b) -> SharedSuggestionProvider.suggest(
+                                                        List.of("none", "aim", "bow", "crawl", "dance",
+                                                                "hug", "no", "point", "wave", "yes"), b))
+                                                .executes(StoryNpcsCommands::playNpcEmote)
+                                                .then(Commands.argument("duration", IntegerArgumentType.integer(1, 1200))
+                                                        .executes(StoryNpcsCommands::playNpcEmote)))))
                         .then(Commands.literal("delete")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("npc_id", ResourceLocationArgument.id())
@@ -1409,6 +1444,121 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
             return 0;
         }
+    }
+
+    private static int setNpcVariant(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String raw = StringArgumentType.getString(ctx, "type");
+        StoryNpcs mod = mod(ctx);
+        com.storynpcs.domain.npc.NpcVariant variant;
+        try {
+            variant = com.storynpcs.domain.npc.NpcVariant.fromWire(raw);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
+            return 0;
+        }
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                def -> def.getDisplay().setVariant(variant));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        com.storynpcs.domain.npc.NpcVariant chosen = variant;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Set variant of '" + npcId + "' to '" + chosen.wire() + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    private static int setNpcPart(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        com.storynpcs.domain.npc.NpcCosmeticPart spec;
+        try {
+            var part = com.storynpcs.domain.npc.NpcBodyPart.fromWire(
+                    StringArgumentType.getString(ctx, "part"));
+            int type = IntegerArgumentType.getInteger(ctx, "type");
+            String colorRaw = StringArgumentType.getString(ctx, "color")
+                    .replaceFirst("^#", "");
+            int color = Integer.parseInt(colorRaw, 16);
+            var behavior = com.storynpcs.domain.npc.NpcCosmeticPart.PartBehavior.fromWire(
+                    StringArgumentType.getString(ctx, "behavior"));
+            spec = new com.storynpcs.domain.npc.NpcCosmeticPart(part, type, color, behavior);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
+            return 0;
+        }
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                def -> def.getDisplay().setPart(spec));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        com.storynpcs.domain.npc.NpcCosmeticPart applied = spec;
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "[StoryNPCs] Set %s part of '%s' (type %d, #%06X, %s) — persisted to YAML.",
+                applied.part().wire(), npcId, applied.type(), applied.color(),
+                applied.behavior().wire())), true);
+        return 1;
+    }
+
+    private static int clearNpcPart(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String raw = StringArgumentType.getString(ctx, "part");
+        StoryNpcs mod = mod(ctx);
+        var result = "clear".equalsIgnoreCase(raw)
+                ? mutateNpc(ctx, mod.getApplicationService(), npcId,
+                        def -> def.getDisplay().setParts(java.util.Map.of()))
+                : mutateNpc(ctx, mod.getApplicationService(), npcId,
+                        def -> def.getDisplay().clearPart(
+                                com.storynpcs.domain.npc.NpcBodyPart.fromWire(raw)));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Validation failed:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Cleared " + ("clear".equalsIgnoreCase(raw) ? "all parts" : "part '" + raw + "'")
+                        + " of '" + npcId + "' (persisted to YAML)."), true);
+        return 1;
+    }
+
+    /** Runtime emote trigger — applies to every live projection of the definition. */
+    private static int playNpcEmote(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        String raw = StringArgumentType.getString(ctx, "type");
+        int duration = ctx.getNodes().size() > 3
+                ? IntegerArgumentType.getInteger(ctx, "duration")
+                : com.storynpcs.domain.npc.NpcEmote.DEFAULT_DURATION_TICKS;
+        com.storynpcs.domain.npc.NpcEmote emote;
+        try {
+            emote = com.storynpcs.domain.npc.NpcEmote.fromWire(raw);
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + e.getMessage()));
+            return 0;
+        }
+        CommandSourceStack source = ctx.getSource();
+        int affected = 0;
+        for (ServerLevel level : source.getServer().getAllLevels()) {
+            for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
+                if (entity instanceof StoryNpcEntity npc
+                        && npcId.toString().equals(npc.getDefinitionId())) {
+                    npc.playEmote(emote, duration);
+                    affected++;
+                }
+            }
+        }
+        if (affected == 0) {
+            source.sendFailure(Component.literal(
+                    "[StoryNPCs] No live entities of '" + npcId + "' — spawn one first."));
+            return 0;
+        }
+        int count = affected;
+        com.storynpcs.domain.npc.NpcEmote chosen = emote;
+        source.sendSuccess(() -> Component.literal("[StoryNPCs] Emote '" + chosen.wire()
+                + "' playing on " + count + " entit(ies) of '" + npcId + "'."), true);
+        return 1;
     }
 
     private static int spawnNpc(CommandContext<CommandSourceStack> ctx, Vec3 pos) {

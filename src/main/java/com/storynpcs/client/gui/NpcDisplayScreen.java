@@ -96,6 +96,9 @@ public class NpcDisplayScreen extends Screen {
         y += ROW_H; field(colM, y, "Tint (hex)", model.getTint(), model::setTint, 7);
         y += ROW_H; addRenderableWidget(toggleButton(colM, y, "Living Animation", model.isLivingAnimation(),
                 b -> model.toggleLivingAnimation()));
+        y += ROW_H; addRenderableWidget(cycleButton(colM, y, "Variant",
+                NpcDisplayScreenModel.VARIANTS[model.getVariantIdx()],
+                b -> model.cycleVariant(1)));
 
         // ── Right: name, hitbox, boss bar, stance ───────────────────────────
         y = 26;
@@ -117,6 +120,20 @@ public class NpcDisplayScreen extends Screen {
         y += ROW_H; addRenderableWidget(cycleButton(colR, y, "Boss Bar Color",
                 NpcDisplayScreenModel.BOSS_BAR_COLORS[model.getBossBarColorIdx()],
                 b -> model.cycleBossBarColor(1)));
+
+        // ── Right (continued): cosmetic parts ───────────────────────────────
+        y += ROW_H; addRenderableWidget(section(colR, y + 2, "§6Cosmetic Parts"));
+        y += 8; addRenderableWidget(cycleButton(colR, y, "Part",
+                NpcDisplayScreenModel.BODY_PARTS[model.getBodyPartIdx()]
+                        + (model.isPartEnabled() ? " *" : ""),
+                b -> model.cycleBodyPart(1)));
+        y += ROW_H; addRenderableWidget(toggleButton(colR, y, "Enabled", model.isPartEnabled(),
+                b -> model.setPartEnabled(!model.isPartEnabled())));
+        y += ROW_H; field(colR, y, "Part Type", model.getPartType(), model::setPartType, 3);
+        y += ROW_H; field(colR, y, "Part Color (hex)", model.getPartColor(), model::setPartColor, 7);
+        y += ROW_H; addRenderableWidget(cycleButton(colR, y, "Part Anim",
+                NpcDisplayScreenModel.PART_BEHAVIORS[model.getPartBehaviorIdx()],
+                b -> model.cyclePartBehavior(1)));
 
         // ── Bottom: actions ─────────────────────────────────────────────────
         addRenderableWidget(Button.builder(Component.literal("Save"), b -> {
