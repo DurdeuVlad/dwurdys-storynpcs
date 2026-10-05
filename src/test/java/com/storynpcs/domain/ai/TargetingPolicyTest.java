@@ -196,4 +196,59 @@ class TargetingPolicyTest {
         assertThat(provider.relationship(OWN, GOBLINS)).isEqualTo(Relationship.HOSTILE);
         assertThat(provider.relationship(GOBLINS, OWN)).isEqualTo(Relationship.HOSTILE);
     }
+
+    private static NpcAi avoiding() {
+        NpcAi ai = new NpcAi();
+        ai.setAvoidTargets(true); // attackOnSight deliberately left false
+        return ai;
+    }
+
+    @Test
+    void avoidanceRequiresTheAuthoredFlagAndIgnoresAttackOnSight() {
+        var goblin = candidate(UUID.randomUUID(), GOBLINS, 4.0);
+        NpcAi noFlag = new NpcAi();
+        noFlag.setTargetFactionIds(Set.of(GOBLINS));
+        assertThat(TargetingPolicy.isEligibleForAvoidance(noFlag, OWN,
+                FactionRelationshipProvider.neutral(), goblin)).isFalse();
+
+        // Passive policy: eligible even when the NPC never engages on sight.
+        NpcAi ai = avoiding();
+        ai.setTargetFactionIds(Set.of(GOBLINS));
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN,
+                FactionRelationshipProvider.neutral(), goblin)).isTrue();
+        // Null inputs fail closed.
+        assertThat(TargetingPolicy.isEligibleForAvoidance(null, OWN,
+                FactionRelationshipProvider.neutral(), goblin)).isFalse();
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN,
+                FactionRelationshipProvider.neutral(), null)).isFalse();
+    }
+
+    @Test
+    void avoidanceNeverFleesSameFactionEvenWhenAuthored() {
+        NpcAi ai = avoiding();
+        ai.setTargetFactionIds(Set.of(OWN));
+        var own = candidate(UUID.randomUUID(), OWN, 1.0);
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN,
+                FactionRelationshipProvider.neutral(), own)).isFalse();
+    }
+
+    @Test
+    void avoidanceResolvesProviderHostilityAndHostileStanding() {
+        var guards = new com.storynpcs.domain.faction.Faction(OWN, "Town Guard", 0, -100, 100);
+        var goblinFaction = new com.storynpcs.domain.faction.Faction(GOBLINS, "Goblins", 0, -100, 100);
+        guards.setRelationshipTo(GOBLINS, com.storynpcs.domain.faction.FactionStanding.HOSTILE);
+        var provider = FactionRelationshipProvider.fromFactions(List.of(guards, goblinFaction));
+
+        NpcAi ai = avoiding(); // no authored list — provider drives the match
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN, provider,
+                candidate(UUID.randomUUID(), GOBLINS, 4.0))).isTrue();
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN, provider,
+                candidate(UUID.randomUUID(), ELVES, 4.0))).isFalse();
+
+        // Factionless candidates ride their caller-resolved hostile standing.
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN, provider,
+                new Candidate(UUID.randomUUID(), null, 4.0, 20.0, 20.0, 0, true))).isTrue();
+        assertThat(TargetingPolicy.isEligibleForAvoidance(ai, OWN, provider,
+                new Candidate(UUID.randomUUID(), null, 4.0, 20.0, 20.0, 0, false))).isFalse();
+    }
 }

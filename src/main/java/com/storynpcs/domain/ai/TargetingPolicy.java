@@ -120,6 +120,35 @@ public final class TargetingPolicy {
     }
 
     /**
+     * Whether one candidate qualifies for authored "avoid" behavior (B7):
+     * selector-matched entities the NPC flees rather than engages. Mirrors
+     * {@link #isEligible} minus the {@code attackOnSight} and own-faction-
+     * passive gates — avoidance is a passive policy and applies even to
+     * NPCs that never fight. Same-faction candidates are still exempt.
+     */
+    public static boolean isEligibleForAvoidance(NpcAi ai, NamespacedId ownFactionId,
+                                                 FactionRelationshipProvider relationships,
+                                                 Candidate candidate) {
+        if (ai == null || !ai.isAvoidTargets() || candidate == null) {
+            return false;
+        }
+        NamespacedId targetFaction = candidate.factionId();
+        if (targetFaction != null) {
+            if (targetFaction.equals(ownFactionId)) {
+                return false;
+            }
+            if (ai.getTargetFactionIds().contains(targetFaction)) {
+                return true;
+            }
+            var provider = relationships != null ? relationships : FactionRelationshipProvider.neutral();
+            return ownFactionId != null
+                    && provider.relationship(ownFactionId, targetFaction)
+                            == FactionRelationshipProvider.Relationship.HOSTILE;
+        }
+        return candidate.hostileStanding();
+    }
+
+    /**
      * FIRST_THREAT: prefer the candidate with the highest existing threat —
      * the provoker the NPC should answer first. With no threat data the
      * nearest hostile wins, keeping the policy total.

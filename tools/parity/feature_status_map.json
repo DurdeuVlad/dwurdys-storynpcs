@@ -8,7 +8,7 @@
    "feature": "NPC creation & main editor",
    "status": "partial",
    "issue": "#58 P3-1",
-   "summary": "NpcWandItem, NpcEditorScreen, /storynpcs npc create|spawn|set …",
+   "summary": "NpcWandItem, NpcEditorScreen, /storynpcs npc create|spawn|set â€¦",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/item/NpcWandItem.java",
@@ -37,7 +37,7 @@
    "feature": "Display (name/title/skin/scale/tint/cloak/glow/bossbar/hitbox)",
    "status": "partial",
    "issue": "#58 P3-1",
-   "summary": "NpcDisplay, DisplayProjection*, StoryNpcRenderer, StoryNpcHitboxHandler — base fields only",
+   "summary": "NpcDisplay, DisplayProjection*, StoryNpcRenderer, StoryNpcHitboxHandler â€” base fields only",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/npc/NpcDisplay.java",
@@ -315,7 +315,7 @@
    "feature": "Abilities (pull/push/smash/snare/teleport/block)",
    "status": "implemented",
    "issue": "#147",
-   "summary": "All six types on NpcDefinition.abilities — DAMAGED/ATTACK/UPDATE triggers, bounded params, rule conditions; NpcAbilityController applies velocity/snare/teleport/block/smash via entity APIs",
+   "summary": "All six types on NpcDefinition.abilities â€” DAMAGED/ATTACK/UPDATE triggers, bounded params, rule conditions; NpcAbilityController applies velocity/snare/teleport/block/smash via entity APIs",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/ability/NpcAbility.java",
@@ -345,15 +345,16 @@
   {
    "id": "movement-ai",
    "feature": "Movement AI (wander/path/door/water/indoors/shade)",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#60 P3-3",
-   "summary": "NpcPatrolGoal, NpcReturnToStartGoal, StoryNpcPathNavigator, NpcStuckDetector, PathClearanceValidator",
+   "summary": "MovementType stand/wander/path + full B6 vocabulary: doorInteract/doorBust, seekShade, shelterIndoors, watchClosest, avoidWater, leap, returnToStart — bounded goals gated per authored flag",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/ai/NpcPatrolGoal.java",
      "src/main/java/com/storynpcs/ai/NpcReturnToStartGoal.java",
      "src/main/java/com/storynpcs/ai/pathing/StoryNpcPathNavigator.java",
-     "src/main/java/com/storynpcs/ai/pathing/NpcStuckDetector.java"
+     "src/main/java/com/storynpcs/ai/pathing/NpcStuckDetector.java",
+     "src/main/java/com/storynpcs/ai/NpcAuthoredBehaviorGoals.java"
     ],
     "wired": [
      {
@@ -364,7 +365,8 @@
     "registered": [],
     "tests": [
      "src/test/java/com/storynpcs/ai/pathing/NpcStuckDetectorTest.java",
-     "src/test/java/com/storynpcs/domain/ai/WaypointPathTest.java"
+     "src/test/java/com/storynpcs/domain/ai/WaypointPathTest.java",
+     "src/test/java/com/storynpcs/domain/npc/NpcAiPolicyTest.java"
     ],
     "absent": []
    }
@@ -372,16 +374,17 @@
   {
    "id": "targeting-tactics",
    "feature": "Targeting & tactics (selectors/defend/pounce/panic/transform)",
-   "status": "partial",
+   "status": "implemented",
    "issue": "#60 P3-3",
-   "summary": "ThreatManager, TargetingPolicy, TacticalManeuver, TacticalStance, WitnessProtectionManager",
+   "summary": "Full B7 vocabulary: attack-on-sight + avoidTargets (isEligibleForAvoidance), faction/target selectors, defendOwner + defend-allies, retaliation, pounce(leapAtTarget), sprintToTarget, panicOnHurt, defeatTransformId transform-on-defeat",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/ai/combat/ThreatManager.java",
      "src/main/java/com/storynpcs/domain/ai/TargetingPolicy.java",
      "src/main/java/com/storynpcs/domain/ai/TacticalManeuver.java",
      "src/main/java/com/storynpcs/domain/npc/TacticalStance.java",
-     "src/main/java/com/storynpcs/ai/combat/WitnessProtectionManager.java"
+     "src/main/java/com/storynpcs/ai/combat/WitnessProtectionManager.java",
+     "src/main/java/com/storynpcs/ai/combat/NpcAvoidTargetsGoal.java"
     ],
     "wired": [
      {
@@ -395,7 +398,8 @@
      "src/test/java/com/storynpcs/domain/ai/TargetingPolicyTest.java",
      "src/test/java/com/storynpcs/domain/ai/TacticalManeuverTest.java",
      "src/test/java/com/storynpcs/domain/npc/TacticalStanceTest.java",
-     "src/test/java/com/storynpcs/ai/combat/WitnessProtectionManagerTest.java"
+     "src/test/java/com/storynpcs/ai/combat/WitnessProtectionManagerTest.java",
+     "src/test/java/com/storynpcs/domain/npc/NpcAiPolicyTest.java"
     ],
     "absent": []
    }
@@ -405,7 +409,7 @@
    "feature": "Inventory/equipment/drops",
    "status": "partial",
    "issue": "#61 P3-4",
-   "summary": "NpcInventory, NpcItemStack (string-list → typed in progress)",
+   "summary": "NpcInventory, NpcItemStack (string-list â†’ typed in progress)",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/npc/NpcInventory.java",
@@ -624,7 +628,7 @@
    "feature": "Jobs (11)",
    "status": "partial",
    "issue": "#73 P6-4",
-   "summary": "JobType enum (all 11), JobConfig on def, NpcJobRuntime dispatch — 9 types have tick handlers, BUILDER + FOLLOWER fail validation",
+   "summary": "JobType enum (all 11), JobConfig on def, NpcJobRuntime dispatch â€” 9 types have tick handlers, BUILDER + FOLLOWER fail validation",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/job/JobType.java",
@@ -665,7 +669,7 @@
    "feature": "Dialogue engine",
    "status": "implemented-superset",
    "issue": "#65-67 P5-1/2/3",
-   "summary": "Directed graph (DialogueGraph/Node/Edge), conditions, actions, sessions, validators — structurally stronger than target",
+   "summary": "Directed graph (DialogueGraph/Node/Edge), conditions, actions, sessions, validators â€” structurally stronger than target",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/domain/dialogue/DialogueGraph.java",
@@ -723,7 +727,7 @@
    "feature": "Dialogue editor",
    "status": "implemented-superset",
    "issue": "#67 P5-3",
-   "summary": "DialogueEditorScreen — visual node/edge editor (target has no equivalent); field coverage narrow",
+   "summary": "DialogueEditorScreen â€” visual node/edge editor (target has no equivalent); field coverage narrow",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/client/gui/DialogueEditorScreen.java",
@@ -1019,7 +1023,7 @@
    "feature": "Scripter / NBT book tools",
    "status": "partial",
    "issue": "#148",
-   "summary": "NbtBookItem + NbtBookService — op-gated allowlist entity edits (CustomName/NoGravity/Invulnerable/Silent/Glowing) via session-bound payload; scripter tool absent",
+   "summary": "NbtBookItem + NbtBookService â€” op-gated allowlist entity edits (CustomName/NoGravity/Invulnerable/Silent/Glowing) via session-bound payload; scripter tool absent",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/item/NbtBookItem.java",
@@ -1052,7 +1056,7 @@
    "feature": "Creator blocks (11)",
    "status": "planned",
    "issue": "#79 P8-3, #80 P8-4",
-   "summary": "None — zero block registrations",
+   "summary": "None â€” zero block registrations",
    "evidence": {
     "files": [],
     "wired": [],
@@ -1211,7 +1215,7 @@
    "feature": "Markov name generation",
    "status": "planned",
    "issue": "#123 (needs-input)",
-   "summary": "None — engine choice undecided",
+   "summary": "None â€” engine choice undecided",
    "evidence": {
     "files": [],
     "wired": [],
@@ -1227,7 +1231,7 @@
    "feature": "SQL player-data store",
    "status": "deviation",
    "issue": "ADR-006 (intentional deviation)",
-   "summary": "Recorded deviation — ADR-006 + PersistenceStoreCatalog entry target.persistence_stores.0012 (INTENTIONAL_DEVIATION): file-first rule, no embedded SQL",
+   "summary": "Recorded deviation â€” ADR-006 + PersistenceStoreCatalog entry target.persistence_stores.0012 (INTENTIONAL_DEVIATION): file-first rule, no embedded SQL",
    "evidence": {
     "files": [],
     "wired": [],
@@ -1243,7 +1247,7 @@
    "feature": "Scripting host",
    "status": "partial",
    "issue": "#84 P9-2, #125 engine pin",
-   "summary": "ScriptHook enum, ScriptBudget, ScriptScheduler wired into lifecycle — no interpreter/engine",
+   "summary": "ScriptHook enum, ScriptBudget, ScriptScheduler wired into lifecycle â€” no interpreter/engine",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/script/ScriptHook.java",
@@ -1416,7 +1420,7 @@
    "feature": "Optional-mod integrations (mixins)",
    "status": "deviation",
    "issue": "#87 P9-5 (closed: documented deviation)",
-   "summary": "Recorded deviation — P9-5 closeout enumerates the target's 7-class Pixelmon/Cobblemon surface; StoryNPCs implements no optional-mod integration; absent-check + P9-5 tests enforce it",
+   "summary": "Recorded deviation â€” P9-5 closeout enumerates the target's 7-class Pixelmon/Cobblemon surface; StoryNPCs implements no optional-mod integration; absent-check + P9-5 tests enforce it",
    "evidence": {
     "files": [],
     "wired": [],
@@ -1432,7 +1436,7 @@
    "feature": "Persistence (18 stores)",
    "status": "implemented",
    "issue": "#56 P2-2, #57 P2-3",
-   "summary": "DurableJsonStore, ProgressionRepository, BankRepository, TradeStateRepository, ActorStateRepository, DurableOperationJournal — selected stores, not the 18-store crash matrix",
+   "summary": "DurableJsonStore, ProgressionRepository, BankRepository, TradeStateRepository, ActorStateRepository, DurableOperationJournal â€” selected stores, not the 18-store crash matrix",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/persistence/DurableJsonStore.java",

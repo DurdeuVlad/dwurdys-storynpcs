@@ -117,6 +117,7 @@ public class NpcMeleeAttackGoal extends Goal {
     public void stop() {
         this.target = null;
         this.npc.getNavigation().stop();
+        this.npc.setSprinting(false);
         this.stalkUntilTick = Long.MIN_VALUE;
         this.hitRunUntilTick = Long.MIN_VALUE;
         this.retreatLatched = false;
@@ -180,6 +181,9 @@ public class NpcMeleeAttackGoal extends Goal {
                 if (--this.repathDelay <= 0) {
                     this.repathDelay = pathingPeriod > 0 ? Math.max(10, pathingPeriod) : 20;
                     if (pathingPeriod > 0) {
+                        // B7 "sprint to target": authored sprint applies while
+                        // closing distance.
+                        this.npc.setSprinting(ai.isSprintToTarget());
                         this.npc.getNavigation().moveTo(target, this.speedModifier);
                         tryLeap(target, distSq, reachSq, now, ai);
                     }

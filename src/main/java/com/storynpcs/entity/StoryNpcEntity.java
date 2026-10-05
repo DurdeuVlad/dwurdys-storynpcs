@@ -89,6 +89,12 @@ public class StoryNpcEntity extends PathfinderMob {
     private boolean wasNoPhysicsBeforeHide = false;
     private FollowerRole followerRole;
     private boolean loadingSavedData;
+    /**
+     * True once this entity has been restored from NBT. Disk-loaded entities
+     * carry persisted health; {@link #applyDefinition()} must never heal them
+     * back to authored max on re-projection — health is runtime state.
+     */
+    private boolean loadedFromDisk;
     /** Persisted data revision written to entity NBT (ADR-007 ModRev-equivalent). */
     private static final int DATA_REVISION = 1;
     /** Revision read back from NBT — defaults to 0 for pre-marker saves. */
@@ -134,13 +140,23 @@ public class StoryNpcEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new com.storynpcs.ai.combat.NpcMeleeAttackGoal(this, 1.25D));
-        this.goalSelector.addGoal(2, new NpcFollowFormationGoal(this, 1.0D, 1.35D, 1.75F, 24.0F));
-        this.goalSelector.addGoal(3, new NpcPatrolGoal(this, 1.0D));
-        this.goalSelector.addGoal(4, new NpcReturnToStartGoal(this, 1.0D));
-        this.goalSelector.addGoal(5, new LookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(6, new NpcWanderingStrollGoal(this, 0.6D));
-        this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
+        // B7 "panic": hurt panic outranks combat — MOVE-flag conflict with the
+        // melee goal resolves to the earlier-registered (panic) goal.
+        this.goalSelector.addGoal(1, new com.storynpcs.ai.NpcAuthoredBehaviorGoals.PanicOnHurtGoal(this, 1.2D));
+        // B7 "avoid": selector-matched flight outranks engagement.
+        this.goalSelector.addGoal(1, new com.storynpcs.ai.combat.NpcAvoidTargetsGoal(this));
+        this.goalSelector.addGoal(2, new com.storynpcs.ai.combat.NpcMeleeAttackGoal(this, 1.25D));
+        this.goalSelector.addGoal(3, new NpcFollowFormationGoal(this, 1.0D, 1.35D, 1.75F, 24.0F));
+        this.goalSelector.addGoal(4, new NpcPatrolGoal(this, 1.0D));
+        this.goalSelector.addGoal(5, new NpcReturnToStartGoal(this, 1.0D));
+        // B6 vocabulary goals — authored flags gate each wrapped primitive.
+        this.goalSelector.addGoal(5, new com.storynpcs.ai.NpcAuthoredBehaviorGoals.SeekShadeGoal(this));
+        this.goalSelector.addGoal(5, new com.storynpcs.ai.NpcAuthoredBehaviorGoals.DoorBustGoal(this));
+        this.goalSelector.addGoal(6, new com.storynpcs.ai.NpcAuthoredBehaviorGoals.ShelterIndoorsGoal(this));
+        // B6 "watch closest" — authored flag gates the vanilla look-at.
+        this.goalSelector.addGoal(6, new com.storynpcs.ai.NpcAuthoredBehaviorGoals.WatchClosestGoal(this, 8.0F));
+        this.goalSelector.addGoal(7, new NpcWanderingStrollGoal(this, 0.6D));
+        this.goalSelector.addGoal(8, new RandomLookAroundGoal(this));
         // P3-3: sight-based target acquisition for attackOnSight definitions —
         // feeds chosen targets through the canonical threat pipeline.
         this.targetSelector.addGoal(1, new com.storynpcs.ai.combat.NpcAttackOnSightGoal(this));
@@ -811,7 +827,7 @@ public class StoryNpcEntity extends PathfinderMob {
             // authored drops and events.
             if (maxHealthAttr != null && stats.getMaxHealth() > 0) {
                 maxHealthAttr.setBaseValue(stats.getMaxHealth());
-                if (!deathDropsResolved) {
+                if (!deathDropsResolved && !loadedFromDisk) {
                     this.setHealth((float) stats.getMaxHealth());
                 }
             }
@@ -839,7 +855,9 @@ public class StoryNpcEntity extends PathfinderMob {
         state.resolveDefinition(mod.getRegistry()).ifPresent(def -> {
             if (def.getAi() != null) {
                 if (this.getNavigation() instanceof GroundPathNavigation groundNav) {
-                    groundNav.setCanOpenDoors(def.getAi().isDoorInteract());
+                    // B6 door vocabulary: open when doorInteract or doorBust —
+                    // busting still requires the navigator to route to doors.
+                    groundNav.setCanOpenDoors(def.getAi().isDoorInteract() || def.getAi().isDoorBust());
                 }
                 this.setPathfindingMalus(PathType.WATER, def.getAi().isAvoidWater() ? -1.0F : 0.0F);
                 this.threatManager.setAggroDurationTicks(def.getAi().getAggroDurationTicks());
@@ -1139,10 +1157,39 @@ public class StoryNpcEntity extends PathfinderMob {
                         return;
                     }
                     publishDefeatedEvent(mod, stats);
+                    // B7 "transform" vocabulary: on a lethal defeat the
+                    // projection rebinds to the authored definition at full
+                    // health instead of leaving a corpse. Only resolvable
+                    // targets transform — an unbound transform id falls back
+                    // to the authored death path.
+                    var transformId = state.resolveDefinition(mod.getRegistry())
+                            .map(NpcDefinition::getAi)
+                            .map(com.storynpcs.domain.npc.NpcAi::getDefeatTransformId)
+                            .orElse(null);
+                    if (transformId != null
+                            && mod.getRegistry().getNpc(transformId).isPresent()) {
+                        transformInto(transformId);
+                        return;
+                    }
                 }
             }
         }
         super.die(source);
+    }
+
+    /**
+     * B7 transform: rebind this projection to the new definition and restore
+     * full health. The logical actor identity is kept — a transformed NPC is
+     * still the same actor — but all authored projections re-apply. Health is
+     * restored explicitly because disk-loaded entities never auto-heal on
+     * re-application.
+     */
+    private void transformInto(NamespacedId definitionId) {
+        this.deathDropsResolved = false;
+        this.threatManager.clearAll();
+        this.setTarget(null);
+        this.setDefinitionId(definitionId.asString());
+        this.setHealth(this.getMaxHealth());
     }
 
     private void publishDefeatedEvent(StoryNpcs mod,
@@ -1962,6 +2009,7 @@ public class StoryNpcEntity extends PathfinderMob {
     public void readAdditionalSaveData(CompoundTag compound) {
         super.readAdditionalSaveData(compound);
         loadingSavedData = true;
+        loadedFromDisk = true;
         // Establish durable logical identity before definition binding. This prevents
         // a replacement projection from first registering a UUID-derived orphan actor.
         try {
