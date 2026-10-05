@@ -1595,6 +1595,91 @@ class StoryNpcsApplicationServiceTest {
     }
 
     @Test
+    void sendMailDeliversToRecipientMailboxUnderSenderAuth() {
+        UUID sender = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+
+        // A third party cannot send "as" someone else's progression subject.
+        PlayerProgressionActionRequest denied = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, recipient, UUID.randomUUID(), -1);
+        // actorId=sender but playerUuid=recipient → mismatched subject: denied.
+        AuthorizedActionResult deniedResult = service.sendMail(
+                denied, recipient, "Sender", "Hi", "Body");
+        assertThat(deniedResult.applied()).isFalse();
+
+        // The sender (playerUuid == actorId) sends to the recipient's mailbox.
+        PlayerProgressionActionRequest send = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, sender, UUID.randomUUID(), -1);
+        AuthorizedActionResult sent = service.sendMail(
+                send, recipient, "Sender", "Greetings", "Meet me at the inn.");
+        assertThat(sent.applied()).isTrue();
+        var mailbox = service.getMailbox(recipient);
+        assertThat(mailbox).hasSize(1);
+        assertThat(mailbox.get(0).getSender()).isEqualTo("Sender");
+        assertThat(mailbox.get(0).getSubject()).isEqualTo("Greetings");
+        assertThat(mailbox.get(0).isRead()).isFalse();
+        assertThat(service.getMailbox(sender)).isEmpty();
+    }
+
+    @Test
+    void sendMailIsIdempotentOnRequestIdAndBoundsContent() {
+        UUID sender = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        PlayerProgressionActionRequest send = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, sender, requestId, -1);
+        assertThat(service.sendMail(send, recipient, "S", "Sub", "Body").applied()).isTrue();
+
+        // Replay of the same request id returns the recorded outcome — it does
+        // NOT deliver a duplicate copy.
+        PlayerProgressionActionRequest replay = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, sender, requestId, -1);
+        var replayed = service.sendMail(replay, recipient, "S", "Sub", "Body");
+        assertThat(service.getMailbox(recipient)).hasSize(1);
+
+        // Same request id bound to different content is a payload mismatch.
+        PlayerProgressionActionRequest mismatch = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, sender, requestId, -1);
+        service.sendMail(mismatch, recipient, "S", "DIFFERENT", "Body");
+        assertThat(service.getMailbox(recipient)).hasSize(1);
+    }
+
+    @Test
+    void sendMailEnforcesPerSenderQuotaOnRecipientMailbox() {
+        UUID sender = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        // Pre-fill the recipient's mailbox from this sender to the quota.
+        for (int i = 0; i < 8; i++) {
+            service.deliverMail(recipient, "Sender", "Spam " + i, "x");
+        }
+        PlayerProgressionActionRequest send = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, sender, UUID.randomUUID(), -1);
+        AuthorizedActionResult result = service.sendMail(
+                send, recipient, "Sender", "One more", "flood");
+        assertThat(result.applied()).isFalse();
+        assertThat(result.decision().code()).isEqualTo("MAIL_SENDER_QUOTA_EXCEEDED");
+        assertThat(service.getMailbox(recipient)).hasSize(8);
+
+        // A different sender is not bound by the first sender's quota.
+        PlayerProgressionActionRequest other = new PlayerProgressionActionRequest(
+                "mail.send", "player", recipient, recipient, UUID.randomUUID(), -1);
+        assertThat(service.sendMail(other, sender, "Other", "ok", "fine").applied()).isTrue();
+    }
+
+    @Test
+    void sendMailRejectsOversizeContentWithTypedDenial() {
+        UUID sender = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        PlayerProgressionActionRequest send = new PlayerProgressionActionRequest(
+                "mail.send", "player", sender, sender, UUID.randomUUID(), -1);
+        AuthorizedActionResult result = service.sendMail(send, recipient,
+                "S", "x".repeat(129), "body");
+        assertThat(result.applied()).isFalse();
+        assertThat(result.decision().code()).isEqualTo("MAIL_CONTENT_TOO_LONG");
+        assertThat(service.getMailbox(recipient)).isEmpty();
+    }
+
+    @Test
     void canonicalTransportUnlockRequiresAuthorization() {
         NamespacedId locationId = NamespacedId.of("storynpcs:vault_city");
         var location = new com.storynpcs.domain.transport.TransportLocation(

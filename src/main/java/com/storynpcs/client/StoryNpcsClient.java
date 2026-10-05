@@ -199,6 +199,57 @@ public final class StoryNpcsClient {
         });
     }
 
+    /**
+     * Opens a player-facing panel (issue #150). The payload's {@code panel}
+     * discriminator selects the screen; the view JSON deserializes into the
+     * matching {@code PlayerPanels} record. Unknown panels fail closed.
+     */
+    public static void openPlayerPanel(
+            com.storynpcs.network.ClientboundPlayerPanelPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            net.minecraft.client.gui.screens.Screen screen = switch (payload.panel()) {
+                case com.storynpcs.service.PlayerPanelViews.PANEL_QUEST_LOG ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.QuestLogView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerQuestLogScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_FACTIONS ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.FactionPanelView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerFactionPanelScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_MAIL ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.MailView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerMailScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.TransportView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerTransportScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                default -> null;
+            };
+            if (screen == null) {
+                if (mc.player != null) {
+                    mc.player.sendSystemMessage(Component.literal(
+                            "§c[StoryNPCs] Panel data could not be read."));
+                }
+                return;
+            }
+            mc.setScreen(screen);
+        });
+    }
+
     /** Opens the bank screen for a banker-role NPC (server pushes role + the player's vault as JSON). */
     public static void openBank(com.storynpcs.network.ClientboundBankOpenPayload payload) {
         Minecraft mc = Minecraft.getInstance();

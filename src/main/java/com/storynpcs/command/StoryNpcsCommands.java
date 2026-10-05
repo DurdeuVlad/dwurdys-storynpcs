@@ -313,6 +313,7 @@ public final class StoryNpcsCommands {
                 .then(factionCommands())
                 .then(mailCommands())
                 .then(schemaCommands())
+                .then(panelCommands())
                 // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
                         .executes(StoryNpcsCommands::sendFollowerHelp)
@@ -438,6 +439,34 @@ public final class StoryNpcsCommands {
                 "[StoryNPCs] Building '%s' (%dx%dx%d) at %s — budgeted per tick.",
                 schematic.name(), schematic.width(), schematic.height(), schematic.length(),
                 origin.toShortString())), true);
+        return 1;
+    }
+
+    /**
+     * The `panel` subtree (issue #150 — player-facing screens): opens the
+     * server-issued panel views for quest log, factions, mail, and transport.
+     * Permission 0 — a player only ever sees their own progression data, and
+     * every panel commit is re-authorized by the server session.
+     */
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> panelCommands() {
+        return Commands.literal("panel")
+                .then(Commands.literal("quests")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_QUEST_LOG)))
+                .then(Commands.literal("factions")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_FACTIONS)))
+                .then(Commands.literal("mail")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL)))
+                .then(Commands.literal("transport")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT)));
+    }
+
+    private static int openPanel(CommandContext<CommandSourceStack> ctx, String panel) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Panels open for players only."));
+            return 0;
+        }
+        com.storynpcs.network.StoryNpcsNetwork.sendPlayerPanel(player, panel);
         return 1;
     }
 

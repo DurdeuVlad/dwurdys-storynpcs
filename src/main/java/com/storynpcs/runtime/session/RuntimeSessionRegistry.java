@@ -127,6 +127,24 @@ public final class RuntimeSessionRegistry {
                         ? null : current);
     }
 
+    /**
+     * Player panels (#150) are not NPC-bound, so they key the role-session map
+     * under a sentinel id with a {@code panel:<name>} kind — the same
+     * single-active-session semantics apply (opening another panel or role
+     * screen rotates the token, failing the old one closed).
+     */
+    private static final NamespacedId PANEL_SENTINEL =
+            NamespacedId.of("storynpcs", "player_panel");
+
+    /** Returns a stable server-issued token for the currently open panel. */
+    public UUID openPanelSession(UUID playerId, String panel) {
+        return openRoleSession(playerId, "panel:" + panel, PANEL_SENTINEL);
+    }
+
+    public boolean isPanelSession(UUID playerId, String panel, UUID sessionId) {
+        return isRoleSession(playerId, "panel:" + panel, PANEL_SENTINEL, sessionId);
+    }
+
     /** Returns false for a duplicate request id within the player's bounded replay window. */
     public boolean acceptRequest(UUID playerId, UUID requestId) {
         return admitRequest(playerId, requestId) == RequestAdmission.NEW;

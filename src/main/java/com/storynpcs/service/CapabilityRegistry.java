@@ -56,6 +56,7 @@ public final class CapabilityRegistry {
             // Player-scoped progression actions (PlayerProgressionActionRequest)
             Map.entry("mail.read", Policy.PLAYER_SCOPED),
             Map.entry("mail.delete", Policy.PLAYER_SCOPED),
+            Map.entry("mail.send", Policy.PLAYER_SCOPED),
             Map.entry("transport.unlock", Policy.PLAYER_SCOPED),
             Map.entry("transport.request", Policy.PLAYER_SCOPED),
             Map.entry("dialogue.visit.record", Policy.PLAYER_SCOPED)
