@@ -42,3 +42,19 @@ Status: `IN-PROGRESS`
 - Back navigation applies the staged edits and preserves the expected save revision; save results route through `StoryNpcsClient` to the display screen (and the previously-orphaned `TraderBankerAdminScreen`) with payload-bound request IDs.
 - `NpcDisplayScreenModelTest`: 8 tests — full-field load, apply→JSON→restore round-trip, picker-over-stale-URL precedence, URL source selection, validation error blocking, tint forms, missing-block creation, cycle wrap.
 - Remaining honest gap: animation timelines/playback beyond the stance flag, availability-rule evaluation beyond the stored mode, and live in-client render smoke remain unproven — this slice is editor coverage only.
+
+## Fourth pass — variants, cosmetic parts, emotes (#58 residual)
+
+- **`NpcVariant`** — the target's 9 model variants (humanoid/classic player, alex, classic_64x32, golem, flying, dragon, slime, crystal, pony) as validated display data on the single `StoryNpcEntity`, each carrying base hitbox dims + eye ratio. Hitbox projection now uses variant base dims (was hardcoded player 0.6x1.8). Wire aliases accepted (`player`, `iron_golem`, `ender_dragon`, `horse`, `64x32`); unknown variants fail with the full list.
+- **`NpcCosmeticPart` + `NpcBodyPart`** — MPM parts (beard, ears, horns, snout, tail, wings, fin, skirt, eyes) with bounded type index per part, 24-bit tint, and `none`/`follow_head`/`animated` behavior. Key/spec mismatch in `setParts` is rejected; parts on non-humanoid variants emit `PARTS_VARIANT_INCOMPATIBLE` (data preserved).
+- **`NpcEmote` + `NpcEmoteState`** — the target's 10 `Ani*` emotes as server-authoritative runtime state (never YAML-authored): bounded duration (default 40t, max 1200t), interrupt-on-start, `progress()` for client interpolation, mirrored to clients via 3 synced data fields.
+- **Renderer**: `StoryNpcRenderer` now dispatches per-variant — humanoid variants use the player model (wide/slim/flying), generic variants use `GenericNpcModel` wrapping vanilla mesh geometry baked via `context.bakeLayer` (golem/dragon/slime/crystal/pony) — clean-room, no target models. Armor/held-item layers run behind a `RenderLayerParent` proxy guarded by an instanceof check. `NpcPartLayer` renders clean-room cube parts anchored to head/body bones with tint + behavior. `NpcEmoteAnimator` applies pose overrides (wave/point/hug/bow/no/yes/aim/crawl/dance) blended over the resting pose with edge fade.
+- **Surfaces**: `/storynpcs npc set variant`, `npc set part <name> <type> <color> <behavior>` / `part <name>` (clear) / `part clear`, `npc emote <emote> [duration]` (perm-2, live entities); display editor gains a Variant cycler + full part editor (part selector, enable toggle, type, color, behavior) with strict-flush on apply.
+- **`NpcVariantPartsEmoteTest`**: 8 tests — variant wire/aliases/serde/hitbox, part validation + map mismatch + serde/projection + variant-incompatible diagnostic, emote lifecycle + wire parse.
+
+### Honest residual for this pass
+
+- Generic-variant models render baked vanilla meshes **statically** — no variant-specific animation calls (documented simplification; animation follow-up).
+- Parts render clean-room cube approximations, not target-equivalent meshes — target assets are CC BY-NC and cannot be copied.
+- Emote triggers beyond the command/entity API (dialogue effect legs, AI-driven `EntityAIAnimation` equivalent) remain for P3-3/M5 surfaces; the emote state machine is the delivered contract.
+- Live in-client render smoke remains evidence-tier deferred (same convention as the rest of the client surface).

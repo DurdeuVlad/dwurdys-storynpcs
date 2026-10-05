@@ -57,9 +57,17 @@ public class NpcDisplay {
     @JsonProperty
     private String modelType = "humanoid";
 
+    /** Target-compatible entity model variant (classic player, alex, golem, ...). */
+    @JsonProperty
+    private NpcVariant variant = NpcVariant.HUMANOID;
+
     /** Optional vanilla/entity model identity; blank means the default humanoid model. */
     @JsonProperty
     private String modelId = "";
+
+    /** MPM-style cosmetic part attachments keyed by body part. */
+    @JsonProperty
+    private java.util.Map<NpcBodyPart, NpcCosmeticPart> parts = new java.util.EnumMap<>(NpcBodyPart.class);
 
     /** Target-compatible base model size, bounded to 1..30. */
     @JsonProperty
@@ -149,6 +157,43 @@ public class NpcDisplay {
 
     public String getModelType() { return modelType; }
     public void setModelType(String modelType) { this.modelType = modelType == null ? "humanoid" : modelType; }
+
+    public NpcVariant getVariant() { return variant; }
+    public void setVariant(NpcVariant variant) {
+        this.variant = variant == null ? NpcVariant.HUMANOID : variant;
+    }
+
+    /** Live map of authored cosmetic parts; empty when no part is configured. */
+    public java.util.Map<NpcBodyPart, NpcCosmeticPart> getParts() {
+        return java.util.Collections.unmodifiableMap(parts);
+    }
+
+    public void setParts(java.util.Map<NpcBodyPart, NpcCosmeticPart> parts) {
+        java.util.EnumMap<NpcBodyPart, NpcCosmeticPart> copy = new java.util.EnumMap<>(NpcBodyPart.class);
+        if (parts != null) {
+            for (var entry : parts.entrySet()) {
+                NpcBodyPart part = entry.getKey();
+                NpcCosmeticPart spec = entry.getValue();
+                if (part == null || spec == null) continue;
+                if (spec.part() != part) {
+                    throw new IllegalArgumentException("part key " + part.wire()
+                            + " does not match spec part " + spec.part().wire());
+                }
+                copy.put(part, spec);
+            }
+        }
+        this.parts = copy;
+    }
+
+    /** Convenience for single-part authoring; {@code null} spec removes the part. */
+    public void setPart(NpcCosmeticPart spec) {
+        if (spec == null) return;
+        parts.put(spec.part(), spec);
+    }
+
+    public void clearPart(NpcBodyPart part) {
+        if (part != null) parts.remove(part);
+    }
 
     public String getModelId() { return modelId; }
     public void setModelId(String modelId) { this.modelId = boundedText(modelId, "modelId", 256); }

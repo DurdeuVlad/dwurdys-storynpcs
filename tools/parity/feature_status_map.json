@@ -62,49 +62,95 @@
   {
    "id": "entity-variants",
    "feature": "Entity model variants (9)",
-   "status": "planned",
+   "status": "implemented",
    "issue": "#58 P3-1",
-   "summary": "Single StoryNpcEntity; no variant models",
+   "summary": "NpcVariant (9 target variants) + variant-scaled hitbox + renderer dispatch to baked vanilla geometry + /storynpcs npc set variant; generic-variant animation is static (documented)",
    "evidence": {
-    "files": [],
-    "wired": [],
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcVariant.java",
+     "src/main/java/com/storynpcs/client/render/StoryNpcRenderer.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/domain/npc/DisplayProjectionResolver.java",
+      "pattern": "NpcVariant"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "setNpcVariant"
+     }
+    ],
     "registered": [],
-    "tests": [],
-    "absent": [
-     "class\\s+\\w*(Golem|Dragon|Pony|Crystal|Slime)Npc\\w*|EntityNpc\\w+"
-    ]
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcVariantPartsEmoteTest.java"
+    ],
+    "absent": []
    }
   },
   {
    "id": "cosmetic-parts",
    "feature": "Cosmetic parts (MPM)",
-   "status": "planned",
+   "status": "implemented",
    "issue": "#58 P3-1 (scope confirmed)",
-   "summary": "None",
+   "summary": "NpcCosmeticPart (9 MPM parts, type/color/behavior) + NpcPartLayer clean-room cube geometry + editor part editor + /storynpcs npc set part; PARTS_VARIANT_INCOMPATIBLE diagnostic on non-humanoid variants",
    "evidence": {
-    "files": [],
-    "wired": [],
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcCosmeticPart.java",
+     "src/main/java/com/storynpcs/domain/npc/NpcBodyPart.java",
+     "src/main/java/com/storynpcs/client/render/NpcPartLayer.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/domain/npc/NpcDisplay.java",
+      "pattern": "getParts|setParts"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "setNpcPart|clearNpcPart"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/editor/NpcDisplayScreenModel.java",
+      "pattern": "partSpecs"
+     }
+    ],
     "registered": [],
-    "tests": [],
-    "absent": [
-     "MpmPart|PartRenderType|EnumParts"
-    ]
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcVariantPartsEmoteTest.java"
+    ],
+    "absent": []
    }
   },
   {
    "id": "emote-animations",
    "feature": "Emote animations (10)",
-   "status": "planned",
+   "status": "implemented",
    "issue": "#58 P3-1 / #82 P8-6",
-   "summary": "None",
+   "summary": "NpcEmote (10 target Ani*) + NpcEmoteState server lifecycle + 3 synced data fields + NpcEmoteAnimator pose overrides + /storynpcs npc emote; emotes are runtime-only (never YAML-authored)",
    "evidence": {
-    "files": [],
-    "wired": [],
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcEmote.java",
+     "src/main/java/com/storynpcs/domain/npc/NpcEmoteState.java",
+     "src/main/java/com/storynpcs/client/render/NpcEmoteAnimator.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "playEmote|activeEmote|emoteProgress"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/client/render/StoryNpcRenderer.java",
+      "pattern": "NpcEmoteAnimator"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "playNpcEmote"
+     }
+    ],
     "registered": [],
-    "tests": [],
-    "absent": [
-     "class\\s+Ani\\w+|EmoteAnimation"
-    ]
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcVariantPartsEmoteTest.java"
+    ],
+    "absent": []
    }
   },
   {

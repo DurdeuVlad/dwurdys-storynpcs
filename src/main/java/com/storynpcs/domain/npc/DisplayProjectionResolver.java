@@ -85,12 +85,25 @@ public final class DisplayProjectionResolver {
             nameVisibility = DisplayProjection.NameVisibility.ALWAYS;
         }
 
+        NpcVariant variant = display.getVariant() == null ? NpcVariant.HUMANOID : display.getVariant();
+
+        // Cosmetic parts only render on humanoid-capable variants — they are
+        // kept in the projection for non-humanoid variants so reselecting a
+        // humanoid variant doesn't lose authored data, but a diagnostic is
+        // emitted so the incompatibility is observable rather than silent.
+        java.util.Map<NpcBodyPart, NpcCosmeticPart> parts = display.getParts();
+        if (!parts.isEmpty() && !variant.isHumanoid()) {
+            diagnostics.addError("PARTS_VARIANT_INCOMPATIBLE",
+                    parts.size() + " cosmetic part(s) configured on variant '" + variant.wire()
+                            + "' — parts only render on humanoid-family variants");
+        }
+
         float sizeScale = display.getModelSize() / BASE_MODEL_SIZE;
-        float width = BASE_WIDTH * display.getScaleX() * sizeScale;
-        float height = BASE_HEIGHT * display.getScaleY() * sizeScale;
+        float width = variant.baseWidth() * display.getScaleX() * sizeScale;
+        float height = variant.baseHeight() * display.getScaleY() * sizeScale;
         boolean solid = display.getHitboxState() != 1;
         DisplayProjection.ProjectedHitbox hitbox = new DisplayProjection.ProjectedHitbox(
-                width, height, height * EYE_RATIO, solid);
+                width, height, height * variant.eyeRatio(), solid);
 
         return new Resolution(new DisplayProjection(
                 display.getSkinSource(), skinTexture, skinPlayer, skinUrl,
@@ -104,12 +117,20 @@ public final class DisplayProjectionResolver {
                 display.getModelId(),
                 display.isOverlayGlowing(), display.isShowLayers(), display.hasLivingAnimation(),
                 display.getVisibility(), display.getBossBarMode(), display.getBossBarColor(),
+                variant, parts,
                 hitbox), diagnostics);
     }
 
     /** Stable content fingerprint used by {@link DisplayProjectionCache} invalidation. */
     public static String fingerprint(NpcDisplay display) {
         if (display == null) return "<null>";
+        StringBuilder partsFp = new StringBuilder();
+        for (var entry : display.getParts().entrySet()) {
+            partsFp.append(entry.getKey().wire()).append(':')
+                    .append(entry.getValue().type()).append(':')
+                    .append(Integer.toHexString(entry.getValue().color())).append(':')
+                    .append(entry.getValue().behavior().wire()).append(';');
+        }
         return String.join("", String.valueOf(display.getName()), String.valueOf(display.getTitle()),
                 String.valueOf(display.getSkinTexture()),
                 String.valueOf(display.getSkinSource()), String.valueOf(display.getSkinUrl()),
@@ -124,7 +145,8 @@ public final class DisplayProjectionResolver {
                 String.valueOf(display.isShowName()), String.valueOf(display.getShowNameMode()),
                 String.valueOf(display.getTint()), String.valueOf(display.hasLivingAnimation()),
                 String.valueOf(display.getHitboxState()), String.valueOf(display.getBossBarMode()),
-                String.valueOf(display.getBossBarColor()));
+                String.valueOf(display.getBossBarColor()),
+                String.valueOf(display.getVariant()), partsFp.toString());
     }
 
     private static NamespacedId resolveTextureId(String raw, NamespacedId fallback,
@@ -177,6 +199,7 @@ public final class DisplayProjectionResolver {
                 null, null, "StoryNPC", "", DisplayProjection.NameVisibility.ALWAYS,
                 0xFFFFFF, 1.0f, 1.0f, 1.0f, 5, "humanoid", "",
                 true, true, true, 0, 0, NpcDisplay.BossBarColor.PINK,
+                NpcVariant.HUMANOID, java.util.Map.of(),
                 new DisplayProjection.ProjectedHitbox(
                         BASE_WIDTH, BASE_HEIGHT, BASE_HEIGHT * EYE_RATIO, true));
     }

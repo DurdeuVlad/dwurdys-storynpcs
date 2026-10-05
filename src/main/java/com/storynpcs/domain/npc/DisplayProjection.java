@@ -30,6 +30,8 @@ public record DisplayProjection(
         int visibility,
         int bossBarMode,
         NpcDisplay.BossBarColor bossBarColor,
+        NpcVariant variant,
+        java.util.Map<NpcBodyPart, NpcCosmeticPart> parts,
         ProjectedHitbox hitbox) {
 
     public enum NameVisibility {
