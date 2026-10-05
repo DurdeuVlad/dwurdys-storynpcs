@@ -552,15 +552,15 @@
     {
       "id": "scripter-nbtbook",
       "feature": "Scripter / NBT book tools",
-      "status": "planned",
+      "status": "partial",
       "issue": "#148",
-      "summary": "None",
+      "summary": "NbtBookItem + NbtBookService — op-gated allowlist entity edits (CustomName/NoGravity/Invulnerable/Silent/Glowing) via session-bound payload; scripter tool absent",
       "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["ItemNpcScripter|NbtBook|NpcScripter"]
+        "files": ["src/main/java/com/storynpcs/item/NbtBookItem.java", "src/main/java/com/storynpcs/domain/support/NbtBookService.java", "src/main/java/com/storynpcs/domain/support/SupportEntityRules.java"],
+        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "NbtBook|nbt_book"}],
+        "registered": [{"file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java", "pattern": "nbt_book"}],
+        "tests": ["src/test/java/com/storynpcs/domain/support/NbtBookServiceTest.java", "src/test/java/com/storynpcs/domain/support/SupportEntityRulesTest.java"],
+        "absent": ["ItemNpcScripter|NpcScripter"]
       }
     },
     {
