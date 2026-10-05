@@ -1,6 +1,6 @@
 # P1-4 — Actor capability and authorization policy closeout
 
-Status: `IN-REVIEW`
+Status: `DONE-LOCAL` — all acceptance criteria verified (see below). Reviewed 2026-10-05 alongside #51's residual close: the command surface (`schema`, `npc`, `dialogue`, `quest`, `follower`, `template`, `import`, `stores`, `author`, `me`, `reload`, `quickstart`) carries 47 `hasPermission(2)` gates on admin literals; the `panel` subtree is permission-0 by design (self-data only, server re-authorizes every commit via session), and self-subject player actions route through `PlayerProgressionActionRequest` envelopes evaluated by `AuthorizationPolicy`. No mutating adapter path bypasses the policy.
 
 ## Delivered locally
 

@@ -1,889 +1,1508 @@
 {
-  "map_version": 1,
-  "doc": "docs/CUSTOMNPCS_FEATURE_COMPARISON.md",
-  "note": "Evidence signals are curated per row and verified against src/ by tools/parity/check_feature_status.py. files=exact paths that must exist; wired=(file, regex) that must match (runtime consumption); registered=(file, regex) registry hits; tests=globs that must match; absent=regexes that must have zero hits anywhere under src/main/java.",
-  "features": [
-    {
-      "id": "npc-creation",
-      "feature": "NPC creation & main editor",
-      "status": "partial",
-      "issue": "#58 P3-1",
-      "summary": "NpcWandItem, NpcEditorScreen, /storynpcs npc create|spawn|set …",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/item/NpcWandItem.java", "src/main/java/com/storynpcs/client/gui/NpcEditorScreen.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"npc\"\\)"}],
-        "registered": [{"file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java", "pattern": "npc_wand"}],
-        "tests": ["src/test/java/com/storynpcs/item/WandTooltipTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "display",
-      "feature": "Display (name/title/skin/scale/tint/cloak/glow/bossbar/hitbox)",
-      "status": "partial",
-      "issue": "#58 P3-1",
-      "summary": "NpcDisplay, DisplayProjection*, StoryNpcRenderer, StoryNpcHitboxHandler — base fields only",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/npc/NpcDisplay.java", "src/main/java/com/storynpcs/domain/npc/DisplayProjection.java", "src/main/java/com/storynpcs/client/render/StoryNpcRenderer.java", "src/main/java/com/storynpcs/entity/StoryNpcHitboxHandler.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/client/StoryNpcsClient.java", "pattern": "StoryNpcRenderer"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/npc/DisplayProjectionResolverTest.java", "src/test/java/com/storynpcs/client/render/StoryNpcRenderModelTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "entity-variants",
-      "feature": "Entity model variants (9)",
-      "status": "planned",
-      "issue": "#58 P3-1",
-      "summary": "Single StoryNpcEntity; no variant models",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["class\\s+\\w*(Golem|Dragon|Pony|Crystal|Slime)Npc\\w*|EntityNpc\\w+"]
-      }
-    },
-    {
-      "id": "cosmetic-parts",
-      "feature": "Cosmetic parts (MPM)",
-      "status": "planned",
-      "issue": "#58 P3-1 (scope confirmed)",
-      "summary": "None",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["MpmPart|PartRenderType|EnumParts"]
-      }
-    },
-    {
-      "id": "emote-animations",
-      "feature": "Emote animations (10)",
-      "status": "planned",
-      "issue": "#58 P3-1 / #82 P8-6",
-      "summary": "None",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["class\\s+Ani\\w+|EmoteAnimation"]
-      }
-    },
-    {
-      "id": "availability-gates",
-      "feature": "Availability gates",
-      "status": "partial",
-      "issue": "#58 P3-1, #88 P10-1",
-      "summary": "DialogueCondition evaluated by the service (dialogue/faction gating); no dedicated NPC availability surface",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/dialogue/DialogueCondition.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "evalConditions\\(List<DialogueCondition>"}],
-        "registered": [],
-        "tests": [],
-        "absent": ["EnumAvailability"]
-      }
-    },
-    {
-      "id": "marks",
-      "feature": "Marks",
-      "status": "partial",
-      "issue": "#61 P3-4",
-      "summary": "NpcMark + marks list on NpcDefinition; single-mark semantics only",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/npc/NpcMark.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/domain/npc/NpcDefinition.java", "pattern": "List<NpcMark>"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "advanced-surfaces",
-      "feature": "Advanced (night/sounds/dimension/remote/linked)",
-      "status": "declared",
-      "issue": "#81 P8-5, #86 P9-4",
-      "summary": "LinkedNpcGraph domain only",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/link/LinkedNpcGraph.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "stats-defeat",
-      "feature": "Stats/defeat",
-      "status": "partial",
-      "issue": "#59 P3-2, #118, #122",
-      "summary": "NpcStats w/ regen/resistance fields; die() always normal death (HIDE/FLEE not honored)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/npc/NpcStats.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcStats|getStats"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/npc/NpcStatsTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "melee",
-      "feature": "Melee",
-      "status": "partial",
-      "issue": "#59 P3-2",
-      "summary": "NpcMeleeAttackGoal, NpcAttackOnSightGoal",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/ai/combat/NpcMeleeAttackGoal.java", "src/main/java/com/storynpcs/ai/combat/NpcAttackOnSightGoal.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcMeleeAttackGoal|NpcAttackOnSightGoal"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "ranged",
-      "feature": "Ranged/projectiles",
-      "status": "partial",
-      "issue": "#59 P3-2",
-      "summary": "NpcRangedAttackGoal, NpcProjectileEntity, NpcProjectileRenderer",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/ai/combat/NpcRangedAttackGoal.java", "src/main/java/com/storynpcs/entity/NpcProjectileEntity.java", "src/main/java/com/storynpcs/client/render/NpcProjectileRenderer.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcRangedAttackGoal|NpcProjectileEntity"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "resistances-immunities",
-      "feature": "Resistances/immunities",
-      "status": "partial",
-      "issue": "#59 P3-2, #122",
-      "summary": "NpcResistances/NpcImmunities consumed in entity hurt/knockback/potion/cobweb paths; #122 contract open",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/npc/NpcResistances.java", "src/main/java/com/storynpcs/domain/npc/NpcImmunities.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "getResistances\\(\\)|getImmunities\\(\\)"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "abilities",
-      "feature": "Abilities (pull/push/smash/snare/teleport/block)",
-      "status": "implemented",
-      "issue": "#147",
-      "summary": "All six types on NpcDefinition.abilities — DAMAGED/ATTACK/UPDATE triggers, bounded params, rule conditions; NpcAbilityController applies velocity/snare/teleport/block/smash via entity APIs",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/ability/NpcAbility.java", "src/main/java/com/storynpcs/domain/ability/AbilityType.java", "src/main/java/com/storynpcs/domain/ability/AbilityTrigger.java", "src/main/java/com/storynpcs/ai/combat/NpcAbilityController.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcAbilityController|abilityController"}, {"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "npcAbilityCommands"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/ai/combat/NpcAbilityControllerTest.java", "src/test/java/com/storynpcs/domain/ability/NpcAbilityTest.java", "src/test/java/com/storynpcs/domain/ability/NpcAbilitySerdeTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "movement-ai",
-      "feature": "Movement AI (wander/path/door/water/indoors/shade)",
-      "status": "partial",
-      "issue": "#60 P3-3",
-      "summary": "NpcPatrolGoal, NpcReturnToStartGoal, StoryNpcPathNavigator, NpcStuckDetector, PathClearanceValidator",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/ai/NpcPatrolGoal.java", "src/main/java/com/storynpcs/ai/NpcReturnToStartGoal.java", "src/main/java/com/storynpcs/ai/pathing/StoryNpcPathNavigator.java", "src/main/java/com/storynpcs/ai/pathing/NpcStuckDetector.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcPatrolGoal|StoryNpcPathNavigator|NpcReturnToStartGoal"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/ai/pathing/NpcStuckDetectorTest.java", "src/test/java/com/storynpcs/domain/ai/WaypointPathTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "targeting-tactics",
-      "feature": "Targeting & tactics (selectors/defend/pounce/panic/transform)",
-      "status": "partial",
-      "issue": "#60 P3-3",
-      "summary": "ThreatManager, TargetingPolicy, TacticalManeuver, TacticalStance, WitnessProtectionManager",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/ai/combat/ThreatManager.java", "src/main/java/com/storynpcs/domain/ai/TargetingPolicy.java", "src/main/java/com/storynpcs/domain/ai/TacticalManeuver.java", "src/main/java/com/storynpcs/domain/npc/TacticalStance.java", "src/main/java/com/storynpcs/ai/combat/WitnessProtectionManager.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "ThreatManager|TargetingPolicy|TacticalStance"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/ai/combat/ThreatManagerTest.java", "src/test/java/com/storynpcs/domain/ai/TargetingPolicyTest.java", "src/test/java/com/storynpcs/domain/ai/TacticalManeuverTest.java", "src/test/java/com/storynpcs/domain/npc/TacticalStanceTest.java", "src/test/java/com/storynpcs/ai/combat/WitnessProtectionManagerTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "inventory-equipment",
-      "feature": "Inventory/equipment/drops",
-      "status": "partial",
-      "issue": "#61 P3-4",
-      "summary": "NpcInventory, NpcItemStack (string-list → typed in progress)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/npc/NpcInventory.java", "src/main/java/com/storynpcs/domain/npc/NpcItemStack.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/domain/npc/NpcDefinition.java", "pattern": "NpcInventory"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/npc/NpcInventoryTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-trader",
-      "feature": "Role: Trader",
-      "status": "partial",
-      "issue": "#75 P7-1",
-      "summary": "TraderRole, TradeListing, NpcTradeScreen, trade payloads, TradeExecutedEvent; 2nd input slot added",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/role/trader/TraderRole.java", "src/main/java/com/storynpcs/client/gui/NpcTradeScreen.java", "src/main/java/com/storynpcs/network/ServerboundTradeExecutePayload.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "ServerboundTradeExecutePayload"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/role/TraderRoleTest.java", "src/test/java/com/storynpcs/domain/role/trader/TradeListingTest.java", "src/test/java/com/storynpcs/persistence/TradeStateRepositoryTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-banker",
-      "feature": "Role: Banker",
-      "status": "partial",
-      "issue": "#76 P7-2",
-      "summary": "BankerRole, BankVault, NpcBankScreen, bank payloads, BankTransactionEvent; 6-tab ceiling enforced",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/role/banker/BankerRole.java", "src/main/java/com/storynpcs/domain/role/banker/BankVault.java", "src/main/java/com/storynpcs/client/gui/NpcBankScreen.java", "src/main/java/com/storynpcs/network/ServerboundBankActionPayload.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "BankActionPayload|ClientboundBankOpenPayload"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/role/banker/BankVaultTest.java", "src/test/java/com/storynpcs/domain/role/banker/BankerRoleTest.java", "src/test/java/com/storynpcs/persistence/BankRepositoryTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-transporter",
-      "feature": "Role: Transporter",
-      "status": "partial",
-      "issue": "#72 P6-3",
-      "summary": "TransporterRole, transports/*.yaml family, TransportEvaluator, /storynpcs transport, requestTransport + player transport-picker panel (#150)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/role/transporter/TransporterRole.java", "src/main/java/com/storynpcs/domain/transport/TransportEvaluator.java", "src/main/java/com/storynpcs/domain/transport/TransportLocation.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"transport\"\\)"}, {"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "requestTransport"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/role/transporter/TransporterRoleTest.java", "src/test/java/com/storynpcs/domain/transport/TransportLocationTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-follower",
-      "feature": "Role: Follower",
-      "status": "partial",
-      "issue": "#71 P6-2, #74 P6-5",
-      "summary": "FollowerRole, FollowerGroup, FormationCalculator/Type/Offset; entity-wired follow/formation tick",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/role/follower/FollowerRole.java", "src/main/java/com/storynpcs/domain/role/follower/FormationCalculator.java", "src/main/java/com/storynpcs/ai/NpcFollowFormationGoal.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "followerRole"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/role/FollowerRoleTest.java", "src/test/java/com/storynpcs/domain/role/follower/FormationCalculatorTest.java", "src/test/java/com/storynpcs/ai/FollowerFormationGoalTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-companion",
-      "feature": "Role: Companion",
-      "status": "partial",
-      "issue": "#74 P6-5",
-      "summary": "CompanionProfile/Stage/Talent/WagePolicy/WageLedger; wage charge via canonical op + entity tick; no inventory/stats/talent GUI",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/companion/CompanionProfile.java", "src/main/java/com/storynpcs/domain/companion/CompanionStage.java", "src/main/java/com/storynpcs/domain/companion/CompanionTalent.java", "src/main/java/com/storynpcs/domain/companion/WageLedger.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "companionProfile"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/companion/CompanionTalentTest.java", "src/test/java/com/storynpcs/domain/companion/CompanionTalentLoadoutTest.java", "src/test/java/com/storynpcs/domain/companion/CompanionWagePolicyTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-postman",
-      "feature": "Role: Postman/mail",
-      "status": "partial",
-      "issue": "#71 P6-2, #79 P8-3",
-      "summary": "PostmanRole field; MailMessage, QuestMailStore, /storynpcs mail + player mail panel with session-bound send/read actions (#150); no mailbox block or NPC write GUI",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/role/social/PostmanRole.java", "src/main/java/com/storynpcs/domain/quest/QuestMailStore.java", "src/main/java/com/storynpcs/domain/progression/MailMessage.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"mail\"\\)"}, {"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "PostmanRole|postman"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/quest/QuestMailStoreTest.java", "src/test/java/com/storynpcs/service/QuestMailRemainderTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "role-dialog",
-      "feature": "Role: Dialog",
-      "status": "implemented-superset",
-      "issue": "#65 P5-1",
-      "summary": "dialogueId on NpcDefinition; interact opens graph dialogue (model differs by design)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/dialogue/DialogueGraph.java", "src/main/java/com/storynpcs/domain/dialogue/DialogueSession.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "DialogueSession|DialogueOpen"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/DialogueGraphTest.java", "src/test/java/com/storynpcs/domain/DialogueGraphSerdeTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "jobs",
-      "feature": "Jobs (11)",
-      "status": "partial",
-      "issue": "#73 P6-4",
-      "summary": "JobType enum (all 11), JobConfig on def, NpcJobRuntime dispatch — 9 types have tick handlers, BUILDER + FOLLOWER fail validation",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/job/JobType.java", "src/main/java/com/storynpcs/domain/job/JobConfig.java", "src/main/java/com/storynpcs/runtime/job/NpcJobRuntime.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "NpcJobRuntime\\.run"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/job/JobAssignmentTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "companion-jobs",
-      "feature": "Companion jobs (3)",
-      "status": "planned",
-      "issue": "#74 P6-5",
-      "summary": "No companion-job classes or runtime",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["CompanionJob|companion_job|CompanionFarmer|CompanionGuard|CompanionTrader"]
-      }
-    },
-    {
-      "id": "dialogue-engine",
-      "feature": "Dialogue engine",
-      "status": "implemented-superset",
-      "issue": "#65-67 P5-1/2/3",
-      "summary": "Directed graph (DialogueGraph/Node/Edge), conditions, actions, sessions, validators — structurally stronger than target",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/dialogue/DialogueGraph.java", "src/main/java/com/storynpcs/domain/dialogue/DialogueNode.java", "src/main/java/com/storynpcs/domain/dialogue/DialogueEdge.java", "src/main/java/com/storynpcs/domain/dialogue/DialogueSession.java", "src/main/java/com/storynpcs/domain/dialogue/DialogueGraphValidator.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "DialogueSession|DialogueOpen"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/DialogueGraphTest.java", "src/test/java/com/storynpcs/domain/DialogueGraphSerdeTest.java", "src/test/java/com/storynpcs/domain/dialogue/DialogueGraphValidatorTest.java", "src/test/java/com/storynpcs/domain/dialogue/DialogueChoiceProtocolTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "dialogue-player-ui",
-      "feature": "Dialogue player UI",
-      "status": "partial",
-      "issue": "#66 P5-2",
-      "summary": "DialogueScreen + model, choice tokens (DialogueChoiceProtocol)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/client/gui/DialogueScreen.java", "src/main/java/com/storynpcs/client/model/DialogueScreenModel.java", "src/main/java/com/storynpcs/network/ClientboundDialogueOpenPayload.java", "src/main/java/com/storynpcs/network/ServerboundDialogueChoosePayload.java", "src/main/java/com/storynpcs/domain/dialogue/DialogueChoiceProtocol.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "ServerboundDialogueChoosePayload"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/client/DialogueScreenModelTest.java", "src/test/java/com/storynpcs/network/NetworkPayloadsTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "dialogue-editor",
-      "feature": "Dialogue editor",
-      "status": "implemented-superset",
-      "issue": "#67 P5-3",
-      "summary": "DialogueEditorScreen — visual node/edge editor (target has no equivalent); field coverage narrow",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/client/gui/DialogueEditorScreen.java", "src/main/java/com/storynpcs/editor/DialogueEditorScreenModel.java", "src/main/java/com/storynpcs/editor/DialogueGraphLayout.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"dialogue\"\\)"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/editor/DialogueEditorScreenModelTest.java", "src/test/java/com/storynpcs/editor/DialogueGraphLayoutTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "dialog-categories",
-      "feature": "Dialog categories/folders",
-      "status": "partial",
-      "issue": "#65 P5-1 (ADR-006 parity)",
-      "summary": "Quest.category serialized in YAML + editable in QuestEditorScreen; dialogue graphs lack a category field",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/quest/Quest.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/client/gui/QuestEditorScreen.java", "pattern": "categoryField|getCategory"}],
-        "registered": [],
-        "tests": [],
-        "absent": ["DialogueCategory|dialogue_category"]
-      }
-    },
-    {
-      "id": "quest-objectives",
-      "feature": "Quests: 5 objective types",
-      "status": "implemented",
-      "issue": "#68 P5-4",
-      "summary": "QuestObjective 5 kinds",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/quest/QuestObjective.java", "src/main/java/com/storynpcs/domain/quest/Quest.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "QuestProgression|PendingQuestCompletion"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/quest/QuestDefinitionContractTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "quest-repeat-modes",
-      "feature": "Quests: 6 repeat modes",
-      "status": "partial",
-      "issue": "#68 P5-4",
-      "summary": "3 of 6 (RepeatSchedule)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/quest/RepeatSchedule.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/domain/quest/Quest.java", "pattern": "RepeatSchedule|repeat"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/quest/QuestDefinitionContractTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "quest-deps-team",
-      "feature": "Quest dependencies/team",
-      "status": "partial",
-      "issue": "#68 P5-4, #69 P5-5",
-      "summary": "QuestDependencyValidator wired into the service; TeamProgression declared only (no runtime consumer)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/quest/QuestDependencyValidator.java", "src/main/java/com/storynpcs/domain/quest/TeamProgression.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "QuestDependencyValidator"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "quest-completion",
-      "feature": "Quest completion/rewards",
-      "status": "partial",
-      "issue": "#69 P5-5",
-      "summary": "Revisioned via service; RewardOverflowPolicy + quest-mail channel",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/service/QuestCompletionMutationRequest.java", "src/main/java/com/storynpcs/service/QuestCompletionResult.java", "src/main/java/com/storynpcs/domain/progression/PendingQuestCompletion.java", "src/main/java/com/storynpcs/domain/quest/RewardOverflowPolicy.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "QuestCompletion|PendingQuestCompletion"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/service/QuestProgressionMutationTest.java", "src/test/java/com/storynpcs/service/QuestMailRemainderTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "quest-log-ui",
-      "feature": "Quest log / player UI",
-      "status": "partial",
-      "issue": "#150",
-      "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> player screens; session-bound commits, server-built JSON views (4 of the #150 acceptance surfaces; follower hire -> #71/#74, companion inv/stats -> #74, achievement view -> #86/#88, carpentry bench -> #80, custom GUI renderer -> #82)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/service/PlayerPanelViews.java", "src/main/java/com/storynpcs/client/gui/player/PlayerQuestLogScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerMailScreen.java", "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "ClientboundPlayerPanelPayload|sendPlayerPanel"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/service/PlayerPanelViewsTest.java", "src/test/java/com/storynpcs/network/PlayerPanelPayloadsTest.java"],
-        "absent": ["GuiQuestLog"]
-      }
-    },
-    {
-      "id": "factions",
-      "feature": "Faction matrix & relation model",
-      "status": "partial",
-      "issue": "#70 P6-1",
-      "summary": "Faction, FactionStanding, FactionDeletionPlanner, FactionRelationshipProvider, editor GUI; relation matrix incomplete",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/faction/Faction.java", "src/main/java/com/storynpcs/domain/faction/FactionStanding.java", "src/main/java/com/storynpcs/domain/faction/FactionDeletionPlanner.java", "src/main/java/com/storynpcs/domain/ai/FactionRelationshipProvider.java", "src/main/java/com/storynpcs/client/gui/FactionEditorScreen.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"faction\"\\)"}, {"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "FactionProgression"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/faction/FactionTest.java", "src/test/java/com/storynpcs/service/FactionProgressionMutationTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "clone-library",
-      "feature": "Clone library (tabs, grid)",
-      "status": "partial",
-      "issue": "#77 P8-1",
-      "summary": "NpcTemplate, TemplateLibrary, /storynpcs template; no tabbed clone store or grid spawn",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/template/NpcTemplate.java", "src/main/java/com/storynpcs/creator/template/TemplateLibrary.java", "src/main/java/com/storynpcs/domain/template/NpcTemplateSerde.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"template\"\\)"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/template/NpcTemplateTest.java", "src/test/java/com/storynpcs/domain/template/NpcTemplateSerdeTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "spawner-blocks",
-      "feature": "Spawner blocks",
-      "status": "declared",
-      "issue": "#77 P8-1",
-      "summary": "SpawnerRule domain",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/template/SpawnerRule.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "moving-path-tool",
-      "feature": "Moving-path / waypoint tool",
-      "status": "partial",
-      "issue": "#78 P8-2",
-      "summary": "NpcPathItem, WaypointPath (domain+ai)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/item/NpcPathItem.java", "src/main/java/com/storynpcs/domain/ai/WaypointPath.java", "src/main/java/com/storynpcs/creator/tools/WaypointPath.java"],
-        "wired": [],
-        "registered": [{"file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java", "pattern": "npc_path"}],
-        "tests": ["src/test/java/com/storynpcs/domain/ai/WaypointPathTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "mount-teleport-soulstone",
-      "feature": "Mounter / soulstone / teleporter / remover tools",
-      "status": "partial",
-      "issue": "#78 P8-2",
-      "summary": "NpcMounterItem exists; soulstone/teleporter/remover absent",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/item/NpcMounterItem.java"],
-        "wired": [],
-        "registered": [{"file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java", "pattern": "npc_mounter"}],
-        "tests": [],
-        "absent": ["[Ss]oul[Ss]tone|TeleporterItem|ItemTeleporter|NpcRemover|RemoverItem"]
-      }
-    },
-    {
-      "id": "scripter-nbtbook",
-      "feature": "Scripter / NBT book tools",
-      "status": "partial",
-      "issue": "#148",
-      "summary": "NbtBookItem + NbtBookService — op-gated allowlist entity edits (CustomName/NoGravity/Invulnerable/Silent/Glowing) via session-bound payload; scripter tool absent",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/item/NbtBookItem.java", "src/main/java/com/storynpcs/domain/support/NbtBookService.java", "src/main/java/com/storynpcs/domain/support/SupportEntityRules.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java", "pattern": "NbtBook|nbt_book"}],
-        "registered": [{"file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java", "pattern": "nbt_book"}],
-        "tests": ["src/test/java/com/storynpcs/domain/support/NbtBookServiceTest.java", "src/test/java/com/storynpcs/domain/support/SupportEntityRulesTest.java"],
-        "absent": ["ItemNpcScripter|NpcScripter"]
-      }
-    },
-    {
-      "id": "creator-blocks",
-      "feature": "Creator blocks (11)",
-      "status": "planned",
-      "issue": "#79 P8-3, #80 P8-4",
-      "summary": "None — zero block registrations",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["DeferredRegister<\\s*Block\\b|\\bBLOCKS\\.register\\(|Registries\\.BLOCK\\.register"]
-      }
-    },
-    {
-      "id": "scripted-block-door",
-      "feature": "Scripted block/door",
-      "status": "declared",
-      "issue": "#79 P8-3, #84 P9-2",
-      "summary": "ScriptedHookBinding domain (inert)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/world/ScriptedHookBinding.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "mailbox-carpentry",
-      "feature": "Mailbox block / carpentry bench",
-      "status": "declared",
-      "issue": "#79 P8-3, #80 P8-4",
-      "summary": "CarpentryRecipe domain only",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["MailboxBlock|BlockMailbox|MailboxScreen|MailboxMenu"]
-      }
-    },
-    {
-      "id": "scenes",
-      "feature": "Scenes",
-      "status": "declared",
-      "issue": "#81 P8-5",
-      "summary": "SceneDefinition, SceneTimer",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/scene/SceneDefinition.java", "src/main/java/com/storynpcs/creator/scene/SceneTimer.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "linked-transform-timer-spawn",
-      "feature": "Linked NPCs / transformations / timers / natural spawn",
-      "status": "declared",
-      "issue": "#81 P8-5",
-      "summary": "LinkedNpcGraph, TransformRule, NaturalSpawnRule",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/link/LinkedNpcGraph.java", "src/main/java/com/storynpcs/creator/transform/TransformRule.java", "src/main/java/com/storynpcs/creator/spawn/NaturalSpawnRule.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "recipes-carpentry",
-      "feature": "Recipes/carpentry",
-      "status": "declared",
-      "issue": "#80 P8-4",
-      "summary": "CarpentryRecipe",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "schematics",
-      "feature": "Schematics (28 bundled + build commands)",
-      "status": "implemented",
-      "issue": "#149",
-      "summary": "Bounded reader (Sponge v1-v3 + legacy MCEdit), traversal-proof store, budgeted multi-tick build pipeline + schema commands; all 28 bundled .schematic assets shipped at data/storynpcs/schematics/ (ported from the pinned target jar, datapack-overridable)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/domain/schematic/Schematic.java", "src/main/java/com/storynpcs/domain/schematic/BuildPlan.java", "src/main/java/com/storynpcs/domain/schematic/SchematicReader.java", "src/main/java/com/storynpcs/domain/schematic/SchematicStore.java", "src/main/java/com/storynpcs/service/SchematicBuildService.java", "src/main/resources/data/storynpcs/schematics/archery_range.schematic", "src/main/resources/data/storynpcs/schematics/bakery.schematic", "src/main/resources/data/storynpcs/schematics/barn.schematic", "src/main/resources/data/storynpcs/schematics/building_site.schematic", "src/main/resources/data/storynpcs/schematics/chapel.schematic", "src/main/resources/data/storynpcs/schematics/church.schematic", "src/main/resources/data/storynpcs/schematics/gate.schematic", "src/main/resources/data/storynpcs/schematics/glassworks.schematic", "src/main/resources/data/storynpcs/schematics/guard_tower.schematic", "src/main/resources/data/storynpcs/schematics/guild_house.schematic", "src/main/resources/data/storynpcs/schematics/house.schematic", "src/main/resources/data/storynpcs/schematics/house_small.schematic", "src/main/resources/data/storynpcs/schematics/inn.schematic", "src/main/resources/data/storynpcs/schematics/library.schematic", "src/main/resources/data/storynpcs/schematics/lighthouse.schematic", "src/main/resources/data/storynpcs/schematics/mill.schematic", "src/main/resources/data/storynpcs/schematics/observatory.schematic", "src/main/resources/data/storynpcs/schematics/ship.schematic", "src/main/resources/data/storynpcs/schematics/shop.schematic", "src/main/resources/data/storynpcs/schematics/stall.schematic", "src/main/resources/data/storynpcs/schematics/stall2.schematic", "src/main/resources/data/storynpcs/schematics/stall3.schematic", "src/main/resources/data/storynpcs/schematics/tier_house1.schematic", "src/main/resources/data/storynpcs/schematics/tier_house2.schematic", "src/main/resources/data/storynpcs/schematics/tier_house3.schematic", "src/main/resources/data/storynpcs/schematics/tower.schematic", "src/main/resources/data/storynpcs/schematics/wall.schematic", "src/main/resources/data/storynpcs/schematics/wall_corner.schematic"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "SchematicStore|SchematicBuildService|literal\\(\"schema\"\\)"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/domain/schematic/SchematicReaderTest.java", "src/test/java/com/storynpcs/domain/schematic/SchematicStoreTest.java", "src/test/java/com/storynpcs/domain/schematic/BuildPlanTest.java", "src/test/java/com/storynpcs/domain/schematic/BundledSchematicTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "markov-names",
-      "feature": "Markov name generation",
-      "status": "planned",
-      "issue": "#123 (needs-input)",
-      "summary": "None — engine choice undecided",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["[Mm]arkov"]
-      }
-    },
-    {
-      "id": "sql-store",
-      "feature": "SQL player-data store",
-      "status": "deviation",
-      "issue": "ADR-006 (intentional deviation)",
-      "summary": "Recorded deviation — ADR-006 + PersistenceStoreCatalog entry target.persistence_stores.0012 (INTENTIONAL_DEVIATION): file-first rule, no embedded SQL",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["import\\s+java\\.sql|import\\s+javax\\.sql"]
-      }
-    },
-    {
-      "id": "scripting",
-      "feature": "Scripting host",
-      "status": "partial",
-      "issue": "#84 P9-2, #125 engine pin",
-      "summary": "ScriptHook enum, ScriptBudget, ScriptScheduler wired into lifecycle — no interpreter/engine",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/script/ScriptHook.java", "src/main/java/com/storynpcs/script/ScriptBudget.java", "src/main/java/com/storynpcs/script/ScriptScheduler.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/StoryNpcs.java", "pattern": "ScriptScheduler"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "custom-gui",
-      "feature": "Custom GUI authoring",
-      "status": "declared",
-      "issue": "#82 P8-6",
-      "summary": "CustomGuiLayout",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/gui/CustomGuiLayout.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "overlays-presets",
-      "feature": "HUD overlays / model presets",
-      "status": "declared",
-      "issue": "#82 P8-6",
-      "summary": "OverlaySession",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/creator/gui/OverlaySession.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "admin-surfaces",
-      "feature": "Global main menu / remote editor / player-data mgmt / achievement GUI",
-      "status": "partial",
-      "issue": "#86 P9-4, #88 P10-1",
-      "summary": "RemoteAccessProof, PlayerDataScope, RuntimeTunables, ConfigTransaction wired server-side; no admin GUIs",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/admin/RemoteAccessProof.java", "src/main/java/com/storynpcs/admin/PlayerDataScope.java", "src/main/java/com/storynpcs/admin/RuntimeTunables.java", "src/main/java/com/storynpcs/admin/ConfigTransaction.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/service/AuthorizationPolicy.java", "pattern": "RemoteAccessProof|PlayerDataScope"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/service/AuthorizationPolicyTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "config-toggles",
-      "feature": "Config toggles",
-      "status": "partial",
-      "issue": "#86 P9-4",
-      "summary": "RuntimeTunables wired into mod lifecycle (partial set)",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/admin/RuntimeTunables.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/StoryNpcs.java", "pattern": "RuntimeTunables"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "commands",
-      "feature": "Command surface (70 leaves)",
-      "status": "partial",
-      "issue": "#85 P9-3",
-      "summary": "Rich /storynpcs tree; CommandParityCatalog marks nearly all target leaves UNVERIFIED",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "src/main/java/com/storynpcs/domain/command/CommandParityCatalog.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/StoryNpcs.java", "pattern": "StoryNpcsCommands\\."}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/command/StoryNpcsCommandsTest.java", "src/test/java/com/storynpcs/domain/command/CommandParityCatalogTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "api-events",
-      "feature": "API events (97)",
-      "status": "partial",
-      "issue": "#83 P9-1",
-      "summary": "22 events in api/event/",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/api/event/EventPublisher.java", "src/main/java/com/storynpcs/api/event/DialogueOpenEvent.java", "src/main/java/com/storynpcs/api/event/QuestCompleteEvent.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "pattern": "EventPublisher"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "public-api",
-      "feature": "Public API",
-      "status": "partial",
-      "issue": "#83 P9-1",
-      "summary": "StoryNpcsApi read-only facade",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/api/StoryNpcsApi.java", "src/main/java/com/storynpcs/api/StoryNpcsApiAccess.java", "src/main/java/com/storynpcs/api/NpcView.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/StoryNpcs.java", "pattern": "StoryNpcsApi getApi"}],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    },
-    {
-      "id": "integrations",
-      "feature": "Optional-mod integrations (mixins)",
-      "status": "deviation",
-      "issue": "#87 P9-5 (closed: documented deviation)",
-      "summary": "Recorded deviation — P9-5 closeout enumerates the target's 7-class Pixelmon/Cobblemon surface; StoryNPCs implements no optional-mod integration; absent-check + P9-5 tests enforce it",
-      "evidence": {
-        "files": [],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": ["@Mixin|mixins\\.json|pixelmon|cobblemon"]
-      }
-    },
-    {
-      "id": "persistence",
-      "feature": "Persistence (18 stores)",
-      "status": "partial",
-      "issue": "#56 P2-2, #57 P2-3",
-      "summary": "DurableJsonStore, ProgressionRepository, BankRepository, TradeStateRepository, ActorStateRepository, DurableOperationJournal — selected stores, not the 18-store crash matrix",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/persistence/DurableJsonStore.java", "src/main/java/com/storynpcs/persistence/ProgressionRepository.java", "src/main/java/com/storynpcs/persistence/BankRepository.java", "src/main/java/com/storynpcs/persistence/TradeStateRepository.java", "src/main/java/com/storynpcs/persistence/DurableOperationJournal.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/lifecycle/WorldLifecycleHandler.java", "pattern": "ProgressionRepository|QuestMailStore"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/persistence/DurableJsonStoreTest.java", "src/test/java/com/storynpcs/persistence/ProgressionRepositoryTest.java", "src/test/java/com/storynpcs/persistence/BankRepositoryTest.java", "src/test/java/com/storynpcs/persistence/TradeStateRepositoryTest.java", "src/test/java/com/storynpcs/persistence/DurableOperationJournalTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "simulation",
-      "feature": "Simulation tiers / LOD / squad / path scheduler",
-      "status": "partial",
-      "issue": "#62-64, #95, #126",
-      "summary": "sim/ package wired into entity tick (SimulationScheduler); squad + path queue declared; not certified",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/sim/SimulationScheduler.java", "src/main/java/com/storynpcs/sim/SimulationTier.java", "src/main/java/com/storynpcs/sim/SquadCoordinator.java", "src/main/java/com/storynpcs/sim/PathScheduler.java", "src/main/java/com/storynpcs/sim/cert/HeadlessBenchmark.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java", "pattern": "SimulationScheduler"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/sim/PathSchedulerTest.java", "src/test/java/com/storynpcs/sim/SimulationSchedulerTest.java", "src/test/java/com/storynpcs/sim/SquadCoordinatorTest.java", "src/test/java/com/storynpcs/sim/cert/PerformanceContractTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "canonical-pipeline",
-      "feature": "Canonical mutation pipeline",
-      "status": "partial",
-      "issue": "#51 P1-1, #54 P1-4",
-      "summary": "StoryNpcsApplicationService + typed requests/results + AuthorizationPolicy + CapabilityRegistry",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java", "src/main/java/com/storynpcs/service/AuthorizationPolicy.java", "src/main/java/com/storynpcs/service/CapabilityRegistry.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "ApplicationService|applicationService"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/service/StoryNpcsApplicationServiceTest.java", "src/test/java/com/storynpcs/service/AuthorizationPolicyTest.java", "src/test/java/com/storynpcs/service/CanonicalMutationResultTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "import",
-      "feature": "CustomNPCs world/data import",
-      "status": "partial",
-      "issue": "#91 P11-1",
-      "summary": "migration/ package + /storynpcs import",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/migration/DefinitionImporter.java", "src/main/java/com/storynpcs/migration/ImportPlan.java", "src/main/java/com/storynpcs/migration/ImportReport.java", "src/main/java/com/storynpcs/migration/FieldMappingRegistry.java"],
-        "wired": [{"file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java", "pattern": "literal\\(\"import\"\\)"}],
-        "registered": [],
-        "tests": ["src/test/java/com/storynpcs/migration/MigrationImportTest.java"],
-        "absent": []
-      }
-    },
-    {
-      "id": "authoring-hub",
-      "feature": "Unified authoring hub",
-      "status": "declared",
-      "issue": "#88 P10-1",
-      "summary": "AuthoringHub model, not wired into screens",
-      "evidence": {
-        "files": ["src/main/java/com/storynpcs/editor/hub/AuthoringHub.java"],
-        "wired": [],
-        "registered": [],
-        "tests": [],
-        "absent": []
-      }
-    }
-  ]
+ "map_version": 1,
+ "doc": "docs/CUSTOMNPCS_FEATURE_COMPARISON.md",
+ "note": "Evidence signals are curated per row and verified against src/ by tools/parity/check_feature_status.py. files=exact paths that must exist; wired=(file, regex) that must match (runtime consumption); registered=(file, regex) registry hits; tests=globs that must match; absent=regexes that must have zero hits anywhere under src/main/java.",
+ "features": [
+  {
+   "id": "npc-creation",
+   "feature": "NPC creation & main editor",
+   "status": "partial",
+   "issue": "#58 P3-1",
+   "summary": "NpcWandItem, NpcEditorScreen, /storynpcs npc create|spawn|set …",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/item/NpcWandItem.java",
+     "src/main/java/com/storynpcs/client/gui/NpcEditorScreen.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"npc\"\\)"
+     }
+    ],
+    "registered": [
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "npc_wand"
+     }
+    ],
+    "tests": [
+     "src/test/java/com/storynpcs/item/WandTooltipTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "display",
+   "feature": "Display (name/title/skin/scale/tint/cloak/glow/bossbar/hitbox)",
+   "status": "partial",
+   "issue": "#58 P3-1",
+   "summary": "NpcDisplay, DisplayProjection*, StoryNpcRenderer, StoryNpcHitboxHandler — base fields only",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcDisplay.java",
+     "src/main/java/com/storynpcs/domain/npc/DisplayProjection.java",
+     "src/main/java/com/storynpcs/client/render/StoryNpcRenderer.java",
+     "src/main/java/com/storynpcs/entity/StoryNpcHitboxHandler.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/client/StoryNpcsClient.java",
+      "pattern": "StoryNpcRenderer"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/DisplayProjectionResolverTest.java",
+     "src/test/java/com/storynpcs/client/render/StoryNpcRenderModelTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "entity-variants",
+   "feature": "Entity model variants (9)",
+   "status": "planned",
+   "issue": "#58 P3-1",
+   "summary": "Single StoryNpcEntity; no variant models",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "class\\s+\\w*(Golem|Dragon|Pony|Crystal|Slime)Npc\\w*|EntityNpc\\w+"
+    ]
+   }
+  },
+  {
+   "id": "cosmetic-parts",
+   "feature": "Cosmetic parts (MPM)",
+   "status": "planned",
+   "issue": "#58 P3-1 (scope confirmed)",
+   "summary": "None",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "MpmPart|PartRenderType|EnumParts"
+    ]
+   }
+  },
+  {
+   "id": "emote-animations",
+   "feature": "Emote animations (10)",
+   "status": "planned",
+   "issue": "#58 P3-1 / #82 P8-6",
+   "summary": "None",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "class\\s+Ani\\w+|EmoteAnimation"
+    ]
+   }
+  },
+  {
+   "id": "availability-gates",
+   "feature": "Availability gates",
+   "status": "partial",
+   "issue": "#58 P3-1, #88 P10-1",
+   "summary": "DialogueCondition evaluated by the service (dialogue/faction gating); no dedicated NPC availability surface",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueCondition.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "evalConditions\\(List<DialogueCondition>"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "EnumAvailability"
+    ]
+   }
+  },
+  {
+   "id": "marks",
+   "feature": "Marks",
+   "status": "partial",
+   "issue": "#61 P3-4",
+   "summary": "NpcMark + marks list on NpcDefinition; single-mark semantics only",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcMark.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/domain/npc/NpcDefinition.java",
+      "pattern": "List<NpcMark>"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "advanced-surfaces",
+   "feature": "Advanced (night/sounds/dimension/remote/linked)",
+   "status": "declared",
+   "issue": "#81 P8-5, #86 P9-4",
+   "summary": "LinkedNpcGraph domain only",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/link/LinkedNpcGraph.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "stats-defeat",
+   "feature": "Stats/defeat",
+   "status": "partial",
+   "issue": "#59 P3-2, #118, #122",
+   "summary": "NpcStats w/ regen/resistance fields; die() always normal death (HIDE/FLEE not honored)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcStats.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "NpcStats|getStats"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcStatsTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "melee",
+   "feature": "Melee",
+   "status": "partial",
+   "issue": "#59 P3-2",
+   "summary": "NpcMeleeAttackGoal, NpcAttackOnSightGoal",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/ai/combat/NpcMeleeAttackGoal.java",
+     "src/main/java/com/storynpcs/ai/combat/NpcAttackOnSightGoal.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "NpcMeleeAttackGoal|NpcAttackOnSightGoal"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "ranged",
+   "feature": "Ranged/projectiles",
+   "status": "partial",
+   "issue": "#59 P3-2",
+   "summary": "NpcRangedAttackGoal, NpcProjectileEntity, NpcProjectileRenderer",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/ai/combat/NpcRangedAttackGoal.java",
+     "src/main/java/com/storynpcs/entity/NpcProjectileEntity.java",
+     "src/main/java/com/storynpcs/client/render/NpcProjectileRenderer.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "NpcRangedAttackGoal|NpcProjectileEntity"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "resistances-immunities",
+   "feature": "Resistances/immunities",
+   "status": "partial",
+   "issue": "#59 P3-2, #122",
+   "summary": "NpcResistances/NpcImmunities consumed in entity hurt/knockback/potion/cobweb paths; #122 contract open",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcResistances.java",
+     "src/main/java/com/storynpcs/domain/npc/NpcImmunities.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "getResistances\\(\\)|getImmunities\\(\\)"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "abilities",
+   "feature": "Abilities (pull/push/smash/snare/teleport/block)",
+   "status": "implemented",
+   "issue": "#147",
+   "summary": "All six types on NpcDefinition.abilities — DAMAGED/ATTACK/UPDATE triggers, bounded params, rule conditions; NpcAbilityController applies velocity/snare/teleport/block/smash via entity APIs",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/ability/NpcAbility.java",
+     "src/main/java/com/storynpcs/domain/ability/AbilityType.java",
+     "src/main/java/com/storynpcs/domain/ability/AbilityTrigger.java",
+     "src/main/java/com/storynpcs/ai/combat/NpcAbilityController.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "NpcAbilityController|abilityController"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "npcAbilityCommands"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/ai/combat/NpcAbilityControllerTest.java",
+     "src/test/java/com/storynpcs/domain/ability/NpcAbilityTest.java",
+     "src/test/java/com/storynpcs/domain/ability/NpcAbilitySerdeTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "movement-ai",
+   "feature": "Movement AI (wander/path/door/water/indoors/shade)",
+   "status": "partial",
+   "issue": "#60 P3-3",
+   "summary": "NpcPatrolGoal, NpcReturnToStartGoal, StoryNpcPathNavigator, NpcStuckDetector, PathClearanceValidator",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/ai/NpcPatrolGoal.java",
+     "src/main/java/com/storynpcs/ai/NpcReturnToStartGoal.java",
+     "src/main/java/com/storynpcs/ai/pathing/StoryNpcPathNavigator.java",
+     "src/main/java/com/storynpcs/ai/pathing/NpcStuckDetector.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "NpcPatrolGoal|StoryNpcPathNavigator|NpcReturnToStartGoal"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/ai/pathing/NpcStuckDetectorTest.java",
+     "src/test/java/com/storynpcs/domain/ai/WaypointPathTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "targeting-tactics",
+   "feature": "Targeting & tactics (selectors/defend/pounce/panic/transform)",
+   "status": "partial",
+   "issue": "#60 P3-3",
+   "summary": "ThreatManager, TargetingPolicy, TacticalManeuver, TacticalStance, WitnessProtectionManager",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/ai/combat/ThreatManager.java",
+     "src/main/java/com/storynpcs/domain/ai/TargetingPolicy.java",
+     "src/main/java/com/storynpcs/domain/ai/TacticalManeuver.java",
+     "src/main/java/com/storynpcs/domain/npc/TacticalStance.java",
+     "src/main/java/com/storynpcs/ai/combat/WitnessProtectionManager.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "ThreatManager|TargetingPolicy|TacticalStance"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/ai/combat/ThreatManagerTest.java",
+     "src/test/java/com/storynpcs/domain/ai/TargetingPolicyTest.java",
+     "src/test/java/com/storynpcs/domain/ai/TacticalManeuverTest.java",
+     "src/test/java/com/storynpcs/domain/npc/TacticalStanceTest.java",
+     "src/test/java/com/storynpcs/ai/combat/WitnessProtectionManagerTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "inventory-equipment",
+   "feature": "Inventory/equipment/drops",
+   "status": "partial",
+   "issue": "#61 P3-4",
+   "summary": "NpcInventory, NpcItemStack (string-list → typed in progress)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/npc/NpcInventory.java",
+     "src/main/java/com/storynpcs/domain/npc/NpcItemStack.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/domain/npc/NpcDefinition.java",
+      "pattern": "NpcInventory"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/npc/NpcInventoryTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-trader",
+   "feature": "Role: Trader",
+   "status": "partial",
+   "issue": "#75 P7-1",
+   "summary": "TraderRole, TradeListing, NpcTradeScreen, trade payloads, TradeExecutedEvent; 2nd input slot added",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/role/trader/TraderRole.java",
+     "src/main/java/com/storynpcs/client/gui/NpcTradeScreen.java",
+     "src/main/java/com/storynpcs/network/ServerboundTradeExecutePayload.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "ServerboundTradeExecutePayload"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/role/TraderRoleTest.java",
+     "src/test/java/com/storynpcs/domain/role/trader/TradeListingTest.java",
+     "src/test/java/com/storynpcs/persistence/TradeStateRepositoryTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-banker",
+   "feature": "Role: Banker",
+   "status": "partial",
+   "issue": "#76 P7-2",
+   "summary": "BankerRole, BankVault, NpcBankScreen, bank payloads, BankTransactionEvent; 6-tab ceiling enforced",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/role/banker/BankerRole.java",
+     "src/main/java/com/storynpcs/domain/role/banker/BankVault.java",
+     "src/main/java/com/storynpcs/client/gui/NpcBankScreen.java",
+     "src/main/java/com/storynpcs/network/ServerboundBankActionPayload.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "BankActionPayload|ClientboundBankOpenPayload"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/role/banker/BankVaultTest.java",
+     "src/test/java/com/storynpcs/domain/role/banker/BankerRoleTest.java",
+     "src/test/java/com/storynpcs/persistence/BankRepositoryTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-transporter",
+   "feature": "Role: Transporter",
+   "status": "partial",
+   "issue": "#72 P6-3",
+   "summary": "TransporterRole, transports/*.yaml family, TransportEvaluator, /storynpcs transport, requestTransport + player transport-picker panel (#150)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/role/transporter/TransporterRole.java",
+     "src/main/java/com/storynpcs/domain/transport/TransportEvaluator.java",
+     "src/main/java/com/storynpcs/domain/transport/TransportLocation.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"transport\"\\)"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "requestTransport"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/role/transporter/TransporterRoleTest.java",
+     "src/test/java/com/storynpcs/domain/transport/TransportLocationTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-follower",
+   "feature": "Role: Follower",
+   "status": "partial",
+   "issue": "#71 P6-2, #74 P6-5",
+   "summary": "FollowerRole, FollowerGroup, FormationCalculator/Type/Offset; entity-wired follow/formation tick",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/role/follower/FollowerRole.java",
+     "src/main/java/com/storynpcs/domain/role/follower/FormationCalculator.java",
+     "src/main/java/com/storynpcs/ai/NpcFollowFormationGoal.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "followerRole"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/role/FollowerRoleTest.java",
+     "src/test/java/com/storynpcs/domain/role/follower/FormationCalculatorTest.java",
+     "src/test/java/com/storynpcs/ai/FollowerFormationGoalTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-companion",
+   "feature": "Role: Companion",
+   "status": "partial",
+   "issue": "#74 P6-5",
+   "summary": "CompanionProfile/Stage/Talent/WagePolicy/WageLedger; wage charge via canonical op + entity tick; no inventory/stats/talent GUI",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/companion/CompanionProfile.java",
+     "src/main/java/com/storynpcs/domain/companion/CompanionStage.java",
+     "src/main/java/com/storynpcs/domain/companion/CompanionTalent.java",
+     "src/main/java/com/storynpcs/domain/companion/WageLedger.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "companionProfile"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/companion/CompanionTalentTest.java",
+     "src/test/java/com/storynpcs/domain/companion/CompanionTalentLoadoutTest.java",
+     "src/test/java/com/storynpcs/domain/companion/CompanionWagePolicyTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-postman",
+   "feature": "Role: Postman/mail",
+   "status": "partial",
+   "issue": "#71 P6-2, #79 P8-3",
+   "summary": "PostmanRole field; MailMessage, QuestMailStore, /storynpcs mail + player mail panel with session-bound send/read actions (#150); no mailbox block or NPC write GUI",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/role/social/PostmanRole.java",
+     "src/main/java/com/storynpcs/domain/quest/QuestMailStore.java",
+     "src/main/java/com/storynpcs/domain/progression/MailMessage.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"mail\"\\)"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "PostmanRole|postman"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/quest/QuestMailStoreTest.java",
+     "src/test/java/com/storynpcs/service/QuestMailRemainderTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "role-dialog",
+   "feature": "Role: Dialog",
+   "status": "implemented-superset",
+   "issue": "#65 P5-1",
+   "summary": "dialogueId on NpcDefinition; interact opens graph dialogue (model differs by design)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueGraph.java",
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueSession.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "DialogueSession|DialogueOpen"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/DialogueGraphTest.java",
+     "src/test/java/com/storynpcs/domain/DialogueGraphSerdeTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "jobs",
+   "feature": "Jobs (11)",
+   "status": "partial",
+   "issue": "#73 P6-4",
+   "summary": "JobType enum (all 11), JobConfig on def, NpcJobRuntime dispatch — 9 types have tick handlers, BUILDER + FOLLOWER fail validation",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/job/JobType.java",
+     "src/main/java/com/storynpcs/domain/job/JobConfig.java",
+     "src/main/java/com/storynpcs/runtime/job/NpcJobRuntime.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "NpcJobRuntime\\.run"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/job/JobAssignmentTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "companion-jobs",
+   "feature": "Companion jobs (3)",
+   "status": "planned",
+   "issue": "#74 P6-5",
+   "summary": "No companion-job classes or runtime",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "CompanionJob|companion_job|CompanionFarmer|CompanionGuard|CompanionTrader"
+    ]
+   }
+  },
+  {
+   "id": "dialogue-engine",
+   "feature": "Dialogue engine",
+   "status": "implemented-superset",
+   "issue": "#65-67 P5-1/2/3",
+   "summary": "Directed graph (DialogueGraph/Node/Edge), conditions, actions, sessions, validators — structurally stronger than target",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueGraph.java",
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueNode.java",
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueEdge.java",
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueSession.java",
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueGraphValidator.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "DialogueSession|DialogueOpen"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/DialogueGraphTest.java",
+     "src/test/java/com/storynpcs/domain/DialogueGraphSerdeTest.java",
+     "src/test/java/com/storynpcs/domain/dialogue/DialogueGraphValidatorTest.java",
+     "src/test/java/com/storynpcs/domain/dialogue/DialogueChoiceProtocolTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "dialogue-player-ui",
+   "feature": "Dialogue player UI",
+   "status": "partial",
+   "issue": "#66 P5-2",
+   "summary": "DialogueScreen + model, choice tokens (DialogueChoiceProtocol)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/client/gui/DialogueScreen.java",
+     "src/main/java/com/storynpcs/client/model/DialogueScreenModel.java",
+     "src/main/java/com/storynpcs/network/ClientboundDialogueOpenPayload.java",
+     "src/main/java/com/storynpcs/network/ServerboundDialogueChoosePayload.java",
+     "src/main/java/com/storynpcs/domain/dialogue/DialogueChoiceProtocol.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "ServerboundDialogueChoosePayload"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/client/DialogueScreenModelTest.java",
+     "src/test/java/com/storynpcs/network/NetworkPayloadsTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "dialogue-editor",
+   "feature": "Dialogue editor",
+   "status": "implemented-superset",
+   "issue": "#67 P5-3",
+   "summary": "DialogueEditorScreen — visual node/edge editor (target has no equivalent); field coverage narrow",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/client/gui/DialogueEditorScreen.java",
+     "src/main/java/com/storynpcs/editor/DialogueEditorScreenModel.java",
+     "src/main/java/com/storynpcs/editor/DialogueGraphLayout.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"dialogue\"\\)"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/editor/DialogueEditorScreenModelTest.java",
+     "src/test/java/com/storynpcs/editor/DialogueGraphLayoutTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "dialog-categories",
+   "feature": "Dialog categories/folders",
+   "status": "partial",
+   "issue": "#65 P5-1 (ADR-006 parity)",
+   "summary": "Quest.category serialized in YAML + editable in QuestEditorScreen; dialogue graphs lack a category field",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/quest/Quest.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/client/gui/QuestEditorScreen.java",
+      "pattern": "categoryField|getCategory"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "DialogueCategory|dialogue_category"
+    ]
+   }
+  },
+  {
+   "id": "quest-objectives",
+   "feature": "Quests: 5 objective types",
+   "status": "implemented",
+   "issue": "#68 P5-4",
+   "summary": "QuestObjective 5 kinds",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/quest/QuestObjective.java",
+     "src/main/java/com/storynpcs/domain/quest/Quest.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "QuestProgression|PendingQuestCompletion"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/quest/QuestDefinitionContractTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "quest-repeat-modes",
+   "feature": "Quests: 6 repeat modes",
+   "status": "partial",
+   "issue": "#68 P5-4",
+   "summary": "3 of 6 (RepeatSchedule)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/quest/RepeatSchedule.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/domain/quest/Quest.java",
+      "pattern": "RepeatSchedule|repeat"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/quest/QuestDefinitionContractTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "quest-deps-team",
+   "feature": "Quest dependencies/team",
+   "status": "partial",
+   "issue": "#68 P5-4, #69 P5-5",
+   "summary": "QuestDependencyValidator wired into the service; TeamProgression declared only (no runtime consumer)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/quest/QuestDependencyValidator.java",
+     "src/main/java/com/storynpcs/domain/quest/TeamProgression.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "QuestDependencyValidator"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "quest-completion",
+   "feature": "Quest completion/rewards",
+   "status": "partial",
+   "issue": "#69 P5-5",
+   "summary": "Revisioned via service; RewardOverflowPolicy + quest-mail channel",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/service/QuestCompletionMutationRequest.java",
+     "src/main/java/com/storynpcs/service/QuestCompletionResult.java",
+     "src/main/java/com/storynpcs/domain/progression/PendingQuestCompletion.java",
+     "src/main/java/com/storynpcs/domain/quest/RewardOverflowPolicy.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "QuestCompletion|PendingQuestCompletion"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/service/QuestProgressionMutationTest.java",
+     "src/test/java/com/storynpcs/service/QuestMailRemainderTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "quest-log-ui",
+   "feature": "Quest log / player UI",
+   "status": "partial",
+   "issue": "#150",
+   "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> player screens; session-bound commits, server-built JSON views (4 of the #150 acceptance surfaces; follower hire -> #71/#74, companion inv/stats -> #74, achievement view -> #86/#88, carpentry bench -> #80, custom GUI renderer -> #82)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/service/PlayerPanelViews.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerQuestLogScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerMailScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "ClientboundPlayerPanelPayload|sendPlayerPanel"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/service/PlayerPanelViewsTest.java",
+     "src/test/java/com/storynpcs/network/PlayerPanelPayloadsTest.java"
+    ],
+    "absent": [
+     "GuiQuestLog"
+    ]
+   }
+  },
+  {
+   "id": "factions",
+   "feature": "Faction matrix & relation model",
+   "status": "partial",
+   "issue": "#70 P6-1",
+   "summary": "Faction, FactionStanding, FactionDeletionPlanner, FactionRelationshipProvider, editor GUI; relation matrix incomplete",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/faction/Faction.java",
+     "src/main/java/com/storynpcs/domain/faction/FactionStanding.java",
+     "src/main/java/com/storynpcs/domain/faction/FactionDeletionPlanner.java",
+     "src/main/java/com/storynpcs/domain/ai/FactionRelationshipProvider.java",
+     "src/main/java/com/storynpcs/client/gui/FactionEditorScreen.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"faction\"\\)"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "FactionProgression"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/faction/FactionTest.java",
+     "src/test/java/com/storynpcs/service/FactionProgressionMutationTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "clone-library",
+   "feature": "Clone library (tabs, grid)",
+   "status": "partial",
+   "issue": "#77 P8-1",
+   "summary": "NpcTemplate, TemplateLibrary, /storynpcs template; no tabbed clone store or grid spawn",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/template/NpcTemplate.java",
+     "src/main/java/com/storynpcs/creator/template/TemplateLibrary.java",
+     "src/main/java/com/storynpcs/domain/template/NpcTemplateSerde.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"template\"\\)"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/template/NpcTemplateTest.java",
+     "src/test/java/com/storynpcs/domain/template/NpcTemplateSerdeTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "spawner-blocks",
+   "feature": "Spawner blocks",
+   "status": "declared",
+   "issue": "#77 P8-1",
+   "summary": "SpawnerRule domain",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/template/SpawnerRule.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "moving-path-tool",
+   "feature": "Moving-path / waypoint tool",
+   "status": "partial",
+   "issue": "#78 P8-2",
+   "summary": "NpcPathItem, WaypointPath (domain+ai)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/item/NpcPathItem.java",
+     "src/main/java/com/storynpcs/domain/ai/WaypointPath.java",
+     "src/main/java/com/storynpcs/creator/tools/WaypointPath.java"
+    ],
+    "wired": [],
+    "registered": [
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "npc_path"
+     }
+    ],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/ai/WaypointPathTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "mount-teleport-soulstone",
+   "feature": "Mounter / soulstone / teleporter / remover tools",
+   "status": "partial",
+   "issue": "#78 P8-2",
+   "summary": "NpcMounterItem exists; soulstone/teleporter/remover absent",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/item/NpcMounterItem.java"
+    ],
+    "wired": [],
+    "registered": [
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "npc_mounter"
+     }
+    ],
+    "tests": [],
+    "absent": [
+     "[Ss]oul[Ss]tone|TeleporterItem|ItemTeleporter|NpcRemover|RemoverItem"
+    ]
+   }
+  },
+  {
+   "id": "scripter-nbtbook",
+   "feature": "Scripter / NBT book tools",
+   "status": "partial",
+   "issue": "#148",
+   "summary": "NbtBookItem + NbtBookService — op-gated allowlist entity edits (CustomName/NoGravity/Invulnerable/Silent/Glowing) via session-bound payload; scripter tool absent",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/item/NbtBookItem.java",
+     "src/main/java/com/storynpcs/domain/support/NbtBookService.java",
+     "src/main/java/com/storynpcs/domain/support/SupportEntityRules.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "NbtBook|nbt_book"
+     }
+    ],
+    "registered": [
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "nbt_book"
+     }
+    ],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/support/NbtBookServiceTest.java",
+     "src/test/java/com/storynpcs/domain/support/SupportEntityRulesTest.java"
+    ],
+    "absent": [
+     "ItemNpcScripter|NpcScripter"
+    ]
+   }
+  },
+  {
+   "id": "creator-blocks",
+   "feature": "Creator blocks (11)",
+   "status": "planned",
+   "issue": "#79 P8-3, #80 P8-4",
+   "summary": "None — zero block registrations",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "DeferredRegister<\\s*Block\\b|\\bBLOCKS\\.register\\(|Registries\\.BLOCK\\.register"
+    ]
+   }
+  },
+  {
+   "id": "scripted-block-door",
+   "feature": "Scripted block/door",
+   "status": "declared",
+   "issue": "#79 P8-3, #84 P9-2",
+   "summary": "ScriptedHookBinding domain (inert)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/world/ScriptedHookBinding.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "mailbox-carpentry",
+   "feature": "Mailbox block / carpentry bench",
+   "status": "declared",
+   "issue": "#79 P8-3, #80 P8-4",
+   "summary": "CarpentryRecipe domain only",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "MailboxBlock|BlockMailbox|MailboxScreen|MailboxMenu"
+    ]
+   }
+  },
+  {
+   "id": "scenes",
+   "feature": "Scenes",
+   "status": "declared",
+   "issue": "#81 P8-5",
+   "summary": "SceneDefinition, SceneTimer",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/scene/SceneDefinition.java",
+     "src/main/java/com/storynpcs/creator/scene/SceneTimer.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "linked-transform-timer-spawn",
+   "feature": "Linked NPCs / transformations / timers / natural spawn",
+   "status": "declared",
+   "issue": "#81 P8-5",
+   "summary": "LinkedNpcGraph, TransformRule, NaturalSpawnRule",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/link/LinkedNpcGraph.java",
+     "src/main/java/com/storynpcs/creator/transform/TransformRule.java",
+     "src/main/java/com/storynpcs/creator/spawn/NaturalSpawnRule.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "recipes-carpentry",
+   "feature": "Recipes/carpentry",
+   "status": "declared",
+   "issue": "#80 P8-4",
+   "summary": "CarpentryRecipe",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "schematics",
+   "feature": "Schematics (28 bundled + build commands)",
+   "status": "implemented",
+   "issue": "#149",
+   "summary": "Bounded reader (Sponge v1-v3 + legacy MCEdit), traversal-proof store, budgeted multi-tick build pipeline + schema commands; all 28 bundled .schematic assets shipped at data/storynpcs/schematics/ (ported from the pinned target jar, datapack-overridable)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/domain/schematic/Schematic.java",
+     "src/main/java/com/storynpcs/domain/schematic/BuildPlan.java",
+     "src/main/java/com/storynpcs/domain/schematic/SchematicReader.java",
+     "src/main/java/com/storynpcs/domain/schematic/SchematicStore.java",
+     "src/main/java/com/storynpcs/service/SchematicBuildService.java",
+     "src/main/resources/data/storynpcs/schematics/archery_range.schematic",
+     "src/main/resources/data/storynpcs/schematics/bakery.schematic",
+     "src/main/resources/data/storynpcs/schematics/barn.schematic",
+     "src/main/resources/data/storynpcs/schematics/building_site.schematic",
+     "src/main/resources/data/storynpcs/schematics/chapel.schematic",
+     "src/main/resources/data/storynpcs/schematics/church.schematic",
+     "src/main/resources/data/storynpcs/schematics/gate.schematic",
+     "src/main/resources/data/storynpcs/schematics/glassworks.schematic",
+     "src/main/resources/data/storynpcs/schematics/guard_tower.schematic",
+     "src/main/resources/data/storynpcs/schematics/guild_house.schematic",
+     "src/main/resources/data/storynpcs/schematics/house.schematic",
+     "src/main/resources/data/storynpcs/schematics/house_small.schematic",
+     "src/main/resources/data/storynpcs/schematics/inn.schematic",
+     "src/main/resources/data/storynpcs/schematics/library.schematic",
+     "src/main/resources/data/storynpcs/schematics/lighthouse.schematic",
+     "src/main/resources/data/storynpcs/schematics/mill.schematic",
+     "src/main/resources/data/storynpcs/schematics/observatory.schematic",
+     "src/main/resources/data/storynpcs/schematics/ship.schematic",
+     "src/main/resources/data/storynpcs/schematics/shop.schematic",
+     "src/main/resources/data/storynpcs/schematics/stall.schematic",
+     "src/main/resources/data/storynpcs/schematics/stall2.schematic",
+     "src/main/resources/data/storynpcs/schematics/stall3.schematic",
+     "src/main/resources/data/storynpcs/schematics/tier_house1.schematic",
+     "src/main/resources/data/storynpcs/schematics/tier_house2.schematic",
+     "src/main/resources/data/storynpcs/schematics/tier_house3.schematic",
+     "src/main/resources/data/storynpcs/schematics/tower.schematic",
+     "src/main/resources/data/storynpcs/schematics/wall.schematic",
+     "src/main/resources/data/storynpcs/schematics/wall_corner.schematic"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "SchematicStore|SchematicBuildService|literal\\(\"schema\"\\)"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/domain/schematic/SchematicReaderTest.java",
+     "src/test/java/com/storynpcs/domain/schematic/SchematicStoreTest.java",
+     "src/test/java/com/storynpcs/domain/schematic/BuildPlanTest.java",
+     "src/test/java/com/storynpcs/domain/schematic/BundledSchematicTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "markov-names",
+   "feature": "Markov name generation",
+   "status": "planned",
+   "issue": "#123 (needs-input)",
+   "summary": "None — engine choice undecided",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "[Mm]arkov"
+    ]
+   }
+  },
+  {
+   "id": "sql-store",
+   "feature": "SQL player-data store",
+   "status": "deviation",
+   "issue": "ADR-006 (intentional deviation)",
+   "summary": "Recorded deviation — ADR-006 + PersistenceStoreCatalog entry target.persistence_stores.0012 (INTENTIONAL_DEVIATION): file-first rule, no embedded SQL",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "import\\s+java\\.sql|import\\s+javax\\.sql"
+    ]
+   }
+  },
+  {
+   "id": "scripting",
+   "feature": "Scripting host",
+   "status": "partial",
+   "issue": "#84 P9-2, #125 engine pin",
+   "summary": "ScriptHook enum, ScriptBudget, ScriptScheduler wired into lifecycle — no interpreter/engine",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/script/ScriptHook.java",
+     "src/main/java/com/storynpcs/script/ScriptBudget.java",
+     "src/main/java/com/storynpcs/script/ScriptScheduler.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/StoryNpcs.java",
+      "pattern": "ScriptScheduler"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "custom-gui",
+   "feature": "Custom GUI authoring",
+   "status": "declared",
+   "issue": "#82 P8-6",
+   "summary": "CustomGuiLayout",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/gui/CustomGuiLayout.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "overlays-presets",
+   "feature": "HUD overlays / model presets",
+   "status": "declared",
+   "issue": "#82 P8-6",
+   "summary": "OverlaySession",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/creator/gui/OverlaySession.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "admin-surfaces",
+   "feature": "Global main menu / remote editor / player-data mgmt / achievement GUI",
+   "status": "partial",
+   "issue": "#86 P9-4, #88 P10-1",
+   "summary": "RemoteAccessProof, PlayerDataScope, RuntimeTunables, ConfigTransaction wired server-side; no admin GUIs",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/admin/RemoteAccessProof.java",
+     "src/main/java/com/storynpcs/admin/PlayerDataScope.java",
+     "src/main/java/com/storynpcs/admin/RuntimeTunables.java",
+     "src/main/java/com/storynpcs/admin/ConfigTransaction.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/service/AuthorizationPolicy.java",
+      "pattern": "RemoteAccessProof|PlayerDataScope"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/service/AuthorizationPolicyTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "config-toggles",
+   "feature": "Config toggles",
+   "status": "partial",
+   "issue": "#86 P9-4",
+   "summary": "RuntimeTunables wired into mod lifecycle (partial set)",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/admin/RuntimeTunables.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/StoryNpcs.java",
+      "pattern": "RuntimeTunables"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "commands",
+   "feature": "Command surface (70 leaves)",
+   "status": "partial",
+   "issue": "#85 P9-3",
+   "summary": "Rich /storynpcs tree; CommandParityCatalog marks nearly all target leaves UNVERIFIED",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+     "src/main/java/com/storynpcs/domain/command/CommandParityCatalog.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/StoryNpcs.java",
+      "pattern": "StoryNpcsCommands\\."
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/command/StoryNpcsCommandsTest.java",
+     "src/test/java/com/storynpcs/domain/command/CommandParityCatalogTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "api-events",
+   "feature": "API events (97)",
+   "status": "partial",
+   "issue": "#83 P9-1",
+   "summary": "22 events in api/event/",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/api/event/EventPublisher.java",
+     "src/main/java/com/storynpcs/api/event/DialogueOpenEvent.java",
+     "src/main/java/com/storynpcs/api/event/QuestCompleteEvent.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+      "pattern": "EventPublisher"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "public-api",
+   "feature": "Public API",
+   "status": "partial",
+   "issue": "#83 P9-1",
+   "summary": "StoryNpcsApi read-only facade",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+     "src/main/java/com/storynpcs/api/StoryNpcsApiAccess.java",
+     "src/main/java/com/storynpcs/api/NpcView.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/StoryNpcs.java",
+      "pattern": "StoryNpcsApi getApi"
+     }
+    ],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  },
+  {
+   "id": "integrations",
+   "feature": "Optional-mod integrations (mixins)",
+   "status": "deviation",
+   "issue": "#87 P9-5 (closed: documented deviation)",
+   "summary": "Recorded deviation — P9-5 closeout enumerates the target's 7-class Pixelmon/Cobblemon surface; StoryNPCs implements no optional-mod integration; absent-check + P9-5 tests enforce it",
+   "evidence": {
+    "files": [],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": [
+     "@Mixin|mixins\\.json|pixelmon|cobblemon"
+    ]
+   }
+  },
+  {
+   "id": "persistence",
+   "feature": "Persistence (18 stores)",
+   "status": "partial",
+   "issue": "#56 P2-2, #57 P2-3",
+   "summary": "DurableJsonStore, ProgressionRepository, BankRepository, TradeStateRepository, ActorStateRepository, DurableOperationJournal — selected stores, not the 18-store crash matrix",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/persistence/DurableJsonStore.java",
+     "src/main/java/com/storynpcs/persistence/ProgressionRepository.java",
+     "src/main/java/com/storynpcs/persistence/BankRepository.java",
+     "src/main/java/com/storynpcs/persistence/TradeStateRepository.java",
+     "src/main/java/com/storynpcs/persistence/DurableOperationJournal.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/lifecycle/WorldLifecycleHandler.java",
+      "pattern": "ProgressionRepository|QuestMailStore"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/persistence/DurableJsonStoreTest.java",
+     "src/test/java/com/storynpcs/persistence/ProgressionRepositoryTest.java",
+     "src/test/java/com/storynpcs/persistence/BankRepositoryTest.java",
+     "src/test/java/com/storynpcs/persistence/TradeStateRepositoryTest.java",
+     "src/test/java/com/storynpcs/persistence/DurableOperationJournalTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "simulation",
+   "feature": "Simulation tiers / LOD / squad / path scheduler",
+   "status": "partial",
+   "issue": "#62-64, #95, #126",
+   "summary": "sim/ package wired into entity tick (SimulationScheduler); squad + path queue declared; not certified",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/sim/SimulationScheduler.java",
+     "src/main/java/com/storynpcs/sim/SimulationTier.java",
+     "src/main/java/com/storynpcs/sim/SquadCoordinator.java",
+     "src/main/java/com/storynpcs/sim/PathScheduler.java",
+     "src/main/java/com/storynpcs/sim/cert/HeadlessBenchmark.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/entity/StoryNpcEntity.java",
+      "pattern": "SimulationScheduler"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/sim/PathSchedulerTest.java",
+     "src/test/java/com/storynpcs/sim/SimulationSchedulerTest.java",
+     "src/test/java/com/storynpcs/sim/SquadCoordinatorTest.java",
+     "src/test/java/com/storynpcs/sim/cert/PerformanceContractTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "canonical-pipeline",
+   "feature": "Canonical mutation pipeline",
+   "status": "implemented",
+   "issue": "#51 P1-1, #54 P1-4",
+   "summary": "StoryNpcsApplicationService + typed requests/results + AuthorizationPolicy + CapabilityRegistry",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/service/StoryNpcsApplicationService.java",
+     "src/main/java/com/storynpcs/service/AuthorizationPolicy.java",
+     "src/main/java/com/storynpcs/service/CapabilityRegistry.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "ApplicationService|applicationService"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/service/StoryNpcsApplicationServiceTest.java",
+     "src/test/java/com/storynpcs/service/AuthorizationPolicyTest.java",
+     "src/test/java/com/storynpcs/service/CanonicalMutationResultTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "import",
+   "feature": "CustomNPCs world/data import",
+   "status": "partial",
+   "issue": "#91 P11-1",
+   "summary": "migration/ package + /storynpcs import",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/migration/DefinitionImporter.java",
+     "src/main/java/com/storynpcs/migration/ImportPlan.java",
+     "src/main/java/com/storynpcs/migration/ImportReport.java",
+     "src/main/java/com/storynpcs/migration/FieldMappingRegistry.java"
+    ],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "literal\\(\"import\"\\)"
+     }
+    ],
+    "registered": [],
+    "tests": [
+     "src/test/java/com/storynpcs/migration/MigrationImportTest.java"
+    ],
+    "absent": []
+   }
+  },
+  {
+   "id": "authoring-hub",
+   "feature": "Unified authoring hub",
+   "status": "declared",
+   "issue": "#88 P10-1",
+   "summary": "AuthoringHub model, not wired into screens",
+   "evidence": {
+    "files": [
+     "src/main/java/com/storynpcs/editor/hub/AuthoringHub.java"
+    ],
+    "wired": [],
+    "registered": [],
+    "tests": [],
+    "absent": []
+   }
+  }
+ ]
 }
