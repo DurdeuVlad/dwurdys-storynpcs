@@ -231,6 +231,36 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("delete")
                                 .then(Commands.argument("rule_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteNaturalSpawn))))
+                // P8-6 custom-GUI/overlay surfaces
+                .then(Commands.literal("layout")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listGuiLayouts))
+                        .then(Commands.literal("show")
+                                .then(Commands.argument("layout_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::showGuiLayout)))
+                        .then(Commands.literal("preview")
+                                .then(Commands.argument("layout_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::previewGuiLayout)))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("layout_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteGuiLayout))))
+                .then(Commands.literal("preset")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listModelPresets))
+                        .then(Commands.literal("show")
+                                .then(Commands.argument("preset_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::showModelPreset)))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("preset_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteModelPreset))))
+                .then(Commands.literal("overlay")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listOverlays))
+                        .then(Commands.literal("show")
+                                .then(Commands.argument("layout_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("element_name", StringArgumentType.word())
+                                                .then(Commands.argument("duration_ticks", IntegerArgumentType.integer(1))
+                                                        .executes(StoryNpcsCommands::showOverlay))))))
                 .then(Commands.literal("link")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("actor_uuid", StringArgumentType.word())
@@ -4955,6 +4985,244 @@ public final class StoryNpcsCommands {
         }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§aDeleted natural-spawn rule " + id), true);
+        return 1;
+    }
+
+    // ── P8-6 custom-GUI / preset / overlay commands ─────────────────────────
+
+    private static int listGuiLayouts(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var layouts = mod.getRegistry().getAllGuiLayouts();
+        if (layouts.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No GUI layouts loaded (guilayouts/*.yaml)."), false);
+            return 0;
+        }
+        for (var layout : layouts) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "  §7" + layout.getId() + " — root="
+                            + (layout.getRoot() == null ? "none" : layout.getRoot().getName())), false);
+        }
+        return layouts.size();
+    }
+
+    private static int showGuiLayout(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "layout_id").toString());
+        var layout = mod.getRegistry().getGuiLayout(id).orElse(null);
+        if (layout == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Layout not found: " + id));
+            return 0;
+        }
+        printGuiElement(ctx, layout.getRoot(), "root", 0);
+        return 1;
+    }
+
+    private static void printGuiElement(CommandContext<CommandSourceStack> ctx,
+            com.storynpcs.creator.gui.CustomGuiLayout.GuiElement el, String path, int depth) {
+        if (el == null || depth > com.storynpcs.creator.gui.CustomGuiLayout.MAX_DEPTH) {
+            return;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "  §7" + "  ".repeat(depth) + path + " [" + el.getType() + "] "
+                        + el.getWidth() + "x" + el.getHeight()
+                        + (el.getTextureRef() != null ? " tex=" + el.getTextureRef() : "")), false);
+        for (var child : el.getChildren()) {
+            printGuiElement(ctx, child, child.getName(), depth + 1);
+        }
+    }
+
+    /**
+     * Preview ≠ commit — validates the layout and reports a bounded structural
+     * projection without any registry write or file mutation.
+     */
+    private static int previewGuiLayout(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "layout_id").toString());
+        var layout = mod.getRegistry().getGuiLayout(id).orElse(null);
+        if (layout == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Layout not found: " + id));
+            return 0;
+        }
+        var diagnostics = layout.validate();
+        int[] stats = {0, 0}; // count, maxDepth
+        measureGuiElement(layout.getRoot(), 1, stats);
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "§e[StoryNPCs] Preview %s — %d element(s), depth %d, diagnostics %d error(s)",
+                id, stats[0], stats[1], diagnostics.getErrors().size())), false);
+        if (diagnostics.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    diagnostics.formatReport(5)));
+        }
+        return 1;
+    }
+
+    private static void measureGuiElement(
+            com.storynpcs.creator.gui.CustomGuiLayout.GuiElement el, int depth, int[] stats) {
+        if (el == null) {
+            return;
+        }
+        stats[0]++;
+        stats[1] = Math.max(stats[1], depth);
+        for (var child : el.getChildren()) {
+            measureGuiElement(child, depth + 1, stats);
+        }
+    }
+
+    private static int deleteGuiLayout(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "layout_id").toString());
+        var result = service.deleteGuiLayout(
+                commandMutationRequest(ctx, service, "guilayout", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Layout delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§aDeleted GUI layout " + id), true);
+        return 1;
+    }
+
+    private static int listModelPresets(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var presets = mod.getRegistry().getAllModelPresets();
+        if (presets.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No model presets loaded (presets/*.yaml)."), false);
+            return 0;
+        }
+        for (var preset : presets) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s → %s — %d layer(s), %d texture(s)%s",
+                    preset.getId(), preset.getModelRef(), preset.getLayers().size(),
+                    preset.getTextureRefs().size(),
+                    preset.getDisplayName().isBlank() ? "" : " \"" + preset.getDisplayName() + "\"")),
+                    false);
+        }
+        return presets.size();
+    }
+
+    private static int showModelPreset(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "preset_id").toString());
+        var preset = mod.getRegistry().getModelPreset(id).orElse(null);
+        if (preset == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Preset not found: " + id));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§7Preset " + preset.getId() + " → " + preset.getModelRef()), false);
+        for (var layer : preset.getLayers()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7layer %s = #%06x", layer.getName(), layer.getRgb())), false);
+        }
+        for (var tex : preset.getTextureRefs()) {
+            ctx.getSource().sendSuccess(() -> Component.literal("  §7texture " + tex), false);
+        }
+        return 1;
+    }
+
+    private static int deleteModelPreset(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "preset_id").toString());
+        var result = service.deleteModelPreset(
+                commandMutationRequest(ctx, service, "modelpreset", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Preset delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§aDeleted model preset " + id), true);
+        return 1;
+    }
+
+    private static int listOverlays(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var source = ctx.getSource();
+        if (mod == null || !(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Player context required."));
+            return 0;
+        }
+        int nowTick = (int) (source.getLevel().getGameTime() & 0x7FFFFFFF);
+        var active = mod.getOverlaySessions(source.getServer()).active(player.getUUID(), nowTick);
+        if (active.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("§e[StoryNPCs] No active overlays."), false);
+            return 0;
+        }
+        for (var overlay : active) {
+            source.sendSuccess(() -> Component.literal(
+                    "  §7" + overlay.overlayId() + " — " + overlay.elementId()
+                            + " expires@" + overlay.expiryTick()), false);
+        }
+        return active.size();
+    }
+
+    private static int showOverlay(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var source = ctx.getSource();
+        if (mod == null || !(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Player context required."));
+            return 0;
+        }
+        var layoutId = NamespacedId.of(ResourceLocationArgument.getId(ctx, "layout_id").toString());
+        var elementName = StringArgumentType.getString(ctx, "element_name");
+        int duration = IntegerArgumentType.getInteger(ctx, "duration_ticks");
+        if (mod.getRegistry().getGuiLayout(layoutId).isEmpty()) {
+            source.sendFailure(Component.literal("[StoryNPCs] Layout not found: " + layoutId));
+            return 0;
+        }
+        int nowTick = (int) (source.getLevel().getGameTime() & 0x7FFFFFFF);
+        var session = mod.getOverlaySessions(source.getServer());
+        // Ensure the player session exists — login opens it, but the overlay
+        // command must not silently no-op on an edge-case join.
+        if (session.playerOf(player.getUUID()).isEmpty()) {
+            session.openSession(player.getUUID(), player.getUUID());
+        }
+        var overlay = session.show(player.getUUID(), elementName, duration, nowTick);
+        if (overlay == null) {
+            source.sendFailure(Component.literal(
+                    "[StoryNPCs] Overlay rejected — session full (max "
+                            + com.storynpcs.creator.gui.OverlaySession.MAX_OVERLAYS_PER_SESSION
+                            + ") or bad duration."));
+            return 0;
+        }
+        mod.getEventPublisher().publish(
+                new com.storynpcs.api.event.P86GuiEvents.OverlayShownEvent(
+                        layoutId, elementName, player.getUUID(), overlay.overlayId(),
+                        overlay.expiryTick()));
+        source.sendSuccess(() -> Component.literal(
+                "§aOverlay " + overlay.overlayId() + " shown (" + elementName
+                        + ", " + duration + "t)"), true);
         return 1;
     }
 

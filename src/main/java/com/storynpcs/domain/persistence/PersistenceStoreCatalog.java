@@ -61,7 +61,7 @@ public final class PersistenceStoreCatalog {
             new PersistenceStoreEntry("target.persistence_stores.0017", "config", "ConfigLoader / CustomNpcs",
                     PersistenceStoreStatus.UNMAPPED, null, "No persistent server-configuration store exists yet. Issue #85's command-parity audit found the equivalent /noppes/config command family (chunkloaders, debug, freezenpcs, icemelts, leavesdecay, scripting, vineinflateth) entirely UNVERIFIED -- there is no config value to persist because none of these settings are implemented yet."),
             new PersistenceStoreEntry("target.persistence_stores.0018", "client_presets", "PresetController",
-                    PersistenceStoreStatus.UNMAPPED, null, "No client-side preset subsystem exists in this codebase yet; this is also client-only state in the target (PresetController), distinct from the server-authoritative persistence this issue is primarily about.")
+                    PersistenceStoreStatus.PARTIALLY_MAPPED, "ModelPreset YAML definitions under definitions/presets/ (P8-6)", "Server-authoritative preset schema is mapped; client-side PresetController rendering/caching is client-only state in the target and stays deferred to the P10-1 screen wave.")
     );
 
     private PersistenceStoreCatalog() {}

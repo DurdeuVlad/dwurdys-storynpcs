@@ -585,6 +585,13 @@ public class WorldLifecycleHandler {
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() != null) {
             handlePlayerLogin(event.getEntity().getUUID());
+            var server = event.getEntity().getServer();
+            if (server != null) {
+                // P8-6: the player's overlay session opens at login —
+                // sessionId == playerUuid (one overlay session per player).
+                mod.getOverlaySessions(server).openSession(
+                        event.getEntity().getUUID(), event.getEntity().getUUID());
+            }
             notifyOperatorOfLoadErrors(event.getEntity());
             announcePendingSeedToOperator(event.getEntity());
         }
@@ -726,6 +733,16 @@ public class WorldLifecycleHandler {
             com.storynpcs.network.StoryNpcsNetwork.clearPlayer(server, uuid);
             mod.getRuntimeSessions(server).clearPlayer(uuid);
             mod.getFollowerGroup(server).clearLeader(uuid);
+            // P8-6: overlays never outlive their session — logout expiry is
+            // deterministic, and dropped entries surface as expiry events.
+            var overlaySession = mod.getOverlaySessions(server);
+            for (var overlay : overlaySession.active(uuid,
+                    (int) (server.overworld().getGameTime() & 0x7FFFFFFF))) {
+                mod.getEventPublisher().publish(
+                        new com.storynpcs.api.event.P86GuiEvents.OverlayExpiredEvent(
+                                uuid, overlay.overlayId(), overlay.elementId(), "logout"));
+            }
+            overlaySession.closeSession(uuid);
         }
 
         if (mod.getProgressionRepository() != null) {

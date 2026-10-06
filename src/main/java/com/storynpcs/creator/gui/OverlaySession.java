@@ -52,6 +52,17 @@ public final class OverlaySession {
         return session == null ? 0 : session.size();
     }
 
+    /** Server-stop cleanup — drops every session and every overlay. */
+    public void clearAll() {
+        overlays.clear();
+        sessionPlayer.clear();
+    }
+
+    /** Every tracked session id — for lifecycle iteration and diagnostics. */
+    public java.util.Set<UUID> sessionIds() {
+        return java.util.Set.copyOf(overlays.keySet());
+    }
+
     public Optional<UUID> playerOf(UUID sessionId) {
         return Optional.ofNullable(sessionPlayer.get(sessionId));
     }

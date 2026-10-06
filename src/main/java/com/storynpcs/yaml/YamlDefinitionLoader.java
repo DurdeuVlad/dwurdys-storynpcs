@@ -614,6 +614,44 @@ public class YamlDefinitionLoader {
         return rule;
     }
 
+    /** P8-6 custom-GUI family: bounded layout trees with element-path diagnostics. */
+    public com.storynpcs.creator.gui.CustomGuiLayout loadGuiLayout(
+            String yamlContent, String sourceName, ValidationResult result) {
+        var layout = loadBoundedDefinition(yamlContent, sourceName, result,
+                com.storynpcs.creator.gui.CustomGuiLayout.class, "gui layout",
+                com.storynpcs.creator.gui.CustomGuiLayout.SCHEMA_VERSION,
+                com.storynpcs.creator.gui.CustomGuiLayout::getId,
+                com.storynpcs.creator.gui.CustomGuiLayout::getSchemaVersion,
+                registry::getGuiLayout, registry::registerGuiLayout);
+        if (layout != null) {
+            result.merge(layout.validate());
+            if (!result.getErrors().isEmpty()) {
+                registry.removeGuiLayout(layout.getId());
+                return null;
+            }
+        }
+        return layout;
+    }
+
+    /** P8-6 preset family: versioned model/color presets. */
+    public com.storynpcs.creator.gui.ModelPreset loadModelPreset(
+            String yamlContent, String sourceName, ValidationResult result) {
+        var preset = loadBoundedDefinition(yamlContent, sourceName, result,
+                com.storynpcs.creator.gui.ModelPreset.class, "model preset",
+                com.storynpcs.creator.gui.ModelPreset.SCHEMA_VERSION,
+                com.storynpcs.creator.gui.ModelPreset::getId,
+                com.storynpcs.creator.gui.ModelPreset::getSchemaVersion,
+                registry::getModelPreset, registry::registerModelPreset);
+        if (preset != null) {
+            result.merge(preset.validate());
+            if (!result.getErrors().isEmpty()) {
+                registry.removeModelPreset(preset.getId());
+                return null;
+            }
+        }
+        return preset;
+    }
+
     /** Shared bounded-definition load: parse, id/schema checks, duplicate rejection, register. */
     private <T> T loadBoundedDefinition(String yamlContent, String sourceName,
             ValidationResult result, Class<T> type, String family, int expectedSchema,
@@ -879,6 +917,8 @@ public class YamlDefinitionLoader {
             case "scene", "scenes" -> "scenes";
             case "transform", "transforms" -> "transforms";
             case "naturalspawn", "naturalspawns" -> "naturalspawns";
+            case "guilayout", "guilayouts", "guis" -> "guilayouts";
+            case "preset", "presets" -> "presets";
             default -> null;
         };
     }
@@ -942,7 +982,7 @@ public class YamlDefinitionLoader {
                         result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
                                 "Definition family '" + dirName + "' is recognized but not yet loadable;"
                                         + " remove the file or move it to a supported family directory"
-                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/, scenes/, transforms/, naturalspawns/)");
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/, scenes/, transforms/, naturalspawns/, guilayouts/, presets/)");
                         return;
                     }
                 }
@@ -962,6 +1002,8 @@ public class YamlDefinitionLoader {
                 case "scenes" -> loadScene(content, file.toString(), result);
                 case "transforms" -> loadTransform(content, file.toString(), result);
                 case "naturalspawns" -> loadNaturalSpawn(content, file.toString(), result);
+                case "guilayouts" -> loadGuiLayout(content, file.toString(), result);
+                case "presets" -> loadModelPreset(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -1013,6 +1055,14 @@ public class YamlDefinitionLoader {
         if (parentName.equals("naturalspawns") || parentName.equals("naturalspawn")
                 || fileName.startsWith("naturalspawn_")) {
             return "naturalspawns";
+        }
+        if (parentName.equals("guilayouts") || parentName.equals("guilayout")
+                || fileName.startsWith("guilayout_")) {
+            return "guilayouts";
+        }
+        if (parentName.equals("presets") || parentName.equals("preset")
+                || fileName.startsWith("preset_")) {
+            return "presets";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.
