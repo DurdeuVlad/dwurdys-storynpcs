@@ -101,8 +101,8 @@ public final class PersistenceStoreMap {
                     "schematic/blueprint files — pending world tools", "P8-2"),
             e("config", Ownership.WORLD, Status.DEFERRED,
                     "mod configuration file — pending config parity", "P9-4"),
-            e("client_presets", Ownership.CLIENT, Status.DEFERRED,
-                    "client-side model/GUI presets — pending", "P8-6")
+            e("client_presets", Ownership.CLIENT, Status.COVERED,
+                    "server-authoritative ModelPreset YAML under definitions/presets/ + guilayouts/ GUI schema + session-scoped OverlaySession — no dedicated store needed (authored definitions + ephemeral sessions); client-side PresetController rendering/caching stays deferred to the P10-1 screen wave", "P8-6")
     );
 
     private PersistenceStoreMap() {}

@@ -11,9 +11,17 @@ import com.storynpcs.domain.common.NamespacedId;
  */
 public class CustomGuiLayout {
 
+    public static final int SCHEMA_VERSION = 1;
     public static final int MAX_DEPTH = 6;
     public static final int MAX_ELEMENTS = 64;
     public static final int MAX_CHILDREN = 8;
+    public static final int MAX_DIMENSION = 512;
+    /** Element vocabulary — a closed set; anything else fails validation. */
+    public static final java.util.Set<String> ELEMENT_TYPES = java.util.Set.of(
+            "panel", "button", "label", "texture", "input", "scroll", "item_slot", "entity_display");
+
+    @JsonProperty
+    private int schemaVersion = SCHEMA_VERSION;
 
     @JsonProperty(required = true)
     private NamespacedId id;
@@ -25,6 +33,9 @@ public class CustomGuiLayout {
 
     public NamespacedId getId() { return id; }
     public void setId(NamespacedId id) { this.id = id; }
+
+    public int getSchemaVersion() { return schemaVersion; }
+    public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
 
     public GuiElement getRoot() { return root; }
     public void setRoot(GuiElement root) { this.root = root; }
@@ -45,6 +56,9 @@ public class CustomGuiLayout {
         private int height;
         @JsonProperty
         private NamespacedId textureRef;
+        /** Optional localization key — resolved client-side, authored here. */
+        @JsonProperty
+        private String textKey;
         @JsonProperty
         private List<GuiElement> children = new java.util.ArrayList<>();
 
@@ -65,6 +79,8 @@ public class CustomGuiLayout {
         public void setHeight(int height) { this.height = height; }
         public NamespacedId getTextureRef() { return textureRef; }
         public void setTextureRef(NamespacedId textureRef) { this.textureRef = textureRef; }
+        public String getTextKey() { return textKey; }
+        public void setTextKey(String textKey) { this.textKey = textKey; }
         public List<GuiElement> getChildren() { return List.copyOf(children); }
         public void setChildren(List<GuiElement> children) {
             this.children = children == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(children);
@@ -101,9 +117,20 @@ public class CustomGuiLayout {
             result.addError("GUI_TOO_MANY_CHILDREN",
                     "element '" + path + "' has " + el.getChildren().size() + " children (max " + MAX_CHILDREN + ")");
         }
-        if (el.getWidth() < 0 || el.getHeight() < 0 || el.getWidth() > 512 || el.getHeight() > 512) {
+        if (el.getWidth() < 0 || el.getHeight() < 0
+                || el.getWidth() > MAX_DIMENSION || el.getHeight() > MAX_DIMENSION) {
             result.addError("GUI_BAD_SIZE", "element '" + path + "' has invalid size "
                     + el.getWidth() + "x" + el.getHeight());
+        }
+        if (!ELEMENT_TYPES.contains(el.getType())) {
+            result.addError("GUI_UNKNOWN_ELEMENT_TYPE",
+                    "element '" + path + "' has unknown type '" + el.getType() + "'");
+        }
+        // Asset references must be namespaced — a bare path can never resolve
+        // deterministically across reloads.
+        if ("texture".equals(el.getType()) && el.getTextureRef() == null) {
+            result.addError("GUI_TEXTURE_REF_REQUIRED",
+                    "texture element '" + path + "' has no textureRef");
         }
         for (int i = 0; i < el.getChildren().size(); i++) {
             validateElement(el.getChildren().get(i), path + "." + (el.getChildren().get(i).getName() == null

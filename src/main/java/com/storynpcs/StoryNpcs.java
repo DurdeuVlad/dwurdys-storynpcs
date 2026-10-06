@@ -48,6 +48,8 @@ public class StoryNpcs {
     private final Map<MinecraftServer, ActorLifecycleService> serverActorServices = new ConcurrentHashMap<>();
     private final Map<MinecraftServer, ActorStateRepository> serverActorRepositories = new ConcurrentHashMap<>();
     private final Map<MinecraftServer, RuntimeSessionRegistry> serverRuntimeSessions = new ConcurrentHashMap<>();
+    private final Map<MinecraftServer, com.storynpcs.creator.gui.OverlaySession> serverOverlaySessions =
+            new ConcurrentHashMap<>();
 
     private final Map<MinecraftServer, com.storynpcs.service.NameGenerationService>
             serverNameServices = new ConcurrentHashMap<>();
@@ -459,6 +461,8 @@ public class StoryNpcs {
         }
         serverRuntimeSessions.computeIfAbsent(server, ignored -> new RuntimeSessionRegistry());
         serverFollowerGroups.computeIfAbsent(server, ignored -> new FollowerGroup());
+        serverOverlaySessions.computeIfAbsent(server,
+                ignored -> new com.storynpcs.creator.gui.OverlaySession());
     }
 
     public void clearServerRuntime(MinecraftServer server) {
@@ -472,6 +476,10 @@ public class StoryNpcs {
         FollowerGroup groups = serverFollowerGroups.remove(server);
         if (groups != null) {
             groups.clearAll();
+        }
+        var overlays = serverOverlaySessions.remove(server);
+        if (overlays != null) {
+            overlays.clearAll();
         }
         serverActorServices.remove(server);
         serverActorRepositories.remove(server);
@@ -635,6 +643,12 @@ public class StoryNpcs {
         // clear/no-op semantics are preserved without mutating shared state.
         RuntimeSessionRegistry registry = serverRuntimeSessions.get(server);
         return registry != null ? registry : new RuntimeSessionRegistry();
+    }
+
+    /** Session-scoped overlay registry for a server (P8-6) — ephemeral on shutdown. */
+    public com.storynpcs.creator.gui.OverlaySession getOverlaySessions(MinecraftServer server) {
+        var registry = server != null ? serverOverlaySessions.get(server) : null;
+        return registry != null ? registry : new com.storynpcs.creator.gui.OverlaySession();
     }
 
     public FollowerGroup getFollowerGroup() {

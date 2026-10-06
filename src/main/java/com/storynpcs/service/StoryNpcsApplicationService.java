@@ -2159,6 +2159,36 @@ public class StoryNpcsApplicationService {
                 registry::getNaturalSpawn, registry::removeNaturalSpawn, List.of());
     }
 
+    // ── P8-6 definition families ────────────────────────────────────────────
+
+    public ValidationResult saveGuiLayout(com.storynpcs.creator.gui.CustomGuiLayout layout) {
+        return saveDefinitionFamily(layout, "guilayout", "guilayouts", guiLayoutCopy(layout));
+    }
+
+    public CanonicalMutationResult saveGuiLayout(MutationRequest request,
+            com.storynpcs.creator.gui.CustomGuiLayout layout) {
+        return mutateDefinitionFamily(request, layout, "guilayout", "guilayouts", guiLayoutCopy(layout));
+    }
+
+    public CanonicalMutationResult deleteGuiLayout(MutationRequest request) {
+        return deleteDefinitionFamily(request, "guilayout", "guilayouts",
+                registry::getGuiLayout, registry::removeGuiLayout, List.of());
+    }
+
+    public ValidationResult saveModelPreset(com.storynpcs.creator.gui.ModelPreset preset) {
+        return saveDefinitionFamily(preset, "modelpreset", "presets", modelPresetCopy(preset));
+    }
+
+    public CanonicalMutationResult saveModelPreset(MutationRequest request,
+            com.storynpcs.creator.gui.ModelPreset preset) {
+        return mutateDefinitionFamily(request, preset, "modelpreset", "presets", modelPresetCopy(preset));
+    }
+
+    public CanonicalMutationResult deleteModelPreset(MutationRequest request) {
+        return deleteDefinitionFamily(request, "modelpreset", "presets",
+                registry::getModelPreset, registry::removeModelPreset, List.of());
+    }
+
     /**
      * Shared P8-5 canonical replace: validation → durable YAML write → registry
      * swap → revision bump. Malformed definitions reject before any write, so
@@ -2274,6 +2304,8 @@ public class StoryNpcsApplicationService {
         if (payload instanceof com.storynpcs.creator.scene.SceneDefinition s) return s.getId();
         if (payload instanceof com.storynpcs.creator.transform.TransformRule t) return t.getId();
         if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) return n.getId();
+        if (payload instanceof com.storynpcs.creator.gui.CustomGuiLayout g) return g.getId();
+        if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) return p.getId();
         throw new IllegalArgumentException("unsupported definition payload: " + payload.getClass());
     }
 
@@ -2281,6 +2313,8 @@ public class StoryNpcsApplicationService {
         if (payload instanceof com.storynpcs.creator.scene.SceneDefinition s) return s.getSchemaVersion();
         if (payload instanceof com.storynpcs.creator.transform.TransformRule t) return t.getSchemaVersion();
         if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) return n.getSchemaVersion();
+        if (payload instanceof com.storynpcs.creator.gui.CustomGuiLayout g) return g.getSchemaVersion();
+        if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) return p.getSchemaVersion();
         throw new IllegalArgumentException("unsupported definition payload: " + payload.getClass());
     }
 
@@ -2289,6 +2323,8 @@ public class StoryNpcsApplicationService {
             case "scene" -> com.storynpcs.creator.scene.SceneDefinition.SCHEMA_VERSION;
             case "transform" -> com.storynpcs.creator.transform.TransformRule.SCHEMA_VERSION;
             case "naturalspawn" -> com.storynpcs.creator.spawn.NaturalSpawnRule.SCHEMA_VERSION;
+            case "guilayout" -> com.storynpcs.creator.gui.CustomGuiLayout.SCHEMA_VERSION;
+            case "modelpreset" -> com.storynpcs.creator.gui.ModelPreset.SCHEMA_VERSION;
             default -> throw new IllegalArgumentException("unsupported kind: " + kind);
         };
     }
@@ -2307,6 +2343,10 @@ public class StoryNpcsApplicationService {
                 result.addError("NATURALSPAWN_MISSING_TEMPLATE",
                         "Natural-spawn rule '" + n.getId() + "' must declare a 'templateId'");
             }
+        } else if (payload instanceof com.storynpcs.creator.gui.CustomGuiLayout g) {
+            result.merge(g.validate());
+        } else if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) {
+            result.merge(p.validate());
         }
         return result;
     }
@@ -2316,6 +2356,8 @@ public class StoryNpcsApplicationService {
             case "scene" -> registry.registerScene((com.storynpcs.creator.scene.SceneDefinition) payload);
             case "transform" -> registry.registerTransform((com.storynpcs.creator.transform.TransformRule) payload);
             case "naturalspawn" -> registry.registerNaturalSpawn((com.storynpcs.creator.spawn.NaturalSpawnRule) payload);
+            case "guilayout" -> registry.registerGuiLayout((com.storynpcs.creator.gui.CustomGuiLayout) payload);
+            case "modelpreset" -> registry.registerModelPreset((com.storynpcs.creator.gui.ModelPreset) payload);
             default -> throw new IllegalArgumentException("unsupported kind: " + kind);
         }
     }
@@ -2344,6 +2386,29 @@ public class StoryNpcsApplicationService {
             fields.add(Integer.toString(n.getMaxPerDimension()));
             fields.add(Double.toString(n.getMinPlayerDistanceBlocks()));
             fields.add(Boolean.toString(n.isEnabled()));
+        } else if (payload instanceof com.storynpcs.creator.gui.CustomGuiLayout g) {
+            fields.addAll(canonicalGuiElementFields(g.getRoot(), "root"));
+        } else if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) {
+            fields.add(String.valueOf(p.getModelRef()));
+            fields.add(p.getDisplayName());
+            p.getLayers().forEach(l -> fields.add(l.getName() + ":" + Integer.toHexString(l.getRgb())));
+            p.getTextureRefs().forEach(t -> fields.add(t.toString()));
+        }
+        return fields;
+    }
+
+    private static List<String> canonicalGuiElementFields(
+            com.storynpcs.creator.gui.CustomGuiLayout.GuiElement el, String path) {
+        List<String> fields = new java.util.ArrayList<>();
+        if (el == null) {
+            fields.add(path + ":null");
+            return fields;
+        }
+        fields.add(path + "|" + el.getName() + "|" + el.getType() + "|"
+                + el.getX() + "," + el.getY() + "," + el.getWidth() + "," + el.getHeight()
+                + "|" + String.valueOf(el.getTextureRef()) + "|" + String.valueOf(el.getTextKey()));
+        for (int i = 0; i < el.getChildren().size(); i++) {
+            fields.addAll(canonicalGuiElementFields(el.getChildren().get(i), path + "." + i));
         }
         return fields;
     }
@@ -2385,6 +2450,48 @@ public class StoryNpcsApplicationService {
         copy.setMaxPerDimension(source.getMaxPerDimension());
         copy.setMinPlayerDistanceBlocks(source.getMinPlayerDistanceBlocks());
         copy.setEnabled(source.isEnabled());
+        return copy;
+    }
+
+    private static com.storynpcs.creator.gui.CustomGuiLayout guiLayoutCopy(
+            com.storynpcs.creator.gui.CustomGuiLayout source) {
+        var copy = new com.storynpcs.creator.gui.CustomGuiLayout();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setRoot(guiElementCopy(source.getRoot()));
+        return copy;
+    }
+
+    private static com.storynpcs.creator.gui.CustomGuiLayout.GuiElement guiElementCopy(
+            com.storynpcs.creator.gui.CustomGuiLayout.GuiElement source) {
+        if (source == null) {
+            return null;
+        }
+        var copy = new com.storynpcs.creator.gui.CustomGuiLayout.GuiElement();
+        copy.setName(source.getName());
+        copy.setType(source.getType());
+        copy.setX(source.getX());
+        copy.setY(source.getY());
+        copy.setWidth(source.getWidth());
+        copy.setHeight(source.getHeight());
+        copy.setTextureRef(source.getTextureRef());
+        copy.setTextKey(source.getTextKey());
+        copy.setChildren(source.getChildren().stream()
+                .map(StoryNpcsApplicationService::guiElementCopy).toList());
+        return copy;
+    }
+
+    private static com.storynpcs.creator.gui.ModelPreset modelPresetCopy(
+            com.storynpcs.creator.gui.ModelPreset source) {
+        var copy = new com.storynpcs.creator.gui.ModelPreset();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setModelRef(source.getModelRef());
+        copy.setDisplayName(source.getDisplayName());
+        copy.setLayers(source.getLayers().stream()
+                .map(l -> new com.storynpcs.creator.gui.ModelPreset.ColorLayer(
+                        l.getName(), l.getRgb())).toList());
+        copy.setTextureRefs(new java.util.ArrayList<>(source.getTextureRefs()));
         return copy;
     }
 

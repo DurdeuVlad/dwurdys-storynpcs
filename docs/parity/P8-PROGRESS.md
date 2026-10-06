@@ -56,13 +56,18 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## P8-6 — Custom GUI/HUD
 
-- `CustomGuiLayout`: depth ≤6, children ≤8, elements ≤64, size bounds; element-path diagnostics.
-- `OverlaySession`: session-scoped overlays ≤8, tick expiry, logout cleanup.
+- `CustomGuiLayout`: schemaVersion, bounded tree (depth ≤6, children ≤8, elements ≤64, dimension ≤512) with element-path diagnostics; closed element-type vocabulary (panel/button/label/texture/input/scroll/item_slot/entity_display); `texture` elements require a namespaced `textureRef`; optional authored `textKey` localization key per element.
+- `ModelPreset`: schemaVersion, namespaced `modelRef`, display name, ≤8 named color layers (RGB range-checked, duplicate names rejected), ≤8 namespaced texture refs — the server-authoritative schema for the target Preset/ModelColor/GuiPresetSave surfaces.
+- YAML families `guilayouts/` + `presets/` load through `YamlDefinitionLoader`, register in `DefinitionRegistry`, mutate via canonical `saveGuiLayout`/`deleteGuiLayout`/`saveModelPreset`/`deleteModelPreset`; malformed/preset/layout payloads reject before any file write — no partial registration.
+- `OverlaySession`: session-scoped overlays ≤8 per session, tick-bounded expiry pruned on read, deterministic logout close (with `OverlayExpiredEvent` per dropped entry), `clearAll` on server stop; per-server instance in `StoryNpcs`, login opens the session, never a static map.
+- Commands: `storynpcs layout {list,show,preview,delete}` (preview validates + projects structure with zero writes — preview ≠ commit), `storynpcs preset {list,show,delete}`, `storynpcs overlay {list,show}` (player-scoped).
+- Events (`P86GuiEvents`): `CustomGuiOpenedEvent`/`CustomGuiActionEvent`/`CustomGuiClosedEvent`/`OverlayShownEvent`/`OverlayExpiredEvent` — parity records for the target `CustomGuiEvent` family; interaction events publish only through the canonical packet boundary.
+- Deferred honestly: `GuiCustom*`/`GuiCreation*`/`GuiPresetSave`/`GuiModelColor` screens and `CustomGui*` component widgets → P10-1; `PacketOverlay*`/GUI packets → P1-3; client-side `PresetController` rendering/caching → P10-1 (server-authoritative preset schema is the mapped surface); keyboard nav/high-DPI/min-resolution/discoverability fixtures are client-screen properties → P10-1; `ICustomGui`/`IOverlay`/`ILabel` typed API bindings → P9-1.
 
 ## Explicit limits
 
-- P8-1 through P8-5 are wired end-to-end (runtime, items/commands, audit, durable state). P8-6 remains a domain contract only — no network packets, client screens, or entity wiring yet.
-- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; recipes via `recipes/*.yaml`; scenes/transforms/natural-spawn rules via `scenes|transforms|naturalspawns/*.yaml`; spawner, world-tool binding, scene-participant, timer, and link state via durable `IndexedRecordStore` ledgers under `world/storynpcs/`.
+- All six P8 slices are wired end-to-end (runtime, items/commands, audit, durable state or session-scoped runtime where durability is wrong). No P8 surface writes through a mutable static singleton.
+- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; recipes via `recipes/*.yaml`; scenes/transforms/natural-spawn rules via `scenes|transforms|naturalspawns/*.yaml`; GUI layouts via `guilayouts/*.yaml`; model presets via `presets/*.yaml`; spawner, world-tool binding, scene-participant, timer, and link state via durable `IndexedRecordStore` ledgers under `world/storynpcs/`; overlays are deliberately session-scoped (never durable — stale overlays on a client must not resurrect).
 - A spawner whose template is deleted keeps spawning from its last-instantiated definition (snapshot semantics); deleting a spawner stops future spawns but leaves already-spawned actors in-world — both are surfaced explicitly.
 - Scene participants persist in-world after session end (both RESTORE_POSITIONS and LEAVE_IN_PLACE leave spawned actors; no despawn-on-finish semantic exists yet — scripted despawn is a P9-2 script surface).
 - Script execution inside scenes/timers/hooks stays deferred to P9-2 (#84): orchestration fires events and executes bounded structural actions only, never user code.

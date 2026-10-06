@@ -35,6 +35,10 @@ public class DefinitionRegistry {
             new LinkedHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.template.SpawnerRule> spawners =
             new ConcurrentHashMap<>();
+    private final Map<NamespacedId, com.storynpcs.creator.gui.CustomGuiLayout> guiLayouts =
+            new ConcurrentHashMap<>();
+    private final Map<NamespacedId, com.storynpcs.creator.gui.ModelPreset> modelPresets =
+            new ConcurrentHashMap<>();
     /**
      * Monotonic registry revision — bumped on every register/remove. Authoring
      * patch plans capture it as their baseRevision so staleness is detectable.
@@ -587,6 +591,98 @@ public class DefinitionRegistry {
         }
     }
 
+    public void registerGuiLayout(com.storynpcs.creator.gui.CustomGuiLayout layout) {
+        if (layout != null && layout.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (guiLayouts.put(layout.getId(), layout) != layout) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.gui.CustomGuiLayout> getGuiLayout(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(guiLayouts.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.gui.CustomGuiLayout> getAllGuiLayouts() {
+        rwLock.readLock().lock();
+        try {
+            return guiLayouts.values().stream()
+                    .sorted(java.util.Comparator.comparing(l -> l.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeGuiLayout(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (guiLayouts.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public void registerModelPreset(com.storynpcs.creator.gui.ModelPreset preset) {
+        if (preset != null && preset.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (modelPresets.put(preset.getId(), preset) != preset) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.gui.ModelPreset> getModelPreset(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(modelPresets.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.gui.ModelPreset> getAllModelPresets() {
+        rwLock.readLock().lock();
+        try {
+            return modelPresets.values().stream()
+                    .sorted(java.util.Comparator.comparing(p -> p.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeModelPreset(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (modelPresets.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     /** Deterministic template search — delegated to the library's matcher. */
     public java.util.List<NamespacedId> searchTemplates(String query) {
         rwLock.readLock().lock();
@@ -644,6 +740,10 @@ public class DefinitionRegistry {
             transforms.putAll(other.transforms);
             naturalSpawns.clear();
             naturalSpawns.putAll(other.naturalSpawns);
+            guiLayouts.clear();
+            guiLayouts.putAll(other.guiLayouts);
+            modelPresets.clear();
+            modelPresets.putAll(other.modelPresets);
             for (var template : other.templates.all()) {
                 for (var dependent : other.templates.dependentSpawners(template.getId())) {
                     templates.registerSpawner(template.getId(), dependent);
@@ -671,6 +771,8 @@ public class DefinitionRegistry {
             scenes.clear();
             transforms.clear();
             naturalSpawns.clear();
+            guiLayouts.clear();
+            modelPresets.clear();
             revision.incrementAndGet();
         } finally {
             rwLock.writeLock().unlock();
