@@ -29,8 +29,12 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## P8-3 — World tools
 
-- `WorldToolDefinition`: 7 families, dimension binding, bounded blocks-per-activation ≤1024.
-- `ScriptedHookBinding`: inert typed bindings (namespaced hookId, event, ≤16 params) — never executes code.
+- `WorldToolDefinition` + `ScriptedHookBinding`: 7 families, schemaVersion, namespaced blockId (validated for block families), dimension binding, bounded blocks-per-activation ≤1024, authored inert hook/scene payloads — never executes user code (script EXECUTION stays deferred to P9-2 / #84).
+- YAML family `definitions/worldtools/*.yaml` loads through `YamlDefinitionLoader` (case-insensitive family enum), registers in `DefinitionRegistry`, mutates via canonical `saveWorldTool`/`deleteWorldTool`/`activateWorldTool` + `storynpcs worldtool {list,info,activate,delete}` commands.
+- `WorldToolOpsCatalog`: explicit reversible/irreversible ops (`block.place`/`block.remove` reversible; `hooks.bind`/`signal.pulse`/`mail.deposit`/`scene.activate` irreversible); SCENE requires authored steps, SCRIPTED_BLOCK requires an authored payload.
+- `WorldToolExecutor`: preview/apply/rollback `executePlan` (pure, failure ⇒ reverse-order undo of completed reversible legs, `LOGGED` for irreversible, honest `rollbackFailed` reporting), activation enforcement (dimension+position binding, dimension-locked tools), mailbox deposit via `QuestMailStore`, scene activations registered in `RuntimeSessionRegistry` (cleared on logout/world unload).
+- `WorldToolBindingStore`: per-position inert hook bindings under `world/storynpcs/world_tool_bindings/` (IndexedRecordStore), opened/closed by `WorldLifecycleHandler`; persisted bindings survive reactivation.
+- Live evidence: `worldToolActivationMutatesLiveWorld` GameTest — canonical save, real activation places REDSTONE_BLOCK + persists the authored binding, dimension-locked tool rejected cross-dimension, missing tool id reported cleanly.
 
 ## P8-4 — Recipes
 
@@ -51,11 +55,11 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## Explicit limits
 
-- P8-1 and P8-2 are wired end-to-end (runtime, items, commands, audit, durable state). P8-3..P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet.
-- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; spawner runtime state via the durable `IndexedRecordStore` ledger.
+- P8-1, P8-2, and P8-3 are wired end-to-end (runtime, items/commands, audit, durable state). P8-4..P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet.
+- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; spawner runtime state and world-tool activation bindings via durable `IndexedRecordStore` ledgers.
 - A spawner whose template is deleted keeps spawning from its last-instantiated definition (snapshot semantics); deleting a spawner stops future spawns but leaves already-spawned actors in-world — both are surfaced explicitly.
 - Placement uses a seeded `RandomSource` (deterministic per rule+tick sequence); quota/interval/chunk/unload rules are deterministic.
 
 ## Verification
 
-`./gradlew test`: 1259 tests, 0 failures. `./gradlew runGameTestServer`: 13/13 pass (live spawner + live mount-policy fixtures). `git diff --check` clean.
+`./gradlew test`: 1272 tests, 0 failures. `./gradlew runGameTestServer`: 14/14 pass (live spawner, mount-policy, and world-tool activation fixtures). `git diff --check` clean.

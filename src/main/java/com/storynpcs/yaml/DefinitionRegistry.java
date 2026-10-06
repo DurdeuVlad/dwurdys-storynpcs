@@ -23,6 +23,8 @@ public class DefinitionRegistry {
     private final Map<NamespacedId, TransportLocation> transportLocations = new ConcurrentHashMap<>();
     private final com.storynpcs.creator.template.TemplateLibrary templates =
             new com.storynpcs.creator.template.TemplateLibrary();
+    private final Map<NamespacedId, com.storynpcs.creator.world.WorldToolDefinition> worldTools =
+            new LinkedHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.template.SpawnerRule> spawners =
             new ConcurrentHashMap<>();
     /**
@@ -328,6 +330,54 @@ public class DefinitionRegistry {
         }
     }
 
+    /** Register a world-tool definition (P8-3). */
+    public void registerWorldTool(com.storynpcs.creator.world.WorldToolDefinition tool) {
+        if (tool != null && tool.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                var previous = worldTools.put(tool.getId(), tool);
+                if (previous != tool) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.world.WorldToolDefinition> getWorldTool(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(worldTools.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.world.WorldToolDefinition> getAllWorldTools() {
+        rwLock.readLock().lock();
+        try {
+            return worldTools.values().stream()
+                    .sorted(java.util.Comparator.comparing(t -> t.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeWorldTool(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (worldTools.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     /** Deterministic template search — delegated to the library's matcher. */
     public java.util.List<NamespacedId> searchTemplates(String query) {
         rwLock.readLock().lock();
@@ -375,6 +425,8 @@ public class DefinitionRegistry {
             }
             spawners.clear();
             spawners.putAll(other.spawners);
+            worldTools.clear();
+            worldTools.putAll(other.worldTools);
             for (var template : other.templates.all()) {
                 for (var dependent : other.templates.dependentSpawners(template.getId())) {
                     templates.registerSpawner(template.getId(), dependent);
@@ -397,6 +449,7 @@ public class DefinitionRegistry {
             transportLocations.clear();
             templates.clear();
             spawners.clear();
+            worldTools.clear();
             revision.incrementAndGet();
         } finally {
             rwLock.writeLock().unlock();

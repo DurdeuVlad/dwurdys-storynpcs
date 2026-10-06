@@ -246,6 +246,21 @@ public class WorldLifecycleHandler {
             mod.setSpawnerRuntimeStore(null);
         }
 
+        // P8-3: durable world-tool bindings — activated positions and their
+        // inert hook payloads survive restarts; rollback semantics live in the
+        // executor, the ledger is plain durable data.
+        Path bindingsDir = storyNpcsDir.resolve("world_tool_bindings");
+        try {
+            var bindingStore = new com.storynpcs.persistence.WorldToolBindingStore(
+                    bindingsDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            bindingStore.open();
+            mod.setWorldToolBindingStore(bindingStore);
+        } catch (Exception bindingFailure) {
+            LOGGER.error("World-tool binding store could not be opened at {}: {}",
+                    bindingsDir, bindingFailure.getMessage());
+            mod.setWorldToolBindingStore(null);
+        }
+
         // The logical actor scope is a durable world identity (scope.id), not the
         // world directory path — relocating a world must not orphan its actors.
         ActorLifecycleService actorService;

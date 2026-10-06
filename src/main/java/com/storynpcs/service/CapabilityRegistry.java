@@ -38,6 +38,10 @@ public final class CapabilityRegistry {
             Map.entry("spawner.mutate", Policy.DEFINITION),
             Map.entry("spawner.edit", Policy.DEFINITION),
             Map.entry("spawner.delete", Policy.DEFINITION),
+            Map.entry("worldtool.mutate", Policy.DEFINITION),
+            Map.entry("worldtool.edit", Policy.DEFINITION),
+            Map.entry("worldtool.delete", Policy.DEFINITION),
+            Map.entry("worldtool.activate", Policy.DEFINITION),
             Map.entry("template.edit", Policy.DEFINITION),
             Map.entry("template.delete", Policy.DEFINITION),
             // Player-scoped progression operations

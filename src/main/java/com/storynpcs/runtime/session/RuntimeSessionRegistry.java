@@ -62,6 +62,56 @@ public final class RuntimeSessionRegistry {
         }
     }
 
+    /**
+     * Pos-targeted pending operation (P8-3 world-tool activate): first call
+     * returns a preview, the matching second call inside the TTL commits.
+     */
+    public record PendingPosConfirmation(String tool, long targetPos, long expiryMillis) {}
+
+    private final Map<UUID, PendingPosConfirmation> pendingPosConfirmations = new ConcurrentHashMap<>();
+
+    public void armPosConfirmation(UUID playerId, String tool, long targetPos, long ttlMillis) {
+        if (playerId != null && tool != null) {
+            pendingPosConfirmations.put(playerId,
+                    new PendingPosConfirmation(tool, targetPos, System.currentTimeMillis() + ttlMillis));
+        }
+    }
+
+    /** Same consume-once, fail-closed semantics as {@link #consumeToolConfirmation}. */
+    public PendingPosConfirmation consumePosConfirmation(UUID playerId, String tool,
+                                                       long targetPos, long nowMillis) {
+        if (playerId == null) {
+            return null;
+        }
+        var pending = pendingPosConfirmations.remove(playerId);
+        if (pending == null || !pending.tool().equals(tool)
+                || pending.targetPos() != targetPos || pending.expiryMillis() < nowMillis) {
+            return null;
+        }
+        return pending;
+    }
+
+    /** Bounded scene-activation ledger (P8-3): per-server, evicted on stop/unload. */
+    private final Map<String, Long> sceneActivations = new ConcurrentHashMap<>();
+    public static final int MAX_SCENE_ACTIVATIONS = 64;
+
+    /** Returns false when the bounded activation ledger is full. */
+    public boolean registerSceneActivation(String toolId, long pos) {
+        if (toolId == null || sceneActivations.size() >= MAX_SCENE_ACTIVATIONS) {
+            return false;
+        }
+        sceneActivations.put(toolId + "|" + pos, pos);
+        return true;
+    }
+
+    public boolean unregisterSceneActivation(String toolId, long pos) {
+        return toolId != null && sceneActivations.remove(toolId + "|" + pos) != null;
+    }
+
+    public int sceneActivationCount() {
+        return sceneActivations.size();
+    }
+
     public void selectTeleportEntity(UUID playerId, int entityId) {
         if (playerId != null) {
             selectedTeleportEntities.put(playerId, entityId);
@@ -235,6 +285,7 @@ public final class RuntimeSessionRegistry {
         entitySessions.remove(playerId);
         acceptedRequests.remove(playerId);
         pendingToolConfirmations.remove(playerId);
+        pendingPosConfirmations.remove(playerId);
         selectedTeleportEntities.remove(playerId);
     }
 
@@ -249,7 +300,9 @@ public final class RuntimeSessionRegistry {
         entitySessions.clear();
         acceptedRequests.clear();
         pendingToolConfirmations.clear();
+        pendingPosConfirmations.clear();
         selectedTeleportEntities.clear();
+        sceneActivations.clear();
     }
 
     private static boolean throttle(Map<UUID, Long> timestamps, UUID playerId, long nowMillis, long minimumIntervalMillis) {
