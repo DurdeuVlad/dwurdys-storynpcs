@@ -318,6 +318,11 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("preview")
                                 .then(Commands.argument("layout_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::previewGuiLayout)))
+                        .then(Commands.literal("open")
+                                .then(Commands.argument("layout_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::openGuiLayout)
+                                        .then(Commands.argument("player", net.minecraft.commands.arguments.EntityArgument.player())
+                                                .executes(StoryNpcsCommands::openGuiLayoutFor))))
                         .then(Commands.literal("delete")
                                 .then(Commands.argument("layout_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteGuiLayout))))
@@ -857,7 +862,15 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("mail")
                         .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL)))
                 .then(Commands.literal("transport")
-                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT)));
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT)))
+                .then(Commands.literal("companions")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_COMPANIONS)))
+                .then(Commands.literal("hire")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_FOLLOWER_HIRE)))
+                .then(Commands.literal("achievements")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_ACHIEVEMENTS)))
+                .then(Commands.literal("carpentry")
+                        .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_CARPENTRY)));
     }
 
     private static int openHub(CommandContext<CommandSourceStack> ctx) {
@@ -6157,6 +6170,54 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal(
                     diagnostics.formatReport(5)));
         }
+        return 1;
+    }
+
+    /** {@code layout open <id>} — push the authored layout to the calling player. */
+    private static int openGuiLayout(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Custom GUIs open for players only."));
+            return 0;
+        }
+        return openGuiLayoutFor(ctx, player);
+    }
+
+    /** {@code layout open <id> <player>} — op pushes the layout to a target. */
+    private static int openGuiLayoutFor(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        net.minecraft.server.level.ServerPlayer target;
+        try {
+            target = net.minecraft.commands.arguments.EntityArgument.getPlayer(ctx, "player");
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
+            return 0;
+        }
+        return openGuiLayoutFor(ctx, target);
+    }
+
+    private static int openGuiLayoutFor(CommandContext<CommandSourceStack> ctx,
+                                        net.minecraft.server.level.ServerPlayer target) {
+        var mod = modOrNull(ctx);
+        if (mod == null || mod.getRegistry() == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "layout_id").toString());
+        var layout = mod.getRegistry().getGuiLayout(id).orElse(null);
+        if (layout == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Layout not found: " + id));
+            return 0;
+        }
+        var diagnostics = layout.validate();
+        if (diagnostics.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Layout fails validation — refusing to open:\n"
+                            + diagnostics.formatReport(5)));
+            return 0;
+        }
+        com.storynpcs.network.StoryNpcsNetwork.sendCustomGuiOpen(target, layout);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] Opened GUI " + id + " for " + target.getGameProfile().getName()), false);
         return 1;
     }
 

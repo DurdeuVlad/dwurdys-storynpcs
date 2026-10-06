@@ -2,6 +2,7 @@ package com.storynpcs.service;
 
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.faction.Faction;
+import com.storynpcs.domain.panel.PlayerPanels;
 import com.storynpcs.domain.panel.PlayerPanels.FactionPanelView;
 import com.storynpcs.domain.panel.PlayerPanels.FactionRow;
 import com.storynpcs.domain.panel.PlayerPanels.MailRow;
@@ -39,8 +40,14 @@ public final class PlayerPanelViews {
     public static final String PANEL_MAIL = "mail";
     public static final String PANEL_TRANSPORT = "transport";
 
+    public static final String PANEL_COMPANIONS = "companions";
+    public static final String PANEL_FOLLOWER_HIRE = "follower_hire";
+    public static final String PANEL_ACHIEVEMENTS = "achievements";
+    public static final String PANEL_CARPENTRY = "carpentry";
+
     public static final Set<String> PANEL_IDS =
-            Set.of(PANEL_QUEST_LOG, PANEL_FACTIONS, PANEL_MAIL, PANEL_TRANSPORT);
+            Set.of(PANEL_QUEST_LOG, PANEL_FACTIONS, PANEL_MAIL, PANEL_TRANSPORT,
+                    PANEL_COMPANIONS, PANEL_FOLLOWER_HIRE, PANEL_ACHIEVEMENTS, PANEL_CARPENTRY);
 
     /**
      * Quest log (GuiQuestLog parity): every quest the player has state for,
@@ -145,6 +152,93 @@ public final class PlayerPanelViews {
                 .sorted(Comparator.comparing(TransportRow::name))
                 .toList();
         return new TransportView(rows);
+    }
+
+    /**
+     * Companions panel (GuiNpcCompanion* parity): rows are built by the caller
+     * from a live entity scan — this method only sorts/records them so the
+     * entity-free surface stays unit-testable.
+     */
+    public static PlayerPanels.CompanionView companions(
+            List<PlayerPanels.CompanionRow> scanned) {
+        List<PlayerPanels.CompanionRow> rows = (scanned == null
+                ? List.<PlayerPanels.CompanionRow>of() : scanned).stream()
+                .sorted(Comparator.comparing(PlayerPanels.CompanionRow::name,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        return new PlayerPanels.CompanionView(rows);
+    }
+
+    /** Follower-hire candidates near the player — caller performs the scan. */
+    public static PlayerPanels.HireView followerHire(
+            List<PlayerPanels.HireRow> candidates) {
+        List<PlayerPanels.HireRow> rows = (candidates == null
+                ? List.<PlayerPanels.HireRow>of() : candidates).stream()
+                .sorted(Comparator.comparing(PlayerPanels.HireRow::name,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        return new PlayerPanels.HireView(rows);
+    }
+
+    /**
+     * Achievement view (GuiAchievement equivalent): earned progress — completed
+     * quests (titles resolved server-side), faction standings, hired
+     * companions — surfaced as read-only rows.
+     */
+    public static PlayerPanels.AchievementView achievements(
+            DefinitionRegistry registry, PlayerProgression progression,
+            int hiredCompanionCount) {
+        Objects.requireNonNull(progression, "progression");
+        Map<NamespacedId, QuestProgressState> states;
+        Map<NamespacedId, Integer> points;
+        synchronized (progression) {
+            states = Map.copyOf(progression.getQuests());
+            points = Map.copyOf(progression.getFactionPoints());
+        }
+        List<PlayerPanels.AchievementRow> rows = new ArrayList<>();
+        for (var e : states.entrySet()) {
+            if (e.getValue() == null
+                    || e.getValue().getStatus() != QuestProgressState.Status.COMPLETED) {
+                continue;
+            }
+            String title = registry != null
+                    ? registry.getQuest(e.getKey()).map(q -> q.getTitle()).orElse(e.getKey().toString())
+                    : e.getKey().toString();
+            rows.add(new PlayerPanels.AchievementRow(
+                    "quest:" + e.getKey(), title, "quest completed"));
+        }
+        if (registry != null) {
+            for (var f : registry.getAllFactions()) {
+                int pts = points.getOrDefault(f.getId(), f.getDefaultPoints());
+                var standing = f.getStandingForPoints(pts);
+                if (standing == com.storynpcs.domain.faction.FactionStanding.FRIENDLY) {
+                    rows.add(new PlayerPanels.AchievementRow(
+                            "faction:" + f.getId(), f.getName(),
+                            "friendly standing (" + pts + ")"));
+                }
+            }
+        }
+        for (int i = 0; i < hiredCompanionCount; i++) {
+            rows.add(new PlayerPanels.AchievementRow(
+                    "companion:" + i, "Companion hired", "a follower serves you"));
+        }
+        rows.sort(Comparator.comparing(PlayerPanels.AchievementRow::id));
+        return new PlayerPanels.AchievementView(rows);
+    }
+
+    /** Carpentry bench view (GuiNpcCarpentryBench parity): all authored recipes. */
+    public static PlayerPanels.CarpentryView carpentry(
+            List<com.storynpcs.creator.recipe.CarpentryRecipe> recipes) {
+        List<PlayerPanels.CarpentryRow> rows = (recipes == null
+                ? List.<com.storynpcs.creator.recipe.CarpentryRecipe>of() : recipes).stream()
+                .map(r -> new PlayerPanels.CarpentryRow(
+                        r.getId() == null ? "?" : r.getId().toString(),
+                        r.getGroupId() == null ? "" : r.getGroupId().toString(),
+                        r.getOutputItemId(), r.getOutputCount(), r.isShapeless(),
+                        com.storynpcs.creator.recipe.CarpentryBench.ingredientSummary(r)))
+                .sorted(Comparator.comparing(PlayerPanels.CarpentryRow::id))
+                .toList();
+        return new PlayerPanels.CarpentryView(rows);
     }
 
     private PlayerPanelViews() {}

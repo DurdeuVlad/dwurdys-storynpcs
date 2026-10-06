@@ -74,6 +74,44 @@ class PlayerPanelPayloadsTest {
     }
 
     @Test
+    @DisplayName("ServerboundPanelActionPayload round-trips hire and craft")
+    void panelActionRoundTrips() {
+        var hire = new ServerboundPanelActionPayload(
+                UUID.randomUUID(), UUID.randomUUID(), "follower_hire",
+                ServerboundPanelActionPayload.ACTION_HIRE, UUID.randomUUID().toString());
+        ByteBuf buf = Unpooled.buffer();
+        ServerboundPanelActionPayload.STREAM_CODEC.encode(buf, hire);
+        assertEquals(hire, ServerboundPanelActionPayload.STREAM_CODEC.decode(buf));
+
+        var craft = new ServerboundPanelActionPayload(
+                UUID.randomUUID(), UUID.randomUUID(), "carpentry",
+                ServerboundPanelActionPayload.ACTION_CRAFT, "storynpcs:shield");
+        buf = Unpooled.buffer();
+        ServerboundPanelActionPayload.STREAM_CODEC.encode(buf, craft);
+        var decoded = ServerboundPanelActionPayload.STREAM_CODEC.decode(buf);
+        assertEquals("storynpcs:shield", decoded.target());
+    }
+
+    @Test
+    @DisplayName("custom-GUI payloads round-trip layout + session + inputs")
+    void customGuiPayloadsRoundTrip() {
+        var open = new ClientboundCustomGuiOpenPayload(
+                "storynpcs:menu", "{\"id\":\"storynpcs:menu\"}", UUID.randomUUID());
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundCustomGuiOpenPayload.STREAM_CODEC.encode(buf, open);
+        assertEquals(open, ClientboundCustomGuiOpenPayload.STREAM_CODEC.decode(buf));
+
+        var action = new ServerboundCustomGuiActionPayload(
+                UUID.randomUUID(), UUID.randomUUID(), "storynpcs:menu",
+                "0/1", "{\"0/2\":\"text\"}");
+        buf = Unpooled.buffer();
+        ServerboundCustomGuiActionPayload.STREAM_CODEC.encode(buf, action);
+        var decoded = ServerboundCustomGuiActionPayload.STREAM_CODEC.decode(buf);
+        assertEquals("0/1", decoded.elementPath());
+        assertEquals("{\"0/2\":\"text\"}", decoded.inputsJson());
+    }
+
+    @Test
     @DisplayName("mail payload bounds reject oversized content")
     void mailPayloadBoundsEnforced() {
         // MESSAGE_CODEC bound is finite — an oversized body must fail encoding,

@@ -148,6 +148,96 @@ class PlayerPanelViewsTest {
     }
 
     @Test
+    void companionAndHireViewsSortRowsAndTolerateNulls() {
+        var hired = List.of(
+                new PlayerPanels.CompanionRow(UUID.randomUUID().toString(), "Zed",
+                        18.0, 20.0, "storynpcs:guard", 2, 27, false),
+                new PlayerPanels.CompanionRow(UUID.randomUUID().toString(), "Ada",
+                        20.0, 20.0, "", 0, 9, true),
+                new PlayerPanels.CompanionRow(UUID.randomUUID().toString(), null,
+                        1.0, 1.0, "", 0, 9, false));
+        var view = PlayerPanelViews.companions(hired);
+        assertThat(view.companions()).hasSize(3);
+        // null names sort last via nullsLast ordering.
+        assertThat(view.companions().get(2).name()).isNull();
+        assertThat(view.companions().get(0).name()).isEqualTo("Ada");
+
+        assertThat(PlayerPanelViews.companions(null).companions()).isEmpty();
+
+        var hire = PlayerPanelViews.followerHire(List.of(
+                new PlayerPanels.HireRow(UUID.randomUUID().toString(), "B", 5, 600),
+                new PlayerPanels.HireRow(UUID.randomUUID().toString(), "A", 0, 0)));
+        assertThat(hire.candidates()).extracting(PlayerPanels.HireRow::name)
+                .containsExactly("A", "B");
+        assertThat(PlayerPanelViews.followerHire(null).candidates()).isEmpty();
+    }
+
+    @Test
+    void achievementViewSurfacesEarnedProgressOnly() {
+        var registry = new DefinitionRegistry();
+        var done = NamespacedId.of("storynpcs:errand");
+        var open = NamespacedId.of("storynpcs:rescue");
+        registry.registerQuest(new Quest(done, "Run the Errand"));
+        registry.registerQuest(new Quest(open, "Rescue"));
+        Faction friendly = new Faction(NamespacedId.of("storynpcs:allies"), "Allies",
+                0, -200, 500);
+        Faction neutral = new Faction(NamespacedId.of("storynpcs:tribes"), "Tribes",
+                0, -200, 500);
+        registry.registerFaction(friendly);
+        registry.registerFaction(neutral);
+
+        var progression = progression();
+        var doneState = new QuestProgressState(done);
+        doneState.setStatus(QuestProgressState.Status.COMPLETED);
+        var openState = new QuestProgressState(open);
+        openState.setStatus(QuestProgressState.Status.IN_PROGRESS);
+        progression.getQuests().put(done, doneState);
+        progression.getQuests().put(open, openState);
+        progression.getFactionPoints().put(friendly.getId(), 700);
+        progression.getFactionPoints().put(neutral.getId(), 10);
+
+        var view = PlayerPanelViews.achievements(registry, progression, 2);
+        // Earned rows only: completed quest + friendly standing + 2 companions.
+        // The in-progress quest and neutral faction contribute nothing.
+        assertThat(view.rows()).hasSize(4);
+        assertThat(view.rows()).extracting(PlayerPanels.AchievementRow::id)
+                .contains("quest:storynpcs:errand", "faction:storynpcs:allies");
+        assertThat(view.rows()).extracting(PlayerPanels.AchievementRow::id)
+                .doesNotContain("quest:storynpcs:rescue", "faction:storynpcs:tribes");
+        assertThat(view.rows()).filteredOn(r -> r.id().startsWith("companion:"))
+                .hasSize(2);
+    }
+
+    @Test
+    void carpentryViewSummarizesIngredientsAndSorts() {
+        var shaped = new com.storynpcs.creator.recipe.CarpentryRecipe();
+        shaped.setId(NamespacedId.of("storynpcs:shield"));
+        shaped.setGroupId(NamespacedId.of("storynpcs:bench"));
+        shaped.setGrid(List.of("minecraft:oak_planks", "minecraft:iron_ingot",
+                "minecraft:oak_planks", "minecraft:oak_planks",
+                "minecraft:iron_ingot", "minecraft:oak_planks",
+                "", "minecraft:oak_planks", ""));
+        shaped.setOutputItemId("minecraft:shield");
+        shaped.setOutputCount(1);
+        var shapeless = new com.storynpcs.creator.recipe.CarpentryRecipe();
+        shapeless.setId(NamespacedId.of("storynpcs:bundle"));
+        shapeless.setGroupId(NamespacedId.of("storynpcs:bench"));
+        shapeless.setShapeless(true);
+        shapeless.setOutputItemId("minecraft:bundle");
+
+        var view = PlayerPanelViews.carpentry(List.of(shaped, shapeless));
+        assertThat(view.recipes()).hasSize(2);
+        assertThat(view.recipes()).extracting(PlayerPanels.CarpentryRow::id)
+                .containsExactly("storynpcs:bundle", "storynpcs:shield");
+        var shield = view.recipes().get(1);
+        assertThat(shield.shapeless()).isFalse();
+        assertThat(shield.ingredientSummary())
+                .containsExactlyInAnyOrder("minecraft:oak_planks x5",
+                        "minecraft:iron_ingot x2");
+        assertThat(PlayerPanelViews.carpentry(null).recipes()).isEmpty();
+    }
+
+    @Test
     void viewRecordsJsonRoundTrip() {
         var progression = progression();
         var id = NamespacedId.of("storynpcs:rescue");
