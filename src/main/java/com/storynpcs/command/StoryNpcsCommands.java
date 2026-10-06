@@ -131,6 +131,18 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("quickstart")
                         .requires(source -> source.hasPermission(2))
                         .executes(StoryNpcsCommands::quickstart))
+                // Beta tester surface: orientation, one-command diagnostic bundle,
+                // and in-game feedback capture — no permission required.
+                .then(Commands.literal("beta")
+                        .executes(StoryNpcsCommands::betaInfo)
+                        .then(Commands.literal("report")
+                                .executes(ctx -> betaReport(ctx, null))
+                                .then(Commands.argument("note", StringArgumentType.greedyString())
+                                        .executes(ctx -> betaReport(ctx,
+                                                StringArgumentType.getString(ctx, "note")))))
+                        .then(Commands.literal("feedback")
+                                .then(Commands.argument("text", StringArgumentType.greedyString())
+                                        .executes(StoryNpcsCommands::betaFeedback))))
                 // P6-3 transport: player-facing list + server-evaluated transfer
                 .then(Commands.literal("transport")
                         .executes(StoryNpcsCommands::listTransports)
@@ -5221,10 +5233,124 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    private static int betaInfo(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        for (String line : com.storynpcs.beta.BetaSupport.orientationLines()) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
+    }
+
+    /**
+     * {@code /storynpcs beta report [note]} — gathers everything a bug report
+     * needs (versions, loaded content inventory, player context) into one file
+     * under {@code world/storynpcs/beta/reports/} so testers never collect it
+     * by hand.
+     */
+    private static int betaReport(CommandContext<CommandSourceStack> ctx, String note) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getEntity() instanceof ServerPlayer sp ? sp : null;
+        String reporter = player != null ? player.getScoreboardName() : source.getTextName();
+        java.time.Instant now = java.time.Instant.now();
+
+        String modVersion = net.neoforged.fml.ModList.get()
+                .getModContainerById(StoryNpcs.MOD_ID)
+                .map(c -> c.getModInfo().getVersion().toString())
+                .orElse("dev");
+        String loaderVersion = net.neoforged.fml.ModList.get()
+                .getModContainerById("neoforge")
+                .map(c -> c.getModInfo().getVersion().toString())
+                .orElse("unknown");
+        String mcVersion = source.getServer().getServerVersion();
+
+        StoryNpcs mod = modOrNull(ctx);
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        DefinitionRegistry reg = mod != null ? mod.getRegistry() : null;
+        if (reg != null) {
+            counts.put("npcs", reg.getAllNpcs().size());
+            counts.put("dialogues", reg.getAllDialogues().size());
+            counts.put("quests", reg.getAllQuests().size());
+            counts.put("factions", reg.getAllFactions().size());
+            counts.put("transport_locations", reg.getAllTransportLocations().size());
+            counts.put("templates", reg.getAllTemplates().size());
+            counts.put("spawner_rules", reg.getAllSpawnerRules().size());
+            counts.put("world_tools", reg.getAllWorldTools().size());
+            counts.put("recipes", reg.getAllRecipes().size());
+            counts.put("scenes", reg.getAllScenes().size());
+            counts.put("transforms", reg.getAllTransforms().size());
+            counts.put("natural_spawns", reg.getAllNaturalSpawns().size());
+            counts.put("gui_layouts", reg.getAllGuiLayouts().size());
+            counts.put("scripts", reg.getAllScripts().size());
+            counts.put("model_presets", reg.getAllModelPresets().size());
+        }
+
+        java.util.List<String> playerContext = new java.util.ArrayList<>();
+        if (player != null) {
+            playerContext.add("position: " + player.blockPosition().toShortString()
+                    + " in " + player.level().dimension().location());
+            var repo = mod != null ? mod.getProgressionRepository() : null;
+            if (repo != null) {
+                PlayerProgression prog = repo.getOrCreate(player.getUUID());
+                long active = prog.getQuests().values().stream()
+                        .filter(q -> q.getStatus() == QuestProgressState.Status.IN_PROGRESS).count();
+                long completed = prog.getQuests().values().stream()
+                        .filter(q -> q.getStatus() == QuestProgressState.Status.COMPLETED).count();
+                playerContext.add("quests: " + active + " active, " + completed + " completed");
+            }
+        }
+
+        Path betaDir = source.getServer()
+                .getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
+                .resolve("storynpcs").resolve(com.storynpcs.beta.BetaSupport.BETA_DIR);
+        String content = com.storynpcs.beta.BetaSupport.buildReport(
+                modVersion, mcVersion, loaderVersion, now, reporter, counts, playerContext, note);
+        try {
+            Path saved = com.storynpcs.beta.BetaSupport.writeReport(
+                    betaDir, com.storynpcs.beta.BetaSupport.reportFileName(now, reporter), content);
+            source.sendSuccess(() -> Component.literal("§a[StoryNPCs] Beta report saved:"), false);
+            source.sendSuccess(() -> Component.literal(" §7" + saved), false);
+            source.sendSuccess(() -> Component.literal(
+                    "§7Send this file to your server owner or attach it to a bug report."), false);
+            return 1;
+        } catch (java.io.IOException e) {
+            source.sendFailure(Component.literal("[StoryNPCs] Could not write the beta report ("
+                    + e.getMessage() + "). Tell the server owner what happened — include mod version "
+                    + modVersion + "."));
+            return 0;
+        }
+    }
+
+    /**
+     * {@code /storynpcs beta feedback <text>} — one line into
+     * {@code world/storynpcs/beta/feedback.log}. On write failure the feedback
+     * is echoed back in chat so it can be screenshotted, never silently lost.
+     */
+    private static int betaFeedback(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        String reporter = source.getEntity() instanceof ServerPlayer sp
+                ? sp.getScoreboardName() : source.getTextName();
+        String line = com.storynpcs.beta.BetaSupport.feedbackLine(java.time.Instant.now(),
+                reporter, StringArgumentType.getString(ctx, "text"));
+        Path betaDir = source.getServer()
+                .getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
+                .resolve("storynpcs").resolve(com.storynpcs.beta.BetaSupport.BETA_DIR);
+        try {
+            com.storynpcs.beta.BetaSupport.appendFeedback(betaDir, line);
+            source.sendSuccess(() -> Component.literal(
+                    "§a[StoryNPCs] Thank you — your feedback was recorded."), false);
+            return 1;
+        } catch (java.io.IOException e) {
+            source.sendFailure(Component.literal("[StoryNPCs] Could not save feedback "
+                    + "(" + e.getMessage() + "). Please screenshot or copy this line: " + line));
+            return 0;
+        }
+    }
+
     private static int sendHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         source.sendSuccess(() -> Component.literal("§6--- Dwurdy's StoryNPCs Help ---§r\n" +
                 "§e/storynpcs quickstart §7- One-command demo: NPC + all wands\n" +
+                "§e/storynpcs beta <report|feedback> §7- Beta testing: snapshot a problem or leave a note\n" +
                 "§e/storynpcs me [player] §7- Your quests & faction standing\n" +
                 "§e/storynpcs reload §7- Reload YAML definitions\n" +
                 "§e/storynpcs npc <create|list|info|set|spawn|despawn|delete|rule|trade|bank> §7- Manage NPCs\n" +

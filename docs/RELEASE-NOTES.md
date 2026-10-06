@@ -1,8 +1,10 @@
-# Release notes — StoryNPCs parity build (local)
+# Release notes — StoryNPCs v0.11.0-beta.1
 
-Status: `IN-REVIEW` — implementation complete locally; **parity with the
-target runtime is NOT certified**. This document exists so unsupported claims
-cannot slip into a release announcement.
+Status: `BETA` — the full parity program is implemented and merged;
+**parity with the target runtime is NOT certified** and live-server
+evidence is still being gathered (see `docs/beta-testing.md`). This
+document exists so unsupported claims cannot slip into a release
+announcement.
 
 ## What this build delivers
 
@@ -21,6 +23,10 @@ cannot slip into a release announcement.
   artifacts + three live-runtime benchmark artifacts, release-gate report.
 - Verified test base: **145 suites / 1,433 JUnit tests / 0 failures**
   plus the Python parity toolchain (162 tests).
+- New in beta.1: `/storynpcs beta` tester surface — `beta report` writes a
+  self-contained diagnostic snapshot to `world/storynpcs/beta/reports/`,
+  `beta feedback <text>` appends to `beta/feedback.log`; both are
+  permission-free so any tester can use them (`docs/beta-testing.md`).
 
 ## Explicitly blocked / unverified — keep visible
 

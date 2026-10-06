@@ -71,6 +71,19 @@ class StoryNpcsCommandsTest {
         assertNotNull(storynpcs.getChild("me"), "Subcommand 'me' must exist");
         assertNotNull(storynpcs.getChild("quickstart"), "Subcommand 'quickstart' must exist");
 
+        // Beta tester surface — player-facing (no permission gate), so a
+        // non-op tester can run /storynpcs beta report and beta feedback.
+        CommandNode<CommandSourceStack> beta = storynpcs.getChild("beta");
+        assertNotNull(beta, "Subcommand 'beta' must exist");
+        assertTrue(beta.getRequirement().test(null),
+                "beta must not require elevated permission (default predicate accepts null source)");
+        CommandNode<CommandSourceStack> betaReport = beta.getChild("report");
+        assertNotNull(betaReport, "beta report must exist");
+        assertNotNull(betaReport.getChild("note"), "beta report optional note argument must exist");
+        CommandNode<CommandSourceStack> betaFeedback = beta.getChild("feedback");
+        assertNotNull(betaFeedback, "beta feedback must exist");
+        assertNotNull(betaFeedback.getChild("text"), "beta feedback text argument must exist");
+
         // NPC subcommands
         CommandNode<CommandSourceStack> npc = storynpcs.getChild("npc");
         assertNotNull(npc, "Subcommand 'npc' must exist");
