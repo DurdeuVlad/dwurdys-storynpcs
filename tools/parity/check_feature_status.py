@@ -19,6 +19,10 @@ CustomNPCs target feature with observable evidence signals:
                   ``src/main/java`` — trips when someone lands the feature
                   without updating the map. Comment text is stripped before
                   matching.
+- ``absent_exempt``: repo-relative paths skipped by ``absent`` scans — for
+                  parity catalogs that legitimately name target classes as
+                  mapping data (a name in a catalog row is not a shipped
+                  feature). Other files still trip the pattern.
 
 Rows claiming ``declared`` additionally get a 2-hop isolation check: the
 declared classes plus any same-package files that reference them must not be
@@ -176,9 +180,12 @@ def evaluate_row(root: Path, row: dict, java_files, code_cache: dict) -> dict:
         matched = globmod.glob(str(root / pattern), recursive=True)
         (hits if matched else misses)["tests"].append(pattern)
 
+    exempt = {(root / rel).resolve() for rel in evidence.get("absent_exempt", [])}
     for pattern in evidence.get("absent", []):
         compiled = re.compile(pattern)
         for jf in java_files:
+            if jf.resolve() in exempt:
+                continue
             if jf not in code_cache:
                 code_cache[jf] = _read_code(jf)
             if compiled.search(code_cache[jf]):

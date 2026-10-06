@@ -162,7 +162,13 @@ class CompatibilityReportTest(unittest.TestCase):
         markov = [r for r in report["rows"]
                   if r["surface"] == "data" and "markovnames" in str(r["symbol"])]
         self.assertEqual(len(markov), 19)
-        self.assertTrue(all(r["mapping_state"] == "INVENTORY_ONLY" for r in markov))
+        # #123 landed clean-room namegen: markov rows are MAPPED with
+        # verified path: + test: tokens (was INVENTORY_ONLY pre-#123).
+        self.assertTrue(all(
+            r["mapping_state"] == "MAPPED_STORYNPCS_OBSERVED" for r in markov))
+        self.assertTrue(all(
+            "path:src/main/resources/data/storynpcs/namegen/" in r["storynpcs_ref"]
+            for r in markov))
         # Summary stays terminal.
         self.assertNotIn("UNKNOWN", report["summary"]["by_state"])
         self.assertEqual(report["summary"]["unmapped_rows"], 0)

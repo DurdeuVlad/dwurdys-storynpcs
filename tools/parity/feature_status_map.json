@@ -202,14 +202,19 @@
   {
    "id": "advanced-surfaces",
    "feature": "Advanced (night/sounds/dimension/remote/linked)",
-   "status": "declared",
+   "status": "partial",
    "issue": "#81 P8-5, #86 P9-4",
-   "summary": "LinkedNpcGraph domain only",
+   "summary": "LinkedNpcGraph consumed by LinkedNpcRuntime orchestration; night/sounds/dimension/remote fields authored in YAML",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/creator/link/LinkedNpcGraph.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/runtime/orchestration/LinkedNpcRuntime.java",
+      "pattern": "LinkedNpcGraph"
+     }
+    ],
     "registered": [],
     "tests": [],
     "absent": []
@@ -874,13 +879,19 @@
    "feature": "Quest log / player UI",
    "status": "partial",
    "issue": "#150",
-   "summary": "PlayerPanelViews quest/faction/mail/transport views -> ClientboundPlayerPanelPayload -> player screens; session-bound commits, server-built JSON views (4 of the #150 acceptance surfaces; follower hire -> #71/#74, companion inv/stats -> #74, achievement view -> #86/#88, carpentry bench -> #80, custom GUI renderer -> #82)",
+   "summary": "All #150 surfaces shipped: quest/faction/mail/transport/companion/hire/achievement/carpentry panels + custom-GUI renderer; server-built JSON views, session-bound commits",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/service/PlayerPanelViews.java",
      "src/main/java/com/storynpcs/client/gui/player/PlayerQuestLogScreen.java",
      "src/main/java/com/storynpcs/client/gui/player/PlayerMailScreen.java",
-     "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java"
+     "src/main/java/com/storynpcs/client/gui/player/PlayerFactionPanelScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerCompanionScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerFollowerHireScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerAchievementsScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerCarpentryScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/PlayerTransportScreen.java",
+     "src/main/java/com/storynpcs/client/gui/player/CustomGuiScreen.java"
     ],
     "wired": [
      {
@@ -891,10 +902,14 @@
     "registered": [],
     "tests": [
      "src/test/java/com/storynpcs/service/PlayerPanelViewsTest.java",
-     "src/test/java/com/storynpcs/network/PlayerPanelPayloadsTest.java"
+     "src/test/java/com/storynpcs/network/PlayerPanelPayloadsTest.java",
+     "src/test/java/com/storynpcs/client/gui/model/CustomGuiScreenModelTest.java"
     ],
     "absent": [
      "GuiQuestLog"
+    ],
+    "absent_exempt": [
+     "src/main/java/com/storynpcs/editor/hub/GuiParityCatalog.java"
     ]
    }
   },
@@ -959,14 +974,19 @@
   {
    "id": "spawner-blocks",
    "feature": "Spawner blocks",
-   "status": "declared",
+   "status": "partial",
    "issue": "#77 P8-1",
-   "summary": "SpawnerRule domain",
+   "summary": "SpawnerRule domain exposed via API definition domain; no spawner block runtime",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/creator/template/SpawnerRule.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+      "pattern": "SpawnerRule"
+     }
+    ],
     "registered": [],
     "tests": [],
     "absent": []
@@ -1002,22 +1022,35 @@
    "feature": "Mounter / soulstone / teleporter / remover tools",
    "status": "partial",
    "issue": "#78 P8-2",
-   "summary": "NpcMounterItem exists; soulstone/teleporter/remover absent",
+   "summary": "NpcMounterItem, NpcRemoverItem, NpcSoulStoneItem, NpcTeleporterItem all registered",
    "evidence": {
     "files": [
-     "src/main/java/com/storynpcs/item/NpcMounterItem.java"
+     "src/main/java/com/storynpcs/item/NpcMounterItem.java",
+     "src/main/java/com/storynpcs/item/NpcRemoverItem.java",
+     "src/main/java/com/storynpcs/item/NpcSoulStoneItem.java",
+     "src/main/java/com/storynpcs/item/NpcTeleporterItem.java"
     ],
     "wired": [],
     "registered": [
      {
       "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
       "pattern": "npc_mounter"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "npc_remover"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "npc_soulstone"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/item/StoryNpcsItems.java",
+      "pattern": "npc_teleporter"
      }
     ],
     "tests": [],
-    "absent": [
-     "[Ss]oul[Ss]tone|TeleporterItem|ItemTeleporter|NpcRemover|RemoverItem"
-    ]
+    "absent": []
    }
   },
   {
@@ -1072,14 +1105,24 @@
   {
    "id": "scripted-block-door",
    "feature": "Scripted block/door",
-   "status": "declared",
+   "status": "partial",
    "issue": "#79 P8-3, #84 P9-2",
-   "summary": "ScriptedHookBinding domain (inert)",
+   "summary": "ScriptedHookBinding + WorldToolDefinition referenced by persistence catalog and API; hook dispatch inert",
    "evidence": {
     "files": [
-     "src/main/java/com/storynpcs/creator/world/ScriptedHookBinding.java"
+     "src/main/java/com/storynpcs/creator/world/ScriptedHookBinding.java",
+     "src/main/java/com/storynpcs/creator/world/WorldToolDefinition.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/domain/persistence/PersistenceStoreCatalog.java",
+      "pattern": "ScriptedHookBinding"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+      "pattern": "WorldToolDefinition"
+     }
+    ],
     "registered": [],
     "tests": [],
     "absent": []
@@ -1088,16 +1131,29 @@
   {
    "id": "mailbox-carpentry",
    "feature": "Mailbox block / carpentry bench",
-   "status": "declared",
+   "status": "partial",
    "issue": "#79 P8-3, #80 P8-4",
-   "summary": "CarpentryRecipe domain only",
+   "summary": "CarpentryRecipe + CarpentryBench consumed by network craft handler and persistence map; mailbox block absent",
    "evidence": {
     "files": [
-     "src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java"
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java",
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryBench.java",
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryBenchMatcher.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "CarpentryBench"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/persistence/PersistenceStoreMap.java",
+      "pattern": "CarpentryBenchMatcher"
+     }
+    ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/creator/recipe/CarpentryBenchTest.java"
+    ],
     "absent": [
      "MailboxBlock|BlockMailbox|MailboxScreen|MailboxMenu"
     ]
@@ -1106,15 +1162,24 @@
   {
    "id": "scenes",
    "feature": "Scenes",
-   "status": "declared",
+   "status": "partial",
    "issue": "#81 P8-5",
-   "summary": "SceneDefinition, SceneTimer",
+   "summary": "SceneDefinition via API; SceneTimer persisted via SceneTimerStore",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/creator/scene/SceneDefinition.java",
      "src/main/java/com/storynpcs/creator/scene/SceneTimer.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+      "pattern": "SceneDefinition"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/persistence/SceneTimerStore.java",
+      "pattern": "SceneTimer"
+     }
+    ],
     "registered": [],
     "tests": [],
     "absent": []
@@ -1123,16 +1188,25 @@
   {
    "id": "linked-transform-timer-spawn",
    "feature": "Linked NPCs / transformations / timers / natural spawn",
-   "status": "declared",
+   "status": "partial",
    "issue": "#81 P8-5",
-   "summary": "LinkedNpcGraph, TransformRule, NaturalSpawnRule",
+   "summary": "LinkedNpcGraph consumed by LinkedNpcRuntime; TransformRule/NaturalSpawnRule via API definition domains",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/creator/link/LinkedNpcGraph.java",
      "src/main/java/com/storynpcs/creator/transform/TransformRule.java",
      "src/main/java/com/storynpcs/creator/spawn/NaturalSpawnRule.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/runtime/orchestration/LinkedNpcRuntime.java",
+      "pattern": "LinkedNpcGraph"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+      "pattern": "TransformRule|NaturalSpawnRule"
+     }
+    ],
     "registered": [],
     "tests": [],
     "absent": []
@@ -1141,16 +1215,28 @@
   {
    "id": "recipes-carpentry",
    "feature": "Recipes/carpentry",
-   "status": "declared",
+   "status": "partial",
    "issue": "#80 P8-4",
-   "summary": "CarpentryRecipe",
+   "summary": "CarpentryRecipe consumed by bench craft handler (network) and API domain",
    "evidence": {
     "files": [
-     "src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java"
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryRecipe.java",
+     "src/main/java/com/storynpcs/creator/recipe/CarpentryBench.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "CarpentryBench|CarpentryRecipe"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+      "pattern": "CarpentryRecipe"
+     }
+    ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/creator/recipe/CarpentryBenchTest.java"
+    ],
     "absent": []
    }
   },
@@ -1290,30 +1376,54 @@
   {
    "id": "custom-gui",
    "feature": "Custom GUI authoring",
-   "status": "declared",
+   "status": "partial",
    "issue": "#82 P8-6",
-   "summary": "CustomGuiLayout",
+   "summary": "CustomGuiLayout served to clients via ClientboundCustomGuiOpenPayload; CustomGuiScreen renders; action payload session-bound",
    "evidence": {
     "files": [
-     "src/main/java/com/storynpcs/creator/gui/CustomGuiLayout.java"
+     "src/main/java/com/storynpcs/creator/gui/CustomGuiLayout.java",
+     "src/main/java/com/storynpcs/client/gui/player/CustomGuiScreen.java",
+     "src/main/java/com/storynpcs/client/gui/model/CustomGuiScreenModel.java",
+     "src/main/java/com/storynpcs/network/ClientboundCustomGuiOpenPayload.java",
+     "src/main/java/com/storynpcs/network/ServerboundCustomGuiActionPayload.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/network/StoryNpcsNetwork.java",
+      "pattern": "ClientboundCustomGuiOpenPayload|ServerboundCustomGuiActionPayload"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/client/StoryNpcsClient.java",
+      "pattern": "CustomGuiScreen|openCustomGui"
+     },
+     {
+      "file": "src/main/java/com/storynpcs/api/StoryNpcsApi.java",
+      "pattern": "CustomGuiLayout"
+     }
+    ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/client/gui/model/CustomGuiScreenModelTest.java"
+    ],
     "absent": []
    }
   },
   {
    "id": "overlays-presets",
    "feature": "HUD overlays / model presets",
-   "status": "declared",
+   "status": "partial",
    "issue": "#82 P8-6",
-   "summary": "OverlaySession",
+   "summary": "OverlaySession driven by WorldLifecycleHandler session open/expire; model presets authored",
    "evidence": {
     "files": [
      "src/main/java/com/storynpcs/creator/gui/OverlaySession.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/lifecycle/WorldLifecycleHandler.java",
+      "pattern": "getOverlaySessions|OverlayExpiredEvent"
+     }
+    ],
     "registered": [],
     "tests": [],
     "absent": []
@@ -1570,16 +1680,26 @@
   {
    "id": "authoring-hub",
    "feature": "Unified authoring hub",
-   "status": "declared",
+   "status": "partial",
    "issue": "#88 P10-1",
-   "summary": "AuthoringHub model, not wired into screens",
+   "summary": "AuthoringHub model + GuiParityCatalog (149 rows) rendered by AuthoringHubScreen via /storynpcs hub; navigation-only",
    "evidence": {
     "files": [
-     "src/main/java/com/storynpcs/editor/hub/AuthoringHub.java"
+     "src/main/java/com/storynpcs/editor/hub/AuthoringHub.java",
+     "src/main/java/com/storynpcs/editor/hub/GuiParityCatalog.java",
+     "src/main/java/com/storynpcs/client/gui/AuthoringHubScreen.java"
     ],
-    "wired": [],
+    "wired": [
+     {
+      "file": "src/main/java/com/storynpcs/command/StoryNpcsCommands.java",
+      "pattern": "\"hub\""
+     }
+    ],
     "registered": [],
-    "tests": [],
+    "tests": [
+     "src/test/java/com/storynpcs/editor/hub/AuthoringHubTest.java",
+     "src/test/java/com/storynpcs/editor/hub/GuiParityCatalogTest.java"
+    ],
     "absent": []
    }
   }

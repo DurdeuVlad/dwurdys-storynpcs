@@ -1033,7 +1033,7 @@
       "com.storynpcs.domain.role.TraderRoleTest#Concurrent executeTrade calls cannot exceed a listing's maxUses",
       "com.storynpcs.persistence.TradeStateRepositoryTest#Listing uses reserve durably and survive repository reload",
       "com.storynpcs.domain.P7DomainTest#twoInputsAndOutputValidateBeforeCommit()",
-      "com.storynpcs.domain.P7DomainTest#restockResetsUsesDeterministically()",
+      "com.storynpcs.domain.P7DomainTest#restockResetsUsesDeterministically(Path)",
       "com.storynpcs.domain.P7DomainTest#purchaseEligibilityIsServerSideAndBounded()"
     ],
     "P0-4.companion": [

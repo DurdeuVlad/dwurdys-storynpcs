@@ -134,6 +134,33 @@ class FeatureStatusTest(unittest.TestCase):
                           "absent": ["Registries\\.BLOCK"]})])
             self.assertEqual(run_main(root), 0)
 
+    def test_absent_exempt_skips_only_listed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            # Parity catalogs legitimately name target classes as mapping data;
+            # exempt files are skipped, but the pattern still scans everywhere else.
+            java(root, "parity/Catalog.java", 'class Catalog { String s = "GuiQuestLog"; }')
+            make_map(root, [ROW(
+                status="planned",
+                evidence={"files": [], "wired": [], "registered": [], "tests": [],
+                          "absent": ["GuiQuestLog"],
+                          "absent_exempt": [
+                              "src/main/java/com/storynpcs/parity/Catalog.java"]})])
+            self.assertEqual(run_main(root), 0)
+
+    def test_absent_exempt_does_not_cover_other_files(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            java(root, "parity/Catalog.java", 'class Catalog { String s = "GuiQuestLog"; }')
+            java(root, "real/GuiQuestLog.java", "class GuiQuestLog {}")
+            make_map(root, [ROW(
+                status="planned",
+                evidence={"files": [], "wired": [], "registered": [], "tests": [],
+                          "absent": ["GuiQuestLog"],
+                          "absent_exempt": [
+                              "src/main/java/com/storynpcs/parity/Catalog.java"]})])
+            self.assertEqual(run_main(root), 1)
+
     def test_registered_alone_cannot_reach_tested_floor(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
