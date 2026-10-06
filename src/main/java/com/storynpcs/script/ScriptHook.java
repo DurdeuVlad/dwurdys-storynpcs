@@ -26,4 +26,19 @@ public enum ScriptHook {
     public BudgetClass budgetClass() {
         return budgetClass;
     }
+
+    /** The function name scripts implement for this hook (e.g. {@code init}). */
+    public String jsName() {
+        return name().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Parses a YAML-authored hook name; unknown names are rejected by the loader. */
+    public static ScriptHook fromName(String name) {
+        if (name == null) return null;
+        try {
+            return valueOf(name.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
 }

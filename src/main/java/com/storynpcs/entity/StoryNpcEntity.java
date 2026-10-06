@@ -121,6 +121,11 @@ public class StoryNpcEntity extends PathfinderMob {
         if (npcId == null) return;
         mod.getEventPublisher().publish(
                 new com.storynpcs.api.event.NpcAggroChangeEvent(npcId, target, isAggro, reason));
+        // P9-2: target hook on aggro acquisition; de-aggro stays event-only
+        // (disclosed in ScriptHookMatrix).
+        if (isAggro) {
+            dispatchScriptHook(com.storynpcs.script.ScriptHook.TARGET, null);
+        }
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -259,6 +264,13 @@ public class StoryNpcEntity extends PathfinderMob {
         if (this.level().isClientSide) {
             return;
         }
+        // P9-2: script init fires once on the first live server tick, then the
+        // per-tick hook — both budgeted dispatches, failures quarantined.
+        if (!scriptInitFired) {
+            scriptInitFired = true;
+            dispatchScriptHook(com.storynpcs.script.ScriptHook.INIT, null);
+        }
+        dispatchScriptHook(com.storynpcs.script.ScriptHook.TICK, null);
         if (emoteState.tick()) {
             pushEmoteSync();
         } else if (emoteState.isActive()) {
@@ -839,6 +851,41 @@ public class StoryNpcEntity extends PathfinderMob {
         return mod != null ? state.resolveDefinition(mod.getRegistry()) : Optional.empty();
     }
 
+    /** One-shot init-hook latch — scripts init on the first live server tick. */
+    private boolean scriptInitFired = false;
+
+    /**
+     * P9-2: dispatch an entity hook to the scripts bound in this NPC's
+     * definition. Every dispatch is metered+quarantined by the script runtime;
+     * this seam adds only the context assembly. A missing mod/runtime or a
+     * definition without bound scripts is a silent no-op — scripting is an
+     * optional authored layer, never an entity invariant.
+     */
+    private void dispatchScriptHook(com.storynpcs.script.ScriptHook hook,
+                                    net.minecraft.server.level.ServerPlayer player) {
+        var mod = StoryNpcsAccess.mod(this);
+        if (mod == null || mod.getApplicationService() == null) {
+            return;
+        }
+        var definition = getDefinition().orElse(null);
+        if (definition == null || definition.getScripts().isEmpty()) {
+            return;
+        }
+        try {
+            mod.getScriptRuntime().dispatchFor(hook,
+                    com.storynpcs.script.ScriptRuntime.entityContext(hook,
+                            getDefinitionId(),
+                            player == null ? null : player.getUUID().toString(),
+                            level().dimension().location().toString()),
+                    definition.getScripts());
+        } catch (RuntimeException dispatchFailure) {
+            // The scheduler isolates script failures itself; this guard keeps a
+            // lookup/runtime hiccup from breaking the entity tick path.
+            StoryNpcs.LOGGER.debug("Script hook {} dispatch failed for {}: {}",
+                    hook, getDefinitionId(), dispatchFailure.toString());
+        }
+    }
+
     private final com.storynpcs.domain.npc.DisplayProjectionCache displayProjectionCache =
             new com.storynpcs.domain.npc.DisplayProjectionCache();
 
@@ -1251,6 +1298,10 @@ public class StoryNpcEntity extends PathfinderMob {
             return;
         }
         if (!this.level().isClientSide && !this.isRemoved()) {
+            // P9-2: killed hook fires before the defeat-mode resolution so a
+            // scripted reaction observes the kill regardless of outcome mode.
+            dispatchScriptHook(com.storynpcs.script.ScriptHook.KILLED,
+                    source.getEntity() instanceof ServerPlayer sp ? sp : null);
             var mod = StoryNpcsAccess.mod(this);
             if (mod != null && mod.getRegistry() != null) {
                 // Resolve unconditionally — authored defeat semantics are not
@@ -1661,6 +1712,8 @@ public class StoryNpcEntity extends PathfinderMob {
 
         if (player instanceof ServerPlayer serverPlayer) {
             var mod = StoryNpcsAccess.mod(this);
+            // P9-2: interact hook — budgeted, before the dialogue/follower flow.
+            dispatchScriptHook(com.storynpcs.script.ScriptHook.INTERACT, serverPlayer);
 
             // Shift-right-click to cycle follower states if player is owner
             if (followerRole != null && followerRole.isOwnedBy(serverPlayer.getUUID()) && serverPlayer.isShiftKeyDown()) {
@@ -1930,6 +1983,12 @@ public class StoryNpcEntity extends PathfinderMob {
     public boolean hurt(DamageSource source, float amount) {
         if (isInvulnerableTo(source)) {
             return false;
+        }
+        // P9-2: damaged hook — budgeted; runs before threat/ability outcomes so
+        // a scripted reaction observes the pre-mitigation hit.
+        if (!this.level().isClientSide) {
+            dispatchScriptHook(com.storynpcs.script.ScriptHook.DAMAGED,
+                    source.getEntity() instanceof ServerPlayer sp ? sp : null);
         }
         // A hidden statue absorbs hits but never provokes — no threat writes.
         if (!this.level().isClientSide && hiddenDefeatTicksLeft == 0

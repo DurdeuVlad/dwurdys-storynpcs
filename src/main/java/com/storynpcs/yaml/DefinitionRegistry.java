@@ -35,6 +35,8 @@ public class DefinitionRegistry {
             new LinkedHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.template.SpawnerRule> spawners =
             new ConcurrentHashMap<>();
+    private final Map<NamespacedId, com.storynpcs.domain.script.ScriptDefinition> scripts =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.gui.CustomGuiLayout> guiLayouts =
             new ConcurrentHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.gui.ModelPreset> modelPresets =
@@ -637,6 +639,52 @@ public class DefinitionRegistry {
         }
     }
 
+    public void registerScript(com.storynpcs.domain.script.ScriptDefinition script) {
+        if (script != null && script.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (scripts.put(script.getId(), script) != script) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.domain.script.ScriptDefinition> getScript(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(scripts.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.domain.script.ScriptDefinition> getAllScripts() {
+        rwLock.readLock().lock();
+        try {
+            return scripts.values().stream()
+                    .sorted(java.util.Comparator.comparing(d -> d.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeScript(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (scripts.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     public void registerModelPreset(com.storynpcs.creator.gui.ModelPreset preset) {
         if (preset != null && preset.getId() != null) {
             rwLock.writeLock().lock();
@@ -742,6 +790,8 @@ public class DefinitionRegistry {
             naturalSpawns.putAll(other.naturalSpawns);
             guiLayouts.clear();
             guiLayouts.putAll(other.guiLayouts);
+            scripts.clear();
+            scripts.putAll(other.scripts);
             modelPresets.clear();
             modelPresets.putAll(other.modelPresets);
             for (var template : other.templates.all()) {
@@ -772,6 +822,7 @@ public class DefinitionRegistry {
             transforms.clear();
             naturalSpawns.clear();
             guiLayouts.clear();
+            scripts.clear();
             modelPresets.clear();
             revision.incrementAndGet();
         } finally {

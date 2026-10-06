@@ -740,6 +740,15 @@ public class StoryNpcsApplicationService {
             PlayerProgressionActionRequest request, String expectedOperation,
             String fingerprintKey, NamespacedId eventTarget,
             java.util.function.Supplier<AuthorizedActionResult> action) {
+        return runProgressionAction(request, expectedOperation, fingerprintKey,
+                eventTarget, action, AuthorizationPolicy::evaluate);
+    }
+
+    private AuthorizedActionResult runProgressionAction(
+            PlayerProgressionActionRequest request, String expectedOperation,
+            String fingerprintKey, NamespacedId eventTarget,
+            java.util.function.Supplier<AuthorizedActionResult> action,
+            java.util.function.Function<PlayerProgressionActionRequest, AuthorizationDecision> authorizer) {
         String fingerprint = request.playerUuid() + "|" + expectedOperation + "|" + fingerprintKey;
         Object requestLock = progressionActionLocks[request.requestId().hashCode()
                 & (progressionActionLocks.length - 1)];
@@ -760,7 +769,7 @@ public class StoryNpcsApplicationService {
                                     "Request ID is already bound to a different progression action"));
                 }
             } else {
-                AuthorizationDecision decision = AuthorizationPolicy.evaluate(request);
+                AuthorizationDecision decision = authorizer.apply(request);
                 if (decision.allowed() && !expectedOperation.equals(request.operation())) {
                     decision = AuthorizationDecision.deny("OPERATION_MISMATCH",
                             "Request operation '" + request.operation()
@@ -1149,6 +1158,20 @@ public class StoryNpcsApplicationService {
      */
     public AuthorizedActionResult markDialogueRead(
             PlayerProgressionActionRequest request, NamespacedId dialogueId) {
+        return markDialogueRead(request, dialogueId, AuthorizationPolicy::evaluate);
+    }
+
+    /** Scripted boundary (P9-2) — grant-checked script actors, canonical path. */
+    public AuthorizedActionResult markDialogueReadScripted(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId,
+            java.util.Set<String> grants) {
+        return markDialogueRead(request, dialogueId,
+                r -> AuthorizationPolicy.evaluateScripted(r, grants));
+    }
+
+    private AuthorizedActionResult markDialogueRead(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId,
+            java.util.function.Function<PlayerProgressionActionRequest, AuthorizationDecision> authorizer) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(dialogueId, "dialogueId");
         return runProgressionAction(request, "dialogue.mark.read",
@@ -1173,12 +1196,26 @@ public class StoryNpcsApplicationService {
                 }
             }
             return AuthorizedActionResult.of(marked > 0);
-        });
+        }, authorizer);
     }
 
     /** P9-3 (target `/noppes dialog unread`): remove all visit markers for a dialogue. */
     public AuthorizedActionResult clearDialogueReadMarkers(
             PlayerProgressionActionRequest request, NamespacedId dialogueId) {
+        return clearDialogueReadMarkers(request, dialogueId, AuthorizationPolicy::evaluate);
+    }
+
+    /** Scripted boundary (P9-2) — grant-checked script actors, canonical path. */
+    public AuthorizedActionResult clearDialogueReadMarkersScripted(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId,
+            java.util.Set<String> grants) {
+        return clearDialogueReadMarkers(request, dialogueId,
+                r -> AuthorizationPolicy.evaluateScripted(r, grants));
+    }
+
+    private AuthorizedActionResult clearDialogueReadMarkers(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId,
+            java.util.function.Function<PlayerProgressionActionRequest, AuthorizationDecision> authorizer) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(dialogueId, "dialogueId");
         return runProgressionAction(request, "dialogue.mark.clear",
@@ -1192,7 +1229,7 @@ public class StoryNpcsApplicationService {
                 }
             }
             return AuthorizedActionResult.of(cleared > 0);
-        });
+        }, authorizer);
     }
 
     // ── P9-4 player-data administration (target SPacketPlayerData*) ──────────
@@ -2363,6 +2400,20 @@ public class StoryNpcsApplicationService {
                 registry::getModelPreset, registry::removeModelPreset, List.of());
     }
 
+    public ValidationResult saveScript(com.storynpcs.domain.script.ScriptDefinition script) {
+        return saveDefinitionFamily(script, "script", "scripts", scriptCopy(script));
+    }
+
+    public CanonicalMutationResult saveScript(MutationRequest request,
+            com.storynpcs.domain.script.ScriptDefinition script) {
+        return mutateDefinitionFamily(request, script, "script", "scripts", scriptCopy(script));
+    }
+
+    public CanonicalMutationResult deleteScript(MutationRequest request) {
+        return deleteDefinitionFamily(request, "script", "scripts",
+                registry::getScript, registry::removeScript, List.of());
+    }
+
     /**
      * Shared P8-5 canonical replace: validation → durable YAML write → registry
      * swap → revision bump. Malformed definitions reject before any write, so
@@ -2480,6 +2531,7 @@ public class StoryNpcsApplicationService {
         if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) return n.getId();
         if (payload instanceof com.storynpcs.creator.gui.CustomGuiLayout g) return g.getId();
         if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) return p.getId();
+        if (payload instanceof com.storynpcs.domain.script.ScriptDefinition s) return s.getId();
         throw new IllegalArgumentException("unsupported definition payload: " + payload.getClass());
     }
 
@@ -2489,6 +2541,7 @@ public class StoryNpcsApplicationService {
         if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) return n.getSchemaVersion();
         if (payload instanceof com.storynpcs.creator.gui.CustomGuiLayout g) return g.getSchemaVersion();
         if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) return p.getSchemaVersion();
+        if (payload instanceof com.storynpcs.domain.script.ScriptDefinition s) return s.getSchemaVersion();
         throw new IllegalArgumentException("unsupported definition payload: " + payload.getClass());
     }
 
@@ -2499,6 +2552,7 @@ public class StoryNpcsApplicationService {
             case "naturalspawn" -> com.storynpcs.creator.spawn.NaturalSpawnRule.SCHEMA_VERSION;
             case "guilayout" -> com.storynpcs.creator.gui.CustomGuiLayout.SCHEMA_VERSION;
             case "modelpreset" -> com.storynpcs.creator.gui.ModelPreset.SCHEMA_VERSION;
+            case "script" -> com.storynpcs.domain.script.ScriptDefinition.SCHEMA_VERSION;
             default -> throw new IllegalArgumentException("unsupported kind: " + kind);
         };
     }
@@ -2521,6 +2575,49 @@ public class StoryNpcsApplicationService {
             result.merge(g.validate());
         } else if (payload instanceof com.storynpcs.creator.gui.ModelPreset p) {
             result.merge(p.validate());
+        } else if (payload instanceof com.storynpcs.domain.script.ScriptDefinition s) {
+            result.merge(scriptValidation(s));
+        }
+        return result;
+    }
+
+    /** Script payload validation shared by canonical save and the YAML loader. */
+    private static ValidationResult scriptValidation(com.storynpcs.domain.script.ScriptDefinition s) {
+        ValidationResult result = ValidationResult.valid();
+        if (!"javascript".equalsIgnoreCase(s.getLanguage() == null ? "" : s.getLanguage().trim())) {
+            result.addError("SCRIPT_UNSUPPORTED_LANGUAGE",
+                    "Script language '" + s.getLanguage() + "' is not supported — only 'javascript'.");
+        }
+        String src = s.getSource() == null ? "" : s.getSource();
+        if (src.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                > com.storynpcs.domain.script.ScriptDefinition.MAX_SOURCE_BYTES) {
+            result.addError("SCRIPT_SOURCE_OVER_BUDGET",
+                    "Script source exceeds " + com.storynpcs.domain.script.ScriptDefinition.MAX_SOURCE_BYTES + " bytes.");
+        }
+        if (s.getHooks().size() > com.storynpcs.domain.script.ScriptDefinition.MAX_HOOKS) {
+            result.addError("SCRIPT_HOOKS_OVER_BUDGET", "Script declares too many hooks.");
+        }
+        for (String hook : s.getHooks()) {
+            boolean known = false;
+            for (com.storynpcs.script.ScriptHook k : com.storynpcs.script.ScriptHook.values()) {
+                if (k.name().equalsIgnoreCase(hook == null ? "" : hook.trim())) { known = true; break; }
+            }
+            if (!known) {
+                result.addError("SCRIPT_UNKNOWN_HOOK", "Script declares unknown hook '" + hook + "'.");
+            }
+        }
+        if (s.getCapabilities().size() > com.storynpcs.domain.script.ScriptDefinition.MAX_CAPABILITIES) {
+            result.addError("SCRIPT_CAPS_OVER_BUDGET", "Script declares too many capability grants.");
+        }
+        for (String cap : s.getCapabilities()) {
+            var policy = CapabilityRegistry.policyOf(cap);
+            if (policy == null) {
+                result.addError("SCRIPT_UNKNOWN_CAPABILITY",
+                        "Unregistered capability grant '" + cap + "'.");
+            } else if (policy != CapabilityRegistry.Policy.PLAYER_SCOPED) {
+                result.addError("SCRIPT_CAPABILITY_FORBIDDEN",
+                        "Scripts may only grant player-scoped capabilities, not '" + cap + "'.");
+            }
         }
         return result;
     }
@@ -2532,6 +2629,7 @@ public class StoryNpcsApplicationService {
             case "naturalspawn" -> registry.registerNaturalSpawn((com.storynpcs.creator.spawn.NaturalSpawnRule) payload);
             case "guilayout" -> registry.registerGuiLayout((com.storynpcs.creator.gui.CustomGuiLayout) payload);
             case "modelpreset" -> registry.registerModelPreset((com.storynpcs.creator.gui.ModelPreset) payload);
+            case "script" -> registry.registerScript((com.storynpcs.domain.script.ScriptDefinition) payload);
             default -> throw new IllegalArgumentException("unsupported kind: " + kind);
         }
     }
@@ -2567,6 +2665,15 @@ public class StoryNpcsApplicationService {
             fields.add(p.getDisplayName());
             p.getLayers().forEach(l -> fields.add(l.getName() + ":" + Integer.toHexString(l.getRgb())));
             p.getTextureRefs().forEach(t -> fields.add(t.toString()));
+        } else if (payload instanceof com.storynpcs.domain.script.ScriptDefinition s) {
+            fields.add(s.getLanguage());
+            fields.add(s.getVersion());
+            fields.add(Boolean.toString(s.isEnabled()));
+            s.getHooks().stream().sorted().forEach(fields::add);
+            s.getCapabilities().stream().sorted().forEach(fields::add);
+            // Hash the source — the fingerprint covers content without
+            // embedding unbounded script text in the canonical record.
+            fields.add("src:" + Integer.toHexString(s.getSource() == null ? 0 : s.getSource().hashCode()));
         }
         return fields;
     }
@@ -2652,6 +2759,20 @@ public class StoryNpcsApplicationService {
         copy.setTextKey(source.getTextKey());
         copy.setChildren(source.getChildren().stream()
                 .map(StoryNpcsApplicationService::guiElementCopy).toList());
+        return copy;
+    }
+
+    private static com.storynpcs.domain.script.ScriptDefinition scriptCopy(
+            com.storynpcs.domain.script.ScriptDefinition source) {
+        var copy = new com.storynpcs.domain.script.ScriptDefinition();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setLanguage(source.getLanguage());
+        copy.setSource(source.getSource());
+        copy.setHooks(new java.util.ArrayList<>(source.getHooks()));
+        copy.setCapabilities(new java.util.ArrayList<>(source.getCapabilities()));
+        copy.setEnabled(source.isEnabled());
+        copy.setVersion(source.getVersion());
         return copy;
     }
 
@@ -3678,8 +3799,23 @@ public class StoryNpcsApplicationService {
 
     /** Applies one typed, player-scoped faction-standing mutation through the canonical boundary. */
     public CanonicalMutationResult mutateFactionProgression(FactionProgressionMutationRequest request) {
+        return mutateFactionProgression(request, AuthorizationPolicy.evaluate(request));
+    }
+
+    /**
+     * Scripted boundary (P9-2): the script host passes the definition's
+     * server-validated grants; authorization evaluates them, never the
+     * script's own claims. Everything downstream — dedup, clamping, events —
+     * is identical to any other adapter.
+     */
+    public CanonicalMutationResult mutateFactionProgressionScripted(
+            FactionProgressionMutationRequest request, java.util.Set<String> grants) {
+        return mutateFactionProgression(request, AuthorizationPolicy.evaluateScripted(request, grants));
+    }
+
+    private CanonicalMutationResult mutateFactionProgression(
+            FactionProgressionMutationRequest request, AuthorizationDecision authorization) {
         Objects.requireNonNull(request, "request");
-        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
         String fingerprint = factionMutationFingerprint(request);
         Object playerLock = progressionMutationLocks[request.playerUuid().hashCode()
                 & (progressionMutationLocks.length - 1)];
@@ -4014,6 +4150,17 @@ public class StoryNpcsApplicationService {
                 () -> applyTransportUnlock(request, locationId));
     }
 
+    /** Scripted boundary (P9-2) — grant-checked script actors, canonical path. */
+    public AuthorizedActionResult unlockTransportLocationScripted(
+            PlayerProgressionActionRequest request, NamespacedId locationId,
+            java.util.Set<String> grants) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(locationId, "locationId");
+        return runProgressionAction(request, "transport.unlock", locationId.toString(), locationId,
+                () -> applyTransportUnlock(request, locationId),
+                r -> AuthorizationPolicy.evaluateScripted(r, grants));
+    }
+
     /**
      * Transport unlock with durable replay classification (issue #57 — P2-3):
      * the request id and its outcome are recorded in the same progression save
@@ -4177,6 +4324,29 @@ public class StoryNpcsApplicationService {
         return runProgressionAction(request, "mail.send", fingerprint, null,
                 () -> applySendMail(request, recipientUuid, senderLabel,
                         subject, body, fingerprint));
+    }
+
+    /** Scripted boundary (P9-2) — grant-checked script actors, canonical path. */
+    public AuthorizedActionResult sendMailScripted(PlayerProgressionActionRequest request,
+                                                   UUID recipientUuid, String senderLabel,
+                                                   String subject, String body,
+                                                   java.util.Set<String> grants) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(recipientUuid, "recipientUuid");
+        if ((senderLabel != null && senderLabel.length() > MAIL_SENDER_MAX_LENGTH)
+                || (subject != null && subject.length() > MAIL_SUBJECT_MAX_LENGTH)
+                || (body != null && body.length() > MAIL_BODY_MAX_LENGTH)) {
+            return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                    "MAIL_CONTENT_TOO_LONG",
+                    "Mail sender, subject, or body exceeds the allowed length."));
+        }
+        String fingerprint = recipientUuid + "|"
+                + (subject == null ? -1 : subject.length()) + ":" + subject + "|"
+                + (body == null ? -1 : body.length()) + ":" + body;
+        return runProgressionAction(request, "mail.send", fingerprint, null,
+                () -> applySendMail(request, recipientUuid, senderLabel,
+                        subject, body, fingerprint),
+                r -> AuthorizationPolicy.evaluateScripted(r, grants));
     }
 
     /**
@@ -4704,8 +4874,18 @@ public class StoryNpcsApplicationService {
 
     /** Applies one typed, player-scoped quest start/progress operation. */
     public CanonicalMutationResult mutateQuestProgression(QuestProgressionMutationRequest request) {
+        return mutateQuestProgression(request, AuthorizationPolicy.evaluate(request));
+    }
+
+    /** Scripted boundary (P9-2) — grant-checked script actors, canonical path. */
+    public CanonicalMutationResult mutateQuestProgressionScripted(
+            QuestProgressionMutationRequest request, java.util.Set<String> grants) {
+        return mutateQuestProgression(request, AuthorizationPolicy.evaluateScripted(request, grants));
+    }
+
+    private CanonicalMutationResult mutateQuestProgression(
+            QuestProgressionMutationRequest request, AuthorizationDecision authorization) {
         Objects.requireNonNull(request, "request");
-        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
         String fingerprint = questMutationFingerprint(request);
         Object playerLock = progressionMutationLocks[request.playerUuid().hashCode()
                 & (progressionMutationLocks.length - 1)];
@@ -5120,8 +5300,18 @@ public class StoryNpcsApplicationService {
 
     /** Applies one typed, player-scoped quest completion through the canonical boundary. */
     public QuestCompletionResult completeQuest(QuestCompletionMutationRequest request) {
+        return completeQuest(request, AuthorizationPolicy.evaluate(request));
+    }
+
+    /** Scripted boundary (P9-2) — grant-checked script actors, canonical path. */
+    public QuestCompletionResult completeQuestScripted(
+            QuestCompletionMutationRequest request, java.util.Set<String> grants) {
+        return completeQuest(request, AuthorizationPolicy.evaluateScripted(request, grants));
+    }
+
+    private QuestCompletionResult completeQuest(
+            QuestCompletionMutationRequest request, AuthorizationDecision authorization) {
         Objects.requireNonNull(request, "request");
-        AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
         Object playerLock = progressionMutationLocks[request.playerUuid().hashCode()
                 & (progressionMutationLocks.length - 1)];
         if (!authorization.allowed()) {

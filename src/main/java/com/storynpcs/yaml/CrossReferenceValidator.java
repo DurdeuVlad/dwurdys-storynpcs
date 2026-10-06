@@ -33,6 +33,12 @@ public class CrossReferenceValidator {
                 result.addError("REF_NPC_FACTION_MISSING",
                         String.format("NPC '%s' references unknown faction '%s'", npc.getId(), npc.getFactionId()));
             }
+            for (NamespacedId scriptId : npc.getScripts()) {
+                if (scriptId != null && registry.getScript(scriptId).isEmpty()) {
+                    result.addError("REF_NPC_SCRIPT_MISSING",
+                            String.format("NPC '%s' binds unknown script '%s'", npc.getId(), scriptId));
+                }
+            }
         }
 
         // 2. Validate Dialogue graphs

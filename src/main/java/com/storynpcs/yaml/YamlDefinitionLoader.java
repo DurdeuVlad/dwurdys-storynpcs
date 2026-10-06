@@ -633,6 +633,79 @@ public class YamlDefinitionLoader {
         return layout;
     }
 
+    /**
+     * P9-2 script family: authored ECMAScript sources with declared hooks and
+     * canonical capability grants. Validation enforces the source bound,
+     * known hook names, a supported language tag, and that every grant is a
+     * registered PLAYER_SCOPED capability — scripts never reach definition
+     * writes.
+     */
+    public com.storynpcs.domain.script.ScriptDefinition loadScript(
+            String yamlContent, String sourceName, ValidationResult result) {
+        var script = loadBoundedDefinition(yamlContent, sourceName, result,
+                com.storynpcs.domain.script.ScriptDefinition.class, "script",
+                com.storynpcs.domain.script.ScriptDefinition.SCHEMA_VERSION,
+                com.storynpcs.domain.script.ScriptDefinition::getId,
+                com.storynpcs.domain.script.ScriptDefinition::getSchemaVersion,
+                registry::getScript, registry::registerScript);
+        if (script == null) {
+            return null;
+        }
+        int errorsBefore = result.getErrors().size();
+        if (!"javascript".equalsIgnoreCase(script.getLanguage() == null
+                ? "" : script.getLanguage().trim())) {
+            result.addError(sourceName, 1, 1, "SCRIPT_UNSUPPORTED_LANGUAGE",
+                    "Script '" + script.getId() + "' language '" + script.getLanguage()
+                            + "' is not supported — only 'javascript' executes on Rhino.");
+        }
+        String source = script.getSource() == null ? "" : script.getSource();
+        if (source.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                > com.storynpcs.domain.script.ScriptDefinition.MAX_SOURCE_BYTES) {
+            result.addError(sourceName, 1, 1, "SCRIPT_SOURCE_OVER_BUDGET",
+                    "Script '" + script.getId() + "' source exceeds "
+                            + com.storynpcs.domain.script.ScriptDefinition.MAX_SOURCE_BYTES + " bytes.");
+        }
+        if (script.getHooks().size() > com.storynpcs.domain.script.ScriptDefinition.MAX_HOOKS) {
+            result.addError(sourceName, 1, 1, "SCRIPT_HOOKS_OVER_BUDGET",
+                    "Script '" + script.getId() + "' declares too many hooks.");
+        }
+        for (String hook : script.getHooks()) {
+            boolean known = false;
+            for (com.storynpcs.script.ScriptHook knownHook : com.storynpcs.script.ScriptHook.values()) {
+                if (knownHook.name().equalsIgnoreCase(hook == null ? "" : hook.trim())) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                result.addError(sourceName, 1, 1, "SCRIPT_UNKNOWN_HOOK",
+                        "Script '" + script.getId() + "' declares unknown hook '" + hook + "'.");
+            }
+        }
+        if (script.getCapabilities().size()
+                > com.storynpcs.domain.script.ScriptDefinition.MAX_CAPABILITIES) {
+            result.addError(sourceName, 1, 1, "SCRIPT_CAPS_OVER_BUDGET",
+                    "Script '" + script.getId() + "' declares too many capability grants.");
+        }
+        for (String capability : script.getCapabilities()) {
+            var policy = com.storynpcs.service.CapabilityRegistry.policyOf(capability);
+            if (policy == null) {
+                result.addError(sourceName, 1, 1, "SCRIPT_UNKNOWN_CAPABILITY",
+                        "Script '" + script.getId() + "' grants unregistered capability '"
+                                + capability + "'.");
+            } else if (policy != com.storynpcs.service.CapabilityRegistry.Policy.PLAYER_SCOPED) {
+                result.addError(sourceName, 1, 1, "SCRIPT_CAPABILITY_FORBIDDEN",
+                        "Script '" + script.getId() + "' may only grant player-scoped "
+                                + "capabilities, not '" + capability + "'.");
+            }
+        }
+        if (result.getErrors().size() > errorsBefore) {
+            registry.removeScript(script.getId());
+            return null;
+        }
+        return script;
+    }
+
     /** P8-6 preset family: versioned model/color presets. */
     public com.storynpcs.creator.gui.ModelPreset loadModelPreset(
             String yamlContent, String sourceName, ValidationResult result) {
@@ -919,6 +992,7 @@ public class YamlDefinitionLoader {
             case "naturalspawn", "naturalspawns" -> "naturalspawns";
             case "guilayout", "guilayouts", "guis" -> "guilayouts";
             case "preset", "presets" -> "presets";
+            case "script", "scripts" -> "scripts";
             default -> null;
         };
     }
@@ -982,7 +1056,7 @@ public class YamlDefinitionLoader {
                         result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
                                 "Definition family '" + dirName + "' is recognized but not yet loadable;"
                                         + " remove the file or move it to a supported family directory"
-                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/, scenes/, transforms/, naturalspawns/, guilayouts/, presets/)");
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/, scenes/, transforms/, naturalspawns/, guilayouts/, presets/, scripts/)");
                         return;
                     }
                 }
@@ -1004,6 +1078,7 @@ public class YamlDefinitionLoader {
                 case "naturalspawns" -> loadNaturalSpawn(content, file.toString(), result);
                 case "guilayouts" -> loadGuiLayout(content, file.toString(), result);
                 case "presets" -> loadModelPreset(content, file.toString(), result);
+                case "scripts" -> loadScript(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -1063,6 +1138,10 @@ public class YamlDefinitionLoader {
         if (parentName.equals("presets") || parentName.equals("preset")
                 || fileName.startsWith("preset_")) {
             return "presets";
+        }
+        if (parentName.equals("scripts") || parentName.equals("script")
+                || fileName.startsWith("script_")) {
+            return "scripts";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.

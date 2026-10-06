@@ -26,8 +26,9 @@ public record SchemaBundle(
     public static SchemaBundle current() {
         return new SchemaBundle(CURRENT_VERSION, Map.ofEntries(
                 Map.entry("npc", new FamilySchema("npc", 1,
-                        Set.of("id", "name", "factionId", "dialogueId", "display", "stats", "ai", "inventory", "marks"),
-                        Set.of("scripts", "linkedData"),
+                        Set.of("id", "name", "factionId", "dialogueId", "display", "stats", "ai", "inventory", "marks",
+                                "scripts"),
+                        Set.of("linkedData"),
                         Set.of("create", "update", "delete", "spawn", "clone"))),
                 Map.entry("dialogue", new FamilySchema("dialogue", 1,
                         Set.of("id", "title", "entryNodeId", "nodes"),

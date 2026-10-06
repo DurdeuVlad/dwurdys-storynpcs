@@ -156,11 +156,11 @@ public final class CommandParityCatalog {
             new CommandParityEntry("target.commands.0066", "/noppes/schema/list", "list available schematic names",
                     CommandParityStatus.SUPPORTED, "/storynpcs schema list", "Lists bundled data/storynpcs/schematics/ assets plus creator files in config/storynpcs/schematics/."),
             new CommandParityEntry("target.commands.0067", "/noppes/script/reload", "reload script files, player scripts, Forge scripts, and world stored data",
-                    CommandParityStatus.INTENTIONAL_DEVIATION, null, "Script reload/events require the #84/P9-2 script host — not yet implemented."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs script reload", "Re-registers enabled YAML script definitions and recompiles on version bump; the target's separate player/Forge/world-data script tiers collapse into one authoritative YAML tier — disclosed in ScriptHookMatrix lifecycle.reload."),
             new CommandParityEntry("target.commands.0068", "/noppes/script/trigger/<id>", "trigger script event with no arguments",
-                    CommandParityStatus.INTENTIONAL_DEVIATION, null, "Script event triggering requires the #84/P9-2 script host — not yet implemented."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs script trigger <script_id> <hook>", "Dispatches a named hook on one registered script through the metered/quarantined path; target fires a bespoke event — StoryNPCs triggers real typed hooks, disclosed."),
             new CommandParityEntry("target.commands.0069", "/noppes/script/trigger/<id>/<args>", "trigger script event with space-split arguments",
-                    CommandParityStatus.INTENTIONAL_DEVIATION, null, "Script event triggering requires the #84/P9-2 script host — not yet implemented."),
+                    CommandParityStatus.SUPPORTED, "/storynpcs script trigger <script_id> <hook> [args]", "Greedy args reach the script via context.args (bounded 256 chars) instead of target's array split — disclosed in ScriptHookMatrix."),
             new CommandParityEntry("target.commands.0070", "/noppes/slay/<type>/<range>", "remove nearby entities matching a dynamic slay class",
                     CommandParityStatus.SUPPORTED, "/storynpcs npc despawn <radius>", "Bounded-radius despawn covers nearby NPC removal; the dynamic slay-class filter is not reproduced — StoryNPCs removes its own NPC entities within the radius, disclosed.")
     );

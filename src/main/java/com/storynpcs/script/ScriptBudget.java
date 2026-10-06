@@ -53,6 +53,20 @@ public record ScriptBudget(
             }
         }
 
+        /**
+         * Bulk instruction credit from the engine's instruction observer.
+         * Counts all observed instructions since the last observer callback.
+         */
+        public void instructions(long count) {
+            if (count < 0) {
+                throw new IllegalArgumentException("instruction count must be non-negative");
+            }
+            instructions += count;
+            if (instructions > budget.maxInstructions()) {
+                throw new BudgetExceeded("instructions", budget.maxInstructions(), instructions);
+            }
+        }
+
         public void allocate(long bytes) {
             if (bytes < 0) {
                 throw new IllegalArgumentException("allocation bytes must be non-negative");

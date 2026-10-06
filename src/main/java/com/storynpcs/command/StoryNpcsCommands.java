@@ -338,6 +338,28 @@ public final class StoryNpcsCommands {
                                         .then(Commands.argument("element_name", StringArgumentType.word())
                                                 .then(Commands.argument("duration_ticks", IntegerArgumentType.integer(1))
                                                         .executes(StoryNpcsCommands::showOverlay))))))
+                // P9-2/#84: script host administration — list/info/reload/trigger
+                // (target `/noppes script reload|trigger` equivalents), plus
+                // quarantine recovery for ops.
+                .then(Commands.literal("script")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listScripts))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("script_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::scriptInfo)))
+                        .then(Commands.literal("reload")
+                                .executes(StoryNpcsCommands::reloadScripts))
+                        .then(Commands.literal("trigger")
+                                .then(Commands.argument("script_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("hook", StringArgumentType.word())
+                                                .suggests(StoryNpcsCommands::suggestScriptHooks)
+                                                .executes(ctx -> triggerScript(ctx, null))
+                                                .then(Commands.argument("args", StringArgumentType.greedyString())
+                                                        .executes(ctx -> triggerScript(ctx,
+                                                                StringArgumentType.getString(ctx, "args")))))))
+                        .then(Commands.literal("unquarantine")
+                                .then(Commands.argument("script_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::unquarantineScript))))
                 .then(Commands.literal("link")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("actor_uuid", StringArgumentType.word())
@@ -4389,6 +4411,133 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to update vault sharing: " + e.getMessage()));
             return 0;
         }
+    }
+
+    // ── P9-2/#84 script host commands ────────────────────────────────────────
+
+    private static int listScripts(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var statuses = mod.getScriptRuntime().statuses();
+        if (statuses.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal("§e[StoryNPCs] No scripts registered."), false);
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder("§a[StoryNPCs] Registered scripts (").append(statuses.size()).append("):");
+        for (var entry : statuses.entrySet()) {
+            sb.append("\n  §f").append(entry.getKey())
+                    .append(" §7— ").append(entry.getValue() == null ? "unknown" : entry.getValue());
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(sb.toString()), false);
+        return 1;
+    }
+
+    private static int scriptInfo(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "script_id").toString());
+        var definition = mod.getRegistry().getScript(id).orElse(null);
+        if (definition == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Script not found: " + id));
+            return 0;
+        }
+        var handle = mod.getScriptRuntime().handleOf(id.toString());
+        String status = definition.isEnabled()
+                ? (handle != null ? handle.status().name() : "unregistered")
+                : "disabled";
+        String info = "§a[StoryNPCs] Script " + id + "\n"
+                + "  §7version: §f" + definition.getVersion()
+                + " §7enabled: §f" + definition.isEnabled()
+                + " §7status: §f" + status + "\n"
+                + "  §7hooks: §f" + (definition.getHooks().isEmpty() ? "(none)" : definition.getHooks()) + "\n"
+                + "  §7capabilities: §f" + (definition.getCapabilities().isEmpty()
+                        ? "(none)" : definition.getCapabilities());
+        ctx.getSource().sendSuccess(() -> Component.literal(info), false);
+        return 1;
+    }
+
+    private static int reloadScripts(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        int count = mod.getScriptRuntime().reload(mod.getRegistry().getAllScripts());
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] Scripts reloaded — " + count + " enabled."), true);
+        return 1;
+    }
+
+    private static int triggerScript(CommandContext<CommandSourceStack> ctx, String args) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "script_id").toString());
+        var hook = com.storynpcs.script.ScriptHook.fromName(
+                StringArgumentType.getString(ctx, "hook"));
+        if (hook == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Unknown hook — expected one of "
+                            + java.util.Arrays.stream(com.storynpcs.script.ScriptHook.values())
+                                    .map(com.storynpcs.script.ScriptHook::jsName).toList()));
+            return 0;
+        }
+        if (mod.getRegistry().getScript(id).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Script not found: " + id));
+            return 0;
+        }
+        var source = ctx.getSource();
+        var playerUuid = source.getEntity() instanceof ServerPlayer player
+                ? player.getUUID().toString() : null;
+        var outcome = mod.getScriptRuntime().dispatchScript(id.toString(), hook,
+                com.storynpcs.script.ScriptRuntime.triggerContext(hook, id.toString(), playerUuid, args));
+        if (outcome instanceof com.storynpcs.script.ScriptScheduler.DispatchOutcome.Completed) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§a[StoryNPCs] Triggered " + hook.jsName() + " on " + id), true);
+            return 1;
+        }
+        String reason = switch (outcome) {
+            case com.storynpcs.script.ScriptScheduler.DispatchOutcome.Skipped s -> s.reason();
+            case com.storynpcs.script.ScriptScheduler.DispatchOutcome.OverBudget o -> "over budget: " + o.metric();
+            default -> "unknown";
+        };
+        ctx.getSource().sendFailure(Component.literal(
+                "[StoryNPCs] Script " + id + " did not run: " + reason));
+        return 0;
+    }
+
+    private static int unquarantineScript(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "script_id").toString());
+        if (!mod.getScriptRuntime().unquarantine(id.toString())) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Script is not quarantined (or not registered): " + id));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] Script unquarantined: " + id), true);
+        return 1;
+    }
+
+    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestScriptHooks(
+            CommandContext<CommandSourceStack> ctx,
+            com.mojang.brigadier.suggestion.SuggestionsBuilder sb) {
+        for (var hook : com.storynpcs.script.ScriptHook.values()) {
+            sb.suggest(hook.jsName());
+        }
+        return sb.buildFuture();
     }
 
     private static com.storynpcs.service.MutationRequest commandMutationRequest(
