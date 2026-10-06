@@ -81,6 +81,15 @@ dependencies {
     jarJar(implementation('com.fasterxml.jackson.core:jackson-annotations:2.17.2'))
     jarJar(implementation('org.yaml:snakeyaml:2.2'))
 
+    // P9-2/#125: pinned script engine — Rhino (JSR-223 via rhino-engine).
+    // Explicit artifact per ADR-008 — never rely on loader-provided libraries.
+    implementation 'org.mozilla:rhino:1.9.1'
+    implementation 'org.mozilla:rhino-engine:1.9.1'
+    additionalRuntimeClasspath 'org.mozilla:rhino:1.9.1'
+    additionalRuntimeClasspath 'org.mozilla:rhino-engine:1.9.1'
+    jarJar(implementation('org.mozilla:rhino:1.9.1'))
+    jarJar(implementation('org.mozilla:rhino-engine:1.9.1'))
+
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
     testImplementation 'org.assertj:assertj-core:3.26.3'
