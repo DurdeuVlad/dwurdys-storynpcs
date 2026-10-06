@@ -102,7 +102,7 @@ public final class PatchPlanApplier {
 
         List<PatchPlan.PatchOp> applied = new ArrayList<>();
         List<String> snapshots = new ArrayList<>();
-        for (PatchPlan.PatchOp op : plan.deduplicated().deterministicOrder()) {
+        for (PatchPlan.PatchOp op : plan.applicationOrder()) {
             String loc = op.sourceLocation() == null ? "?" : op.sourceLocation();
             if (!APPLY_FAMILIES.contains(op.family())) {
                 diagnostics.addError("PATCH_APPLY_SCOPE",

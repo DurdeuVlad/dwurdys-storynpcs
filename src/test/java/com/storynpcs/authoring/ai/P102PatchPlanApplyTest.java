@@ -162,6 +162,24 @@ class P102PatchPlanApplyTest {
     }
 
     @Test
+    @DisplayName("a plan that creates then sets the same target applies in dependency order")
+    void createThenSetAppliesInOrder() {
+        // 'set' sorts after 'create' on the same target even though the
+        // idempotency key alone would order them differently.
+        var report = applier.apply(
+                plan(0,
+                        op("set", "npc", NPC_A.toString(), "name", "\"Captain\"", "gen:9a"),
+                        op("create", "npc", NPC_A.toString(), "",
+                                npcJson(NPC_A, "Guard A"), "gen:9b")),
+                SchemaBundle.current(), existingIds(), registry.revision(), 2);
+        assertTrue(report.committed(), "create+set must commit: " + report.diagnostics().formatReport());
+        assertEquals("Captain", registry.getNpc(NPC_A).orElseThrow().getDisplay().getName());
+        // applicationOrder put the create first.
+        assertEquals("create", report.appliedOps().get(0).op());
+        assertEquals("set", report.appliedOps().get(1).op());
+    }
+
+    @Test
     @DisplayName("create of an existing target fails canonically and rolls back")
     void createExistingFails() {
         service.createNpc(new NpcDefinition(NPC_A, "Guard A"));

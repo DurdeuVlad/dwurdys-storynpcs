@@ -66,6 +66,24 @@ class CreatorDocsExamplesTest {
     }
 
     @Test
+    void patchPlanExampleParsesAndDryRunsClean() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper(
+                new com.fasterxml.jackson.dataformat.yaml.YAMLFactory());
+        var plan = mapper.readValue(read("guard_patchplan.yaml"),
+                com.storynpcs.authoring.ai.PatchPlan.class);
+        assertThat(plan.ops()).hasSize(2);
+        var report = new com.storynpcs.authoring.ai.PatchPlanValidator().dryRun(
+                plan, com.storynpcs.authoring.ai.SchemaBundle.current(),
+                java.util.Set.of(), 0);
+        assertThat(report.diagnostics().hasErrors())
+                .as(report.diagnostics().formatReport()).isFalse();
+        // apply order: the create runs before the set on the same target.
+        var ordered = plan.applicationOrder();
+        assertThat(ordered.get(0).op()).isEqualTo("create");
+        assertThat(ordered.get(1).op()).isEqualTo("set");
+    }
+
+    @Test
     void guardDialogueExampleParsesAndValidates() throws Exception {
         var loader = new YamlDefinitionLoader(new com.storynpcs.yaml.DefinitionRegistry());
         ValidationResult result = new ValidationResult();

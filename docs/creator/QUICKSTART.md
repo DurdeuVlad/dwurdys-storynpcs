@@ -57,6 +57,18 @@ file/line/field diagnostics (e.g. `YAML_MAPPING_ERROR`,
 applied. Legacy `inventory:` string arrays still load — see
 `MIGRATION_GUIDE.md` for accepted inputs and known gaps.
 
+## 6. The authoring hub & AI patch plans
+
+- `/storynpcs hub` (op level 2) opens the unified authoring hub — a
+  searchable, paginated panel list that routes to every domain's editor
+  surface or its documented YAML/command path. Identity, display, AI, combat
+  scalars, dialogue, quest, and faction are fully GUI/command-driven;
+  equipment, jobs, scripts, and templates name their YAML families.
+- AI patch plans live at `storynpcs/patches/*.yaml` —
+  `/storynpcs author validate <name>` dry-runs without writing;
+  `/storynpcs author apply <name>` applies through the canonical boundary
+  and rolls back on failure. See `examples/guard_patchplan.yaml`.
+
 ## Evidence & traceability
 
 Parity status per issue lives in `docs/parity/` (`*-PROGRESS.md`,
