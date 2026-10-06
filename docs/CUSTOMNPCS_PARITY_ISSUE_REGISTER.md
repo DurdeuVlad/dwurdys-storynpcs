@@ -538,6 +538,8 @@ Status: `IN-REVIEW` — a `ScriptScheduler` model accounts for aggregate and wal
 
 ### P9-3 — Reach command and suggestion parity
 
+Status: `IMPLEMENTED` — all 70 target leaves classified in `CommandParityCatalog`: 58 `SUPPORTED` (explicit equivalent per entry), 12 `INTENTIONAL_DEVIATION` (rationale per entry), 0 `UNVERIFIED`. New leaves: `template capture|spawn|grid|delete`, `config get|set` (canonical ConfigTransaction), `dialogue markread|unmarkread`, `faction reset|remove` (incl. new `faction.progress.remove` op), `npc set marks|visibility`, `npc home|respawn`, `follower owner` report + canonical `follower.owner.set` reassign, `quest objectives|progress`, `scene cancelall`. Deviations disclosed: chunk-loader/font config, scene tick-set/pause, script reload/trigger (→#84), slay class filter. Evidence: `P93CommandParityTest` (7 fixtures), command-tree parse/dispatch fixtures green, full suite 1335 tests / 0 failures.
+
 - **Intent:** Make command-driven authoring and administration complete enough for expert creators and automation.
 - **Expectation:** The 70 target command leaves (61 mutations and 9 queries) are mapped to StoryNPCs command/API operations, with selectors, suggestions, diagnostics, permissions and explicit deviations.
 - **Acceptance criteria:** P0-1 command manifest has an issue/fixture for every leaf; supported commands have YAML/service/UI/API equivalence; unsupported commands report intentional/unverified status; tab completion rejects invalid IDs/fields; commands never mutate definitions directly; help lists required permissions and examples.

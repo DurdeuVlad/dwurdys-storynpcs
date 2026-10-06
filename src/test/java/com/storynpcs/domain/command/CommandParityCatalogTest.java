@@ -45,7 +45,7 @@ class CommandParityCatalogTest {
     }
 
     @Test
-    void fourteenLeavesAreCurrentlySupportedAndFiftySixAreUnverified() {
+    void everyLeafIsTriagedAfterP93Delivery() {
         long supported = CommandParityCatalog.all().stream()
                 .filter(e -> e.getStatus() == CommandParityStatus.SUPPORTED).count();
         long unverified = CommandParityCatalog.all().stream()
@@ -53,9 +53,11 @@ class CommandParityCatalogTest {
         long deviation = CommandParityCatalog.all().stream()
                 .filter(e -> e.getStatus() == CommandParityStatus.INTENTIONAL_DEVIATION).count();
 
-        assertThat(supported).isEqualTo(14);
-        assertThat(unverified).isEqualTo(56);
-        assertThat(deviation).isEqualTo(0);
+        // P9-3 triaged all 70 leaves: 58 supported, 12 intentional deviations
+        // (chunkloaders x2, font x3, scene tick-set x2, scene pause x2, script x3).
+        assertThat(supported).isEqualTo(58);
+        assertThat(unverified).isZero();
+        assertThat(deviation).isEqualTo(12);
         assertThat(supported + unverified + deviation).isEqualTo(70);
     }
 

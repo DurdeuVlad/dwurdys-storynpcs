@@ -1,6 +1,6 @@
 # P9 — API, scripting, commands, admin progress (P9-1..P9-4)
 
-Status: `IN-PROGRESS` for all four issues (local implementation).
+Status: P9-1 `MERGED` (#179), #125 engine pin `MERGED` (#178), P9-3 implemented pending delivery.
 
 ## P9-1 — Public API
 
@@ -36,7 +36,26 @@ Status: `IN-PROGRESS` for all four issues (local implementation).
 
 - `CommandSuggestionEngine`: deterministic sorted prefix filtering; `validIdToken`/`argumentValid`
   reject malformed ids/fields before lookup; `parseId` never throws into the command tree.
-- Full 70-leaf manifest mapping remains in the parity docs.
+- `CommandParityCatalog`: all 70 target leaves classified — 58 `SUPPORTED` with an explicit
+  equivalent command, 12 `INTENTIONAL_DEVIATION` with rationale, 0 `UNVERIFIED`.
+- New command leaves (all thin adapters over canonical service ops):
+  `template capture|spawn|grid|delete` (clone parity, grid bounded ≤16 cells),
+  `config get|set` (canonical `ConfigTransaction`/`mutateRuntimeTunables`),
+  `dialogue markread|unmarkread` (canonical `dialogue.mark.read|clear` player ops),
+  `faction reset|remove` (`faction.progress.set`-to-default / `faction.progress.remove`),
+  `npc set marks|visibility`, `npc home`, `npc respawn`,
+  `follower owner` report + `follower owner <npc_id> <player>` reassign (canonical
+  `follower.owner.set`, owner-scoped), `quest objectives|progress`,
+  `scene cancelall`.
+- New service ops: `markDialogueRead`/`clearDialogueReadMarkers` (player-scoped boundary,
+  `DIALOGUE_NOT_FOUND` fail-closed), `FactionProgressionMutationRequest.Action.REMOVE`,
+  `FollowerStateMutationRequest.setOwner` + `FollowerOwnerChangeEvent`.
+- Intentional deviations (disclosed, not silently mapped): chunk-loader config (dead subsystem),
+  font config (client-render → P10-1), scene tick-set/pause (stage-relative lifecycle, no clock),
+  script reload/trigger (requires #84 script host), slay class filter (bounded-radius NPC despawn
+  only).
+- `P93CommandParityTest`: 7 fixtures covering remove semantics, replay dedup, read-marker
+  round-trip/scope, unknown-dialogue rejection, owner reassign + non-owner denial.
 
 ## P9-4 — Remote/admin/config
 
@@ -59,4 +78,7 @@ Status: `IN-PROGRESS` for all four issues (local implementation).
 
 ## Verification
 
-`./gradlew test`: 72 suites, 596 tests, 0 failures. No live MC testing.
+`./gradlew test`: full suite green after P9-3 (P93CommandParityTest 7/7, StoryNpcsCommandsTest +
+CommandParityCatalogTest green, 0 failing suites). Command-tree behavior is headless-verified
+through Brigadier parse/dispatch fixtures and service-op tests; no live MC run for the new leaves
+(entity-affecting leaves follow the same adapter pattern as existing GameTest-covered commands).

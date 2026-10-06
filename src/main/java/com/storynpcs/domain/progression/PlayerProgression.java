@@ -334,6 +334,11 @@ public class PlayerProgression {
         factionPoints.put(factionId, clamped);
     }
 
+    /** Remove a faction standing entry entirely (target: faction 'remove' command). */
+    public boolean removeFactionScore(NamespacedId factionId) {
+        return factionPoints.remove(factionId) != null;
+    }
+
     public void recordDialogueNodeVisit(String nodeId) {
         visitedDialogueNodes.add(nodeId);
     }
@@ -349,6 +354,14 @@ public class PlayerProgression {
      * Bare-node-id entries written by older builds remain in the set and stay
      * readable through the unscoped accessors above.
      */
+    /** Remove every visit marker scoped to one dialogue (target: dialog unmark-read). */
+    public int clearDialogueVisits(NamespacedId dialogueId) {
+        String prefix = dialogueId + "#";
+        int before = visitedDialogueNodes.size();
+        visitedDialogueNodes.removeIf(key -> key.startsWith(prefix));
+        return before - visitedDialogueNodes.size();
+    }
+
     public void recordDialogueNodeVisit(NamespacedId dialogueId, String nodeId) {
         visitedDialogueNodes.add(dialogueId + "#" + nodeId);
     }

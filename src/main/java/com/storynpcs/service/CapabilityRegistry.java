@@ -66,8 +66,10 @@ public final class CapabilityRegistry {
             Map.entry("config.mutate", Policy.DEFINITION),
             Map.entry("faction.progress.set", Policy.PLAYER_SCOPED),
             Map.entry("faction.progress.adjust", Policy.PLAYER_SCOPED),
+            Map.entry("faction.progress.remove", Policy.PLAYER_SCOPED),
             Map.entry("follower.state.set", Policy.PLAYER_SCOPED),
             Map.entry("follower.formation.set", Policy.PLAYER_SCOPED),
+            Map.entry("follower.owner.set", Policy.PLAYER_SCOPED),
             // Player-scoped economy/runtime operations
             Map.entry("bank.deposit", Policy.PLAYER_SCOPED),
             Map.entry("bank.withdraw", Policy.PLAYER_SCOPED),
@@ -81,6 +83,8 @@ public final class CapabilityRegistry {
             Map.entry("transport.unlock", Policy.PLAYER_SCOPED),
             Map.entry("transport.request", Policy.PLAYER_SCOPED),
             Map.entry("dialogue.visit.record", Policy.PLAYER_SCOPED),
+            Map.entry("dialogue.mark.read", Policy.PLAYER_SCOPED),
+            Map.entry("dialogue.mark.clear", Policy.PLAYER_SCOPED),
             // Shared-party membership actions (P5-5) — subject is the player
             // whose membership changes; ADMIN scope gates cross-subject ops.
             Map.entry("team.create", Policy.PLAYER_SCOPED),
