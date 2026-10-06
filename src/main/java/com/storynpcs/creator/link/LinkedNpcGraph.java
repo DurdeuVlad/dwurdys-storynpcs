@@ -39,6 +39,13 @@ public final class LinkedNpcGraph {
         return null;
     }
 
+    /** Rehydrate a persisted link with its original pair — restart restore seam. */
+    public void restore(UUID actor, UUID target) {
+        if (actor != null && target != null) {
+            links.put(actor, target);
+        }
+    }
+
     public UUID targetOf(UUID actor) {
         return links.get(actor);
     }

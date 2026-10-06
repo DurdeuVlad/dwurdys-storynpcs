@@ -559,6 +559,111 @@ public class YamlDefinitionLoader {
         return null;
     }
 
+    /** P8-5 scene family: bounded scripted scenes — entity/duration budgets + cancel recovery. */
+    public com.storynpcs.creator.scene.SceneDefinition loadScene(
+            String yamlContent, String sourceName, ValidationResult result) {
+        var scene = loadBoundedDefinition(yamlContent, sourceName, result,
+                com.storynpcs.creator.scene.SceneDefinition.class, "scene",
+                com.storynpcs.creator.scene.SceneDefinition.SCHEMA_VERSION,
+                com.storynpcs.creator.scene.SceneDefinition::getId,
+                com.storynpcs.creator.scene.SceneDefinition::getSchemaVersion,
+                registry::getScene, registry::registerScene);
+        if (scene != null) {
+            result.merge(scene.validate());
+            if (!result.getErrors().isEmpty()) {
+                registry.removeScene(scene.getId());
+                return null;
+            }
+        }
+        return scene;
+    }
+
+    /** P8-5 transform family: data-driven actor transformations. */
+    public com.storynpcs.creator.transform.TransformRule loadTransform(
+            String yamlContent, String sourceName, ValidationResult result) {
+        var rule = loadBoundedDefinition(yamlContent, sourceName, result,
+                com.storynpcs.creator.transform.TransformRule.class, "transform",
+                com.storynpcs.creator.transform.TransformRule.SCHEMA_VERSION,
+                com.storynpcs.creator.transform.TransformRule::getId,
+                com.storynpcs.creator.transform.TransformRule::getSchemaVersion,
+                registry::getTransform, registry::registerTransform);
+        if (rule != null && rule.getTargetTemplateId() == null) {
+            result.addError(sourceName, 1, 1, "TRANSFORM_MISSING_TARGET",
+                    "Transform '" + rule.getId() + "' must declare a 'targetTemplateId'");
+            registry.removeTransform(rule.getId());
+            return null;
+        }
+        return rule;
+    }
+
+    /** P8-5 natural-spawn family: bounded template spawning without a placed spawner. */
+    public com.storynpcs.creator.spawn.NaturalSpawnRule loadNaturalSpawn(
+            String yamlContent, String sourceName, ValidationResult result) {
+        var rule = loadBoundedDefinition(yamlContent, sourceName, result,
+                com.storynpcs.creator.spawn.NaturalSpawnRule.class, "natural spawn",
+                com.storynpcs.creator.spawn.NaturalSpawnRule.SCHEMA_VERSION,
+                com.storynpcs.creator.spawn.NaturalSpawnRule::getId,
+                com.storynpcs.creator.spawn.NaturalSpawnRule::getSchemaVersion,
+                registry::getNaturalSpawn, registry::registerNaturalSpawn);
+        if (rule != null && rule.getTemplateId() == null) {
+            result.addError(sourceName, 1, 1, "NATURALSPAWN_MISSING_TEMPLATE",
+                    "Natural-spawn rule '" + rule.getId() + "' must declare a 'templateId'");
+            registry.removeNaturalSpawn(rule.getId());
+            return null;
+        }
+        return rule;
+    }
+
+    /** Shared bounded-definition load: parse, id/schema checks, duplicate rejection, register. */
+    private <T> T loadBoundedDefinition(String yamlContent, String sourceName,
+            ValidationResult result, Class<T> type, String family, int expectedSchema,
+            java.util.function.Function<T, NamespacedId> idGetter,
+            java.util.function.ToIntFunction<T> schemaGetter,
+            java.util.function.Function<NamespacedId, java.util.Optional<T>> lookup,
+            java.util.function.Consumer<T> register) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
+        try {
+            T def = readDefinition(yamlContent, sourceName, result, type);
+            if (def == null) return null;
+            NamespacedId id = idGetter.apply(def);
+            int schemaVersion = schemaGetter.applyAsInt(def);
+            if (id == null) {
+                result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID",
+                        family.substring(0, 1).toUpperCase() + family.substring(1)
+                                + " definition must declare an 'id'");
+                return null;
+            }
+            if (schemaVersion != expectedSchema) {
+                result.addError(sourceName, 1, 1, "SCHEMA_VERSION_UNSUPPORTED",
+                        family + " schemaVersion " + schemaVersion
+                                + " is not supported (expected " + expectedSchema + ")");
+                return null;
+            }
+            if (lookup.apply(id).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate " + family + " ID '" + id + "' is already defined in another file");
+                return null;
+            }
+            register.accept(def);
+            return def;
+        } catch (JsonParseException e) {
+            result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
+                    "YAML_PARSE_ERROR", e.getOriginalMessage());
+        } catch (UnrecognizedPropertyException e) {
+            addUnknownFieldError(yamlContent, sourceName, e, result);
+        } catch (JsonMappingException e) {
+            result.addError(sourceName, e.getLocation() != null ? e.getLocation().getLineNr() : 1,
+                    e.getLocation() != null ? e.getLocation().getColumnNr() : 1,
+                    "YAML_MAPPING_ERROR", e.getOriginalMessage());
+        } catch (Exception e) {
+            result.addError(sourceName, 1, 1, "LOAD_ERROR", e.getMessage());
+        }
+        return null;
+    }
+
     private <T> T readDefinition(String yamlContent, String sourceName,
                                  ValidationResult result, Class<T> type) throws IOException {
         JsonNode normalized = DefinitionSchema.normalize(mapper, yamlContent, sourceName, result);
@@ -771,6 +876,9 @@ public class YamlDefinitionLoader {
             case "spawner", "spawners" -> "spawners";
             case "worldtool", "worldtools" -> "worldtools";
             case "recipe", "recipes" -> "recipes";
+            case "scene", "scenes" -> "scenes";
+            case "transform", "transforms" -> "transforms";
+            case "naturalspawn", "naturalspawns" -> "naturalspawns";
             default -> null;
         };
     }
@@ -814,7 +922,7 @@ public class YamlDefinitionLoader {
             "role", "roles", "job", "jobs", "tool", "tools",
             "world", "worlds", "companion", "companions", "trade", "trades",
             "bank", "banks", "follower", "followers",
-            "scene", "scenes", "linked_npc", "linked_npcs");
+            "linked_npc", "linked_npcs");
 
     private void loadFile(Path file, Path rootPath, ValidationResult result) {
         try {
@@ -834,7 +942,7 @@ public class YamlDefinitionLoader {
                         result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
                                 "Definition family '" + dirName + "' is recognized but not yet loadable;"
                                         + " remove the file or move it to a supported family directory"
-                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/)");
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/, scenes/, transforms/, naturalspawns/)");
                         return;
                     }
                 }
@@ -851,6 +959,9 @@ public class YamlDefinitionLoader {
                 case "spawners" -> loadSpawner(content, file.toString(), result);
                 case "worldtools" -> loadWorldTool(content, file.toString(), result);
                 case "recipes" -> loadRecipe(content, file.toString(), result);
+                case "scenes" -> loadScene(content, file.toString(), result);
+                case "transforms" -> loadTransform(content, file.toString(), result);
+                case "naturalspawns" -> loadNaturalSpawn(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -891,6 +1002,17 @@ public class YamlDefinitionLoader {
         if (parentName.equals("recipes") || parentName.equals("recipe")
                 || fileName.startsWith("recipe_")) {
             return "recipes";
+        }
+        if (parentName.equals("scenes") || fileName.startsWith("scene_")) {
+            return "scenes";
+        }
+        if (parentName.equals("transforms") || parentName.equals("transform")
+                || fileName.startsWith("transform_")) {
+            return "transforms";
+        }
+        if (parentName.equals("naturalspawns") || parentName.equals("naturalspawn")
+                || fileName.startsWith("naturalspawn_")) {
+            return "naturalspawns";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.

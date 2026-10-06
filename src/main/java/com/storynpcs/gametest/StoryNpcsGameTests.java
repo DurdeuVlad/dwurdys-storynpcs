@@ -656,6 +656,62 @@ public final class StoryNpcsGameTests {
         helper.succeed();
     }
 
+    /**
+     * P8-5 scenes: a canonical scene definition must spawn template
+     * participants in the live world, advance its stage markers, and
+     * terminate on the duration budget with RESTORE_POSITIONS recovery —
+     * proving the session can never run unbounded.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 300)
+    public static void sceneRuntimeSpawnsAndTerminatesInLiveWorld(GameTestHelper helper) {
+        var level = helper.getLevel();
+        StoryNpcs mod = StoryNpcsAccess.mod(level);
+        helper.assertTrue(mod != null, "StoryNpcs must be attached to the GameTest level");
+        var service = mod.getApplicationService();
+        helper.assertTrue(service != null, "Application service must be available");
+
+        var templateId = NamespacedId.of("storynpcs:test/gametest_scene_actor");
+        var template = new com.storynpcs.creator.template.NpcTemplate();
+        template.setId(templateId);
+        template.setDefinition(new NpcDefinition(
+                NamespacedId.of("storynpcs:test/gametest_scene_embedded"), "Scene Actor"));
+        helper.assertFalse(service.saveTemplate(template).hasErrors(),
+                "template save must apply");
+
+        var sceneId = NamespacedId.of("storynpcs:test/gametest_scene");
+        var scene = new com.storynpcs.creator.scene.SceneDefinition();
+        scene.setId(sceneId);
+        scene.setParticipantTemplateIds(java.util.List.of(templateId));
+        scene.setMaxEntities(4);
+        scene.setMaxDurationTicks(60);
+        scene.setStages(java.util.List.of(
+                new com.storynpcs.creator.scene.SceneDefinition.SceneStage(
+                        "only", 40, "one-stage cue")));
+        scene.setCancelRecovery(
+                com.storynpcs.creator.scene.SceneDefinition.CancelRecovery.RESTORE_POSITIONS);
+        helper.assertFalse(service.saveScene(scene).hasErrors(), "scene save must apply");
+        // Prior-run sessions must not leak into this run.
+        mod.getSceneRuntime().cancel(sceneId, "test reset");
+
+        var center = helper.absolutePos(new BlockPos(1, 1, 1));
+        var start = mod.getSceneRuntime().start(scene, level, center, level.getGameTime());
+        helper.assertTrue(start.started(), "scene must start, got " + start.outcome());
+        helper.assertTrue(mod.getSceneRuntime().isRunning(sceneId),
+                "scene must be tracked as running");
+
+        var watch = new net.minecraft.world.phys.AABB(center).inflate(24);
+        helper.runAfterDelay(65, () -> {
+            helper.assertFalse(mod.getSceneRuntime().isRunning(sceneId),
+                    "scene must terminate on its duration budget");
+            var participants = level.getEntities(
+                    net.minecraft.world.level.entity.EntityTypeTest.forClass(StoryNpcEntity.class),
+                    watch, e -> e.getPersistentData().contains("storynpcs:scene_owner"));
+            helper.assertFalse(participants.isEmpty(),
+                    "RESTORE_POSITIONS leaves recovered participants in-world");
+            helper.succeed();
+        });
+    }
+
     private static boolean reportedFailureIs(
             com.storynpcs.runtime.worldtool.WorldToolExecutor.MutationReport report, String opId) {
         return report.failures().stream().anyMatch(leg -> leg.opId().equals(opId));

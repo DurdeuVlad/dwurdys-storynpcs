@@ -27,6 +27,11 @@ public final class SceneTimer {
         return entry;
     }
 
+    /** Rehydrate a persisted entry with its original id — restart restore seam. */
+    public void restore(TimerEntry entry) {
+        timers.put(entry.timerId(), entry);
+    }
+
     /** Deterministic due set: all timers whose nextFireTick <= now, in schedule order. */
     public java.util.List<TimerEntry> due(long nowTick) {
         return timers.values().stream().filter(t -> t.nextFireTick() <= nowTick).toList();

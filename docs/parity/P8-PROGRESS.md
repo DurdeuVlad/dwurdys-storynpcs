@@ -46,11 +46,13 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## P8-5 — Links/scenes/transforms/timers/natural spawn
 
-- `LinkedNpcGraph`: SELF/CYCLE/TARGET_MISSING rejection, unload cleanup.
-- `SceneDefinition`: entity ≤64/duration budgets, stages, CancelRecovery policy.
-- `SceneTimer`: durable timer entries, catch-up without burst, actor cancel.
-- `TransformRule`: PRESERVE/REPLACE identity policy, triggers, replaced facets.
-- `NaturalSpawnRule`: weight ≤1000, per-dimension cap ≤128, min player distance, deterministic `eligible`.
+- `LinkedNpcGraph`: SELF/CYCLE/TARGET_MISSING rejection; durable `LinkedNpcStore` ledger rehydrates links on world open (`LinkedNpcRuntime.attach`), unload cleanup on stop.
+- `SceneDefinition`: entity ≤64/duration budgets (`SCENE_OVER_BUDGET` diagnostics at load), stages, CancelRecovery policy (RESTORE_POSITIONS / LEAVE_IN_PLACE); `SceneRuntime` spawns participants via the canonical `createNpc` path, tags them `storynpcs:scene_owner`, advances stage markers, terminates on the duration budget with recovery — sessions can never run unbounded.
+- `SceneTimer`: durable `SceneTimerStore` ledger; `TimerRuntime` rehydrates on open, catch-up is coalesced (one fire per overdue timer — no burst), actor-scoped cancel, at-most-once execution.
+- `TransformRule`: PRESERVE (facet merge via canonical `npc.mutate` — identity + progression kept) vs REPLACE (canonical `npc.create` under a derived id) identity policy; `storynpcs transform apply <rule> <npc>` exercises MANUAL rules end-to-end. ON_DEFEAT/ON_QUEST_COMPLETE/ON_TIMER triggers are declared and validated but not yet hooked — timer events already fire `NpcTimerEvent` and defeat/quest-completion event seams exist, so trigger wiring is a bounded follow-up, not a redesign.
+- `NaturalSpawnRule`: weight ≤1000, per-dimension cap ≤128, min player distance, deterministic seeded `eligible`; `NaturalSpawnRuntime` runs a 200-tick per-dimension eval that weighted-picks ONE eligible rule (seeded per dim+tick — deterministic, and the rule set cannot amplify into one-spawn-per-rule-per-pass), then spawns through the canonical `createNpc` path under the rule's tagged-actor quota.
+- YAML families `definitions/{scenes,transforms,naturalspawns}/*.yaml` load through `YamlDefinitionLoader` (lowercase enum values accepted), register in `DefinitionRegistry`, mutate via canonical `saveScene`/`deleteScene`/`saveTransform`/`deleteTransform`/`saveNaturalSpawn`/`deleteNaturalSpawn` + matching `storynpcs {scene,transform,naturalspawn}` commands; `storynpcs link`/`unlink` bind actor pairs through `LinkedNpcRuntime`; `storynpcs timer {list,schedule,cancel}` manages durable timers (schedule/cancel persist through `TimerRuntime`, never through a static map).
+- Orchestration events (`SceneLifecycleEvent`/`NpcTimerEvent`/`NpcLinkEvent`/`NpcTransformEvent`/`NaturalSpawnEvent` in `P85OrchestrationEvents`) publish through the mod event bus on each transition.
 
 ## P8-6 — Custom GUI/HUD
 
@@ -59,11 +61,13 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## Explicit limits
 
-- P8-1, P8-2, P8-3, and P8-4 are wired end-to-end (runtime, items/commands, audit, durable state). P8-5 and P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet.
-- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; recipes via `recipes/*.yaml`; spawner runtime state and world-tool activation bindings via durable `IndexedRecordStore` ledgers.
+- P8-1 through P8-5 are wired end-to-end (runtime, items/commands, audit, durable state). P8-6 remains a domain contract only — no network packets, client screens, or entity wiring yet.
+- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; recipes via `recipes/*.yaml`; scenes/transforms/natural-spawn rules via `scenes|transforms|naturalspawns/*.yaml`; spawner, world-tool binding, scene-participant, timer, and link state via durable `IndexedRecordStore` ledgers under `world/storynpcs/`.
 - A spawner whose template is deleted keeps spawning from its last-instantiated definition (snapshot semantics); deleting a spawner stops future spawns but leaves already-spawned actors in-world — both are surfaced explicitly.
-- Placement uses a seeded `RandomSource` (deterministic per rule+tick sequence); quota/interval/chunk/unload rules are deterministic.
+- Scene participants persist in-world after session end (both RESTORE_POSITIONS and LEAVE_IN_PLACE leave spawned actors; no despawn-on-finish semantic exists yet — scripted despawn is a P9-2 script surface).
+- Script execution inside scenes/timers/hooks stays deferred to P9-2 (#84): orchestration fires events and executes bounded structural actions only, never user code.
+- Transform and natural-spawn runtime drivers evaluate per server tick with bounded work (quota/interval/dimension gates short-circuit before any entity scan); placement uses a seeded `RandomSource` (deterministic per rule+tick sequence).
 
 ## Verification
 
-`./gradlew test`: 1285 tests, 0 failures. `./gradlew runGameTestServer`: 14/14 pass (live spawner, mount-policy, and world-tool activation fixtures). `git diff --check` clean.
+`./gradlew test`: 1298 tests, 0 failures. `./gradlew runGameTestServer`: 15/15 pass (live spawner, mount-policy, world-tool activation, and scene spawn/terminate fixtures). `git diff --check` clean.

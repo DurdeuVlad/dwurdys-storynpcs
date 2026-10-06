@@ -11,6 +11,11 @@ import com.storynpcs.domain.common.NamespacedId;
  */
 public class SceneDefinition {
 
+    public static final int SCHEMA_VERSION = 1;
+
+    @JsonProperty
+    private int schemaVersion = SCHEMA_VERSION;
+
     @JsonProperty(required = true)
     private NamespacedId id;
 
@@ -33,7 +38,18 @@ public class SceneDefinition {
     @JsonProperty
     private CancelRecovery cancelRecovery = CancelRecovery.RESTORE_POSITIONS;
 
-    public enum CancelRecovery { RESTORE_POSITIONS, RESPAWN_PRISTINE, LEAVE_IN_PLACE }
+    public enum CancelRecovery {
+        RESTORE_POSITIONS, RESPAWN_PRISTINE, LEAVE_IN_PLACE;
+
+        /** Authored values are case/underscore-insensitive (`restore_positions`). */
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public static CancelRecovery fromString(String value) {
+            if (value == null) {
+                return null;
+            }
+            return CancelRecovery.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        }
+    }
 
     public record SceneStage(
             @JsonProperty String name,
@@ -47,6 +63,9 @@ public class SceneDefinition {
     }
 
     public SceneDefinition() {}
+
+    public int getSchemaVersion() { return schemaVersion; }
+    public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
 
     public NamespacedId getId() { return id; }
     public void setId(NamespacedId id) { this.id = id; }
