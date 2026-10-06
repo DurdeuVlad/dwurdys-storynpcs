@@ -697,6 +697,10 @@ public final class StoryNpcsCommands {
                 .then(mailCommands())
                 .then(schemaCommands())
                 .then(panelCommands())
+                // P10-1: the unified authoring hub — a navigation shell routing
+                // to every parity-domain panel/editor.
+                .then(Commands.literal("hub").requires(s -> s.hasPermission(2))
+                        .executes(StoryNpcsCommands::openHub))
                 // Follower commands (permission 0: available to players commanding their own hired followers)
                 .then(Commands.literal("follower")
                         .executes(StoryNpcsCommands::sendFollowerHelp)
@@ -851,6 +855,17 @@ public final class StoryNpcsCommands {
                         .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL)))
                 .then(Commands.literal("transport")
                         .executes(ctx -> openPanel(ctx, com.storynpcs.service.PlayerPanelViews.PANEL_TRANSPORT)));
+    }
+
+    private static int openHub(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        if (!(source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] The hub opens for players only."));
+            return 0;
+        }
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
+                player, com.storynpcs.network.ClientboundHubOpenPayload.INSTANCE);
+        return 1;
     }
 
     private static int openPanel(CommandContext<CommandSourceStack> ctx, String panel) {

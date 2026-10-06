@@ -228,6 +228,15 @@ public class StoryNpcsNetwork {
                 }
         );
 
+        // Authoring hub (P10-1): navigation shell — no state payload needed.
+        registrar.playToClient(
+                ClientboundHubOpenPayload.TYPE,
+                ClientboundHubOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openHub());
+                }
+        );
+
         registrar.playToServer(
                 ServerboundNbtBookEditPayload.TYPE,
                 ServerboundNbtBookEditPayload.STREAM_CODEC,

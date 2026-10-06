@@ -5,11 +5,39 @@ Evidence: `P10DomainTest` and `CreatorDocsExamplesTest` exist. The full-suite re
 
 ## P10-1 — Unified authoring hub (#88)
 
-`editor/hub/AuthoringHub` is currently a headless model only. It is not connected to the editor screens; the former static client singleton was removed to comply with managed-lifecycle rules.
+`editor/hub/AuthoringHub` is the headless model; `client/gui/AuthoringHubScreen`
+is the thin rendered adapter, opened by `/storynpcs hub` (permission 2) through
+`ClientboundHubOpenPayload`. The hub is a navigation shell — it mutates nothing
+itself; every panel routes to the canonical server-authoritative open/save
+paths the domain already owns.
 
-- The model defines typed panels and deterministic panel search/pagination.
-- Its in-memory screen state and error list are not yet used by editor screens.
-- The full field matrix, undo/redo, keyboard navigation, viewport layout, revisioned saves, and rendered diagnostics are not implemented.
+- 17 typed panels cover the required domains; `coversAllDomains()` is a set
+  equality check so a renamed or dropped panel fails the suite.
+- Deterministic case-insensitive search, bounded pagination, wrap-around
+  keyboard navigation (Up/Down/Tab/PageUp/PageDown/Enter), per-panel preview
+  line, and a rendered diagnostics list (`FieldError` = schema path + message +
+  repair hint) all live on the model and are JUnit-tested.
+- `GuiParityCatalog` maps all 149 target GUI classes to a StoryNPCs screen,
+  a hub panel, an explicit improved equivalent, a #150 player surface, or a
+  COMPONENT_NA widget-internals marker — verified row-for-row against
+  `target-surface-manifest.json` in `GuiParityCatalogTest`.
+- `npcWorkflow()` gives the canonical single-NPC authoring sequence.
+- Route strings are honest: COMMAND routes name registered literals only
+  (test scans `StoryNpcsCommands` for the literal), so nothing dispatches to a
+  command that does not exist.
+
+Disclosed residuals:
+
+- The YAML-free workflow spine is identity/display/AI/combat-scalars/
+  dialogue/quest/faction (screens + commands). Equipment, inventory, job,
+  script, and template enrichments are YAML-family + canonical-command
+  routes — the hub names the family path instead of fabricating an editor.
+- Undo/redo lives inside the routed editors (e.g. the dialogue graph editor),
+  not in the hub itself — the hub's only state is navigation + diagnostics.
+- Minimum-resolution behaviour is verified at the layout math level
+  (9 rows at the 427x240 logical viewport = 854x480 physical @ scale 2);
+  no live-Minecraft render evidence exists under the no-live-runtime
+  constraint.
 
 ## P10-2 — AI-generated content / patch plans (#89)
 

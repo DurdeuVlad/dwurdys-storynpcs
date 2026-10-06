@@ -267,6 +267,12 @@ public final class StoryNpcsClient {
         });
     }
 
+    /** Opens the authoring hub — a stateless navigation shell (P10-1). */
+    public static void openHub() {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> mc.setScreen(new com.storynpcs.client.gui.AuthoringHubScreen()));
+    }
+
     public static void closeDialogue() {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {
