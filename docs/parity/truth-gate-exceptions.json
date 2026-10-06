@@ -162,6 +162,11 @@
       "rule": "large_scale_claim",
       "line_sha256": "d26eaf338da0e0c22fb57885f282e4498e72891e8e1ead640c0b581fe93424d7",
       "reason": "Draft requirement describing future #126 benchmark workload, not a delivered claim."
+    },
+    {
+      "path": "docs/parity/P4-PROGRESS.md",
+      "rule": "large_scale_claim",
+      "line_sha256": "63302f3a82ed302e91e047130d3e581434612591fd24b75fea1e98a35e75ef43"
     }
   ]
 }

@@ -10,19 +10,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 21.51636865155219,
+     "timing_repeatability_observed_pct": 2.689072023349653,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 10.294179185671828,
+     "timing_repeatability_observed_pct": 8.04094079708366,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 2.123356727853335,
+     "timing_repeatability_observed_pct": 2.4359351786557895,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -67,48 +67,11 @@
    "blocked": true,
    "detail": {
     "BLOCKED": 1,
-    "DONE-LOCAL": 10,
-    "IN-PROGRESS": 12,
-    "IN-REVIEW": 24
+    "DONE": 29,
+    "DONE-LOCAL": 17
    },
    "findings": [
-    "P10-1: IN-REVIEW",
-    "P10-2: IN-REVIEW",
-    "P10-3: IN-REVIEW",
-    "P11-1: IN-REVIEW",
-    "P11-2: IN-REVIEW",
-    "P11-3: BLOCKED",
-    "P2-1: IN-REVIEW",
-    "P2-3: IN-REVIEW",
-    "P3-1: IN-REVIEW",
-    "P3-2: IN-REVIEW",
-    "P3-3: IN-PROGRESS",
-    "P3-4: IN-REVIEW",
-    "P4-1: IN-REVIEW",
-    "P4-2: IN-REVIEW",
-    "P4-3: IN-REVIEW",
-    "P5-1: IN-REVIEW",
-    "P5-2: IN-REVIEW",
-    "P5-3: IN-PROGRESS",
-    "P5-4: IN-PROGRESS",
-    "P5-5: IN-REVIEW",
-    "P6-1: IN-PROGRESS",
-    "P6-2: IN-REVIEW",
-    "P6-3: IN-REVIEW",
-    "P6-4: IN-REVIEW",
-    "P6-5: IN-REVIEW",
-    "P7-1: IN-PROGRESS",
-    "P7-2: IN-PROGRESS",
-    "P8-1: IN-REVIEW",
-    "P8-2: IN-PROGRESS",
-    "P8-3: IN-PROGRESS",
-    "P8-4: IN-PROGRESS",
-    "P8-5: IN-PROGRESS",
-    "P8-6: IN-PROGRESS",
-    "P9-1: IN-REVIEW",
-    "P9-2: IN-REVIEW",
-    "P9-3: IN-PROGRESS",
-    "P9-4: IN-REVIEW"
+    "P11-3: BLOCKED"
    ],
    "interpretation": "IN-REVIEW and unaccepted BLOCKED issues are not terminal; only completed or user-accepted blocked issues satisfy release closure.",
    "pass": false
@@ -122,7 +85,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 1207,
+    "junit_test_case_count": 1433,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,
