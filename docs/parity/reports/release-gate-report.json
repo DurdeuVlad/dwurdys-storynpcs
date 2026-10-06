@@ -9,19 +9,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 19.502207627076217,
+     "timing_repeatability_observed_pct": 27.08524516977107,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 5.327689787001642,
+     "timing_repeatability_observed_pct": 11.807834648418392,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 6.8033029639386235,
+     "timing_repeatability_observed_pct": 5.495778811319699,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -82,7 +82,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 1433,
+    "junit_test_case_count": 1440,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,
