@@ -45,6 +45,27 @@ public record PatchPlan(
                 .toList();
     }
 
+    /**
+     * Apply order: deterministic, and on the same (family,target) creates run
+     * before updates/sets and deletes run last — a plan that creates a
+     * definition and then sets fields on it applies in dependency order.
+     * Cross-target order stays keyed (deterministic replays).
+     */
+    public List<PatchOp> applicationOrder() {
+        return deduplicated().ops().stream()
+                .sorted(Comparator.comparing(PatchOp::family)
+                        .thenComparing(PatchOp::targetId,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(o -> switch (o.op() == null ? "" : o.op()) {
+                            case "create" -> 0;
+                            case "update", "set", "grant" -> 1;
+                            case "delete" -> 2;
+                            default -> 3;
+                        })
+                        .thenComparing(PatchOp::idempotencyKey))
+                .toList();
+    }
+
     /** Duplicate ops collapse to one — same key = same effect. */
     public PatchPlan deduplicated() {
         var seen = new java.util.LinkedHashSet<String>();

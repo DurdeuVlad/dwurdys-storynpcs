@@ -1,0 +1,30 @@
+# P10-2 example — an AI-generated patch plan. Apply scope is the definition
+# spine (npc/dialogue/quest/faction). Ops carry a sourceLocation so diagnostics
+# trace back to the generated text; payloads may be YAML or JSON text.
+#
+#   /storynpcs author validate guard_patchplan   # dry-run, no writes
+#   /storynpcs author apply guard_patchplan      # canonical apply + rollback on failure
+#
+# Drop this file at <world>/storynpcs/patches/guard_patchplan.yaml.
+planId: "guard-intro-1"
+baseRevision: 0
+ops:
+  - op: create
+    family: npc
+    targetId: "storynpcs:plan_guard"
+    field: ""
+    sourceLocation: "patchplan.yaml:ops[0]"
+    payload: |
+      id: "storynpcs:plan_guard"
+      display:
+        name: "Plan Guard"
+      stats:
+        health: 40
+      ai:
+        tacticalStance: GUARD
+  - op: set
+    family: npc
+    targetId: "storynpcs:plan_guard"
+    field: name
+    sourceLocation: "patchplan.yaml:ops[1]"
+    payload: '"Gate Captain"'

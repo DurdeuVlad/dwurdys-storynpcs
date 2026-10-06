@@ -7,9 +7,9 @@ Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capab
 ## Key Features
 
 - 📜 **YAML-First Content**: NPCs, dialogues, quests, and factions defined in clean, readable, versioned YAML files.
-- 🧭 **Canonical Mutation Path (in progress)**: The GUI, commands, Java API, and future script adapters are being converged on one application-service boundary; cross-surface CustomNPCs parity is not yet claimed. See [P0-2 and the issue register](docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md#p0-2--remove-unsupported-completion-claims).
-- 🕸️ **Directed-Graph Dialogue Engine**: True narrative graphs with branching, deliberate cycles, conditional option gating, and side-effect actions.
-- 🛡️ **Separated Progression (partial)**: Definitions are intended to remain immutable and progression is separated from content, but crash-recovery evidence is still unverified. See [P2-2/P2-3](docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md#p2-2--implement-durable-worldplayer-economy-stores).
+- 🧭 **Canonical Mutation Path**: Every mutation — commands, GUI payloads, Java API, scripted calls — routes through one application-service boundary with capability checks, per-definition revision guards, and idempotent request ids. See the [issue register](docs/CUSTOMNPCS_PARITY_ISSUE_REGISTER.md).
+- 🕸️ **Directed-Graph Dialogue Engine**: True narrative graphs with branching, deliberate cycles, conditional option gating, and side-effect actions — authored in the graph editor or YAML.
+- 🛡️ **Separated Progression**: Definitions are immutable at runtime; progression lives in dedicated transactional stores with atomic writes.
 - 🔌 **Event-Driven Extensibility**: Built-in NeoForge domain events for other mods to intercept and extend quests, dialogues, and NPC behavior.
 
 ## Building and Testing

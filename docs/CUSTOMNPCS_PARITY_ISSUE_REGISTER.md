@@ -605,6 +605,8 @@ Status: `DONE-LOCAL` — `SchemaBundle.current()` (8 families), `PatchPlan` (ide
 
 ### P10-3 — Publish creator documentation, examples, and migration guidance
 
+Status: `DONE-LOCAL` — `docs/creator/` QUICKSTART (5-step multi-role NPC incl. hub + `author apply` surfaces) + MIGRATION_GUIDE (accepted inputs incl. patch plans + `scripts:` support post-P9-2, explicit gaps) + 5 runnable examples. `CreatorDocsExamplesTest` parses every example through the production loader/validator and dry-runs the shipped patch plan — docs cannot drift from the real schema. Truth-gate sweep: README/Business.md stale claims (`0/15` parity, target-architecture wording, unverified recovery) corrected to match delivered evidence with residual disclosures linked.
+
 - **Intent:** Reduce the learning cost for CustomNPCs creators and make the engine AI-readable.
 - **Expectation:** Documentation explains every supported target-parity domain, UI path, YAML schema, command/API/script operation, error, migration rule, performance budget, and intentional deviation with runnable examples.
 - **Acceptance criteria:** Every issue’s public behavior has one example; docs link to traceability/evidence state; quickstart creates a multi-role NPC; migration guide states accepted input types and unsupported fields; examples are validated in CI; no document claims unverified parity.
