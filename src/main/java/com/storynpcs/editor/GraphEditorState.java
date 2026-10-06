@@ -2,7 +2,7 @@ package com.storynpcs.editor;
 
 public class GraphEditorState {
 
-    private final DialogueGraphLayout layout;
+    private DialogueGraphLayout layout;
     private double panX = 0;
     private double panY = 0;
     private double zoom = 1.0;
@@ -22,6 +22,24 @@ public class GraphEditorState {
     }
 
     public DialogueGraphLayout getLayout() { return layout; }
+
+    /**
+     * Replaces the whole layout (undo restore / import): the old reference is
+     * dropped and every transient interaction state is cleared so no stale
+     * node/edge handles survive the swap.
+     */
+    public void replaceLayout(DialogueGraphLayout newLayout) {
+        this.layout = newLayout != null ? newLayout : new DialogueGraphLayout();
+        this.selectedNodeId = null;
+        this.selectedEdge = null;
+        this.connectingSourceNodeId = null;
+        this.draggingNodeId = null;
+        this.selectedEdgeIndex = -1;
+    }
+
+    /** Index (into {@code layout.getEdges()}) of the selected edge — stable across snapshots. */
+    private int selectedEdgeIndex = -1;
+    public int getSelectedEdgeIndex() { return selectedEdgeIndex; }
 
     public double getPanX() { return panX; }
     public double getPanY() { return panY; }
@@ -54,12 +72,29 @@ public class GraphEditorState {
     public void setSelectedNodeId(String selectedNodeId) {
         this.selectedNodeId = selectedNodeId;
         this.selectedEdge = null;
+        this.selectedEdgeIndex = -1;
     }
 
     public VisualEdge getSelectedEdge() { return selectedEdge; }
     public void setSelectedEdge(VisualEdge selectedEdge) {
         this.selectedEdge = selectedEdge;
         this.selectedNodeId = null;
+        this.selectedEdgeIndex = selectedEdge == null ? -1 : layout.getEdges().indexOf(selectedEdge);
+    }
+
+    /** Selects an edge by its index in the layout list (undo/restore seam). */
+    public void selectEdgeIndex(int index) {
+        if (index >= 0 && index < layout.getEdges().size()) {
+            setSelectedEdge(layout.getEdges().get(index));
+        }
+    }
+
+    /** Centers the canvas view on the given node for the supplied viewport size. */
+    public void centerOnNode(String nodeId, double viewportWidth, double viewportHeight) {
+        VisualNode node = layout.getNodes().get(nodeId);
+        if (node == null) return;
+        this.panX = viewportWidth / 2.0 - node.getCenterX() * zoom;
+        this.panY = viewportHeight / 2.0 - node.getCenterY() * zoom;
     }
 
     public String getConnectingSourceNodeId() { return connectingSourceNodeId; }
