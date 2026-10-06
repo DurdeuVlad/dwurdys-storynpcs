@@ -95,8 +95,6 @@ public class StoryNpcEntity extends PathfinderMob {
      * back to authored max on re-projection — health is runtime state.
      */
     private boolean loadedFromDisk;
-    /** Persisted data revision written to entity NBT (ADR-007 ModRev-equivalent). */
-    private static final int DATA_REVISION = 1;
     /** Revision read back from NBT — defaults to 0 for pre-marker saves. */
     private int loadedDataRevision = 0;
 
@@ -2055,14 +2053,10 @@ public class StoryNpcEntity extends PathfinderMob {
         if (resistances == null) {
             return amount;
         }
-        double multiplier = 1.0;
-        if (source.is(net.minecraft.tags.DamageTypeTags.IS_PROJECTILE)) {
-            multiplier = resistances.damageScaleArrow();
-        } else if (source.is(net.minecraft.tags.DamageTypeTags.IS_EXPLOSION)) {
-            multiplier = resistances.damageScaleExplosion();
-        } else if (source.getDirectEntity() instanceof LivingEntity) {
-            multiplier = resistances.damageScaleMelee();
-        }
+        double multiplier = resistances.damageScaleFor(
+                source.is(net.minecraft.tags.DamageTypeTags.IS_PROJECTILE),
+                source.is(net.minecraft.tags.DamageTypeTags.IS_EXPLOSION),
+                source.getDirectEntity() instanceof LivingEntity);
         return (float) (amount * multiplier);
     }
 
@@ -2152,7 +2146,7 @@ public class StoryNpcEntity extends PathfinderMob {
         super.addAdditionalSaveData(compound);
         // ADR-007 ModRev-equivalent: the persisted data revision lets future
         // format changes distinguish pre-change saves during migration.
-        compound.putInt("StoryNpcsRev", DATA_REVISION);
+        EntityDataRevision.write(compound);
         compound.putString("StoryNpcDefinitionId", getDefinitionId());
         // Never persist a blank actor ID — an entity loaded before the actor
         // runtime existed would otherwise carry StoryNpcActorId:"" forever,
@@ -2203,8 +2197,7 @@ public class StoryNpcEntity extends PathfinderMob {
         // Establish durable logical identity before definition binding. This prevents
         // a replacement projection from first registering a UUID-derived orphan actor.
         try {
-            this.loadedDataRevision = compound.contains("StoryNpcsRev")
-                    ? compound.getInt("StoryNpcsRev") : 0;
+            this.loadedDataRevision = EntityDataRevision.read(compound);
             if (compound.contains("StoryNpcActorId")) {
                 this.state.setActorId(compound.getString("StoryNpcActorId"));
             }

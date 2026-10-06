@@ -150,6 +150,49 @@ class NpcStatsTest {
     }
 
     @Test
+    void perChannelDispatchMapsSourceShapeToChannel() {
+        NpcResistances resistances = new NpcResistances();
+        resistances.setArrow(2.0);      // immune to projectiles
+        resistances.setExplosion(0.0);  // vulnerable to explosions
+        resistances.setMelee(0.5);      // 150% melee damage
+        resistances.setKnockback(1.5);  // independent channel — not touched
+
+        // ADR-007 dispatch: projectile→arrow, explosion→explosion,
+        // living attacker→melee, everything else unscaled.
+        assertThat(resistances.damageScaleFor(true, false, true)).isEqualTo(0.0);
+        assertThat(resistances.damageScaleFor(false, true, false)).isEqualTo(2.0);
+        assertThat(resistances.damageScaleFor(false, false, true)).isEqualTo(1.5);
+        assertThat(resistances.damageScaleFor(false, false, false)).isEqualTo(1.0);
+        // Projectile wins over living-attacker: a thrown projectile reads arrow.
+        assertThat(resistances.damageScaleFor(true, false, true)).isEqualTo(0.0);
+        // Projectile wins over explosion too (e.g., a projectile that explodes).
+        assertThat(resistances.damageScaleFor(true, true, false)).isEqualTo(0.0);
+        // Knockback is a separate channel — combat hits never read it.
+        assertThat(resistances.scaleKnockback(1.0F)).isEqualTo(0.5F);
+    }
+
+    @Test
+    void creatureTypeMatchesTargetIntContract() {
+        NpcStats stats = new NpcStats();
+        assertThat(stats.getCreatureType()).isEqualTo(NpcStats.CreatureType.NORMAL);
+        assertThat(stats.getCreatureType().targetInt()).isEqualTo(0);
+
+        // ADR-007 target mapping: int 0–4 ↔ NORMAL/UNDEAD/ARTHROPOD/ILLAGER/AQUATIC.
+        assertThat(NpcStats.CreatureType.fromTargetInt(0)).isEqualTo(NpcStats.CreatureType.NORMAL);
+        assertThat(NpcStats.CreatureType.fromTargetInt(1)).isEqualTo(NpcStats.CreatureType.UNDEAD);
+        assertThat(NpcStats.CreatureType.fromTargetInt(2)).isEqualTo(NpcStats.CreatureType.ARTHROPOD);
+        assertThat(NpcStats.CreatureType.fromTargetInt(3)).isEqualTo(NpcStats.CreatureType.ILLAGER);
+        assertThat(NpcStats.CreatureType.fromTargetInt(4)).isEqualTo(NpcStats.CreatureType.AQUATIC);
+        assertThatThrownBy(() -> NpcStats.CreatureType.fromTargetInt(5));
+        assertThatThrownBy(() -> NpcStats.CreatureType.fromTargetInt(-1));
+
+        stats.setCreatureType(NpcStats.CreatureType.UNDEAD);
+        assertThat(stats.getCreatureType()).isEqualTo(NpcStats.CreatureType.UNDEAD);
+        stats.setCreatureType(null);
+        assertThat(stats.getCreatureType()).isEqualTo(NpcStats.CreatureType.NORMAL);
+    }
+
+    @Test
     void allSixImmunityTogglesRoundTrip() {
         NpcImmunities immunities = new NpcImmunities();
         assertThat(immunities.isPotion()).isFalse();
@@ -235,6 +278,7 @@ class NpcStatsTest {
         stats.getDefeat().setMode(NpcStats.Defeat.Mode.FLEE);
         stats.getDefeat().setFleeHealthPercent(20);
         stats.getDefeat().setDropsProfileId("storynpcs:drops/warlord");
+        stats.setCreatureType(NpcStats.CreatureType.ILLAGER);
 
         String json = NpcDefinitionSerde.toJson(original);
         NpcDefinition restored = NpcDefinitionSerde.fromJson(json).orElseThrow();
@@ -259,5 +303,6 @@ class NpcStatsTest {
         assertThat(restoredStats.getDefeat().getFleeHealthPercent()).isEqualTo(20);
         assertThat(restoredStats.getDefeat().getDropsProfileId())
                 .isEqualTo("storynpcs:drops/warlord");
+        assertThat(restoredStats.getCreatureType()).isEqualTo(NpcStats.CreatureType.ILLAGER);
     }
 }

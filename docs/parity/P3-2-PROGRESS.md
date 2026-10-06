@@ -49,6 +49,15 @@ The earlier resistance model stored *incoming-damage multipliers* (`amount * res
 - **Compat-adapter immunity type-1/4 quirk**: inherited by the P11-1 import adapter (#91) — the adapter surface does not exist yet; recorded here so it isn't lost.
 - `NpcStatsTest`: resistance tests rewritten to target-faithful semantics + new `damageScalesFollowTargetFaithfulTwoMinusResistance` and `deserializedResistancesPassThroughUnclamped` fixtures.
 
+## Sixth pass — #122 contract closure (dispatch seam, creature type, decisions)
+
+- **Per-channel dispatch seam**: `NpcResistances.damageScaleFor(projectile, explosion, livingAttacker)` centralizes the source-shape→channel mapping (projectile→arrow, explosion→explosion, living attacker→melee, anything else unscaled); `StoryNpcEntity.scaleByAuthoredResistances` delegates to it so the dispatch is JUnit-pinned rather than buried in the entity. Projectile is checked first — a living attacker's thrown projectile reads the arrow channel.
+- **`creatureType` field**: `NpcStats.CreatureType` enum (`NORMAL/UNDEAD/ARTHROPOD/ILLAGER/AQUATIC` ↔ target ints 0–4 via `targetInt()`/`fromTargetInt`). NeoForge 21.x removed `MobType`/`getMobType()` — smite-style interactions are enchantment/tag-driven — so the field is contract data the importer and scripts observe; recorded as an environment deviation, not a missing feature.
+- **`setImmune` type-1/4 inversion — decision: `INTENTIONAL_DEVIATION`** (user-approved). StoryNPCs exposes named boolean immunity fields — no index-based `setImmune(int, boolean)` API exists, so the target's inverted-flags bug cannot reproduce. The P11-1 import/compat surface (#91) maps NBT immunity flags literally; it does not reproduce the inversion.
+- **NBT key names** (`Knockback`, `Arrow`, `Melee`, `Explosion`, `AttackStrenght` [target typo, verbatim], `MaxHealth`, `AggroRange`): documented in the P11-1 import contract (#91) per the issue's own dependency note — the importer is the only surface that reads target NBT.
+- `NpcStatsTest`: `perChannelDispatchMapsSourceShapeToChannel`, `creatureTypeMatchesTargetIntContract` + creatureType in the full round-trip fixture.
+- Bookkeeping: PR #116 closed as superseded (the surviving model merged via #117); #118 closed with this decision recorded.
+
 ## Correction — ranged contract is fully executed (stale note above)
 
 `NpcRangedAttackGoal` + `NpcProjectileEntity` consume the entire authored ranged block server-side: windup delay, fire-rate cadence (combat-budget gated), shot count, accuracy spread, gravity, speed, authored projectile size, area damage, trail particles, impact sound, and on-hit effects — plus ability hooks on landed hits. The earlier "no projectile entity/goal executes it" note predates that wiring; the open item is closed.

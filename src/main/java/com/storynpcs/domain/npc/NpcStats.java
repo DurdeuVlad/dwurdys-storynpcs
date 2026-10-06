@@ -51,6 +51,16 @@ public class NpcStats {
     @JsonProperty
     private int xpReward = 0;
 
+    /**
+     * Creature classification (ADR-007 / issue #122): the target's int 0–4
+     * {@code creatureType} field, authored here as a named enum. NeoForge
+     * 21.x removed the {@code MobType}/{@code getMobType()} seam — smite-style
+     * interactions are enchantment/tag-driven — so this is contract data the
+     * importer and scripts can observe, with no runtime dispatch of its own.
+     */
+    @JsonProperty
+    private CreatureType creatureType = CreatureType.NORMAL;
+
     public NpcStats() {}
 
     public double getMaxHealth() { return maxHealth; }
@@ -121,6 +131,37 @@ public class NpcStats {
     public int getXpReward() { return xpReward; }
     public void setXpReward(int xpReward) {
         this.xpReward = boundedInt(xpReward, 0, 100_000, "xpReward");
+    }
+
+    public CreatureType getCreatureType() { return creatureType; }
+    public void setCreatureType(CreatureType creatureType) {
+        this.creatureType = creatureType != null ? creatureType : CreatureType.NORMAL;
+    }
+
+    /**
+     * Target creature classification (ADR-007): the target persists an int
+     * 0–4 where 0 is normal and 1–4 map to {@code UNDEAD}, {@code ARTHROPOD},
+     * {@code ILLAGER}, {@code AQUATIC}. {@link #targetInt()} preserves the
+     * persisted form for the P11-1 import contract.
+     */
+    public enum CreatureType {
+        NORMAL(0), UNDEAD(1), ARTHROPOD(2), ILLAGER(3), AQUATIC(4);
+
+        private final int targetInt;
+
+        CreatureType(int targetInt) { this.targetInt = targetInt; }
+
+        /** Target-persisted int form, 0–4. */
+        public int targetInt() { return targetInt; }
+
+        /** Inverse of {@link #targetInt()}; out-of-range ints are rejected. */
+        public static CreatureType fromTargetInt(int value) {
+            for (CreatureType type : values()) {
+                if (type.targetInt == value) return type;
+            }
+            throw new IllegalArgumentException(
+                    "creatureType must be between 0 and 4, got " + value);
+        }
     }
 
     /** Melee cadence, reach, knockback, and applied-on-hit effect. */

@@ -81,6 +81,20 @@ public class NpcResistances {
     /** ADR-007 damage scale: {@code 2.0 - resistance} for the explosion channel. */
     public double damageScaleExplosion() { return MAX - explosion; }
 
+    /**
+     * Per-channel dispatch (ADR-007): a projectile hit scales by the arrow
+     * channel, an explosion by the explosion channel, a living attacker's
+     * direct hit by the melee channel — anything else passes through
+     * unscaled. Projectile is checked first, so a living attacker's thrown
+     * projectile still reads the arrow channel.
+     */
+    public double damageScaleFor(boolean projectile, boolean explosion, boolean livingAttacker) {
+        if (projectile) return damageScaleArrow();
+        if (explosion) return damageScaleExplosion();
+        if (livingAttacker) return damageScaleMelee();
+        return 1.0;
+    }
+
     private static double clamp(double value) {
         if (Double.isNaN(value)) return NEUTRAL;
         return Math.max(MIN, Math.min(MAX, value));
