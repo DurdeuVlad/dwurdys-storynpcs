@@ -1,6 +1,5 @@
 {
  "blocking_checks": [
-  "issue_statuses_terminal",
   "p11_3_status",
   "target_runtime_evidence"
  ],
@@ -10,19 +9,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 2.689072023349653,
+     "timing_repeatability_observed_pct": 19.502207627076217,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 8.04094079708366,
+     "timing_repeatability_observed_pct": 5.327689787001642,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 2.4359351786557895,
+     "timing_repeatability_observed_pct": 6.8033029639386235,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -64,21 +63,19 @@
    "pass": true
   },
   "issue_statuses_terminal": {
-   "blocked": true,
+   "blocked": false,
    "detail": {
-    "BLOCKED": 1,
+    "BLOCKED-ACCEPTED": 1,
     "DONE": 29,
     "DONE-LOCAL": 17
    },
-   "findings": [
-    "P11-3: BLOCKED"
-   ],
+   "findings": [],
    "interpretation": "IN-REVIEW and unaccepted BLOCKED issues are not terminal; only completed or user-accepted blocked issues satisfy release closure.",
-   "pass": false
+   "pass": true
   },
   "p11_3_status": {
    "blocked": true,
-   "detail": "BLOCKED",
+   "detail": "BLOCKED-ACCEPTED",
    "findings": [],
    "pass": true
   },
