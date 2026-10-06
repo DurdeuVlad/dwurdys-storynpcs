@@ -176,6 +176,19 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("delete")
                                 .then(Commands.argument("spawner_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteSpawner))))
+                // P8-3 world tools: typed defs, preview-then-confirm activation
+                .then(Commands.literal("worldtool")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listWorldTools))
+                        .then(Commands.literal("show")
+                                .then(Commands.argument("tool_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::showWorldTool)))
+                        .then(Commands.literal("activate")
+                                .then(Commands.argument("tool_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                                .executes(ctx -> activateWorldTool(ctx,
+                                                        ResourceLocationArgument.getId(ctx, "tool_id"),
+                                                        net.minecraft.commands.arguments.coordinates.BlockPosArgument.getBlockPos(ctx, "pos")))))))
                 // P11-1 import: dry-run by default; `apply` executes with rollback
                 .then(Commands.literal("import")
                         .requires(source -> source.hasPermission(2))
@@ -4388,6 +4401,124 @@ public final class StoryNpcsCommands {
         }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§aDeleted spawner " + id + " (owned actors remain in-world)"), true);
+        return 1;
+    }
+
+    // ── P8-3 world tools ─────────────────────────────────────────────────────
+
+    private static int listWorldTools(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var tools = mod.getRegistry().getAllWorldTools();
+        if (tools.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No world tools loaded (worldtools/*.yaml)."), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] " + tools.size() + " world tool(s):"), false);
+        for (var tool : tools) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s — family=%s, block=%s, budget=%d, hooks=%d",
+                    tool.getId(), tool.getFamily(),
+                    tool.getBlockId() == null ? "none" : tool.getBlockId(),
+                    tool.getMaxBlocksPerActivation(), tool.getHooks().size())), false);
+        }
+        return tools.size();
+    }
+
+    /** Shows the tool's reversible/irreversible op catalog — the preview contract. */
+    private static int showWorldTool(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "tool_id").toString());
+        var tool = mod.getRegistry().getWorldTool(id).orElse(null);
+        if (tool == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] World tool not found: " + id));
+            return 0;
+        }
+        var ops = com.storynpcs.creator.world.WorldToolOpsCatalog.opsFor(tool.getFamily());
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "§a[StoryNPCs] %s — family=%s, dimension=%s, budget=%d",
+                tool.getId(), tool.getFamily(),
+                tool.getDimensionId() == null ? "any" : tool.getDimensionId(),
+                tool.getMaxBlocksPerActivation())), false);
+        for (var op : ops.reversible()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "  §areversible: §7" + op.opId() + " — " + op.description()), false);
+        }
+        for (var op : ops.irreversible()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "  §clogged-only: §7" + op.opId() + " — " + op.description()), false);
+        }
+        return ops.reversible().size() + ops.irreversible().size();
+    }
+
+    /**
+     * Preview → confirm activation: the first call shows the plan and arms a
+     * bounded confirmation; the matching second call executes and reports
+     * each leg's exact status.
+     */
+    private static int activateWorldTool(CommandContext<CommandSourceStack> ctx,
+                                         ResourceLocation toolLoc, net.minecraft.core.BlockPos pos) {
+        var mod = modOrNull(ctx);
+        var source = ctx.getSource();
+        if (mod == null || !(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("[StoryNPCs] Only players can activate world tools."));
+            return 0;
+        }
+        var id = NamespacedId.of(toolLoc.toString());
+        var tool = mod.getRegistry().getWorldTool(id).orElse(null);
+        if (tool == null) {
+            source.sendFailure(Component.literal("[StoryNPCs] World tool not found: " + id));
+            return 0;
+        }
+        var level = source.getLevel();
+        var sessions = mod.getRuntimeSessions(source.getServer());
+        long now = System.currentTimeMillis();
+        String confirmTool = "worldtool:" + id;
+        if (sessions.consumePosConfirmation(player.getUUID(), confirmTool,
+                pos.asLong(), now) == null) {
+            // Preview pass — show the plan; arm the confirm.
+            var executor = mod.getWorldToolExecutor(source.getServer());
+            sessions.armPosConfirmation(player.getUUID(), confirmTool, pos.asLong(), 15_000);
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "§e[StoryNPCs] Preview: '%s' (%s) at (%d,%d,%d) would run:",
+                    id, tool.getFamily(), pos.getX(), pos.getY(), pos.getZ())), false);
+            for (var leg : executor.preview(tool)) {
+                source.sendSuccess(() -> Component.literal(String.format(
+                        "  %s%s§7", leg.reversible() ? "§a" : "§c", leg.opId())), false);
+            }
+            source.sendSuccess(() -> Component.literal(
+                    "§eRun the same command within 15 seconds to apply. Irreversible legs are logged, not rolled back."), false);
+            return 1;
+        }
+        var executor = mod.getWorldToolExecutor(source.getServer());
+        var report = executor.activate(tool, level, pos, player);
+        for (var leg : report.legs()) {
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "  %s%s%s §7%s",
+                    leg.status() == com.storynpcs.runtime.worldtool.WorldToolExecutor.LegStatus.APPLIED
+                            || leg.status() == com.storynpcs.runtime.worldtool.WorldToolExecutor.LegStatus.LOGGED
+                            ? "§a" : leg.status() == com.storynpcs.runtime.worldtool.WorldToolExecutor.LegStatus.ROLLED_BACK
+                            ? "§e" : "§c",
+                    leg.opId(), leg.status() == com.storynpcs.runtime.worldtool.WorldToolExecutor.LegStatus.APPLIED
+                            ? "" : " [" + leg.status() + "]",
+                    leg.detail() == null ? "" : "— " + leg.detail())), false);
+        }
+        if (!report.fullyApplied()) {
+            source.sendFailure(Component.literal(
+                    "§c[StoryNPCs] '" + id + "' partially failed — see leg report above."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] '" + id + "' activated at (" + pos.toShortString() + ")."), true);
         return 1;
     }
 

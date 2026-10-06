@@ -426,6 +426,77 @@ public class YamlDefinitionLoader {
         return null;
     }
 
+    /**
+     * P8-3 world-tool family: typed tool defs with a family, optional dimension
+     * binding, a bounded mutation budget, and inert typed hook bindings. Block-
+     * placing families must declare {@code blockId}; the catalog supplies the
+     * reversible/irreversible op contract at activation time.
+     */
+    public com.storynpcs.creator.world.WorldToolDefinition loadWorldTool(
+            String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
+        try {
+            var tool = readDefinition(yamlContent, sourceName, result,
+                    com.storynpcs.creator.world.WorldToolDefinition.class);
+            if (tool == null) return null;
+            if (tool.getId() == null) {
+                result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID",
+                        "World-tool definition must declare an 'id'");
+                return null;
+            }
+            if (tool.getSchemaVersion() != com.storynpcs.creator.world.WorldToolDefinition.SCHEMA_VERSION) {
+                result.addError(sourceName, 1, 1, "SCHEMA_VERSION_UNSUPPORTED",
+                        "World-tool schemaVersion " + tool.getSchemaVersion()
+                                + " is not supported (expected "
+                                + com.storynpcs.creator.world.WorldToolDefinition.SCHEMA_VERSION + ")");
+                return null;
+            }
+            if (tool.getFamily() == null) {
+                result.addError(sourceName, 1, 1, "WORLDTOOL_MISSING_FAMILY",
+                        "World tool must declare a 'family' (scripter|scene|scripted_block|"
+                                + "scripted_door|mailbox|redstone|banner)");
+                return null;
+            }
+            if (com.storynpcs.creator.world.WorldToolDefinition.placesBlock(tool.getFamily())
+                    && tool.getBlockId() == null) {
+                result.addError(sourceName, 1, 1, "WORLDTOOL_MISSING_BLOCK",
+                        "World tool '" + tool.getId() + "' of family '" + tool.getFamily()
+                                + "' places a block and must declare 'blockId'");
+                return null;
+            }
+            for (var hook : tool.getHooks()) {
+                if (hook.getHookId() == null || hook.getEvent() == null) {
+                    result.addError(sourceName, 1, 1, "WORLDTOOL_HOOK_INCOMPLETE",
+                            "World tool '" + tool.getId()
+                                    + "' has a hook binding missing 'hookId' or 'event'");
+                    return null;
+                }
+            }
+            if (registry.getWorldTool(tool.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate world-tool ID '" + tool.getId() + "' is already defined in another file");
+                return null;
+            }
+            registry.registerWorldTool(tool);
+            return tool;
+        } catch (JsonParseException e) {
+            result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
+                    "YAML_PARSE_ERROR", e.getOriginalMessage());
+        } catch (UnrecognizedPropertyException e) {
+            addUnknownFieldError(yamlContent, sourceName, e, result);
+        } catch (JsonMappingException e) {
+            result.addError(sourceName, e.getLocation() != null ? e.getLocation().getLineNr() : 1,
+                    e.getLocation() != null ? e.getLocation().getColumnNr() : 1,
+                    "YAML_MAPPING_ERROR", e.getOriginalMessage());
+        } catch (Exception e) {
+            result.addError(sourceName, 1, 1, "LOAD_ERROR", e.getMessage());
+        }
+        return null;
+    }
+
     private <T> T readDefinition(String yamlContent, String sourceName,
                                  ValidationResult result, Class<T> type) throws IOException {
         JsonNode normalized = DefinitionSchema.normalize(mapper, yamlContent, sourceName, result);
@@ -636,6 +707,7 @@ public class YamlDefinitionLoader {
             case "transport", "transports" -> "transports";
             case "template", "templates" -> "templates";
             case "spawner", "spawners" -> "spawners";
+            case "worldtool", "worldtools" -> "worldtools";
             default -> null;
         };
     }
@@ -699,7 +771,7 @@ public class YamlDefinitionLoader {
                         result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
                                 "Definition family '" + dirName + "' is recognized but not yet loadable;"
                                         + " remove the file or move it to a supported family directory"
-                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/)");
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/)");
                         return;
                     }
                 }
@@ -714,6 +786,7 @@ public class YamlDefinitionLoader {
                 case "transports" -> loadTransport(content, file.toString(), result);
                 case "templates" -> loadTemplate(content, file.toString(), result);
                 case "spawners" -> loadSpawner(content, file.toString(), result);
+                case "worldtools" -> loadWorldTool(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -746,6 +819,10 @@ public class YamlDefinitionLoader {
         if (parentName.equals("spawners") || parentName.equals("spawner")
                 || fileName.startsWith("spawner_")) {
             return "spawners";
+        }
+        if (parentName.equals("worldtools") || parentName.equals("worldtool")
+                || fileName.startsWith("worldtool_")) {
+            return "worldtools";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.

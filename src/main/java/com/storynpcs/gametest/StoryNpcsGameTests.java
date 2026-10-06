@@ -594,6 +594,73 @@ public final class StoryNpcsGameTests {
         helper.succeed();
     }
 
+    /**
+     * P8-3 world-tool activation: a scripted-block tool saved through the
+     * canonical op must place its block in a real ServerLevel, persist its
+     * inert hook binding under the world binding store, and report every leg's
+     * exact status — while a tool whose dimension binding disagrees is
+     * refused before any mutation.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
+    public static void worldToolActivationMutatesLiveWorld(GameTestHelper helper) {
+        var level = helper.getLevel();
+        StoryNpcs mod = StoryNpcsAccess.mod(level);
+        var service = mod.getApplicationService();
+        var server = level.getServer();
+
+        var toolId = NamespacedId.of("storynpcs:test/gametest_worldtool");
+        var tool = new com.storynpcs.creator.world.WorldToolDefinition();
+        tool.setId(toolId);
+        tool.setFamily(com.storynpcs.creator.world.WorldToolDefinition.Family.SCRIPTED_BLOCK);
+        tool.setBlockId(NamespacedId.of("minecraft:gold_block"));
+        tool.setDimensionId(NamespacedId.of(level.dimension().location().toString()));
+        tool.setHooks(java.util.List.of(new com.storynpcs.creator.world.ScriptedHookBinding(
+                NamespacedId.of("storynpcs:scripts/gametest_hook"), "interact")));
+        helper.assertFalse(service.saveWorldTool(tool).hasErrors(),
+                "world-tool save must apply through the canonical op");
+
+        var executor = mod.getWorldToolExecutor(server);
+        var actor = helper.makeMockPlayer(net.minecraft.world.level.GameType.CREATIVE);
+        var pos = helper.absolutePos(new BlockPos(1, 1, 1));
+
+        // Dimension-bound tools refuse other dimensions before mutating.
+        var bound = new com.storynpcs.creator.world.WorldToolDefinition();
+        bound.setId(NamespacedId.of("storynpcs:test/gametest_worldtool_nether"));
+        bound.setFamily(com.storynpcs.creator.world.WorldToolDefinition.Family.SCRIPTED_BLOCK);
+        bound.setBlockId(NamespacedId.of("minecraft:diamond_block"));
+        bound.setDimensionId(NamespacedId.of("minecraft:the_nether"));
+        var rejected = executor.activate(bound, level, pos, actor);
+        helper.assertTrue(reportedFailureIs(rejected, "dimension.check"),
+                "dimension-bound tool must refuse a foreign dimension before mutating");
+
+        var report = executor.activate(tool, level, pos, actor);
+        helper.assertTrue(report.fullyApplied(),
+                "activation must fully apply, got legs: " + report.legs());
+        helper.assertTrue(
+                level.getBlockState(pos).is(net.minecraft.world.level.block.Blocks.GOLD_BLOCK),
+                "scripted block must place the declared block in the live world");
+
+        // The inert hook binding persisted under the world binding store.
+        var bindings = mod.getWorldToolBindingStore();
+        helper.assertTrue(bindings != null, "world-tool binding store must be open");
+        try {
+            var binding = bindings.load(level.dimension().location().toString(), pos.asLong());
+            helper.assertTrue(binding.isPresent(), "activation must persist the hook binding");
+            helper.assertTrue(binding.get().hooks().size() == 1
+                            && "interact".equals(binding.get().hooks().get(0).getEvent()),
+                    "binding must carry the inert hook payload, got: " + binding.get().hooks());
+        } catch (java.io.IOException e) {
+            helper.fail("binding store read failed: " + e.getMessage());
+        }
+
+        helper.succeed();
+    }
+
+    private static boolean reportedFailureIs(
+            com.storynpcs.runtime.worldtool.WorldToolExecutor.MutationReport report, String opId) {
+        return report.failures().stream().anyMatch(leg -> leg.opId().equals(opId));
+    }
+
     private static void drain(com.storynpcs.service.SchematicBuildService service,
                               GameTestHelper helper) {
         for (int i = 0; i < 4000 && !service.status().isEmpty(); i++) {

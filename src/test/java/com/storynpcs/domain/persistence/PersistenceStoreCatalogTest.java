@@ -53,9 +53,9 @@ class PersistenceStoreCatalogTest {
         long unmapped = count(PersistenceStoreStatus.UNMAPPED);
 
         assertThat(mapped).isEqualTo(4);
-        assertThat(partiallyMapped).isEqualTo(5);
+        assertThat(partiallyMapped).isEqualTo(6);
         assertThat(deviation).isEqualTo(1);
-        assertThat(unmapped).isEqualTo(8);
+        assertThat(unmapped).isEqualTo(7);
         assertThat(mapped + partiallyMapped + deviation + unmapped).isEqualTo(18);
     }
 

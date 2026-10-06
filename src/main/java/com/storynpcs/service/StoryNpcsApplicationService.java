@@ -185,6 +185,10 @@ public class StoryNpcsApplicationService {
         this.questMailStore = questMailStore;
     }
 
+    public com.storynpcs.domain.quest.QuestMailStore getQuestMailStore() {
+        return questMailStore;
+    }
+
     /** Shared-party progression store (P5-5); null degrades team ops to a typed denial. */
     private volatile com.storynpcs.domain.quest.TeamProgressionStore teamProgressionStore;
 
@@ -1787,6 +1791,163 @@ public class StoryNpcsApplicationService {
         fields.add(String.valueOf(rule.getAnchorY()));
         fields.add(String.valueOf(rule.getAnchorZ()));
         fields.add(Boolean.toString(rule.isEnabled()));
+        return fields;
+    }
+
+    /**
+     * P8-3: canonical world-tool save — mirrors {@link #saveSpawner}. The tool
+     * persists under {@code worldtools/*.yaml}.
+     */
+    public ValidationResult saveWorldTool(com.storynpcs.creator.world.WorldToolDefinition tool) {
+        Objects.requireNonNull(tool, "tool");
+        if (tool.getId() == null) {
+            ValidationResult result = ValidationResult.valid();
+            result.addError("WORLDTOOL_ID_MISSING", "World tool must have an ID");
+            return result;
+        }
+        return saveWorldTool(new MutationRequest(
+                "worldtool.replace", "adapter", "worldtool.mutate", tool.getId(),
+                definitionRevisions.getOrDefault(revisionKey("worldtool", tool.getId()), 0L),
+                UUID.randomUUID()), tool).diagnostics();
+    }
+
+    public CanonicalMutationResult saveWorldTool(MutationRequest request,
+            com.storynpcs.creator.world.WorldToolDefinition tool) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(tool, "tool");
+        var payload = detachedWorldToolCopy(tool);
+        return executeCanonicalMutation(request, "worldtool", "replace",
+                MutationPayloadFingerprint.ofFields("worldtool.replace", canonicalWorldToolFields(payload)),
+                () -> {
+                    if (payload.getId() == null) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("WORLDTOOL_ID_MISSING", "World tool must have an ID");
+                        return result;
+                    }
+                    if (!request.targetId().equals(payload.getId())) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TARGET_ID_MISMATCH", "World-tool ID does not match request target");
+                        return result;
+                    }
+                    return saveWorldToolUnderCanonicalLock(payload);
+                });
+    }
+
+    /** Replay-safe, revision-checked world-tool delete — mirrors {@link #deleteSpawner(MutationRequest)}. */
+    public CanonicalMutationResult deleteWorldTool(MutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return executeCanonicalMutation(request, "worldtool", "delete",
+                MutationPayloadFingerprint.of("worldtool.delete", request.targetId().toString()), () -> {
+                    if (registry.getWorldTool(request.targetId()).isEmpty()) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("WORLDTOOL_NOT_FOUND", "World tool not found: " + request.targetId());
+                        return result;
+                    }
+                    if (!deleteWorldTool(request.targetId())) {
+                        ValidationResult failure = ValidationResult.valid();
+                        failure.addError(registry.getWorldTool(request.targetId()).isPresent()
+                                        ? "DEFINITION_DELETE_FAILED" : "WORLDTOOL_NOT_FOUND",
+                                "World tool '" + request.targetId() + "' could not be deleted");
+                        return failure;
+                    }
+                    return ValidationResult.valid();
+                });
+    }
+
+    /** File-first world-tool delete under the canonical lock. */
+    public boolean deleteWorldTool(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        synchronized (canonicalMutationLock) {
+            synchronized (this) {
+                if (registry.getWorldTool(id).isEmpty()) {
+                    return false;
+                }
+                if (!deleteDefinitionFileBeforeRegistryMutation("worldtools", id)) {
+                    return false;
+                }
+                if (registry.removeWorldTool(id)) {
+                    definitionRevisions.merge(revisionKey("worldtool", id), 1L, Long::sum);
+                    return true;
+                }
+                return false;
+            }
+        }
+    }
+
+    private synchronized ValidationResult saveWorldToolUnderCanonicalLock(
+            com.storynpcs.creator.world.WorldToolDefinition tool) {
+        Objects.requireNonNull(tool, "tool");
+        ValidationResult result = ValidationResult.valid();
+
+        if (tool.getId() == null) {
+            result.addError("WORLDTOOL_ID_MISSING", "World tool must have an ID");
+            return result;
+        }
+        if (tool.getSchemaVersion() != com.storynpcs.creator.world.WorldToolDefinition.SCHEMA_VERSION) {
+            result.addError("SCHEMA_VERSION_UNSUPPORTED",
+                    "World-tool schemaVersion " + tool.getSchemaVersion()
+                            + " is not supported (expected "
+                            + com.storynpcs.creator.world.WorldToolDefinition.SCHEMA_VERSION + ")");
+            return result;
+        }
+        if (tool.getFamily() == null) {
+            result.addError("WORLDTOOL_MISSING_FAMILY",
+                    "World tool must declare a 'family'");
+            return result;
+        }
+        if (com.storynpcs.creator.world.WorldToolDefinition.placesBlock(tool.getFamily())
+                && tool.getBlockId() == null) {
+            result.addError("WORLDTOOL_MISSING_BLOCK",
+                    "World tool '" + tool.getId() + "' of family '" + tool.getFamily()
+                            + "' places a block and must declare 'blockId'");
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                var savedFile = new YamlDefinitionWriter(loader.getDefinitionWriteCoordinator()).writeDefinition(
+                        loader.getLastLoadedRootPath(), "worldtools",
+                        YamlDefinitionWriter.fileNameFor(tool.getId()), tool,
+                        loader.getDefinitionFiles("worldtools", tool.getId()));
+                loader.recordDefinitionFile("worldtools", tool.getId(), savedFile);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write world-tool file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerWorldTool(tool);
+        definitionRevisions.merge(revisionKey("worldtool", tool.getId()), 1L, Long::sum);
+        return result;
+    }
+
+    private static com.storynpcs.creator.world.WorldToolDefinition detachedWorldToolCopy(
+            com.storynpcs.creator.world.WorldToolDefinition source) {
+        var copy = new com.storynpcs.creator.world.WorldToolDefinition();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setFamily(source.getFamily());
+        copy.setDimensionId(source.getDimensionId());
+        copy.setBlockId(source.getBlockId());
+        copy.setMaxBlocksPerActivation(source.getMaxBlocksPerActivation());
+        copy.setHooks(new java.util.ArrayList<>(source.getHooks()));
+        return copy;
+    }
+
+    private static List<String> canonicalWorldToolFields(
+            com.storynpcs.creator.world.WorldToolDefinition tool) {
+        List<String> fields = new java.util.ArrayList<>();
+        fields.add(tool.getId() == null ? null : tool.getId().toString());
+        fields.add(Integer.toString(tool.getSchemaVersion()));
+        fields.add(tool.getFamily() == null ? null : tool.getFamily().name());
+        fields.add(tool.getDimensionId() == null ? null : tool.getDimensionId().toString());
+        fields.add(tool.getBlockId() == null ? null : tool.getBlockId().toString());
+        fields.add(Integer.toString(tool.getMaxBlocksPerActivation()));
+        for (var hook : tool.getHooks()) {
+            fields.add(hook.getHookId() == null ? null : hook.getHookId().toString());
+            fields.add(hook.getEvent());
+            fields.add(String.valueOf(hook.getParameters()));
+        }
         return fields;
     }
 

@@ -57,6 +57,8 @@ public class StoryNpcs {
     private volatile com.storynpcs.domain.quest.TeamProgressionStore teamProgressionStore;
     /** World-scoped spawner ledger (P8-1); installed by the world lifecycle on open. */
     private volatile com.storynpcs.persistence.SpawnerRuntimeStore spawnerRuntimeStore;
+    private volatile com.storynpcs.persistence.WorldToolBindingStore worldToolBindingStore;
+    private volatile com.storynpcs.runtime.worldtool.WorldToolExecutor worldToolExecutor;
     /** Bounded live runtime configuration (P9-4) — shared with the app service. */
     private final com.storynpcs.admin.RuntimeTunables runtimeTunables;
     /** Bounded script dispatch host (P9-2) — per-instance, never static. */
@@ -469,6 +471,40 @@ public class StoryNpcs {
 
     public void setSpawnerRuntimeStore(com.storynpcs.persistence.SpawnerRuntimeStore store) {
         this.spawnerRuntimeStore = store;
+    }
+
+    public com.storynpcs.persistence.WorldToolBindingStore getWorldToolBindingStore() {
+        return worldToolBindingStore;
+    }
+
+    public void setWorldToolBindingStore(com.storynpcs.persistence.WorldToolBindingStore store) {
+        this.worldToolBindingStore = store;
+        this.worldToolExecutor = null; // rebuilt lazily against the new store
+    }
+
+    /** P8-3 world-tool activation service — built lazily against the world store. */
+    public com.storynpcs.runtime.worldtool.WorldToolExecutor getWorldToolExecutor(
+            net.minecraft.server.MinecraftServer server) {
+        var executor = worldToolExecutor;
+        if (executor == null) {
+            executor = new com.storynpcs.runtime.worldtool.WorldToolExecutor(
+                    eventPublisher, worldToolBindingStore,
+                    uuid -> {
+                        var store = getApplicationService() != null
+                                ? getApplicationService().getQuestMailStore() : null;
+                        if (store == null) {
+                            return java.util.List.of();
+                        }
+                        try {
+                            return store.pendingFor(uuid);
+                        } catch (java.io.IOException e) {
+                            return java.util.List.of();
+                        }
+                    },
+                    getRuntimeSessions(server));
+            worldToolExecutor = executor;
+        }
+        return executor;
     }
 
     public com.storynpcs.runtime.spawner.NpcSpawnerRuntime getSpawnerRuntime() {
