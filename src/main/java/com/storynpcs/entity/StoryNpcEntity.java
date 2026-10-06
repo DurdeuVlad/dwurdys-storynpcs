@@ -1678,6 +1678,23 @@ public class StoryNpcEntity extends PathfinderMob {
         this.followerRole = followerRole;
     }
 
+    /**
+     * Read-only views for the player-facing companion panel (#150). The panel
+     * renders these verbatim; mutations stay on the canonical service paths.
+     */
+    public com.storynpcs.domain.companion.CompanionProfile getCompanionProfile() {
+        return companionProfile;
+    }
+
+    public boolean isCompanionPaused() {
+        return companionPaused;
+    }
+
+    /** Ticks this companion has been hired, or {@code 0} when never hired. */
+    public long companionAgeTicks() {
+        return companionHiredTick < 0 ? 0 : tickCount - companionHiredTick;
+    }
+
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
         // A hidden-defeat statue is not interactable — FAIL (not PASS) so the

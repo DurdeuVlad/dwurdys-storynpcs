@@ -102,7 +102,7 @@ Basis: [CUSTOMNPCS_FEATURE_COMPARISON.md](CUSTOMNPCS_FEATURE_COMPARISON.md) Part
 - **Non-goals:** creator/authoring screens (P10-1); scripted-GUI *authoring* (P8-6 — this issue only renders the runtime side).
 - **Dependencies:** #69 P5-5, #70 P6-1, #71 P6-2, #72 P6-3, #74 P6-5, #75/#76, #79 (mailbox block), #80 (carpentry), #82 (custom GUI runtime).
 - **Verification:** UI automation per screen, stale-revision rejection, permission denial, minimum-resolution (854×480, GUI scale 2) fixtures.
-- **Status:** wave 1 implemented in open PR [#157](https://github.com/DurdeuVlad/dwurdys-storynpcs/pull/157) (unmerged) — quest log, faction standing, mail list/read/write, transport picker; server-built views + session-token commits + durable mail/transport journals. Wave-2 screens (follower hire, companion inv/stats/talents, achievement view, carpentry bench, custom GUI renderer) remain open under #150 — sequenced in MG-J below.
+- **Status:** wave 1 delivered quest log, faction standing, mail list/read/write, transport picker; wave 2 (MG-J) delivered follower hire (`PlayerFollowerHireScreen` → canonical `follower.owner.set`), companions view (`PlayerCompanionScreen`), achievements (`PlayerAchievementsScreen`), carpentry bench (`PlayerCarpentryScreen` → `CarpentryBench` two-phase craft), and the authored-GUI runtime renderer (`CustomGuiScreen` + session-bound action/close events). All commits are session-bound server-issued views; deviations (per-slot companion inventory, follower setup/job GUIs, texture binding) are recorded in `docs/parity/M12-PROGRESS.md`. Live GUI automation remains an environment gap — headless evidence only.
 
 ### G-B5 — Cosmetic parts / emote animations scope: resolved without a new issue
 
@@ -214,16 +214,16 @@ MG-A–MG-D covered issue *coverage*. With the stack delivered, the remaining ga
 **Outcome:** every player-facing target screen has a StoryNPCs screen or a recorded deviation.
 **Scope:** continuation under #150 (still open) — split into per-screen issues only when one independently blocks.
 
-| Wave | Screens | Unblocked by |
+| Wave | Screens | Status |
 |---|---|---|
-| 1 — delivered, PR #157 | quest log, faction standing, mail read/write, transport picker | — |
-| 2a | follower hire/setup | #71 |
-| 2b | companion inventory/stats/talents | #74 |
-| 2c | achievement / quest-completion view | #69 |
-| 2d | carpentry bench | #80 |
-| 2e | custom GUI runtime renderer | #82 |
+| 1 — delivered, PR #157 | quest log, faction standing, mail read/write, transport picker | done |
+| 2a | follower hire (`PlayerFollowerHireScreen`, canonical `follower.owner.set`) | done |
+| 2b | companion stats/talents/capacity (`PlayerCompanionScreen`); per-slot inventory → deviation | done (partial → recorded deviation) |
+| 2c | achievement view (`PlayerAchievementsScreen`, earned-progress rows) | done |
+| 2d | carpentry bench (`PlayerCarpentryScreen` + `CarpentryBench` craft) | done |
+| 2e | custom GUI runtime renderer (`CustomGuiScreen`/`CustomGuiScreenModel`, session-bound events) | done |
 
-**Proof:** per-screen open/data/commit fixtures; stale-revision rejection; 854×480 @ GUI-scale-2 fixtures (per #150 acceptance).
+**Proof:** headless per-screen view/payload/session fixtures; stale-session and replay rejection pinned in `RuntimeSessionRegistryTest`/`PlayerPanelPayloadsTest`; `CarpentryBench` two-phase craft math unit-tested. 854×480 @ GUI-scale-2 live-render fixtures remain an environment gap (no live Minecraft harness) — disclosed in `docs/parity/M12-PROGRESS.md`.
 
 ## Milestone MG-K — Extension & admin surfaces (GitHub M9)
 

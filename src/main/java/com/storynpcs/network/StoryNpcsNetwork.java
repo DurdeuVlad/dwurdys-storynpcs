@@ -276,6 +276,37 @@ public class StoryNpcsNetwork {
                     }
                 }
         );
+
+        registrar.playToServer(
+                ServerboundPanelActionPayload.TYPE,
+                ServerboundPanelActionPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handlePanelAction(serverPlayer, payload));
+                    }
+                }
+        );
+
+        // Authored custom-GUI runtime (issue #150): server pushes the layout,
+        // button/input commits come back session-bound and publish
+        // CustomGuiActionEvent on the mod's event bus.
+        registrar.playToClient(
+                ClientboundCustomGuiOpenPayload.TYPE,
+                ClientboundCustomGuiOpenPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    context.enqueueWork(() -> com.storynpcs.client.StoryNpcsClient.openCustomGui(payload));
+                }
+        );
+
+        registrar.playToServer(
+                ServerboundCustomGuiActionPayload.TYPE,
+                ServerboundCustomGuiActionPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        context.enqueueWork(() -> handleCustomGuiAction(serverPlayer, payload));
+                    }
+                }
+        );
     }
 
     /**
@@ -415,6 +446,24 @@ public class StoryNpcsNetwork {
                 yield com.storynpcs.domain.role.RoleSerde.toJson(
                         com.storynpcs.service.PlayerPanelViews.transport(visible, unlocked));
             }
+            case com.storynpcs.service.PlayerPanelViews.PANEL_COMPANIONS ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.companions(
+                                    companionRows(player)));
+            case com.storynpcs.service.PlayerPanelViews.PANEL_FOLLOWER_HIRE ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.followerHire(
+                                    hireRows(player)));
+            case com.storynpcs.service.PlayerPanelViews.PANEL_ACHIEVEMENTS ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.achievements(
+                                    mod.getRegistry(), progression,
+                                    companionRows(player).size()));
+            case com.storynpcs.service.PlayerPanelViews.PANEL_CARPENTRY ->
+                    com.storynpcs.domain.role.RoleSerde.toJson(
+                            com.storynpcs.service.PlayerPanelViews.carpentry(
+                                    mod.getRegistry() == null ? java.util.List.of()
+                                            : mod.getRegistry().getAllRecipes()));
             default -> null;
         };
         if (viewJson == null) {
@@ -501,6 +550,253 @@ public class StoryNpcsNetwork {
             player.sendSystemMessage(Component.literal(
                     "§c[StoryNPCs] Mail action rejected: " + result.decision().code()), true);
         }
+    }
+
+    /**
+     * Companion-panel rows: every live {@code StoryNpcEntity} whose follower
+     * role is owned by {@code player}. The whole-level scan is bounded by the
+     * entity index and runs only on panel open (already a heavyweight op);
+     * companions stranded in unloaded chunks are simply absent, matching how
+     * the target lists only live entities.
+     */
+    private static java.util.List<com.storynpcs.domain.panel.PlayerPanels.CompanionRow>
+            companionRows(ServerPlayer player) {
+        var rows = new java.util.ArrayList<com.storynpcs.domain.panel.PlayerPanels.CompanionRow>();
+        for (var entity : player.serverLevel().getAllEntities()) {
+            if (!(entity instanceof com.storynpcs.entity.StoryNpcEntity npc)) {
+                continue;
+            }
+            var role = npc.getFollowerRole();
+            if (role == null || !role.isOwnedBy(player.getUUID())) {
+                continue;
+            }
+            var profile = npc.getCompanionProfile();
+            var stage = profile != null ? profile.activeStage(npc.companionAgeTicks()) : null;
+            rows.add(new com.storynpcs.domain.panel.PlayerPanels.CompanionRow(
+                    npc.getUUID().toString(),
+                    npc.getName().getString(),
+                    npc.getHealth(), npc.getMaxHealth(),
+                    stage != null && stage.getId() != null ? stage.getId().toString() : "",
+                    profile != null ? profile.getTalents().size() : 0,
+                    npc.companionCarryCapacity(),
+                    npc.isCompanionPaused()));
+        }
+        return rows;
+    }
+
+    /**
+     * Hire candidates: nearby (≤32 blocks) StoryNPCs with a follower role that
+     * no player owns. Wage preview comes from the authored companion profile.
+     */
+    private static java.util.List<com.storynpcs.domain.panel.PlayerPanels.HireRow>
+            hireRows(ServerPlayer player) {
+        var rows = new java.util.ArrayList<com.storynpcs.domain.panel.PlayerPanels.HireRow>();
+        var box = player.getBoundingBox().inflate(32.0);
+        for (var npc : player.serverLevel().getEntitiesOfClass(
+                com.storynpcs.entity.StoryNpcEntity.class, box)) {
+            var role = npc.getFollowerRole();
+            if (role == null || role.getOwnerUuid() != null) {
+                continue; // only unowned NPCs are hireable
+            }
+            var profile = npc.getCompanionProfile();
+            rows.add(new com.storynpcs.domain.panel.PlayerPanels.HireRow(
+                    npc.getUUID().toString(),
+                    npc.getName().getString(),
+                    profile != null ? profile.getWageAmount() : 0,
+                    profile != null ? profile.getWageIntervalTicks() : 0));
+        }
+        return rows;
+    }
+
+    /**
+     * Player-panel commits that are not mail or transport (issue #150):
+     * {@code follower_hire/hire} assigns the panel owner through the canonical
+     * follower-owner mutation; {@code carpentry/craft} verifies and consumes
+     * ingredients through {@link com.storynpcs.creator.recipe.CarpentryBench}.
+     * Session + request-id validation precede all state access — stale
+     * sessions fail closed before any mutation is attempted.
+     */
+    private static void handlePanelAction(ServerPlayer player, ServerboundPanelActionPayload payload) {
+        if (!player.isAlive() || player.isSpectator()) return;
+        if (isRoleActionThrottled(player)) return;
+        var mod = StoryNpcsAccess.mod(player);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (mod == null || service == null) return;
+        var sessions = mod.getRuntimeSessions(player.getServer());
+        if (!sessions.isPanelSession(player.getUUID(), payload.panel(), payload.sessionId())) {
+            return; // stale session — fail closed
+        }
+        // These verbs have no durable replay journal (unlike mail/transport),
+        // so a retransmitted commit must not reach the mutator a second time —
+        // a duplicated craft would consume ingredients twice.
+        if (sessions.admitRequest(player.getUUID(), payload.requestId())
+                != com.storynpcs.runtime.session.RuntimeSessionRegistry.RequestAdmission.NEW) {
+            return;
+        }
+        // Custom-GUI screens close by posting a "close" action on their
+        // "custom_gui:<layoutId>" session — the token check above already ran.
+        if (payload.panel().startsWith("custom_gui:")
+                && "close".equals(payload.action())) {
+            sessions.closePanelSession(player.getUUID(), payload.panel(), payload.sessionId());
+            if (mod.getEventPublisher() != null) {
+                try {
+                    mod.getEventPublisher().publish(
+                            new com.storynpcs.api.event.P86GuiEvents.CustomGuiClosedEvent(
+                                    com.storynpcs.domain.common.NamespacedId.of(
+                                            payload.panel().substring("custom_gui:".length())),
+                                    player.getUUID(), payload.sessionId(), "client_close"));
+                } catch (IllegalArgumentException ignored) { }
+            }
+            return;
+        }
+        switch (payload.panel()) {
+            case com.storynpcs.service.PlayerPanelViews.PANEL_FOLLOWER_HIRE -> {
+                if (!ServerboundPanelActionPayload.ACTION_HIRE.equals(payload.action())) {
+                    return;
+                }
+                handleFollowerHire(player, service, payload);
+            }
+            case com.storynpcs.service.PlayerPanelViews.PANEL_CARPENTRY -> {
+                if (!ServerboundPanelActionPayload.ACTION_CRAFT.equals(payload.action())) {
+                    return;
+                }
+                handleCarpentryCraft(player, mod, payload);
+            }
+            default -> { /* unknown panel verb — fail closed */ }
+        }
+    }
+
+    /**
+     * Hire flow: the client names a candidate entity UUID; the server resolves
+     * it, requires the NPC to be alive, within reach, and still unowned, then
+     * assigns ownership through the canonical follower-owner mutation so the
+     * wage ledger and FollowerOwnerChange event fire exactly once.
+     */
+    private static void handleFollowerHire(ServerPlayer player,
+                                           com.storynpcs.service.StoryNpcsApplicationService service,
+                                           ServerboundPanelActionPayload payload) {
+        java.util.UUID entityUuid;
+        try {
+            entityUuid = java.util.UUID.fromString(payload.target());
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        var entity = player.serverLevel().getEntity(entityUuid);
+        if (!(entity instanceof com.storynpcs.entity.StoryNpcEntity npc) || !npc.isAlive()
+                || npc.distanceToSqr(player) > 32.0 * 32.0) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] That NPC is no longer hireable."), true);
+            return;
+        }
+        var role = npc.getFollowerRole();
+        if (role == null || role.getOwnerUuid() != null) {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] That NPC already serves someone."), true);
+            return;
+        }
+        com.storynpcs.domain.common.NamespacedId npcId;
+        try {
+            npcId = com.storynpcs.domain.common.NamespacedId.of(npc.getDefinitionId());
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        var request = com.storynpcs.service.FollowerStateMutationRequest.setOwner(
+                "player", player.getUUID(), player.getUUID(), npcId,
+                player.getUUID(), payload.requestId(), 0);
+        var result = service.mutateFollowerState(request, role);
+        if (result != null && result.applied()) {
+            player.sendSystemMessage(Component.literal(
+                    "§a" + npc.getName().getString() + " now serves you."), true);
+            sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_FOLLOWER_HIRE);
+        } else {
+            player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Hire request rejected."), true);
+        }
+    }
+
+    /** Carpentry commit: resolve the authored recipe, then two-phase craft. */
+    private static void handleCarpentryCraft(ServerPlayer player, com.storynpcs.StoryNpcs mod,
+                                             ServerboundPanelActionPayload payload) {
+        com.storynpcs.domain.common.NamespacedId recipeId;
+        try {
+            recipeId = com.storynpcs.domain.common.NamespacedId.of(payload.target());
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        var recipe = mod.getRegistry() != null
+                ? mod.getRegistry().getRecipe(recipeId).orElse(null) : null;
+        var outcome = com.storynpcs.creator.recipe.CarpentryBench.craft(player, recipe);
+        switch (outcome) {
+            case CRAFTED -> {
+                player.sendSystemMessage(Component.literal("§a[StoryNPCs] Crafted."), true);
+                sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_CARPENTRY);
+            }
+            case MISSING_INGREDIENTS -> player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Missing ingredients for that recipe."), true);
+            case INVENTORY_FULL -> player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] No room for the crafted result."), true);
+            default -> player.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs] Unknown carpentry recipe."), true);
+        }
+    }
+
+    /**
+     * Opens an authored {@link com.storynpcs.creator.gui.CustomGuiLayout} as a
+     * player-facing screen. The serialized layout + fresh panel session ride
+     * in one payload; a {@code CustomGuiOpenedEvent} fires once the session is
+     * minted. Only op-level callers can reach this (the {@code layout open}
+     * command is permission-2-gated).
+     */
+    public static void sendCustomGuiOpen(ServerPlayer player,
+                                         com.storynpcs.creator.gui.CustomGuiLayout layout) {
+        var mod = StoryNpcsAccess.mod(player);
+        if (mod == null || layout == null) {
+            return;
+        }
+        var sessionId = mod.getRuntimeSessions(player.getServer())
+                .openPanelSession(player.getUUID(), "custom_gui:" + layout.getId());
+        String layoutJson = com.storynpcs.domain.role.RoleSerde.toJson(layout);
+        PacketDistributor.sendToPlayer(player, new ClientboundCustomGuiOpenPayload(
+                layout.getId() == null ? "" : layout.getId().toString(),
+                layoutJson == null ? "" : layoutJson, sessionId));
+        if (mod.getEventPublisher() != null) {
+            mod.getEventPublisher().publish(
+                    new com.storynpcs.api.event.P86GuiEvents.CustomGuiOpenedEvent(
+                            layout.getId(), player.getUUID(), sessionId));
+        }
+    }
+
+    /**
+     * Authored custom-GUI button/input commit. Validates the layout session,
+     * admits the request id, then publishes {@code CustomGuiActionEvent} with
+     * the element path and collected inputs — scripts are the consumers; no
+     * definition state is mutated here.
+     */
+    private static void handleCustomGuiAction(ServerPlayer player,
+                                              ServerboundCustomGuiActionPayload payload) {
+        if (!player.isAlive() || player.isSpectator()) return;
+        if (isRoleActionThrottled(player)) return;
+        var mod = StoryNpcsAccess.mod(player);
+        if (mod == null || mod.getEventPublisher() == null) return;
+        var sessions = mod.getRuntimeSessions(player.getServer());
+        String sessionKey = "custom_gui:" + payload.layoutId();
+        if (!sessions.isPanelSession(player.getUUID(), sessionKey, payload.sessionId())) {
+            return; // stale session — fail closed
+        }
+        if (sessions.admitRequest(player.getUUID(), payload.requestId())
+                != com.storynpcs.runtime.session.RuntimeSessionRegistry.RequestAdmission.NEW) {
+            return; // replay of a delivered commit — do not re-fire the event
+        }
+        com.storynpcs.domain.common.NamespacedId layoutId;
+        try {
+            layoutId = com.storynpcs.domain.common.NamespacedId.of(payload.layoutId());
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        mod.getEventPublisher().publish(
+                new com.storynpcs.api.event.P86GuiEvents.CustomGuiActionEvent(
+                        layoutId, player.getUUID(),
+                        payload.elementPath(), "button", payload.inputsJson()));
     }
 
     private static void handleTransportSelect(ServerPlayer player,

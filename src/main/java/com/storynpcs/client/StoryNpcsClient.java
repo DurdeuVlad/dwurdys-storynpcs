@@ -237,6 +237,34 @@ public final class StoryNpcsClient {
                                         new com.storynpcs.client.gui.player.PlayerTransportScreen(
                                                 v, payload.sessionId()))
                                 .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_COMPANIONS ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.CompanionView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerCompanionScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_FOLLOWER_HIRE ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.HireView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerFollowerHireScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_ACHIEVEMENTS ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.AchievementView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerAchievementsScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
+                case com.storynpcs.service.PlayerPanelViews.PANEL_CARPENTRY ->
+                        com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                        com.storynpcs.domain.panel.PlayerPanels.CarpentryView.class)
+                                .<net.minecraft.client.gui.screens.Screen>map(v ->
+                                        new com.storynpcs.client.gui.player.PlayerCarpentryScreen(
+                                                v, payload.sessionId()))
+                                .orElse(null);
                 default -> null;
             };
             if (screen == null) {
@@ -247,6 +275,30 @@ public final class StoryNpcsClient {
                 return;
             }
             mc.setScreen(screen);
+        });
+    }
+
+    /**
+     * Opens an authored custom-GUI layout (issue #150). The layout JSON
+     * deserializes through the authored schema; a malformed layout fails
+     * closed with a chat notice rather than rendering a partial tree.
+     */
+    public static void openCustomGui(
+            com.storynpcs.network.ClientboundCustomGuiOpenPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.tell(() -> {
+            var layout = com.storynpcs.domain.role.RoleSerde.fromJson(payload.layoutJson(),
+                            com.storynpcs.creator.gui.CustomGuiLayout.class)
+                    .orElse(null);
+            if (layout == null || layout.getRoot() == null) {
+                if (mc.player != null) {
+                    mc.player.sendSystemMessage(Component.literal(
+                            "§c[StoryNPCs] Custom GUI layout could not be read."));
+                }
+                return;
+            }
+            mc.setScreen(new com.storynpcs.client.gui.player.CustomGuiScreen(
+                    layout, payload.sessionId()));
         });
     }
 

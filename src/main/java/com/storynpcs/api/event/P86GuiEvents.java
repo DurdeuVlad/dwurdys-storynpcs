@@ -18,9 +18,14 @@ public final class P86GuiEvents {
     public record CustomGuiOpenedEvent(NamespacedId layoutId, UUID playerUuid,
                                        UUID sessionId) implements StoryNpcsEvent {}
 
-    /** A player interaction inside a custom GUI (button/scroll/slot semantics). */
+    /**
+     * A player interaction inside a custom GUI (button/scroll/slot semantics).
+     * {@code elementPath} is the flattened child-index chain from the layout
+     * root; {@code inputsJson} carries the collected input-element values.
+     */
     public record CustomGuiActionEvent(NamespacedId layoutId, UUID playerUuid,
-                                       String elementPath, String action)
+                                       String elementPath, String action,
+                                       String inputsJson)
             implements StoryNpcsEvent {}
 
     /** A custom-GUI session closed (logout, expiry, or explicit close). */

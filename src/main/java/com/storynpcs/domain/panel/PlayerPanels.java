@@ -46,5 +46,35 @@ public final class PlayerPanels {
 
     public record TransportView(List<TransportRow> destinations) {}
 
+    /** Companion row (GuiNpcCompanion* parity): read view of a hired NPC. */
+    public record CompanionRow(String entityUuid, String name,
+                               double health, double maxHealth,
+                               String stageId, int talentCount, int carryCapacity,
+                               boolean paused) {}
+
+    public record CompanionView(List<CompanionRow> companions) {}
+
+    /** Follower hire candidate (GuiNpcFollowerHire parity). */
+    public record HireRow(String entityUuid, String name,
+                          int wageAmount, int wageIntervalTicks) {}
+
+    public record HireView(List<HireRow> candidates) {}
+
+    /**
+     * Achievement row (GuiAchievement equivalent — the target's achievement
+     * page has no vanilla-achievement counterpart, so StoryNPCs surfaces
+     * earned progress: completed quests, standings, hired companions).
+     */
+    public record AchievementRow(String id, String title, String detail) {}
+
+    public record AchievementView(List<AchievementRow> rows) {}
+
+    /** Carpentry bench row (GuiNpcCarpentryBench parity): recipe + craft commit. */
+    public record CarpentryRow(String id, String group, String outputItemId,
+                               int outputCount, boolean shapeless,
+                               List<String> ingredientSummary) {}
+
+    public record CarpentryView(List<CarpentryRow> recipes) {}
+
     private PlayerPanels() {}
 }

@@ -251,6 +251,19 @@ public final class RuntimeSessionRegistry {
         return isRoleSession(playerId, "panel:" + panel, PANEL_SENTINEL, sessionId);
     }
 
+    /**
+     * Invalidates the live panel session only when it still matches the
+     * token — a late close cannot kill a newer screen's session.
+     */
+    public void closePanelSession(UUID playerId, String panel, UUID sessionId) {
+        if (playerId == null || panel == null || sessionId == null) return;
+        String kind = "panel:" + panel;
+        roleSessions.computeIfPresent(playerId,
+                (id, current) -> current.kind().equals(kind)
+                        && current.sessionId().equals(sessionId)
+                        && current.npcId().equals(PANEL_SENTINEL) ? null : current);
+    }
+
     /** Returns false for a duplicate request id within the player's bounded replay window. */
     public boolean acceptRequest(UUID playerId, UUID requestId) {
         return admitRequest(playerId, requestId) == RequestAdmission.NEW;

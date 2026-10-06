@@ -98,6 +98,26 @@ class RuntimeSessionRegistryTest {
     }
 
     @Test
+    void closePanelSessionInvalidatesOnlyTheMatchingToken() {
+        RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
+        UUID gui = registry.openPanelSession(PLAYER, "custom_gui:storynpcs:menu");
+        assertTrue(registry.isPanelSession(PLAYER, "custom_gui:storynpcs:menu", gui));
+
+        // A stale/mismatched token cannot close the live session.
+        registry.closePanelSession(PLAYER, "custom_gui:storynpcs:menu", UUID.randomUUID());
+        assertTrue(registry.isPanelSession(PLAYER, "custom_gui:storynpcs:menu", gui));
+        // A different panel name cannot close it either.
+        registry.closePanelSession(PLAYER, "mail", gui);
+        assertTrue(registry.isPanelSession(PLAYER, "custom_gui:storynpcs:menu", gui));
+
+        registry.closePanelSession(PLAYER, "custom_gui:storynpcs:menu", gui);
+        assertFalse(registry.isPanelSession(PLAYER, "custom_gui:storynpcs:menu", gui));
+        // Reopen → fresh token; the old token stays dead.
+        assertNotEquals(gui,
+                registry.openPanelSession(PLAYER, "custom_gui:storynpcs:menu"));
+    }
+
+    @Test
     void toolConfirmationsRequireAMatchingSecondClickInsideTheTtl() {
         RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
         long now = System.currentTimeMillis();
