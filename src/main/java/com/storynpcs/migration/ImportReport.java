@@ -16,7 +16,8 @@ public record ImportReport(ImportSource source, ConflictPolicy policy, boolean d
 
     public record StepResult(String family, String sourceName, NamespacedId definitionId,
                              NamespacedId resolvedId, Outcome outcome,
-                             List<FieldMappingRegistry.FieldMapping> fieldMappings, String detail) {
+                             List<FieldMappingRegistry.FieldMapping> fieldMappings,
+                             List<String> referencedResources, String detail) {
 
         public enum Outcome {
             WOULD_APPLY,   // dry-run only — no writes performed
@@ -27,8 +28,18 @@ public record ImportReport(ImportSource source, ConflictPolicy policy, boolean d
             ROLLED_BACK
         }
 
+        /** Back-compat constructor — no referenced-resource rows. */
+        public StepResult(String family, String sourceName, NamespacedId definitionId,
+                          NamespacedId resolvedId, Outcome outcome,
+                          List<FieldMappingRegistry.FieldMapping> fieldMappings, String detail) {
+            this(family, sourceName, definitionId, resolvedId, outcome,
+                    fieldMappings, List.of(), detail);
+        }
+
         public StepResult {
             fieldMappings = fieldMappings == null ? List.of() : List.copyOf(fieldMappings);
+            referencedResources = referencedResources == null
+                    ? List.of() : List.copyOf(referencedResources);
             detail = detail == null ? "" : detail;
         }
     }
@@ -65,6 +76,8 @@ public record ImportReport(ImportSource source, ConflictPolicy policy, boolean d
         summary.put("source", source.sourceId());
         summary.put("sourceKind", source.kind().name());
         summary.put("steps", steps.size());
+        summary.put("referencedResources",
+                steps.stream().mapToInt(s -> s.referencedResources().size()).sum());
         summary.put("succeeded", succeeded());
         summary.put("wouldApply", count(StepResult.Outcome.WOULD_APPLY));
         return Map.copyOf(summary);

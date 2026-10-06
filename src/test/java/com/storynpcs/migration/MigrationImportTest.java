@@ -128,6 +128,48 @@ class MigrationImportTest {
     }
 
     @Test
+    void referencedScriptsAndAssetsSurfaceInTheReport() {
+        // NPC carrying a script binding + skin refs — the report must list
+        // them as resources instead of silently absorbing them.
+        String npcWithAssets = """
+                schemaVersion: 1
+                id: "storynpcs:resourced"
+                display:
+                  name: "Resourced"
+                  skinTexture: "storynpcs:textures/entity/guard.png"
+                  skinPlayer: "Dwurdy"
+                scripts: ["storynpcs:guard_ai", "storynpcs:night_watch"]
+                """;
+        var plan = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("npc", "r.yaml", npcWithAssets), sink);
+        assertThat(plan.steps()).hasSize(1);
+        var step = plan.steps().get(0);
+        assertThat(step.referencedResources())
+                .containsExactlyInAnyOrder(
+                        "texture:storynpcs:textures/entity/guard.png",
+                        "player-skin:Dwurdy",
+                        "script:storynpcs:guard_ai",
+                        "script:storynpcs:night_watch");
+
+        var report = importer.dryRun(plan);
+        assertThat(report.steps().get(0).referencedResources()).hasSize(4);
+        assertThat(report.summaryMap().get("referencedResources")).isEqualTo(4);
+
+        // Quarantined documents still surface their resources.
+        var bad = importer.plan(yamlSource, ConflictPolicy.FAIL,
+                pkg("npc", "bad.yaml", """
+                        schemaVersion: 1
+                        id: "storynpcs:broken"
+                        scripts: ["storynpcs:x"]
+                        bogusField: true
+                        """), sink);
+        assertThat(bad.steps().get(0).resolution())
+                .isEqualTo(Step.Resolution.QUARANTINE);
+        assertThat(bad.steps().get(0).referencedResources())
+                .containsExactly("script:storynpcs:x");
+    }
+
+    @Test
     void dryRunPerformsNoWrites() {
         var documents = pkg("npc", "alpha.yaml", NPC_A);
         ImportPlan plan = importer.plan(yamlSource, ConflictPolicy.FAIL, documents, sink);

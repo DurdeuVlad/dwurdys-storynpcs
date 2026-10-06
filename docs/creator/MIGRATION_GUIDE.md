@@ -11,7 +11,30 @@ Status: `CURRENT` — states only what is verified by the test suite.
 | `scripts:` hook lists on NPC definitions | yes | bounded Rhino scripts (P9-2); capability allowlist enforced |
 | Legacy string-array `inventory:` | yes | migrates onto visible drop slots at 100% chance |
 | `repeatType: ONCE` | yes | loads as `NORMAL` |
-| CustomNPCs binary `.dat`/`saves` data | no | importer tracked in #91 |
+| CustomNPCs binary `.dat`/`saves` data | no | no verified export sample exists — the source kind reports `UNSUPPORTED_NEEDS_EVIDENCE` rather than silently reading it |
+
+## Package import — `/storynpcs import`
+
+Drop a package under `<world>/storynpcs/import/<name>/` with family-keyed
+subdirectories (`npcs/`, `dialogues/`, `quests/`, `factions/`, `templates/`),
+then run `/storynpcs import <name> [policy] [apply]` (op level 2).
+
+- **Dry-run by default**: `import <name>` and `import <name> <policy>` plan
+  and report without a single write; appending `apply` executes for real.
+- **Conflict policy is explicit**: `skip` (default) keeps existing
+  definitions; `fail` aborts before any write; `replace` overwrites with a
+  rollback snapshot; `rename` assigns a free `__importN` id.
+- **Field-level report**: every document lists per-field outcomes
+  (`DIRECT`/`MIGRATED`/`UNSUPPORTED`/`ENVELOPE`) linked to a `P0-1` evidence
+  ref — `UNKNOWN` fields quarantine the whole document rather than dropping
+  data silently.
+- **Scripts/assets**: referenced `scripts`, textures, skin URLs, and model
+  presets surface as `res[...]` rows per document, including quarantined ones.
+- **Rollback**: a mid-apply failure deletes what this run added and restores
+  pre-replace snapshots; the report prints `rollback=RESTORED` or
+  `ROLLBACK_INCOMPLETE`.
+- All writes route through the canonical service saves — the same validation,
+  revisioning, and atomic persistence as in-game authoring.
 
 ## Unsupported / explicit gaps
 

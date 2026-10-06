@@ -118,23 +118,27 @@ public final class DefinitionImporter {
         List<String> fields = new ArrayList<>();
         root.fieldNames().forEachRemaining(fields::add);
         List<FieldMappingRegistry.FieldMapping> mappings = FieldMappingRegistry.classify(family, fields);
+        // Scripts/assets are surfaced even for quarantined documents — the
+        // report must show what an import would have pulled in.
+        List<String> resources = ReferencedResources.extract(root);
         if (FieldMappingRegistry.hasFatal(mappings)) {
             return new Step(seq, family, file, null, Step.Resolution.QUARANTINE, null, mappings,
-                    "document declares fields outside the mapping registry");
+                    resources, "document declares fields outside the mapping registry");
         }
         NamespacedId id = extractId(root);
         if (id == null) {
             return new Step(seq, family, file, null, Step.Resolution.QUARANTINE, null, mappings,
-                    "document has no valid namespaced id");
+                    resources, "document has no valid namespaced id");
         }
         ValidationResult probe = new ValidationResult();
         Object definition = probeLoad(probeLoader, family, content, file, probe);
         if (definition == null || probe.hasErrors()) {
             return new Step(seq, family, file, id, Step.Resolution.QUARANTINE, null, mappings,
-                    "schema validation failed: " + oneLine(probe.formatReport()));
+                    resources, "schema validation failed: " + oneLine(probe.formatReport()));
         }
         sourceDocuments.put(seq, content == null ? "" : content);
-        return new Step(seq, family, file, id, Step.Resolution.APPLY_NEW, id, mappings, "");
+        return new Step(seq, family, file, id, Step.Resolution.APPLY_NEW, id, mappings,
+                resources, "");
     }
 
     private Step resolveConflict(Step s, ConflictPolicy policy, ImportSink sink,
@@ -147,20 +151,21 @@ public final class DefinitionImporter {
         }
         return switch (policy) {
             case FAIL -> new Step(s.sequence(), s.family(), s.sourceName(), s.definitionId(),
-                    Step.Resolution.ABORT, null, s.fieldMappings(),
+                    Step.Resolution.ABORT, null, s.fieldMappings(), s.referencedResources(),
                     "definition id already exists and policy is FAIL");
             case SKIP -> new Step(s.sequence(), s.family(), s.sourceName(), s.definitionId(),
-                    Step.Resolution.SKIP_CONFLICT, null, s.fieldMappings(),
+                    Step.Resolution.SKIP_CONFLICT, null, s.fieldMappings(), s.referencedResources(),
                     "definition id already exists — existing content kept");
             case REPLACE -> new Step(s.sequence(), s.family(), s.sourceName(), s.definitionId(),
                     Step.Resolution.APPLY_REPLACE, s.definitionId(), s.fieldMappings(),
+                    s.referencedResources(),
                     "definition id already exists — will overwrite with rollback snapshot");
             case RENAME -> {
                 NamespacedId renamed = nextFreeName(s.family(), s.definitionId(), sink, claimed);
                 claimed.add(s.family() + "|" + renamed);
                 yield new Step(s.sequence(), s.family(), s.sourceName(), s.definitionId(),
                         Step.Resolution.APPLY_RENAME, renamed, s.fieldMappings(),
-                        "renamed to avoid collision");
+                        s.referencedResources(), "renamed to avoid collision");
             }
         };
     }
@@ -188,7 +193,7 @@ public final class DefinitionImporter {
                 case ABORT -> ImportReport.StepResult.Outcome.FAILED;
             };
             results.add(new ImportReport.StepResult(s.family(), s.sourceName(), s.definitionId(),
-                    s.resolvedId(), outcome, s.fieldMappings(), s.detail()));
+                    s.resolvedId(), outcome, s.fieldMappings(), s.referencedResources(), s.detail()));
         }
         return new ImportReport(plan.source(), plan.policy(), true, List.copyOf(results),
                 "NOT_NEEDED", plan.applicable() ? "" : plan.abortReason());
@@ -210,6 +215,7 @@ public final class DefinitionImporter {
                         : ImportReport.StepResult.Outcome.FAILED;
                 results.set(i, new ImportReport.StepResult(s.family(), s.sourceName(),
                         s.definitionId(), s.resolvedId(), outcome, s.fieldMappings(),
+                        s.referencedResources(),
                         s.resolution() == Step.Resolution.ABORT ? s.detail() : "import aborted — no writes"));
             }
             return new ImportReport(plan.source(), plan.policy(), false, List.copyOf(results),
@@ -233,13 +239,16 @@ public final class DefinitionImporter {
             switch (s.resolution()) {
                 case SKIP_CONFLICT -> results.set(i, new ImportReport.StepResult(
                         s.family(), s.sourceName(), s.definitionId(), null,
-                        ImportReport.StepResult.Outcome.SKIPPED, s.fieldMappings(), s.detail()));
+                        ImportReport.StepResult.Outcome.SKIPPED, s.fieldMappings(),
+                        s.referencedResources(), s.detail()));
                 case QUARANTINE -> results.set(i, new ImportReport.StepResult(
                         s.family(), s.sourceName(), s.definitionId(), null,
-                        ImportReport.StepResult.Outcome.QUARANTINED, s.fieldMappings(), s.detail()));
+                        ImportReport.StepResult.Outcome.QUARANTINED, s.fieldMappings(),
+                        s.referencedResources(), s.detail()));
                 case ABORT -> results.set(i, new ImportReport.StepResult(
                         s.family(), s.sourceName(), s.definitionId(), null,
-                        ImportReport.StepResult.Outcome.FAILED, s.fieldMappings(), s.detail()));
+                        ImportReport.StepResult.Outcome.FAILED, s.fieldMappings(),
+                        s.referencedResources(), s.detail()));
                 default -> {
                     try {
                         Object prior = s.resolution() == Step.Resolution.APPLY_REPLACE
@@ -250,11 +259,13 @@ public final class DefinitionImporter {
                         undo.add(() -> rollbackStep(s, sink, snapshot));
                         results.set(i, new ImportReport.StepResult(
                                 s.family(), s.sourceName(), s.definitionId(), s.resolvedId(),
-                                ImportReport.StepResult.Outcome.APPLIED, s.fieldMappings(), s.detail()));
+                                ImportReport.StepResult.Outcome.APPLIED, s.fieldMappings(),
+                                s.referencedResources(), s.detail()));
                     } catch (RuntimeException e) {
                         results.set(i, new ImportReport.StepResult(
                                 s.family(), s.sourceName(), s.definitionId(), s.resolvedId(),
                                 ImportReport.StepResult.Outcome.FAILED, s.fieldMappings(),
+                                s.referencedResources(),
                                 "apply failed: " + e.getMessage()));
                         boolean restored = rollbackApplied(plan, results, applied, undo);
                         for (int k = i + 1; k < plan.steps().size(); k++) {
@@ -262,6 +273,7 @@ public final class DefinitionImporter {
                             results.set(k, new ImportReport.StepResult(rest.family(), rest.sourceName(),
                                     rest.definitionId(), rest.resolvedId(),
                                     ImportReport.StepResult.Outcome.SKIPPED, rest.fieldMappings(),
+                                    rest.referencedResources(),
                                     "not attempted — earlier step failed"));
                         }
                         return new ImportReport(plan.source(), plan.policy(), false,
@@ -286,12 +298,14 @@ public final class DefinitionImporter {
                 results.set(index, new ImportReport.StepResult(previous.family(), previous.sourceName(),
                         previous.definitionId(), previous.resolvedId(),
                         ImportReport.StepResult.Outcome.ROLLED_BACK, previous.fieldMappings(),
+                        previous.referencedResources(),
                         "rolled back after later failure"));
             } catch (RuntimeException undoError) {
                 restored = false;
                 results.set(index, new ImportReport.StepResult(previous.family(), previous.sourceName(),
                         previous.definitionId(), previous.resolvedId(),
                         ImportReport.StepResult.Outcome.FAILED, previous.fieldMappings(),
+                        previous.referencedResources(),
                         "rollback failed: " + undoError.getMessage()));
             }
         }
@@ -338,7 +352,8 @@ public final class DefinitionImporter {
                     ? "destination changed after planning; create a new plan"
                     : "no writes performed because a destination changed after planning";
             results.add(new ImportReport.StepResult(step.family(), step.sourceName(), step.definitionId(),
-                    step.resolvedId(), outcome, step.fieldMappings(), detail));
+                    step.resolvedId(), outcome, step.fieldMappings(),
+                    step.referencedResources(), detail));
         }
         return new ImportReport(plan.source(), plan.policy(), false, List.copyOf(results),
                 "NOT_NEEDED", "destination changed after planning; no writes were performed");
