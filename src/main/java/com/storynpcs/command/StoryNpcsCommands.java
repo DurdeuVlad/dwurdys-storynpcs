@@ -398,12 +398,15 @@ public final class StoryNpcsCommands {
                 .then(Commands.literal("stores")
                         .requires(source -> source.hasPermission(2))
                         .executes(StoryNpcsCommands::listStores))
-                // P10-2 authoring: validate a patch plan against the live schema bundle
+                // P10-2 authoring: validate + canonically apply a patch plan
                 .then(Commands.literal("author")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("validate")
                                 .then(Commands.argument("plan", StringArgumentType.word())
-                                        .executes(StoryNpcsCommands::validatePatchPlan))))
+                                        .executes(StoryNpcsCommands::validatePatchPlan)))
+                        .then(Commands.literal("apply")
+                                .then(Commands.argument("plan", StringArgumentType.word())
+                                        .executes(StoryNpcsCommands::applyPatchPlan))))
                 // NPC commands
                 .then(Commands.literal("npc")
                         .executes(StoryNpcsCommands::sendNpcHelp)
@@ -6621,5 +6624,68 @@ public final class StoryNpcsCommands {
             ctx.getSource().sendSuccess(() -> line, false);
         }
         return diagnostics.hasErrors() ? 0 : 1;
+    }
+
+    /**
+     * P10-2: applies a patch plan through the canonical mutation boundary.
+     * Dry-run runs first; a failing op rolls back everything the plan applied,
+     * so a rejected plan never leaves a partial write. Apply scope is the
+     * definition spine (npc/dialogue/quest/faction) — other families reject
+     * explicitly rather than guessing.
+     */
+    private static int applyPatchPlan(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        String planName = StringArgumentType.getString(ctx, "plan");
+        if (!planName.matches("[a-zA-Z0-9_.-]+") || planName.contains("..")) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Invalid plan name — a single safe filename stem is required."));
+            return 0;
+        }
+        var server = ctx.getSource().getServer();
+        var planFile = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
+                .resolve("storynpcs").resolve("patches").resolve(planName + ".yaml");
+        if (!java.nio.file.Files.isRegularFile(planFile)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Patch plan not found: " + planFile));
+            return 0;
+        }
+        com.storynpcs.authoring.ai.PatchPlan plan;
+        try {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper(
+                    new com.fasterxml.jackson.dataformat.yaml.YAMLFactory());
+            plan = mapper.readValue(planFile.toFile(), com.storynpcs.authoring.ai.PatchPlan.class);
+        } catch (java.io.IOException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Patch plan could not be parsed: " + e.getMessage()));
+            return 0;
+        }
+        var existingIds = new java.util.HashSet<String>();
+        mod.getRegistry().getAllNpcs().forEach(n -> existingIds.add(n.getId().toString()));
+        mod.getRegistry().getAllDialogues().forEach(d -> existingIds.add(d.getId().toString()));
+        mod.getRegistry().getAllQuests().forEach(q -> existingIds.add(q.getId().toString()));
+        mod.getRegistry().getAllFactions().forEach(f -> existingIds.add(f.getId().toString()));
+        int permission = ctx.getSource().hasPermission(2) ? 2 : 0;
+        var report = new com.storynpcs.authoring.ai.PatchPlanApplier(
+                mod.getApplicationService(), mod.getRegistry())
+                .apply(plan, com.storynpcs.authoring.ai.SchemaBundle.current(),
+                        existingIds, mod.getRegistry().revision(), permission);
+        if (report.committed()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "[StoryNPCs] Patch plan '%s' applied: %d ops committed.",
+                    planName, report.appliedOps().size())), true);
+            return 1;
+        }
+        ctx.getSource().sendFailure(Component.literal(String.format(
+                "[StoryNPCs] Patch plan '%s' rejected — %d ops applied then rolled back.",
+                planName, report.rolledBackOps().size())));
+        if (!report.diagnostics().getDiagnostics().isEmpty()) {
+            final var issues = Component.literal(report.diagnostics().formatReport(10));
+            ctx.getSource().sendSuccess(() -> issues, false);
+        }
+        return 0;
     }
 }

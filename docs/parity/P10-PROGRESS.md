@@ -51,7 +51,10 @@ Disclosed residuals:
 - `PatchPlanValidator`: allowlisted operation paths only, source-location
   references on every diagnostic (`PATCH_*` codes), dependency analysis
   (creates-before-references, cycles rejected), permission-context checks.
-- The production command currently exposes dry-run validation only. There is no patch-plan apply path; deterministic apply ordering, source-location references, capability enforcement, and rollback remain open.
+- `author validate` = write-free dry-run; `author apply` runs the dry-run first, then applies deduplicated ops in deterministic order through the canonical boundary via `PatchPlanApplier` — per-definition expected-revision checks, capability names (`family.mutate|edit|delete`), fresh request ids, and the command actor's proven permission level.
+- A failing op rolls back every op the plan already applied (pre-apply snapshots restored through the same canonical ops, reverse order); a rollback that itself fails reports `ROLLBACK_INCOMPLETE`. `create` requires absent targets (canonical exists-check), `update`/`set` require present targets, `delete` of absent is an idempotent no-op, and duplicate ops collapse on idempotency keys.
+- `set` resolves logical bundle fields to scalar-leaf JSON paths per family (e.g. npc `name` → `display.name`); a field with no scalar path fails `PATCH_APPLY_FIELD` rather than writing a silently-ignored key. Whole-definition changes go through `update`.
+- Apply scope is the definition spine — npc, dialogue, quest, faction. Other bundle families reject at apply with `PATCH_APPLY_SCOPE` (dry-run still validates their schema); payloads may be JSON or YAML text and normalize to canonical family JSON.
 - Unsupported fields are explicit diagnostics, never silently dropped.
 
 ## P10-3 — Creator docs, examples, migration guidance (#90)
