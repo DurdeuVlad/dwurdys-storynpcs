@@ -104,15 +104,25 @@ public class NpcPathItem extends Item {
         Waypoint wp = new Waypoint(targetPos.getX() + 0.5, targetPos.getY(), targetPos.getZ() + 0.5);
 
         var service = mod.getApplicationService();
+        boolean[] added = {false};
         var result = service.mutateNpc(new com.storynpcs.service.MutationRequest(
                 "npc.mutate", "player:" + serverPlayer.getUUID(), "npc.mutate", id,
                 service.currentRevision("npc", id), java.util.UUID.randomUUID(), 2), def -> {
             if (def.getAi() == null) {
                 def.setAi(new NpcAi());
             }
-            def.getAi().getWaypointPath().addWaypoint(wp);
-            def.getAi().setMovementType(NpcAi.MovementType.PATHING);
+            added[0] = def.getAi().getWaypointPath().addWaypoint(wp);
+            if (added[0]) {
+                def.getAi().setMovementType(NpcAi.MovementType.PATHING);
+            }
         });
+        if (!added[0]) {
+            serverPlayer.sendSystemMessage(Component.literal(String.format(
+                    "§c[StoryNPCs Pather] Path for '%s' is full (%d/%d) — delete a waypoint first.",
+                    id, com.storynpcs.domain.ai.WaypointPath.MAX_WAYPOINTS,
+                    com.storynpcs.domain.ai.WaypointPath.MAX_WAYPOINTS)));
+            return InteractionResult.FAIL;
+        }
         if (result.hasErrors()) {
             serverPlayer.sendSystemMessage(Component.literal("§c[StoryNPCs Pather] Failed to persist path: " + result.formatReport(2)));
             return InteractionResult.FAIL;
@@ -132,6 +142,7 @@ public class NpcPathItem extends Item {
         int count = mod.getRegistry().getNpc(id).flatMap(def ->
                 java.util.Optional.ofNullable(def.getAi()))
                 .map(ai -> ai.getWaypointPath().size()).orElse(0);
+        CreatorToolAudit.publish(mod, serverPlayer, "path", "waypoint.add", id.toString(), "applied");
         serverPlayer.sendSystemMessage(Component.literal(String.format("§a[StoryNPCs Pather] Added waypoint #%d at (%d, %d, %d) for '%s' (set to PATHING).",
                 count, targetPos.getX(), targetPos.getY(), targetPos.getZ(), id)));
         return InteractionResult.SUCCESS;
@@ -161,6 +172,7 @@ public class NpcPathItem extends Item {
                             }
                         });
                         if (!result.hasErrors()) {
+                            CreatorToolAudit.publish(mod, serverPlayer, "path", "waypoint.clear", id.toString(), "applied");
                             serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Pather] Cleared all waypoints for '" + id + "'. Switched to STANDING."));
                             return InteractionResultHolder.success(player.getItemInHand(hand));
                         }

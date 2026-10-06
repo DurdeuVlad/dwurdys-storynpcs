@@ -103,6 +103,13 @@ public class StoryNpcsApplicationService {
         this.rewardSideEffectOverride = override;
     }
 
+    /** Cleanup invoked after a canonical spawner delete — clears durable/cached runtime state. */
+    private volatile Consumer<NamespacedId> spawnerDeleteListener = id -> {};
+
+    public void setSpawnerDeleteListener(Consumer<NamespacedId> listener) {
+        this.spawnerDeleteListener = listener != null ? listener : id -> {};
+    }
+
     public void setLoader(YamlDefinitionLoader loader) {
         this.loader = loader;
     }
@@ -1685,6 +1692,9 @@ public class StoryNpcsApplicationService {
                 }
                 if (registry.removeSpawnerRule(id)) {
                     definitionRevisions.merge(revisionKey("spawner", id), 1L, Long::sum);
+                    // Orphaned durable state must not leak quota debt into a
+                    // future same-id spawner — the runtime clears cache+record.
+                    spawnerDeleteListener.accept(id);
                     return true;
                 }
                 return false;

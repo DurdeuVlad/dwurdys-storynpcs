@@ -17,6 +17,13 @@
   "item.storynpcs.nbt_book": "NBT Book",
   "item.storynpcs.nbt_book.tooltip.1": "Right-click an entity: view its NBT",
   "item.storynpcs.nbt_book.tooltip.2": "Ops can edit allowlisted fields · everything else is read-only",
+  "item.storynpcs.npc_teleporter": "NPC Teleporter",
+  "item.storynpcs.npc_teleporter.tooltip.1": "Right-click an NPC to select, then a block to move it there",
+  "item.storynpcs.npc_teleporter.tooltip.2": "Sneak + right-click: clear selection",
+  "item.storynpcs.npc_remover": "NPC Remover",
+  "item.storynpcs.npc_remover.tooltip.1": "Click an NPC twice to despawn it (definition preserved)",
+  "item.storynpcs.npc_soulstone": "NPC Soulstone",
+  "item.storynpcs.npc_soulstone.tooltip.1": "Click an NPC twice to capture its binding, then a block to redeploy",
   "entity.storynpcs.npc_chair_mount": "Seat",
   "entity.storynpcs.npc_fake_living": "Fake Living"
 }

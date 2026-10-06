@@ -518,6 +518,13 @@ public final class StoryNpcsGameTests {
                 mod.getRegistry().templateSpawnerDependents(templateId).contains(spawnerId),
                 "spawner must register as a template dependent");
 
+        // The GameTest world persists across runs — a durable owned-uuid ledger
+        // from a previous run would consume the quota-1 slot for the missing
+        // grace bound (400t) and outlast this window. This test proves a fresh
+        // anchored spawner produces an owned actor, so it starts from a clean
+        // durable record; cross-restart reconciliation is covered separately.
+        mod.getSpawnerRuntime().resetState(spawnerId);
+
         var watch = new net.minecraft.world.phys.AABB(anchor).inflate(48);
         helper.succeedWhen(() -> {
             var owned = level.getEntities(
@@ -537,6 +544,54 @@ public final class StoryNpcsGameTests {
                     "spawned actor must bind a storynpcs:spawned/ definition id, got "
                             + npc.getDefinitionId());
         });
+    }
+
+    /**
+     * P8-2 mounter tool: the legal-relationship gate must run against the live
+     * entity mount graph — a real two-deep stack must accept a third rider,
+     * while mounting a lower entity back onto its own rider is refused as a
+     * cycle and an already-mounted passenger is refused outright.
+     */
+    @GameTest(template = "gametest/empty_3x3x3", timeoutTicks = 100)
+    public static void mountPolicyGatesLiveMountStack(GameTestHelper helper) {
+        StoryNpcEntity bottom = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), new BlockPos(0, 1, 0));
+        StoryNpcEntity middle = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), new BlockPos(1, 1, 0));
+        StoryNpcEntity top = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), new BlockPos(2, 1, 0));
+
+        helper.assertTrue(middle.startRiding(bottom, true), "middle must mount bottom");
+        var chain = com.storynpcs.item.NpcMounterItem.mountChain(middle, bottom);
+        helper.assertTrue(chain.size() == 1, "live chain must record the middle→bottom edge");
+
+        // Third rider on top of the stack is legal (depth 2 of 4).
+        var allowTop = com.storynpcs.creator.tools.MountPolicy.check(
+                top.getUUID(), middle.getUUID(),
+                com.storynpcs.item.NpcMounterItem.mountChain(top, middle));
+        helper.assertTrue(allowTop == null, "top→middle must be a legal mount, got " + allowTop);
+        helper.assertTrue(top.startRiding(middle, true), "top must ride middle");
+
+        // Cycle: bottom cannot ride top (top rides middle rides bottom).
+        var cycle = com.storynpcs.creator.tools.MountPolicy.check(
+                bottom.getUUID(), top.getUUID(),
+                com.storynpcs.item.NpcMounterItem.mountChain(bottom, top));
+        helper.assertTrue(cycle == com.storynpcs.creator.tools.MountPolicy.Reject.CYCLE,
+                "bottom→top must be rejected as CYCLE, got " + cycle);
+
+        // Already-mounted: middle cannot re-mount anywhere.
+        StoryNpcEntity other = helper.spawn(StoryNpcRegistry.STORY_NPC.get(), new BlockPos(2, 1, 1));
+        var remount = com.storynpcs.creator.tools.MountPolicy.check(
+                middle.getUUID(), other.getUUID(),
+                com.storynpcs.item.NpcMounterItem.mountChain(middle, other));
+        helper.assertTrue(remount == com.storynpcs.creator.tools.MountPolicy.Reject.PASSENGER_ALREADY_MOUNTED,
+                "mounted middle must be rejected as PASSENGER_ALREADY_MOUNTED, got " + remount);
+
+        // Self-mount is always refused.
+        var self = com.storynpcs.creator.tools.MountPolicy.check(
+                other.getUUID(), other.getUUID(),
+                com.storynpcs.item.NpcMounterItem.mountChain(other, other));
+        helper.assertTrue(self == com.storynpcs.creator.tools.MountPolicy.Reject.SELF,
+                "self-mount must be rejected as SELF, got " + self);
+
+        helper.succeed();
     }
 
     private static void drain(com.storynpcs.service.SchematicBuildService service,

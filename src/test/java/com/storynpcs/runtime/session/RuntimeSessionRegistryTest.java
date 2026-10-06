@@ -96,4 +96,57 @@ class RuntimeSessionRegistryTest {
         assertFalse(registry.isPanelSession(PLAYER, "mail", mailPanel));
         assertTrue(registry.isRoleSession(PLAYER, "trade", NPC, role));
     }
+
+    @Test
+    void toolConfirmationsRequireAMatchingSecondClickInsideTheTtl() {
+        RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
+        long now = System.currentTimeMillis();
+        registry.armToolConfirmation(PLAYER, "remover", 42, 10_000);
+
+        // Same tool + same entity inside the window → confirmed, exactly once.
+        var confirmed = registry.consumeToolConfirmation(PLAYER, "remover", 42, now + 1);
+        assertNotNull(confirmed);
+        assertEquals(42, confirmed.targetEntityId());
+        // Second consume — the confirmation was spent.
+        assertNull(registry.consumeToolConfirmation(PLAYER, "remover", 42, now + 2));
+    }
+
+    @Test
+    void toolConfirmationMismatchesAreConsumedAndExpiryFailsClosed() {
+        RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
+        long now = System.currentTimeMillis();
+
+        // A different entity must not inherit the pending confirmation —
+        // and the mismatching click spends it (fail-closed).
+        registry.armToolConfirmation(PLAYER, "remover", 42, 10_000);
+        assertNull(registry.consumeToolConfirmation(PLAYER, "remover", 99, now + 1));
+        assertNull(registry.consumeToolConfirmation(PLAYER, "remover", 42, now + 1));
+
+        // A different tool likewise never confirms a remover arm.
+        registry.armToolConfirmation(PLAYER, "remover", 42, 10_000);
+        assertNull(registry.consumeToolConfirmation(PLAYER, "soulstone", 42, now + 1));
+
+        // An expired arm cannot execute.
+        registry.armToolConfirmation(PLAYER, "remover", 42, 10_000);
+        assertNull(registry.consumeToolConfirmation(PLAYER, "remover", 42, now + 20_000));
+
+        // clearPlayer drops pending confirmations — a re-login can't inherit one.
+        registry.armToolConfirmation(PLAYER, "remover", 42, 10_000);
+        registry.clearPlayer(PLAYER);
+        assertNull(registry.consumeToolConfirmation(PLAYER, "remover", 42, now + 1));
+    }
+
+    @Test
+    void teleportSelectionsArePerPlayerAndRecoverOnClear() {
+        RuntimeSessionRegistry registry = new RuntimeSessionRegistry();
+        UUID other = UUID.randomUUID();
+        registry.selectTeleportEntity(PLAYER, 7);
+        assertEquals(7, registry.selectedTeleportEntity(PLAYER));
+        assertNull(registry.selectedTeleportEntity(other), "selections never leak across players");
+        registry.clearSelectedTeleportEntity(PLAYER);
+        assertNull(registry.selectedTeleportEntity(PLAYER));
+        registry.selectTeleportEntity(PLAYER, 9);
+        registry.clearPlayer(PLAYER);
+        assertNull(registry.selectedTeleportEntity(PLAYER));
+    }
 }

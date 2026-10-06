@@ -50,18 +50,22 @@ public class NpcMounterItem extends Item {
 
         // Sneak-click to dismount
         if (serverPlayer.isShiftKeyDown()) {
+            StoryNpcs sneakMod = StoryNpcsAccess.mod(serverPlayer);
             if (target.isPassenger()) {
                 target.stopRiding();
+                CreatorToolAudit.publish(sneakMod, serverPlayer, "mounter", "dismount",
+                        target.getName().getString(), "applied");
                 serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Mounter] Dismounted '" + target.getName().getString() + "'."));
             } else if (!target.getPassengers().isEmpty()) {
                 target.ejectPassengers();
+                CreatorToolAudit.publish(sneakMod, serverPlayer, "mounter", "eject",
+                        target.getName().getString(), "applied");
                 serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Mounter] Ejected all passengers from '" + target.getName().getString() + "'."));
             } else {
                 serverPlayer.sendSystemMessage(Component.literal("§7[StoryNPCs Mounter] Entity is neither a passenger nor carrying any."));
             }
-            StoryNpcs mod = StoryNpcsAccess.mod(serverPlayer);
-            if (mod != null) {
-                mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
+            if (sneakMod != null) {
+                sneakMod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
             }
             return InteractionResult.SUCCESS;
         }
@@ -86,13 +90,30 @@ public class NpcMounterItem extends Item {
                 return InteractionResult.FAIL;
             }
 
-            if (passenger.getId() == target.getId()) {
-                serverPlayer.sendSystemMessage(Component.literal("§e[StoryNPCs Mounter] An entity cannot mount itself! Selection cancelled."));
+            // P8-2 legal-relationship gate: self-mounts, cycles, stacks past
+            // depth 4, and already-mounted passengers are rejected before the
+            // world mutation — not just by vanilla's implicit checks.
+            var reject = com.storynpcs.creator.tools.MountPolicy.check(
+                    passenger.getUUID(), target.getUUID(), mountChain(passenger, target));
+            if (reject != null) {
+                String why = switch (reject) {
+                    case SELF -> "An entity cannot mount itself!";
+                    case CYCLE -> "That would create a mount cycle!";
+                    case STACK_TOO_DEEP -> "Mount stack would exceed depth "
+                            + com.storynpcs.creator.tools.MountPolicy.MAX_STACK_DEPTH + "!";
+                    case PASSENGER_ALREADY_MOUNTED -> "Passenger is already mounted — dismount it first.";
+                };
+                CreatorToolAudit.publish(mod, serverPlayer, "mounter", "mount", target.getName().getString(),
+                        "rejected:" + reject);
+                serverPlayer.sendSystemMessage(Component.literal(
+                        "§c[StoryNPCs Mounter] " + why + " Selection cancelled."));
                 return InteractionResult.FAIL;
             }
 
             boolean success = passenger.startRiding(target, true);
             if (success) {
+                CreatorToolAudit.publish(mod, serverPlayer, "mounter", "mount",
+                        target.getName().getString(), "applied");
                 serverPlayer.sendSystemMessage(Component.literal("§a[StoryNPCs Mounter] Successfully mounted '§f" + passenger.getName().getString() + "§a' onto '§f" + target.getName().getString() + "§a'!"));
                 return InteractionResult.SUCCESS;
             } else {
@@ -141,6 +162,14 @@ public class NpcMounterItem extends Item {
                     "§c[StoryNPCs Mounter] Previously selected passenger is no longer available."));
             return InteractionResult.FAIL;
         }
+        if (passenger.getVehicle() != null) {
+            mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
+            CreatorToolAudit.publish(mod, serverPlayer, "mounter", "seat", passenger.getName().getString(),
+                    "rejected:PASSENGER_ALREADY_MOUNTED");
+            serverPlayer.sendSystemMessage(Component.literal(
+                    "§c[StoryNPCs Mounter] Passenger is already mounted — dismount it first."));
+            return InteractionResult.FAIL;
+        }
         var chair = new com.storynpcs.entity.ChairMountEntity(
                 com.storynpcs.entity.StoryNpcRegistry.NPC_CHAIR_MOUNT.get(), level);
         var seat = net.minecraft.world.phys.Vec3.atBottomCenterOf(context.getClickedPos().above());
@@ -148,6 +177,8 @@ public class NpcMounterItem extends Item {
         level.addFreshEntity(chair);
         mod.getRuntimeSessions(serverPlayer.getServer()).clearSelectedPassenger(serverPlayer.getUUID());
         if (passenger.startRiding(chair, true)) {
+            CreatorToolAudit.publish(mod, serverPlayer, "mounter", "seat",
+                    passenger.getName().getString(), "applied");
             serverPlayer.sendSystemMessage(Component.literal(
                     "§a[StoryNPCs Mounter] Seated '§f" + passenger.getName().getString() + "§a'."));
             return InteractionResult.SUCCESS;
@@ -156,5 +187,22 @@ public class NpcMounterItem extends Item {
         serverPlayer.sendSystemMessage(Component.literal(
                 "§c[StoryNPCs Mounter] Could not seat the passenger."));
         return InteractionResult.FAIL;
+    }
+
+    /**
+     * Passenger→vehicle edges the mount policy needs: the candidate's own
+     * mount plus the prospective vehicle's full ancestor chain (cycle + depth
+     * detection only inspect upward links).
+     */
+    public static java.util.Map<java.util.UUID, java.util.UUID> mountChain(
+            Entity passenger, Entity vehicle) {
+        java.util.Map<java.util.UUID, java.util.UUID> mounts = new java.util.HashMap<>();
+        if (passenger.getVehicle() != null) {
+            mounts.put(passenger.getUUID(), passenger.getVehicle().getUUID());
+        }
+        for (Entity cursor = vehicle; cursor.getVehicle() != null; cursor = cursor.getVehicle()) {
+            mounts.put(cursor.getUUID(), cursor.getVehicle().getUUID());
+        }
+        return mounts;
     }
 }
