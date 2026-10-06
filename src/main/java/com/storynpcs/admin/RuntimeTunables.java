@@ -188,6 +188,40 @@ public final class RuntimeTunables implements RuntimeTunablesView {
     }
 
     /**
+     * Durable restore (P9-4): swap in a persisted map + revision, but only
+     * after the same validation a committed transaction runs. A corrupt or
+     * hand-edited record fails validation and returns a diagnostic — the live
+     * map keeps its defaults, so startup never poisons state.
+     */
+    public synchronized ValidationResult restore(
+            Map<String, String> persisted, long persistedRevision) {
+        if (persistedRevision < 0 || persisted == null) {
+            ValidationResult rejected = ValidationResult.valid();
+            rejected.addError("INVALID_PERSISTED_TUNABLES",
+                    "Persisted tunable record is malformed or negatively revised");
+            return rejected;
+        }
+        // Restore applies the persisted keys over defaults — a record written
+        // before a key existed keeps the new key's default, and keys the
+        // current build no longer knows (version skew) are dropped rather
+        // than rejecting the whole record.
+        var candidate = new LinkedHashMap<>(live);
+        for (var entry : persisted.entrySet()) {
+            if (KEYS.containsKey(entry.getKey())) {
+                candidate.put(entry.getKey(), entry.getValue());
+            }
+        }
+        ValidationResult result = validate(candidate);
+        if (result.hasErrors()) {
+            return result;
+        }
+        live.clear();
+        live.putAll(candidate);
+        revision = persistedRevision;
+        return result;
+    }
+
+    /**
      * Typed live read used by consumers: resolves the current value each call
      * and falls back to the key default if the stored text cannot parse —
      * validated commits keep values in range, the fallback is a belt for

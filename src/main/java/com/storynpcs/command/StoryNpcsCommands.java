@@ -274,6 +274,40 @@ public final class StoryNpcsCommands {
                                         .suggests(TUNABLE_KEYS)
                                         .then(Commands.argument("value", StringArgumentType.word())
                                                 .executes(StoryNpcsCommands::configSet)))))
+                // P9-4 remote admin ops (target SPacketRemote*) — entity-uuid
+                // targets, loaded+same-level guard, audited.
+                .then(Commands.literal("remote")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list")
+                                .executes(ctx -> remoteList(ctx, 64))
+                                .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
+                                        .executes(ctx -> remoteList(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "radius")))))
+                        .then(Commands.literal("freeze")
+                                .then(Commands.argument("entity_uuid", net.minecraft.commands.arguments.UuidArgument.uuid())
+                                        .executes(StoryNpcsCommands::remoteFreeze)))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("entity_uuid", net.minecraft.commands.arguments.UuidArgument.uuid())
+                                        .executes(StoryNpcsCommands::remoteDelete)))
+                        .then(Commands.literal("reset")
+                                .then(Commands.argument("entity_uuid", net.minecraft.commands.arguments.UuidArgument.uuid())
+                                        .executes(StoryNpcsCommands::remoteReset)))
+                        .then(Commands.literal("tp")
+                                .then(Commands.argument("entity_uuid", net.minecraft.commands.arguments.UuidArgument.uuid())
+                                        .executes(StoryNpcsCommands::remoteTeleport))))
+                // P9-4 player-data administration (target SPacketPlayerData*) —
+                // SELF scope for own data, ADMIN (perm 2) for cross-player.
+                .then(Commands.literal("playerdata")
+                        .then(Commands.literal("read")
+                                .executes(ctx -> playerDataRead(ctx, null))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(ctx -> playerDataRead(ctx,
+                                                EntityArgument.getPlayer(ctx, "player")))))
+                        .then(Commands.literal("clear")
+                                .executes(ctx -> playerDataClear(ctx, null))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(ctx -> playerDataClear(ctx,
+                                                EntityArgument.getPlayer(ctx, "player"))))))
                 // P8-6 custom-GUI/overlay surfaces
                 .then(Commands.literal("layout")
                         .requires(source -> source.hasPermission(2))
@@ -2214,6 +2248,175 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendFailure(Component.literal(
                 "Player must be specified when executed from console"));
         return null;
+    }
+
+    // ── P9-4 remote admin handlers (target SPacketRemote*) ──────────────────
+
+    /**
+     * Resolve a remote-op target: the entity must be loaded in the caller's
+     * own level — cross-dimension and unloaded targets are refused before any
+     * mutation, which is the "global actions cannot mutate an unloaded or
+     * wrong-world target" contract.
+     */
+    private static com.storynpcs.entity.StoryNpcEntity resolveRemoteTarget(
+            CommandContext<CommandSourceStack> ctx, String op) {
+        var uuid = net.minecraft.commands.arguments.UuidArgument.getUuid(ctx, "entity_uuid");
+        var entity = ctx.getSource().getLevel().getEntity(uuid);
+        if (!(entity instanceof com.storynpcs.entity.StoryNpcEntity npc)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] REMOTE_TARGET_UNLOADED — no loaded StoryNPC entity "
+                            + uuid + " in this dimension."));
+            return null;
+        }
+        return npc;
+    }
+
+    private static void auditRemote(CommandContext<CommandSourceStack> ctx, String op,
+                                    com.storynpcs.entity.StoryNpcEntity npc, String outcome) {
+        var mod = modOrNull(ctx);
+        if (mod == null) return;
+        var operator = ctx.getSource().getEntity() instanceof ServerPlayer sp ? sp.getUUID() : null;
+        mod.getEventPublisher().publish(new com.storynpcs.api.event.RemoteAdminAuditEvent(
+                op, operator, npc.getDefinitionId() + "@" + npc.blockPosition().toShortString(),
+                outcome));
+    }
+
+    /** {@code remote freeze <entity_uuid>} — toggle no-AI on a loaded NPC. */
+    private static int remoteFreeze(CommandContext<CommandSourceStack> ctx) {
+        var npc = resolveRemoteTarget(ctx, "freeze");
+        if (npc == null) return 0;
+        boolean frozen = !npc.isNoAi();
+        npc.setNoAi(frozen);
+        auditRemote(ctx, "remote.freeze", npc, frozen ? "frozen" : "unfrozen");
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] " + (frozen ? "Froze" : "Unfroze") + " " + npc.getDefinitionId()), true);
+        return 1;
+    }
+
+    /** {@code remote delete <entity_uuid>} — discard a loaded NPC entity. */
+    private static int remoteDelete(CommandContext<CommandSourceStack> ctx) {
+        var npc = resolveRemoteTarget(ctx, "delete");
+        if (npc == null) return 0;
+        var label = npc.getDefinitionId();
+        npc.discard();
+        auditRemote(ctx, "remote.delete", npc, "discarded");
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Deleted remote NPC entity of " + label), true);
+        return 1;
+    }
+
+    /** {@code remote reset <entity_uuid>} — respawn a loaded NPC at its start pos. */
+    private static int remoteReset(CommandContext<CommandSourceStack> ctx) {
+        var npc = resolveRemoteTarget(ctx, "reset");
+        if (npc == null) return 0;
+        var level = ctx.getSource().getLevel();
+        var start = npc.getStartPosition() != null ? npc.getStartPosition() : npc.blockPosition();
+        var defId = npc.getDefinitionId();
+        var fresh = com.storynpcs.entity.StoryNpcRegistry.STORY_NPC.get().create(level);
+        if (fresh == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to create NPC entity"));
+            return 0;
+        }
+        npc.discard();
+        fresh.setPos(start.getX() + 0.5, start.getY(), start.getZ() + 0.5);
+        fresh.setDefinitionId(defId);
+        fresh.setStartPosition(start);
+        level.addFreshEntity(fresh);
+        auditRemote(ctx, "remote.reset", fresh, "respawned at start");
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Reset remote NPC " + defId + " to " + start.toShortString()), true);
+        return 1;
+    }
+
+    /** {@code remote tp <entity_uuid>} — teleport a loaded NPC to the operator. */
+    private static int remoteTeleport(CommandContext<CommandSourceStack> ctx) {
+        var npc = resolveRemoteTarget(ctx, "tp");
+        if (npc == null) return 0;
+        var pos = ctx.getSource().getPosition();
+        npc.teleportTo(pos.x, pos.y, pos.z);
+        auditRemote(ctx, "remote.tp", npc, "teleported to operator");
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Teleported " + npc.getDefinitionId() + " to the command source"), true);
+        return 1;
+    }
+
+    /** {@code remote list [radius]} — bounded loaded-NPC listing near the source. */
+    private static int remoteList(CommandContext<CommandSourceStack> ctx, int radius) {
+        var level = ctx.getSource().getLevel();
+        var origin = ctx.getSource().getPosition();
+        var box = new net.minecraft.world.phys.AABB(
+                origin.x - radius, level.getMinBuildHeight(), origin.z - radius,
+                origin.x + radius, level.getMaxBuildHeight(), origin.z + radius);
+        int found = 0;
+        for (var entity : level.getEntitiesOfClass(
+                com.storynpcs.entity.StoryNpcEntity.class, box)) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "  " + entity.getUUID() + " " + entity.getDefinitionId()
+                            + " @ " + entity.blockPosition().toShortString()), false);
+            found++;
+        }
+        final int n = found;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] " + n + " loaded NPC entity(ies) within " + radius + " blocks"), false);
+        return n;
+    }
+
+    // ── P9-4 player-data admin handlers (target SPacketPlayerData*) ─────────
+
+    /** {@code playerdata read [player]} — detached progression summary. */
+    private static int playerDataRead(CommandContext<CommandSourceStack> ctx, ServerPlayer target) {
+        var subject = resolvePlayer(ctx, target);
+        if (subject == null) return 0;
+        var service = mod(ctx).getApplicationService();
+        var actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor ? actor.getUUID() : null;
+        var result = service.adminReadPlayerData(
+                new com.storynpcs.service.PlayerProgressionActionRequest(
+                        "playerdata.read",
+                        actorUuid != null && actorUuid.equals(subject.getUUID()) ? "player" : "command",
+                        actorUuid, subject.getUUID(), UUID.randomUUID(),
+                        ctx.getSource().hasPermission(2) ? 2 : 0));
+        if (!result.applied()) {
+            String reason = result.authorization().decision() != null
+                    ? result.authorization().decision().message() : "read denied";
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + reason));
+            return 0;
+        }
+        var s = result.summary();
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Player data for " + subject.getScoreboardName()
+                        + ": factions=" + s.factionEntries()
+                        + " quests=" + s.questEntries()
+                        + " dialogueVisits=" + s.dialogueVisits()
+                        + " mail=" + s.pendingMail()
+                        + " (rev q=" + s.questRevision() + " f=" + s.factionRevision() + ")"), false);
+        return 1;
+    }
+
+    /** {@code playerdata clear [player]} — delete the durable progression record. */
+    private static int playerDataClear(CommandContext<CommandSourceStack> ctx, ServerPlayer target) {
+        var subject = resolvePlayer(ctx, target);
+        if (subject == null) return 0;
+        var service = mod(ctx).getApplicationService();
+        var actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor ? actor.getUUID() : null;
+        var result = service.adminClearPlayerData(
+                new com.storynpcs.service.PlayerProgressionActionRequest(
+                        "playerdata.clear",
+                        actorUuid != null && actorUuid.equals(subject.getUUID()) ? "player" : "command",
+                        actorUuid, subject.getUUID(), UUID.randomUUID(),
+                        ctx.getSource().hasPermission(2) ? 2 : 0));
+        if (!result.applied()) {
+            String reason = result.decision() != null ? result.decision().message() : "clear denied";
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + reason));
+            return 0;
+        }
+        var mod = mod(ctx);
+        if (mod != null) {
+            mod.getEventPublisher().publish(new com.storynpcs.api.event.RemoteAdminAuditEvent(
+                    "playerdata.clear", actorUuid, subject.getUUID().toString(), "record deleted"));
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Cleared stored data for " + subject.getScoreboardName()), true);
+        return 1;
     }
 
     /** {@code follower owner [npc_id]} — report loaded follower owners. */

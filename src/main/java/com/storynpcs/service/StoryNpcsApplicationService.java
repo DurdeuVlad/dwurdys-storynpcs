@@ -157,6 +157,18 @@ public class StoryNpcsApplicationService {
         this.runtimeTunables = java.util.Objects.requireNonNull(runtimeTunables, "runtimeTunables");
     }
 
+    /** Durable sink for committed tunable snapshots (P9-4) — wired by the lifecycle. */
+    @FunctionalInterface
+    public interface RuntimeTunablesPersister {
+        void persist(long revision, java.util.Map<String, String> snapshot) throws java.io.IOException;
+    }
+
+    private volatile RuntimeTunablesPersister runtimeTunablesPersister;
+
+    public void setRuntimeTunablesPersister(RuntimeTunablesPersister persister) {
+        this.runtimeTunablesPersister = persister;
+    }
+
     /**
      * Canonical runtime-config mutation: authorization + expected-revision
      * staging through {@link com.storynpcs.admin.ConfigTransaction}. A stale
@@ -200,6 +212,27 @@ public class StoryNpcsApplicationService {
                         List.of(request.operation() + ":rejected"), code);
                 publishCanonicalEvent(request, result);
                 return result;
+            }
+            // P9-4: a committed config change persists before the mutation
+            // reports success — "validate, persist, reload and roll back
+            // atomically". A persist failure rejects the commit outcome so
+            // callers never see an apparently-saved change that is actually
+            // in-memory only.
+            var persister = runtimeTunablesPersister;
+            if (persister != null) {
+                try {
+                    persister.persist(outcome.newRevision(), runtimeTunables.snapshot());
+                } catch (java.io.IOException persistFailure) {
+                    ValidationResult failed = ValidationResult.valid();
+                    failed.addError("CONFIG_PERSIST_FAILED",
+                            "Config committed in-memory but could not be persisted: "
+                                    + persistFailure.getMessage());
+                    var result = new CanonicalMutationResult(false, false, outcome.newRevision(),
+                            failed, List.of(request.operation() + ":persist-failed"),
+                            "CONFIG_PERSIST_FAILED");
+                    publishCanonicalEvent(request, result);
+                    return result;
+                }
             }
             var result = new CanonicalMutationResult(true, false, outcome.newRevision(),
                     ValidationResult.valid(), List.of("RuntimeConfigChangeEvent"), "COMMITTED");
@@ -1159,6 +1192,64 @@ public class StoryNpcsApplicationService {
                 }
             }
             return AuthorizedActionResult.of(cleared > 0);
+        });
+    }
+
+    // ── P9-4 player-data administration (target SPacketPlayerData*) ──────────
+
+    /**
+     * Detached player-data summary for {@code playerdata.read}. Counts only —
+     * the live {@link PlayerProgression} never escapes the service boundary.
+     */
+    public record PlayerDataSummary(int factionEntries, int questEntries,
+            int dialogueVisits, int pendingMail, long questRevision, long factionRevision) {}
+
+    /** Player-data read result: the authorization outcome plus the summary on success. */
+    public record PlayerDataReadResult(AuthorizedActionResult authorization,
+                                       PlayerDataSummary summary) {
+        public boolean applied() { return authorization != null && authorization.applied(); }
+    }
+
+    /**
+     * P9-4 (target {@code SPacketPlayerDataGet}): read a player's stored data
+     * through the canonical player-scoped boundary — SELF for own data, ADMIN
+     * (permission 2) for cross-player reads.
+     */
+    public PlayerDataReadResult adminReadPlayerData(PlayerProgressionActionRequest request) {
+        Objects.requireNonNull(request, "request");
+        var holder = new PlayerDataSummary[1];
+        var authorization = runProgressionAction(request, "playerdata.read",
+                "read", null, () -> {
+            PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+            synchronized (progression) {
+                holder[0] = new PlayerDataSummary(
+                        progression.getFactionPoints().size(),
+                        progression.getQuests().size(),
+                        progression.getVisitedDialogueNodes().size(),
+                        progression.getMailbox().size(),
+                        progression.getQuestRevision(),
+                        progression.getFactionRevision());
+            }
+            return AuthorizedActionResult.of(true);
+        });
+        return new PlayerDataReadResult(authorization, holder[0]);
+    }
+
+    /**
+     * P9-4 (target {@code SPacketPlayerDataRemove}): delete a player's stored
+     * progression record through the canonical boundary — SELF clears own
+     * data, ADMIN clears any player's. Idempotent: clearing an absent record
+     * still reports applied.
+     */
+    public AuthorizedActionResult adminClearPlayerData(PlayerProgressionActionRequest request) {
+        Objects.requireNonNull(request, "request");
+        return runProgressionAction(request, "playerdata.clear", "clear", null, () -> {
+            try {
+                progressionRepository.delete(request.playerUuid());
+            } catch (java.io.IOException storeFailure) {
+                throw new IllegalStateException(storeFailure);
+            }
+            return AuthorizedActionResult.of(true);
         });
     }
 
