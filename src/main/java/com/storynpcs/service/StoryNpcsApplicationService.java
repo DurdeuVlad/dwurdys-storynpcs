@@ -77,6 +77,35 @@ public class StoryNpcsApplicationService {
      * tick counter via {@link #setChoiceTickSource}.
      */
     private volatile java.util.function.LongSupplier choiceTickSource = () -> System.currentTimeMillis() / 50;
+    /** Server-owned API capability sessions (P9-1) — per-instance, never static. */
+    private volatile com.storynpcs.api.ApiSessionRegistry apiSessions =
+            new com.storynpcs.api.ApiSessionRegistry();
+
+    public com.storynpcs.api.ApiSessionRegistry getApiSessions() {
+        return apiSessions;
+    }
+
+    /** Test seam: bind a controlled session registry. */
+    public void setApiSessions(com.storynpcs.api.ApiSessionRegistry sessions) {
+        this.apiSessions = sessions == null ? new com.storynpcs.api.ApiSessionRegistry() : sessions;
+    }
+
+    /** Grant validator bound to the choice-token clock — expiry is enforced at check time. */
+    private AuthorizationPolicy.ApiGrantValidator apiGrantValidator() {
+        var sessions = apiSessions;
+        long nowTick = choiceTickSource.getAsLong();
+        return (sessionId, capability) -> sessions.grants(sessionId, capability, nowTick);
+    }
+
+    /** Sweep expired API sessions on the same clock grants are checked against. */
+    public int sweepApiSessions() {
+        return apiSessions.sweepExpired(choiceTickSource.getAsLong());
+    }
+
+    /** The tick source API session grants/expiry are checked against. */
+    public long apiSessionTick() {
+        return choiceTickSource.getAsLong();
+    }
     private final Object[] questMutationLocks = createMutationLocks();
     private final Object[] progressionMutationLocks = createMutationLocks();
     private final Object[] tradeMutationLocks = createMutationLocks();
@@ -137,7 +166,7 @@ public class StoryNpcsApplicationService {
     public CanonicalMutationResult mutateRuntimeTunables(
             MutationRequest request, java.util.Map<String, String> changes) {
         Objects.requireNonNull(request, "request");
-        return mutateRuntimeTunables(request, changes, AuthorizationPolicy.evaluate(request));
+        return mutateRuntimeTunables(request, changes, AuthorizationPolicy.evaluate(request, apiGrantValidator()));
     }
 
     /** Remote API writes fail closed until server-owned capability sessions are integrated. */
@@ -472,7 +501,7 @@ public class StoryNpcsApplicationService {
                 publishCanonicalEvent(request, rejected);
                 return rejected;
             }
-            AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request);
+            AuthorizationDecision authorization = AuthorizationPolicy.evaluate(request, apiGrantValidator());
             if (!authorization.allowed()) {
                 ValidationResult denied = ValidationResult.valid();
                 denied.addError(authorization.code(), authorization.message());

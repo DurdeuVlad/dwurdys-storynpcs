@@ -13,12 +13,26 @@ public final class AuthorizationPolicy {
 
     private AuthorizationPolicy() {}
 
+    /** Seam: validates an {@code api:<sessionId>} actor's grant for a capability. */
+    @FunctionalInterface
+    public interface ApiGrantValidator {
+        boolean grants(java.util.UUID sessionId, String capability);
+    }
+
+    /** API actor prefix — the opaque session id follows it. */
+    private static final String API_ACTOR_PREFIX = "api:";
+
     public static AuthorizationDecision evaluate(MutationRequest request) {
+        // No session registry wired — every API actor form fails closed.
+        return evaluate(request, null);
+    }
+
+    public static AuthorizationDecision evaluate(MutationRequest request,
+                                                 ApiGrantValidator apiGrants) {
         String actor = request.actorType();
         String capability = request.capability();
-        if (actor.equals("api")) {
-            return AuthorizationDecision.deny("REMOTE_AUTH_UNAVAILABLE",
-                    "API mutations are disabled until server-owned capability sessions are integrated.");
+        if (actor.equals("api") || actor.startsWith(API_ACTOR_PREFIX)) {
+            return evaluateApiActor(actor, capability, apiGrants);
         }
         boolean playerActor = actor.startsWith("player:") && actor.length() > "player:".length();
         if (!playerActor && !ADAPTER_ACTORS.contains(actor) && !actor.equals("script")) {
@@ -88,6 +102,35 @@ public final class AuthorizationPolicy {
         return evaluatePlayerScoped(request.actorType(), request.actorId(),
                 request.playerUuid(), request.permissionLevel(), "trade",
                 request.capability());
+    }
+
+    /**
+     * API actors present a server-issued session: {@code api:<sessionUuid>}
+     * must carry a live grant for the requested capability. A bare {@code api}
+     * actor (no session) is always denied — sessions are never optional.
+     */
+    private static AuthorizationDecision evaluateApiActor(String actor, String capability,
+                                                          ApiGrantValidator apiGrants) {
+        if (apiGrants == null) {
+            return AuthorizationDecision.deny("REMOTE_AUTH_UNAVAILABLE",
+                    "API mutations are disabled until server-owned capability sessions are integrated.");
+        }
+        if (!actor.startsWith(API_ACTOR_PREFIX)) {
+            return AuthorizationDecision.deny("API_SESSION_REQUIRED",
+                    "API mutations require a capability session: actor 'api:<sessionId>'.");
+        }
+        java.util.UUID sessionId;
+        try {
+            sessionId = java.util.UUID.fromString(actor.substring(API_ACTOR_PREFIX.length()));
+        } catch (IllegalArgumentException e) {
+            return AuthorizationDecision.deny("API_SESSION_MALFORMED",
+                    "API session id is not a UUID: " + actor);
+        }
+        if (!apiGrants.grants(sessionId, capability)) {
+            return AuthorizationDecision.deny("API_CAPABILITY_NOT_GRANTED",
+                    "API session does not grant capability '" + capability + "'.");
+        }
+        return AuthorizationDecision.allow();
     }
 
     /** Remote mutations fail closed until a server-owned capability-session registry is integrated. */

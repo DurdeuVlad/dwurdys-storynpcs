@@ -6,7 +6,7 @@ package com.storynpcs.api;
  */
 public record ApiVersion(int major, int minor, int patch) {
 
-    public static final ApiVersion CURRENT = new ApiVersion(1, 0, 0);
+    public static final ApiVersion CURRENT = new ApiVersion(1, 1, 0);
 
     public sealed interface Negotiation {
         record Compatible(ApiVersion server, ApiVersion client) implements Negotiation {}

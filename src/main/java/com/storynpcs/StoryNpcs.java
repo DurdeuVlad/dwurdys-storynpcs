@@ -224,6 +224,8 @@ public class StoryNpcs {
             // P6-3: cross-dimension arrival verifications expire per authored
             // timeout — cheap no-op when the queue is empty.
             appService.tickTransportVerifications(server);
+            // P9-1: bounded sweep of expired API capability sessions.
+            appService.sweepApiSessions();
         }
         if (server.overworld().getGameTime() % 20 != 0) {
             return;
@@ -401,15 +403,16 @@ public class StoryNpcs {
     }
 
     /**
-     * P9-1 read-only extension facade over the definition registry. Mutation
-     * calls stay unavailable until the capability-grant contract is implemented.
+     * P9-1 extension facade over the definition registry + canonical service.
+     * Mutations require server-owned capability sessions and always flow
+     * through the canonical envelope — the service itself is never exposed.
      */
     public com.storynpcs.api.StoryNpcsApi getApi() {
         var service = getApplicationService();
         if (service == null) {
             return null; // world not yet loaded — no registry-backed view exists
         }
-        return new com.storynpcs.api.StoryNpcsApi(registry);
+        return new com.storynpcs.api.StoryNpcsApi(registry, service, eventPublisher);
     }
 
     public StoryNpcsApplicationService getApplicationService() {
