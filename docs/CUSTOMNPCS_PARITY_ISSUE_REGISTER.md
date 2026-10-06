@@ -456,6 +456,8 @@ Status: `DONE` — `templates/*.yaml` + `spawners/*.yaml` loadable families; can
 - **Dependencies and open decisions:** P1-2, P1-4, P3-3; destructive tools require confirmation and audit record.
 - **Verification:** Tool workflow, permission, confirmation/cancel, unload, invalid target, multiplayer race and persistence tests.
 
+Status: `DONE` — closed by PR #173 (`eb654d0`, issue #78). Live `WaypointPath` bounded at 64 waypoints with add/move/delete/clear + LOOP/PING_PONG/ONCE mode + rejection diagnostics (canonical mutation, live entity refresh, no no-op revision bumps); `MountPolicy` consumed by `NpcMounterItem` (SELF/CYCLE/STACK_TOO_DEEP/PASSENGER_ALREADY_MOUNTED); new `NpcTeleporterItem`/`NpcRemoverItem`/`NpcSoulStoneItem` with op-2 confirmation + session-bound selection; `CreatorToolAuditEvent` on every consequential op; selections live in `RuntimeSessionRegistry` (no static maps); `npc path`/`npc teleport` commands; live mount-stack GameTest evidence.
+
 ### P8-3 — Implement scriptable world tools and creator blocks
 
 - **Intent:** Close the target world-tool surface without allowing arbitrary unsafe mutation.
@@ -466,6 +468,8 @@ Status: `DONE` — `templates/*.yaml` + `spawners/*.yaml` loadable families; can
 - **Non-goals:** Unrestricted script access to arbitrary blocks or filesystem.
 - **Dependencies and open decisions:** P1-4, P2-2; reversible operations are explicitly cataloged rather than described as “where possible.” P8-3 publishes inert typed hook bindings; P9-2 later provides their bounded script host and is not a prerequisite for defining world tools.
 - **Verification:** Per-tool acceptance fixtures, permission, chunk unload, rollback/non-rollback reporting, size limits, restart and audit tests.
+
+Status: `DONE` — closed by PR #174 (`e9eb864`, issue #79). `definitions/worldtools/*.yaml` family: 7 tool families, schemaVersion, blockId, dimension binding, authored inert `ScriptedHookBinding`/scene payloads (script EXECUTION stays deferred to P9-2 / #84 by contract); `WorldToolOpsCatalog` declares per-family reversible (`block.place`/`block.remove`) vs irreversible (`hooks.bind`/`signal.pulse`/`mail.deposit`/`scene.activate`) legs; `WorldToolExecutor.executePlan` does preview/apply/rollback — failure rolls completed reversible legs back in reverse order, irreversible legs report `LOGGED`, rollback failures surfaced; dimension/chunk/budget guards; mailbox deposit via `QuestMailStore`; scene activations in `RuntimeSessionRegistry` (cleared on unload); durable `WorldToolBindingStore` per-position bindings; `storynpcs worldtool {list,info,activate,delete}`; live GameTest `worldToolActivationMutatesLiveWorld` (14/14); 1272 JUnit green.
 
 ### P8-4 — Implement recipes, carpentry, registered content, and authoring hooks
 
