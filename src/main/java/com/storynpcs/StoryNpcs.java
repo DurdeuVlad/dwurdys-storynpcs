@@ -59,6 +59,13 @@ public class StoryNpcs {
     private volatile com.storynpcs.persistence.SpawnerRuntimeStore spawnerRuntimeStore;
     private volatile com.storynpcs.persistence.WorldToolBindingStore worldToolBindingStore;
     private volatile com.storynpcs.runtime.worldtool.WorldToolExecutor worldToolExecutor;
+    /** P8-5 durable ledgers + runtime drivers — per-instance, never static. */
+    private volatile com.storynpcs.persistence.SceneTimerStore sceneTimerStore;
+    private volatile com.storynpcs.persistence.LinkedNpcStore linkedNpcStore;
+    private final com.storynpcs.runtime.orchestration.TimerRuntime timerRuntime;
+    private final com.storynpcs.runtime.orchestration.LinkedNpcRuntime linkedNpcRuntime;
+    private final com.storynpcs.runtime.orchestration.SceneRuntime sceneRuntime;
+    private final com.storynpcs.runtime.orchestration.NaturalSpawnRuntime naturalSpawnRuntime;
     /** Bounded live runtime configuration (P9-4) — shared with the app service. */
     private final com.storynpcs.admin.RuntimeTunables runtimeTunables;
     /** Bounded script dispatch host (P9-2) — per-instance, never static. */
@@ -111,6 +118,12 @@ public class StoryNpcs {
         this.spawnerRuntime = new com.storynpcs.runtime.spawner.NpcSpawnerRuntime(
                 () -> registry, this::getApplicationService, eventPublisher,
                 () -> spawnerRuntimeStore);
+        this.timerRuntime = new com.storynpcs.runtime.orchestration.TimerRuntime();
+        this.linkedNpcRuntime = new com.storynpcs.runtime.orchestration.LinkedNpcRuntime();
+        this.sceneRuntime = new com.storynpcs.runtime.orchestration.SceneRuntime(
+                () -> registry, this::getApplicationService, () -> eventPublisher);
+        this.naturalSpawnRuntime = new com.storynpcs.runtime.orchestration.NaturalSpawnRuntime(
+                () -> registry, this::getApplicationService, () -> eventPublisher);
     }
 
     public static StoryNpcs createForTesting() {
@@ -141,6 +154,12 @@ public class StoryNpcs {
         this.spawnerRuntime = new com.storynpcs.runtime.spawner.NpcSpawnerRuntime(
                 () -> registry, this::getApplicationService, eventPublisher,
                 () -> spawnerRuntimeStore);
+        this.timerRuntime = new com.storynpcs.runtime.orchestration.TimerRuntime();
+        this.linkedNpcRuntime = new com.storynpcs.runtime.orchestration.LinkedNpcRuntime();
+        this.sceneRuntime = new com.storynpcs.runtime.orchestration.SceneRuntime(
+                () -> registry, this::getApplicationService, () -> eventPublisher);
+        this.naturalSpawnRuntime = new com.storynpcs.runtime.orchestration.NaturalSpawnRuntime(
+                () -> registry, this::getApplicationService, () -> eventPublisher);
 
         StoryNpcRegistry.register(modEventBus);
         com.storynpcs.item.StoryNpcsItems.register(modEventBus);
@@ -187,6 +206,13 @@ public class StoryNpcs {
         MinecraftServer server = event.getServer();
         schematicBuildService.tick();
         spawnerRuntime.tick(server);
+        // P8-5: durable timer drain (overworld clock — timers schedule against it)
+        timerRuntime.tick(server.overworld().getGameTime());
+        for (var level : server.getAllLevels()) {
+            sceneRuntime.tick(level, level.getGameTime());
+            naturalSpawnRuntime.tick(level, level.getGameTime());
+            linkedNpcRuntime.tick(uuid -> actorView(level, uuid), level.getGameTime());
+        }
         drainPathRequests(server);
         var appService = getApplicationService();
         if (appService != null) {
@@ -509,6 +535,86 @@ public class StoryNpcs {
 
     public com.storynpcs.runtime.spawner.NpcSpawnerRuntime getSpawnerRuntime() {
         return spawnerRuntime;
+    }
+
+    // ── P8-5 orchestration runtimes ─────────────────────────────────────────
+
+    public com.storynpcs.runtime.orchestration.TimerRuntime getTimerRuntime() {
+        return timerRuntime;
+    }
+
+    public com.storynpcs.runtime.orchestration.LinkedNpcRuntime getLinkedNpcRuntime() {
+        return linkedNpcRuntime;
+    }
+
+    public com.storynpcs.runtime.orchestration.SceneRuntime getSceneRuntime() {
+        return sceneRuntime;
+    }
+
+    public com.storynpcs.runtime.orchestration.NaturalSpawnRuntime getNaturalSpawnRuntime() {
+        return naturalSpawnRuntime;
+    }
+
+    public com.storynpcs.persistence.SceneTimerStore getSceneTimerStore() {
+        return sceneTimerStore;
+    }
+
+    /** Install the durable timer ledger + rehydrate scheduled timers (P8-5). */
+    public void setSceneTimerStore(com.storynpcs.persistence.SceneTimerStore store) {
+        this.sceneTimerStore = store;
+        if (store == null) {
+            timerRuntime.clear();
+            return;
+        }
+        try {
+            timerRuntime.attach(store, eventPublisher);
+        } catch (java.io.IOException e) {
+            LOGGER.error("Failed to rehydrate scene timers", e);
+        }
+    }
+
+    public com.storynpcs.persistence.LinkedNpcStore getLinkedNpcStore() {
+        return linkedNpcStore;
+    }
+
+    /** Install the durable link ledger + rehydrate actor links (P8-5). */
+    public void setLinkedNpcStore(com.storynpcs.persistence.LinkedNpcStore store) {
+        this.linkedNpcStore = store;
+        if (store == null) {
+            linkedNpcRuntime.clear();
+            return;
+        }
+        try {
+            linkedNpcRuntime.attach(store, eventPublisher);
+        } catch (java.io.IOException e) {
+            LOGGER.error("Failed to rehydrate NPC links", e);
+        }
+    }
+
+    /** Live-entity seam for the link driver: resolves a UUID to a follow view. */
+    private com.storynpcs.runtime.orchestration.LinkedNpcRuntime.ActorView actorView(
+            net.minecraft.server.level.ServerLevel level, java.util.UUID uuid) {
+        var entity = level.getEntity(uuid);
+        if (!(entity instanceof com.storynpcs.entity.StoryNpcEntity npc) || npc.isRemoved()) {
+            return null;
+        }
+        return new com.storynpcs.runtime.orchestration.LinkedNpcRuntime.ActorView() {
+            @Override
+            public net.minecraft.world.phys.Vec3 position() {
+                return npc.position();
+            }
+
+            @Override
+            public double distanceTo(com.storynpcs.runtime.orchestration.LinkedNpcRuntime.ActorView other) {
+                return npc.position().distanceTo(other.position());
+            }
+
+            @Override
+            public void moveToward(com.storynpcs.runtime.orchestration.LinkedNpcRuntime.ActorView target) {
+                var pos = target.position();
+                npc.getNavigation().moveTo(pos.x, pos.y, pos.z, 1.0);
+            }
+        };
     }
 
     public com.storynpcs.service.SchematicBuildService getSchematicBuildService() {

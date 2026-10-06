@@ -10,9 +10,34 @@ import com.storynpcs.domain.common.NamespacedId;
  */
 public class TransformRule {
 
-    public enum IdentityPolicy { PRESERVE, REPLACE }
+    public enum IdentityPolicy {
+        PRESERVE, REPLACE;
 
-    public enum Trigger { MANUAL, ON_DEFEAT, ON_QUEST_COMPLETE, ON_TIMER }
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public static IdentityPolicy fromString(String value) {
+            if (value == null) {
+                return null;
+            }
+            return IdentityPolicy.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        }
+    }
+
+    public enum Trigger {
+        MANUAL, ON_DEFEAT, ON_QUEST_COMPLETE, ON_TIMER;
+
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public static Trigger fromString(String value) {
+            if (value == null) {
+                return null;
+            }
+            return Trigger.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        }
+    }
+
+    public static final int SCHEMA_VERSION = 1;
+
+    @JsonProperty
+    private int schemaVersion = SCHEMA_VERSION;
 
     @JsonProperty(required = true)
     private NamespacedId id;
@@ -32,6 +57,9 @@ public class TransformRule {
             java.util.List.of("display", "stats"));
 
     public TransformRule() {}
+
+    public int getSchemaVersion() { return schemaVersion; }
+    public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
 
     public NamespacedId getId() { return id; }
     public void setId(NamespacedId id) { this.id = id; }

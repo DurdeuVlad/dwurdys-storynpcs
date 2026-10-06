@@ -10,6 +10,15 @@ import com.storynpcs.domain.common.NamespacedId;
  */
 public class NaturalSpawnRule {
 
+    public static final int SCHEMA_VERSION = 1;
+
+    @JsonProperty
+    private int schemaVersion = SCHEMA_VERSION;
+
+    /** The rule's own identity — canonical ops and durable spawn tagging key on it. */
+    @JsonProperty(required = true)
+    private NamespacedId id;
+
     @JsonProperty(required = true)
     private NamespacedId templateId;
 
@@ -36,6 +45,12 @@ public class NaturalSpawnRule {
     private boolean enabled = true;
 
     public NaturalSpawnRule() {}
+
+    public int getSchemaVersion() { return schemaVersion; }
+    public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
+
+    public NamespacedId getId() { return id; }
+    public void setId(NamespacedId id) { this.id = id; }
 
     public NamespacedId getTemplateId() { return templateId; }
     public void setTemplateId(NamespacedId templateId) { this.templateId = templateId; }

@@ -199,6 +199,59 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("delete")
                                 .then(Commands.argument("recipe_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteRecipe))))
+                // P8-5 scenes/transforms/natural spawns/links/timers
+                .then(Commands.literal("scene")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listScenes))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("scene_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::sceneInfo)))
+                        .then(Commands.literal("start")
+                                .then(Commands.argument("scene_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::startScene)))
+                        .then(Commands.literal("cancel")
+                                .then(Commands.argument("scene_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::cancelScene)))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("scene_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteScene))))
+                .then(Commands.literal("transform")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listTransforms))
+                        .then(Commands.literal("apply")
+                                .then(Commands.argument("rule_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .executes(StoryNpcsCommands::applyTransform))))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("rule_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteTransform))))
+                .then(Commands.literal("naturalspawn")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listNaturalSpawns))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("rule_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteNaturalSpawn))))
+                .then(Commands.literal("link")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("actor_uuid", StringArgumentType.word())
+                                .then(Commands.argument("target_uuid", StringArgumentType.word())
+                                        .executes(StoryNpcsCommands::linkNpc))))
+                .then(Commands.literal("unlink")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("actor_uuid", StringArgumentType.word())
+                                .executes(StoryNpcsCommands::unlinkNpc)))
+                .then(Commands.literal("timer")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listTimers))
+                        .then(Commands.literal("schedule")
+                                .then(Commands.argument("actor_uuid", StringArgumentType.word())
+                                        .then(Commands.argument("delay_ticks", IntegerArgumentType.integer(1))
+                                                .then(Commands.argument("period_ticks", IntegerArgumentType.integer(1))
+                                                        .then(Commands.argument("event_id", StringArgumentType.word())
+                                                                .executes(StoryNpcsCommands::scheduleTimer))))))
+                        .then(Commands.literal("cancel")
+                                .then(Commands.argument("timer_id", StringArgumentType.word())
+                                        .executes(StoryNpcsCommands::cancelTimer))))
                 // P11-1 import: dry-run by default; `apply` executes with rollback
                 .then(Commands.literal("import")
                         .requires(source -> source.hasPermission(2))
@@ -4611,6 +4664,424 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§aDeleted recipe " + id), true);
         return 1;
+    }
+
+    // ── P8-5 orchestration ───────────────────────────────────────────────────
+
+    private static int listScenes(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var scenes = mod.getRegistry().getAllScenes();
+        if (scenes.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No scenes loaded (scenes/*.yaml)."), false);
+            return 0;
+        }
+        for (var scene : scenes) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s — participants=%d, entities≤%d, duration≤%dt, stages=%d, recovery=%s%s",
+                    scene.getId(), scene.getParticipantTemplateIds().size(),
+                    scene.getMaxEntities(), scene.getMaxDurationTicks(),
+                    scene.getStages().size(), scene.getCancelRecovery(),
+                    mod.getSceneRuntime().isRunning(scene.getId()) ? " §a[RUNNING]" : "")), false);
+        }
+        return scenes.size();
+    }
+
+    private static int sceneInfo(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "scene_id").toString());
+        var scene = mod.getRegistry().getScene(id).orElse(null);
+        if (scene == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Scene not found: " + id));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "§a[StoryNPCs] %s — %d stage(s), recovery=%s",
+                scene.getId(), scene.getStages().size(), scene.getCancelRecovery())), false);
+        for (var stage : scene.getStages()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7stage '%s' — %dt %s", stage.name(), stage.durationTicks(),
+                    stage.cueText() == null ? "" : "— " + stage.cueText())), false);
+        }
+        return scene.getStages().size();
+    }
+
+    private static int startScene(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null || !(ctx.getSource().getEntity() instanceof ServerPlayer)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Only players can start scenes."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "scene_id").toString());
+        var scene = mod.getRegistry().getScene(id).orElse(null);
+        if (scene == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Scene not found: " + id));
+            return 0;
+        }
+        var result = mod.getSceneRuntime().start(scene, ctx.getSource().getLevel(),
+                ctx.getSource().getEntity().blockPosition(),
+                ctx.getSource().getLevel().getGameTime());
+        if (!result.started()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Scene '" + id + "' did not start: " + result.outcome()
+                            + (result.missingTemplate() != null
+                                    ? " (" + result.missingTemplate() + ")" : "")));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aStarted scene " + id), true);
+        return 1;
+    }
+
+    private static int cancelScene(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "scene_id").toString());
+        if (!mod.getSceneRuntime().cancel(id, "cancelled by " + ctx.getSource().getTextName())) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Scene '" + id + "' is not running."));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aCancelled scene " + id + " (recovery applied)"), true);
+        return 1;
+    }
+
+    private static int deleteScene(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "scene_id").toString());
+        mod.getSceneRuntime().cancel(id, "definition deleted");
+        var result = service.deleteScene(
+                commandMutationRequest(ctx, service, "scene", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Scene delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§aDeleted scene " + id), true);
+        return 1;
+    }
+
+    private static int listTransforms(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var rules = mod.getRegistry().getAllTransforms();
+        if (rules.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No transform rules loaded (transforms/*.yaml)."), false);
+            return 0;
+        }
+        for (var rule : rules) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s → %s — policy=%s, trigger=%s, facets=%s",
+                    rule.getId(), rule.getTargetTemplateId(), rule.getIdentityPolicy(),
+                    rule.getTrigger(), rule.getReplacedFacets())), false);
+        }
+        return rules.size();
+    }
+
+    /**
+     * Apply a transform rule: PRESERVE merges the template's declared facets
+     * into the actor's existing definition (identity + progression kept);
+     * REPLACE creates a fresh canonical definition under a derived id. The
+     * live entity refresh runs through the canonical mutate path.
+     */
+    private static int applyTransform(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var ruleId = NamespacedId.of(ResourceLocationArgument.getId(ctx, "rule_id").toString());
+        var npcId = NamespacedId.of(ResourceLocationArgument.getId(ctx, "npc_id").toString());
+        var rule = mod.getRegistry().getTransform(ruleId).orElse(null);
+        if (rule == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Transform not found: " + ruleId));
+            return 0;
+        }
+        var template = mod.getRegistry().getTemplate(rule.getTargetTemplateId()).orElse(null);
+        if (template == null || template.getDefinition() == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Transform target template missing: " + rule.getTargetTemplateId()));
+            return 0;
+        }
+        var source = mod.getRegistry().getNpc(npcId).orElse(null);
+        if (source == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        var staged = template.instantiate(npcId);
+        switch (rule.getIdentityPolicy()) {
+            case PRESERVE -> {
+                var result = service.mutateNpc(
+                        commandMutationRequest(ctx, service, "npc", "mutate", npcId),
+                        npc -> applyTransformFacets(npc, staged, rule));
+                if (!result.applied()) {
+                    ctx.getSource().sendFailure(Component.literal(
+                            "[StoryNPCs] Transform rejected:\n" + result.formatReport(5)));
+                    return 0;
+                }
+            }
+            case REPLACE -> {
+                // Fresh logical identity at a deterministic derived id —
+                // create-first ordering means a failed retire leaves a
+                // duplicate actor (recoverable), never a lost one.
+                var derivedId = NamespacedId.of(ruleId.getNamespace()
+                        + ":transformed/" + npcId.getPath().replace('/', '_'));
+                var stagedReplace = template.instantiate(derivedId);
+                var created = service.createNpc(
+                        commandMutationRequest(ctx, service, "npc", "create", derivedId),
+                        stagedReplace);
+                if (!created.applied() && !created.duplicate()) {
+                    ctx.getSource().sendFailure(Component.literal(
+                            "[StoryNPCs] Transform rejected:\n" + created.formatReport(5)));
+                    return 0;
+                }
+                var retired = service.deleteNpc(
+                        commandMutationRequest(ctx, service, "npc", "delete", npcId));
+                if (!retired.applied() && !retired.duplicate()) {
+                    ctx.getSource().sendSuccess(() -> Component.literal(
+                            "§eTransformed " + npcId + " → " + derivedId
+                                    + " but source retire was rejected (actor duplicated):\n"
+                                    + retired.formatReport(5)), true);
+                    return 0;
+                }
+            }
+        }
+        mod.getEventPublisher().publish(
+                new com.storynpcs.api.event.P85OrchestrationEvents.NpcTransformEvent(
+                        null, ruleId, rule.getIdentityPolicy().name(),
+                        "applied to " + npcId));
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aTransformed " + npcId + " via " + ruleId
+                        + " (" + rule.getIdentityPolicy() + ")"), true);
+        return 1;
+    }
+
+    /** Facet-level merge — only declared facets are overwritten. */
+    private static void applyTransformFacets(com.storynpcs.domain.npc.NpcDefinition target,
+            com.storynpcs.domain.npc.NpcDefinition staged,
+            com.storynpcs.creator.transform.TransformRule rule) {
+        for (String facet : rule.getReplacedFacets()) {
+            switch (facet) {
+                case "display" -> target.setDisplay(staged.getDisplay());
+                case "stats" -> target.setStats(staged.getStats());
+                case "ai" -> target.setAi(staged.getAi());
+                case "inventory" -> target.setInventory(staged.getInventory());
+                case "rules" -> target.setRules(staged.getRules());
+                case "abilities" -> target.setAbilities(staged.getAbilities());
+                default -> { /* unknown facets are reported by the validator, never applied */ }
+            }
+        }
+    }
+
+    private static int deleteTransform(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "rule_id").toString());
+        var result = service.deleteTransform(
+                commandMutationRequest(ctx, service, "transform", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Transform delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§aDeleted transform " + id), true);
+        return 1;
+    }
+
+    private static int listNaturalSpawns(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var rules = mod.getRegistry().getAllNaturalSpawns();
+        if (rules.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No natural-spawn rules loaded (naturalspawns/*.yaml)."), false);
+            return 0;
+        }
+        for (var rule : rules) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s → %s — weight=%d, cap=%d/dim, minDist=%.0f%s%s",
+                    rule.getId(), rule.getTemplateId(), rule.getWeight(),
+                    rule.getMaxPerDimension(), rule.getMinPlayerDistanceBlocks(),
+                    rule.getDimensionId() == null ? "" : ", dim=" + rule.getDimensionId(),
+                    rule.isEnabled() ? "" : " §c[disabled]")), false);
+        }
+        return rules.size();
+    }
+
+    private static int deleteNaturalSpawn(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(ResourceLocationArgument.getId(ctx, "rule_id").toString());
+        var result = service.deleteNaturalSpawn(
+                commandMutationRequest(ctx, service, "naturalspawn", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Natural-spawn delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aDeleted natural-spawn rule " + id), true);
+        return 1;
+    }
+
+    private static int linkNpc(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        UUID actor = parseUuid(ctx, "actor_uuid");
+        UUID target = parseUuid(ctx, "target_uuid");
+        if (actor == null || target == null) {
+            return 0;
+        }
+        // Membership check for the two endpoints only — direct UUID resolution,
+        // never a level-wide entity scan.
+        var level = ctx.getSource().getLevel();
+        var known = new java.util.HashSet<UUID>();
+        for (UUID u : java.util.List.of(actor, target)) {
+            if (level.getEntity(u) instanceof com.storynpcs.entity.StoryNpcEntity) {
+                known.add(u);
+            }
+        }
+        var reject = mod.getLinkedNpcRuntime().link(actor, target, known);
+        if (reject != null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Link rejected: " + reject));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aLinked " + actor + " → " + target), true);
+        return 1;
+    }
+
+    private static int unlinkNpc(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        UUID actor = parseUuid(ctx, "actor_uuid");
+        if (actor == null) {
+            return 0;
+        }
+        if (!mod.getLinkedNpcRuntime().unlink(actor)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] No link on " + actor));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§aUnlinked " + actor), true);
+        return 1;
+    }
+
+    private static int listTimers(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var timers = mod.getTimerRuntime().timers();
+        if (timers.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No scheduled timers."), false);
+            return 0;
+        }
+        for (var t : timers.values()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s — actor=%s, event=%s, next=%d, period=%dt",
+                    t.timerId(), t.actorId(), t.eventId(), t.nextFireTick(), t.periodTicks())), false);
+        }
+        return timers.size();
+    }
+
+    private static int scheduleTimer(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        UUID actor = parseUuid(ctx, "actor_uuid");
+        if (actor == null) {
+            return 0;
+        }
+        long first = ctx.getSource().getLevel().getGameTime()
+                + IntegerArgumentType.getInteger(ctx, "delay_ticks");
+        try {
+            var entry = mod.getTimerRuntime().schedule(actor, first,
+                    IntegerArgumentType.getInteger(ctx, "period_ticks"),
+                    StringArgumentType.getString(ctx, "event_id"));
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§aScheduled timer " + entry.timerId() + " → " + entry.eventId()), true);
+            return 1;
+        } catch (java.io.IOException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Timer persist failed: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int cancelTimer(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        UUID timer = parseUuid(ctx, "timer_id");
+        if (timer == null) {
+            return 0;
+        }
+        if (!mod.getTimerRuntime().cancel(timer)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] No such timer: " + timer));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§aCancelled timer " + timer), true);
+        return 1;
+    }
+
+    private static UUID parseUuid(CommandContext<CommandSourceStack> ctx, String arg) {
+        try {
+            return UUID.fromString(StringArgumentType.getString(ctx, arg));
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] '" + StringArgumentType.getString(ctx, arg)
+                            + "' is not a valid UUID"));
+            return null;
+        }
     }
 
     // ── P11-1 definition import ──────────────────────────────────────────────

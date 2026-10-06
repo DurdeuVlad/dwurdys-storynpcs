@@ -25,6 +25,12 @@ public class DefinitionRegistry {
             new com.storynpcs.creator.template.TemplateLibrary();
     private final Map<NamespacedId, com.storynpcs.creator.recipe.CarpentryRecipe> recipes =
             new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<NamespacedId, com.storynpcs.creator.scene.SceneDefinition> scenes =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<NamespacedId, com.storynpcs.creator.transform.TransformRule> transforms =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<NamespacedId, com.storynpcs.creator.spawn.NaturalSpawnRule> naturalSpawns =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.world.WorldToolDefinition> worldTools =
             new LinkedHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.template.SpawnerRule> spawners =
@@ -440,6 +446,147 @@ public class DefinitionRegistry {
         }
     }
 
+    /** Register a scene definition (P8-5). */
+    public void registerScene(com.storynpcs.creator.scene.SceneDefinition scene) {
+        if (scene != null && scene.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (scenes.put(scene.getId(), scene) != scene) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.scene.SceneDefinition> getScene(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(scenes.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.scene.SceneDefinition> getAllScenes() {
+        rwLock.readLock().lock();
+        try {
+            return scenes.values().stream()
+                    .sorted(java.util.Comparator.comparing(s -> s.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeScene(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (scenes.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    /** Register a transform rule (P8-5). */
+    public void registerTransform(com.storynpcs.creator.transform.TransformRule rule) {
+        if (rule != null && rule.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (transforms.put(rule.getId(), rule) != rule) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.transform.TransformRule> getTransform(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(transforms.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.transform.TransformRule> getAllTransforms() {
+        rwLock.readLock().lock();
+        try {
+            return transforms.values().stream()
+                    .sorted(java.util.Comparator.comparing(r -> r.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeTransform(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (transforms.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    /** Register a natural-spawn rule (P8-5). */
+    public void registerNaturalSpawn(com.storynpcs.creator.spawn.NaturalSpawnRule rule) {
+        if (rule != null && rule.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (naturalSpawns.put(rule.getId(), rule) != rule) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.spawn.NaturalSpawnRule> getNaturalSpawn(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(naturalSpawns.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.spawn.NaturalSpawnRule> getAllNaturalSpawns() {
+        rwLock.readLock().lock();
+        try {
+            return naturalSpawns.values().stream()
+                    .sorted(java.util.Comparator.comparing(r -> r.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeNaturalSpawn(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (naturalSpawns.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     /** Deterministic template search — delegated to the library's matcher. */
     public java.util.List<NamespacedId> searchTemplates(String query) {
         rwLock.readLock().lock();
@@ -491,6 +638,12 @@ public class DefinitionRegistry {
             worldTools.putAll(other.worldTools);
             recipes.clear();
             recipes.putAll(other.recipes);
+            scenes.clear();
+            scenes.putAll(other.scenes);
+            transforms.clear();
+            transforms.putAll(other.transforms);
+            naturalSpawns.clear();
+            naturalSpawns.putAll(other.naturalSpawns);
             for (var template : other.templates.all()) {
                 for (var dependent : other.templates.dependentSpawners(template.getId())) {
                     templates.registerSpawner(template.getId(), dependent);
@@ -515,6 +668,9 @@ public class DefinitionRegistry {
             spawners.clear();
             worldTools.clear();
             recipes.clear();
+            scenes.clear();
+            transforms.clear();
+            naturalSpawns.clear();
             revision.incrementAndGet();
         } finally {
             rwLock.writeLock().unlock();

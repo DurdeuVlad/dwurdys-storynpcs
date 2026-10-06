@@ -261,6 +261,31 @@ public class WorldLifecycleHandler {
             mod.setWorldToolBindingStore(null);
         }
 
+        // P8-5: durable scene-timer + linked-NPC ledgers — schedules and links
+        // rehydrate on open so nothing fires twice or follows a stale target.
+        Path timerDir = storyNpcsDir.resolve("scene_timers");
+        try {
+            var timerStore = new com.storynpcs.persistence.SceneTimerStore(
+                    timerDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            timerStore.open();
+            mod.setSceneTimerStore(timerStore);
+        } catch (Exception timerFailure) {
+            LOGGER.error("Scene-timer store could not be opened at {}: {}",
+                    timerDir, timerFailure.getMessage());
+            mod.setSceneTimerStore(null);
+        }
+        Path linksDir = storyNpcsDir.resolve("linked_npcs");
+        try {
+            var linkStore = new com.storynpcs.persistence.LinkedNpcStore(
+                    linksDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            linkStore.open();
+            mod.setLinkedNpcStore(linkStore);
+        } catch (Exception linkFailure) {
+            LOGGER.error("Linked-NPC store could not be opened at {}: {}",
+                    linksDir, linkFailure.getMessage());
+            mod.setLinkedNpcStore(null);
+        }
+
         // The logical actor scope is a durable world identity (scope.id), not the
         // world directory path — relocating a world must not orphan its actors.
         ActorLifecycleService actorService;
@@ -533,6 +558,14 @@ public class WorldLifecycleHandler {
         // Same for the spawner ledger — writes are durable per-op and the
         // binding is world-scoped.
         mod.setSpawnerRuntimeStore(null);
+        // P8-5: scenes cancel with their recovery policy on unload; timer/link
+        // ledgers detach — durable records persist for the next open.
+        mod.getSceneRuntime().cancelAll(
+                stoppingServer != null ? stoppingServer.overworld() : null);
+        mod.getTimerRuntime().clear();
+        mod.getLinkedNpcRuntime().clear();
+        mod.setSceneTimerStore(null);
+        mod.setLinkedNpcStore(null);
         if (mod.getApplicationService() != null) {
             mod.getApplicationService().setQuestMailStore(null);
             mod.getApplicationService().setTeamProgressionStore(null);

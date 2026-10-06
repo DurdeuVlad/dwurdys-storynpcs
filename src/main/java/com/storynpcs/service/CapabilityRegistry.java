@@ -44,6 +44,13 @@ public final class CapabilityRegistry {
             Map.entry("worldtool.activate", Policy.DEFINITION),
             Map.entry("recipe.mutate", Policy.DEFINITION),
             Map.entry("recipe.delete", Policy.DEFINITION),
+            Map.entry("scene.mutate", Policy.DEFINITION),
+            Map.entry("scene.delete", Policy.DEFINITION),
+            Map.entry("transform.mutate", Policy.DEFINITION),
+            Map.entry("transform.delete", Policy.DEFINITION),
+            Map.entry("naturalspawn.mutate", Policy.DEFINITION),
+            Map.entry("naturalspawn.delete", Policy.DEFINITION),
+            Map.entry("npc.link", Policy.DEFINITION),
             Map.entry("template.edit", Policy.DEFINITION),
             Map.entry("template.delete", Policy.DEFINITION),
             // Player-scoped progression operations

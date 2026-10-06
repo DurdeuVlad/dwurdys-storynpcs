@@ -2115,6 +2115,279 @@ public class StoryNpcsApplicationService {
         return fields;
     }
 
+    // ── P8-5 definition families ────────────────────────────────────────────
+
+    public ValidationResult saveScene(com.storynpcs.creator.scene.SceneDefinition scene) {
+        return saveDefinitionFamily(scene, "scene", "scenes", sceneCopy(scene));
+    }
+
+    public CanonicalMutationResult saveScene(MutationRequest request,
+            com.storynpcs.creator.scene.SceneDefinition scene) {
+        return mutateDefinitionFamily(request, scene, "scene", "scenes", sceneCopy(scene));
+    }
+
+    public CanonicalMutationResult deleteScene(MutationRequest request) {
+        return deleteDefinitionFamily(request, "scene", "scenes",
+                registry::getScene, registry::removeScene, List.of());
+    }
+
+    public ValidationResult saveTransform(com.storynpcs.creator.transform.TransformRule rule) {
+        return saveDefinitionFamily(rule, "transform", "transforms", transformCopy(rule));
+    }
+
+    public CanonicalMutationResult saveTransform(MutationRequest request,
+            com.storynpcs.creator.transform.TransformRule rule) {
+        return mutateDefinitionFamily(request, rule, "transform", "transforms", transformCopy(rule));
+    }
+
+    public CanonicalMutationResult deleteTransform(MutationRequest request) {
+        return deleteDefinitionFamily(request, "transform", "transforms",
+                registry::getTransform, registry::removeTransform, List.of());
+    }
+
+    public ValidationResult saveNaturalSpawn(com.storynpcs.creator.spawn.NaturalSpawnRule rule) {
+        return saveDefinitionFamily(rule, "naturalspawn", "naturalspawns", naturalSpawnCopy(rule));
+    }
+
+    public CanonicalMutationResult saveNaturalSpawn(MutationRequest request,
+            com.storynpcs.creator.spawn.NaturalSpawnRule rule) {
+        return mutateDefinitionFamily(request, rule, "naturalspawn", "naturalspawns", naturalSpawnCopy(rule));
+    }
+
+    public CanonicalMutationResult deleteNaturalSpawn(MutationRequest request) {
+        return deleteDefinitionFamily(request, "naturalspawn", "naturalspawns",
+                registry::getNaturalSpawn, registry::removeNaturalSpawn, List.of());
+    }
+
+    /**
+     * Shared P8-5 canonical replace: validation → durable YAML write → registry
+     * swap → revision bump. Malformed definitions reject before any write, so
+     * a bad save can never partially register.
+     */
+    private <T> ValidationResult saveDefinitionFamily(T definition, String kind,
+            String familyDir, T payload) {
+        Objects.requireNonNull(definition, kind);
+        NamespacedId id = definitionIdOf(payload);
+        if (id == null) {
+            ValidationResult result = ValidationResult.valid();
+            result.addError(kind.toUpperCase() + "_ID_MISSING",
+                    kind.substring(0, 1).toUpperCase() + kind.substring(1) + " must have an ID");
+            return result;
+        }
+        return mutateDefinitionFamily(new MutationRequest(
+                kind + ".replace", "adapter", kind + ".mutate", id,
+                definitionRevisions.getOrDefault(revisionKey(kind, id), 0L),
+                UUID.randomUUID()), definition, kind, familyDir, payload).diagnostics();
+    }
+
+    private <T> CanonicalMutationResult mutateDefinitionFamily(MutationRequest request,
+            T definition, String kind, String familyDir, T payload) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(definition, kind);
+        return executeCanonicalMutation(request, kind, "replace",
+                MutationPayloadFingerprint.ofFields(kind + ".replace",
+                        canonicalFieldsOf(kind, payload)),
+                () -> {
+                    NamespacedId id = definitionIdOf(payload);
+                    if (id == null || !request.targetId().equals(id)) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError(id == null ? kind.toUpperCase() + "_ID_MISSING"
+                                        : "TARGET_ID_MISMATCH",
+                                id == null ? kind + " must have an ID"
+                                        : kind + " ID does not match request target");
+                        return result;
+                    }
+                    return saveDefinitionFamilyUnderLock(payload, kind, familyDir);
+                });
+    }
+
+    private <T> CanonicalMutationResult deleteDefinitionFamily(MutationRequest request,
+            String kind, String familyDir,
+            java.util.function.Function<NamespacedId, java.util.Optional<T>> lookup,
+            java.util.function.Predicate<NamespacedId> remove,
+            java.util.List<Runnable> postDelete) {
+        Objects.requireNonNull(request, "request");
+        return executeCanonicalMutation(request, kind, "delete",
+                MutationPayloadFingerprint.of(kind + ".delete", request.targetId().toString()),
+                () -> {
+                    if (lookup.apply(request.targetId()).isEmpty()) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError(kind.toUpperCase() + "_NOT_FOUND",
+                                kind + " not found: " + request.targetId());
+                        return result;
+                    }
+                    synchronized (canonicalMutationLock) {
+                        synchronized (this) {
+                            if (lookup.apply(request.targetId()).isEmpty()
+                                    || !deleteDefinitionFileBeforeRegistryMutation(
+                                            familyDir, request.targetId())
+                                    || !remove.test(request.targetId())) {
+                                ValidationResult failure = ValidationResult.valid();
+                                failure.addError(lookup.apply(request.targetId()).isPresent()
+                                                ? "DEFINITION_DELETE_FAILED" : kind.toUpperCase() + "_NOT_FOUND",
+                                        kind + " '" + request.targetId() + "' could not be deleted");
+                                return failure;
+                            }
+                            definitionRevisions.merge(revisionKey(kind, request.targetId()), 1L, Long::sum);
+                        }
+                    }
+                    postDelete.forEach(Runnable::run);
+                    return ValidationResult.valid();
+                });
+    }
+
+    private synchronized <T> ValidationResult saveDefinitionFamilyUnderLock(
+            T payload, String kind, String familyDir) {
+        ValidationResult result = ValidationResult.valid();
+        int schemaVersion = schemaVersionOf(payload);
+        int expected = expectedSchemaOf(kind);
+        if (schemaVersion != expected) {
+            result.addError("SCHEMA_VERSION_UNSUPPORTED",
+                    kind + " schemaVersion " + schemaVersion
+                            + " is not supported (expected " + expected + ")");
+            return result;
+        }
+        result.merge(validateDefinitionPayload(payload));
+        if (!result.getErrors().isEmpty()) {
+            return result;
+        }
+        NamespacedId id = definitionIdOf(payload);
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                var savedFile = new YamlDefinitionWriter(loader.getDefinitionWriteCoordinator()).writeDefinition(
+                        loader.getLastLoadedRootPath(), familyDir,
+                        YamlDefinitionWriter.fileNameFor(id), payload,
+                        loader.getDefinitionFiles(familyDir, id));
+                loader.recordDefinitionFile(familyDir, id, savedFile);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED",
+                        "Failed to write " + kind + " file: " + e.getMessage());
+                return result;
+            }
+        }
+        registerDefinitionPayload(kind, payload);
+        definitionRevisions.merge(revisionKey(kind, id), 1L, Long::sum);
+        return result;
+    }
+
+    private static NamespacedId definitionIdOf(Object payload) {
+        if (payload instanceof com.storynpcs.creator.scene.SceneDefinition s) return s.getId();
+        if (payload instanceof com.storynpcs.creator.transform.TransformRule t) return t.getId();
+        if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) return n.getId();
+        throw new IllegalArgumentException("unsupported definition payload: " + payload.getClass());
+    }
+
+    private static int schemaVersionOf(Object payload) {
+        if (payload instanceof com.storynpcs.creator.scene.SceneDefinition s) return s.getSchemaVersion();
+        if (payload instanceof com.storynpcs.creator.transform.TransformRule t) return t.getSchemaVersion();
+        if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) return n.getSchemaVersion();
+        throw new IllegalArgumentException("unsupported definition payload: " + payload.getClass());
+    }
+
+    private static int expectedSchemaOf(String kind) {
+        return switch (kind) {
+            case "scene" -> com.storynpcs.creator.scene.SceneDefinition.SCHEMA_VERSION;
+            case "transform" -> com.storynpcs.creator.transform.TransformRule.SCHEMA_VERSION;
+            case "naturalspawn" -> com.storynpcs.creator.spawn.NaturalSpawnRule.SCHEMA_VERSION;
+            default -> throw new IllegalArgumentException("unsupported kind: " + kind);
+        };
+    }
+
+    private static ValidationResult validateDefinitionPayload(Object payload) {
+        ValidationResult result = ValidationResult.valid();
+        if (payload instanceof com.storynpcs.creator.scene.SceneDefinition s) {
+            result.merge(s.validate());
+        } else if (payload instanceof com.storynpcs.creator.transform.TransformRule t) {
+            if (t.getTargetTemplateId() == null) {
+                result.addError("TRANSFORM_MISSING_TARGET",
+                        "Transform '" + t.getId() + "' must declare a 'targetTemplateId'");
+            }
+        } else if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) {
+            if (n.getTemplateId() == null) {
+                result.addError("NATURALSPAWN_MISSING_TEMPLATE",
+                        "Natural-spawn rule '" + n.getId() + "' must declare a 'templateId'");
+            }
+        }
+        return result;
+    }
+
+    private void registerDefinitionPayload(String kind, Object payload) {
+        switch (kind) {
+            case "scene" -> registry.registerScene((com.storynpcs.creator.scene.SceneDefinition) payload);
+            case "transform" -> registry.registerTransform((com.storynpcs.creator.transform.TransformRule) payload);
+            case "naturalspawn" -> registry.registerNaturalSpawn((com.storynpcs.creator.spawn.NaturalSpawnRule) payload);
+            default -> throw new IllegalArgumentException("unsupported kind: " + kind);
+        }
+    }
+
+    private static List<String> canonicalFieldsOf(String kind, Object payload) {
+        List<String> fields = new java.util.ArrayList<>();
+        fields.add(kind);
+        fields.add(String.valueOf(definitionIdOf(payload)));
+        fields.add(Integer.toString(schemaVersionOf(payload)));
+        if (payload instanceof com.storynpcs.creator.scene.SceneDefinition s) {
+            s.getParticipantTemplateIds().forEach(t -> fields.add(t.toString()));
+            fields.add(Integer.toString(s.getMaxEntities()));
+            fields.add(Integer.toString(s.getMaxDurationTicks()));
+            s.getStages().forEach(st -> fields.add(st.name() + ":" + st.durationTicks() + ":" + st.cueText()));
+            fields.add(s.getCancelRecovery().name());
+        } else if (payload instanceof com.storynpcs.creator.transform.TransformRule t) {
+            fields.add(String.valueOf(t.getTargetTemplateId()));
+            fields.add(t.getIdentityPolicy().name());
+            fields.add(t.getTrigger().name());
+            t.getReplacedFacets().stream().sorted().forEach(fields::add);
+        } else if (payload instanceof com.storynpcs.creator.spawn.NaturalSpawnRule n) {
+            fields.add(String.valueOf(n.getTemplateId()));
+            fields.add(String.valueOf(n.getDimensionId()));
+            fields.add(String.valueOf(n.getBiomeId()));
+            fields.add(Integer.toString(n.getWeight()));
+            fields.add(Integer.toString(n.getMaxPerDimension()));
+            fields.add(Double.toString(n.getMinPlayerDistanceBlocks()));
+            fields.add(Boolean.toString(n.isEnabled()));
+        }
+        return fields;
+    }
+
+    private static com.storynpcs.creator.scene.SceneDefinition sceneCopy(
+            com.storynpcs.creator.scene.SceneDefinition source) {
+        var copy = new com.storynpcs.creator.scene.SceneDefinition();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setParticipantTemplateIds(new java.util.ArrayList<>(source.getParticipantTemplateIds()));
+        copy.setMaxEntities(source.getMaxEntities());
+        copy.setMaxDurationTicks(source.getMaxDurationTicks());
+        copy.setStages(new java.util.ArrayList<>(source.getStages()));
+        copy.setCancelRecovery(source.getCancelRecovery());
+        return copy;
+    }
+
+    private static com.storynpcs.creator.transform.TransformRule transformCopy(
+            com.storynpcs.creator.transform.TransformRule source) {
+        var copy = new com.storynpcs.creator.transform.TransformRule();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setTargetTemplateId(source.getTargetTemplateId());
+        copy.setIdentityPolicy(source.getIdentityPolicy());
+        copy.setTrigger(source.getTrigger());
+        copy.setReplacedFacets(new java.util.LinkedHashSet<>(source.getReplacedFacets()));
+        return copy;
+    }
+
+    private static com.storynpcs.creator.spawn.NaturalSpawnRule naturalSpawnCopy(
+            com.storynpcs.creator.spawn.NaturalSpawnRule source) {
+        var copy = new com.storynpcs.creator.spawn.NaturalSpawnRule();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setTemplateId(source.getTemplateId());
+        copy.setDimensionId(source.getDimensionId());
+        copy.setBiomeId(source.getBiomeId());
+        copy.setWeight(source.getWeight());
+        copy.setMaxPerDimension(source.getMaxPerDimension());
+        copy.setMinPlayerDistanceBlocks(source.getMinPlayerDistanceBlocks());
+        copy.setEnabled(source.isEnabled());
+        return copy;
+    }
+
     private static com.storynpcs.creator.template.NpcTemplate detachedTemplateCopy(
             com.storynpcs.creator.template.NpcTemplate source) {
         var copy = new com.storynpcs.creator.template.NpcTemplate();
