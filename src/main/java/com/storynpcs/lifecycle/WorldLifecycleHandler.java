@@ -347,6 +347,7 @@ public class WorldLifecycleHandler {
             mod.setLastLoadDiagnostics(result);
             if (result.isValid()) {
                 LOGGER.info("StoryNPCs definitions loaded: {}", result.formatReport());
+                appService.notifyRecipesLoaded("load");
             } else {
                 LOGGER.warn("StoryNPCs definitions loaded with warnings/errors:\n{}", result.formatReport());
             }

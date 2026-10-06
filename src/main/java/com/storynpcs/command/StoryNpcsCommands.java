@@ -189,6 +189,16 @@ public final class StoryNpcsCommands {
                                                 .executes(ctx -> activateWorldTool(ctx,
                                                         ResourceLocationArgument.getId(ctx, "tool_id"),
                                                         net.minecraft.commands.arguments.coordinates.BlockPosArgument.getBlockPos(ctx, "pos")))))))
+                // P8-4 recipes: carpentry defs, canonical delete, matcher dry-run
+                .then(Commands.literal("recipe")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("list").executes(StoryNpcsCommands::listRecipes))
+                        .then(Commands.literal("info")
+                                .then(Commands.argument("recipe_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::recipeInfo)))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("recipe_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteRecipe))))
                 // P11-1 import: dry-run by default; `apply` executes with rollback
                 .then(Commands.literal("import")
                         .requires(source -> source.hasPermission(2))
@@ -1239,6 +1249,7 @@ public final class StoryNpcsCommands {
                 // Sessions pinned to reloaded dialogue definitions are re-evaluated:
                 // vanished/broken/now-unavailable dialogues close; survivors rebind.
                 mod.getApplicationService().notifyDialogueDefinitionsReloaded();
+                mod.getApplicationService().notifyRecipesLoaded("reload");
                 // Surface diagnostics to online ops too — a reload run by one admin shouldn't
                 // leave the others blind to warnings.
                 mod.setLastLoadDiagnostics(result);
@@ -4522,6 +4533,86 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    // ── P8-4 recipes ─────────────────────────────────────────────────────────
+
+    private static int listRecipes(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var recipes = mod.getRegistry().getAllRecipes();
+        if (recipes.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] No recipes loaded (recipes/*.yaml)."), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] " + recipes.size() + " recipe(s):"), false);
+        for (var recipe : recipes) {
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7%s — group=%s, %s, out=%s x%d",
+                    recipe.getId(), recipe.getGroupId(),
+                    recipe.isShapeless() ? "shapeless" : "shaped",
+                    recipe.getOutputItemId(), recipe.getOutputCount())), false);
+        }
+        return recipes.size();
+    }
+
+    private static int recipeInfo(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "recipe_id").toString());
+        var recipe = mod.getRegistry().getRecipe(id).orElse(null);
+        if (recipe == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Recipe not found: " + id));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "§a[StoryNPCs] %s — group=%s, %s, out=%s x%d",
+                recipe.getId(), recipe.getGroupId(),
+                recipe.isShapeless() ? "shapeless" : "shaped",
+                recipe.getOutputItemId(), recipe.getOutputCount())), false);
+        for (int row = 0; row < 3; row++) {
+            String line = String.format("  §7| %s | %s | %s |",
+                    cell(recipe.getGrid(), row * 3),
+                    cell(recipe.getGrid(), row * 3 + 1),
+                    cell(recipe.getGrid(), row * 3 + 2));
+            ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
+    }
+
+    private static String cell(java.util.List<String> grid, int i) {
+        String s = i < grid.size() ? grid.get(i) : null;
+        return s == null || s.isBlank() ? "·" : s;
+    }
+
+    private static int deleteRecipe(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "recipe_id").toString());
+        var result = service.deleteRecipe(
+                commandMutationRequest(ctx, service, "recipe", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Recipe delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aDeleted recipe " + id), true);
+        return 1;
+    }
+
     // ── P11-1 definition import ──────────────────────────────────────────────
 
     private static final java.util.Set<String> IMPORT_FAMILY_DIRS =
@@ -4608,6 +4699,7 @@ public final class StoryNpcsCommands {
             // live dialogue sessions against the post-apply registry (P5-1 reload
             // invalidation parity with canonical mutations).
             service.notifyDialogueDefinitionsReloaded();
+            service.notifyRecipesLoaded("import");
         }
         final boolean wasDryRun = report.dryRun();
         long applied = report.count(com.storynpcs.migration.ImportReport.StepResult.Outcome.APPLIED);

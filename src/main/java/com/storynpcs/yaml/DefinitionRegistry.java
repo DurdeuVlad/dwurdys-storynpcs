@@ -23,6 +23,8 @@ public class DefinitionRegistry {
     private final Map<NamespacedId, TransportLocation> transportLocations = new ConcurrentHashMap<>();
     private final com.storynpcs.creator.template.TemplateLibrary templates =
             new com.storynpcs.creator.template.TemplateLibrary();
+    private final Map<NamespacedId, com.storynpcs.creator.recipe.CarpentryRecipe> recipes =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.world.WorldToolDefinition> worldTools =
             new LinkedHashMap<>();
     private final Map<NamespacedId, com.storynpcs.creator.template.SpawnerRule> spawners =
@@ -378,6 +380,66 @@ public class DefinitionRegistry {
         }
     }
 
+    /** Register a carpentry recipe (P8-4). Same-id replace bumps the revision. */
+    public void registerRecipe(com.storynpcs.creator.recipe.CarpentryRecipe recipe) {
+        if (recipe != null && recipe.getId() != null) {
+            rwLock.writeLock().lock();
+            try {
+                if (recipes.put(recipe.getId(), recipe) != recipe) {
+                    revision.incrementAndGet();
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+        }
+    }
+
+    public Optional<com.storynpcs.creator.recipe.CarpentryRecipe> getRecipe(NamespacedId id) {
+        rwLock.readLock().lock();
+        try {
+            return Optional.ofNullable(recipes.get(id));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public java.util.List<com.storynpcs.creator.recipe.CarpentryRecipe> getAllRecipes() {
+        rwLock.readLock().lock();
+        try {
+            return recipes.values().stream()
+                    .sorted(java.util.Comparator.comparing(r -> r.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    /** Recipes in a group, sorted deterministically by id. */
+    public java.util.List<com.storynpcs.creator.recipe.CarpentryRecipe> getRecipesInGroup(NamespacedId groupId) {
+        rwLock.readLock().lock();
+        try {
+            return recipes.values().stream()
+                    .filter(r -> groupId.equals(r.getGroupId()))
+                    .sorted(java.util.Comparator.comparing(r -> r.getId().toString()))
+                    .toList();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public boolean removeRecipe(NamespacedId id) {
+        rwLock.writeLock().lock();
+        try {
+            if (recipes.remove(id) != null) {
+                revision.incrementAndGet();
+                return true;
+            }
+            return false;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     /** Deterministic template search — delegated to the library's matcher. */
     public java.util.List<NamespacedId> searchTemplates(String query) {
         rwLock.readLock().lock();
@@ -427,6 +489,8 @@ public class DefinitionRegistry {
             spawners.putAll(other.spawners);
             worldTools.clear();
             worldTools.putAll(other.worldTools);
+            recipes.clear();
+            recipes.putAll(other.recipes);
             for (var template : other.templates.all()) {
                 for (var dependent : other.templates.dependentSpawners(template.getId())) {
                     templates.registerSpawner(template.getId(), dependent);
@@ -450,6 +514,7 @@ public class DefinitionRegistry {
             templates.clear();
             spawners.clear();
             worldTools.clear();
+            recipes.clear();
             revision.incrementAndGet();
         } finally {
             rwLock.writeLock().unlock();

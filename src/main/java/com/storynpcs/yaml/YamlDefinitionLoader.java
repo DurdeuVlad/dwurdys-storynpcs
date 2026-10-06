@@ -497,6 +497,68 @@ public class YamlDefinitionLoader {
         return null;
     }
 
+    /**
+     * P8-4 recipe family: carpentry-bench recipes — a namespaced id, a group,
+     * an exact 3x3 grid (or shapeless multiset), and an output stack. The
+     * model's {@link com.storynpcs.creator.recipe.CarpentryRecipe#validate()}
+     * supplies slot-accurate diagnostics; duplicates fail deterministically.
+     */
+    public com.storynpcs.creator.recipe.CarpentryRecipe loadRecipe(
+            String yamlContent, String sourceName, ValidationResult result) {
+        if (isEmptyOrCommentOnly(yamlContent)) {
+            result.addError(sourceName, 1, 1, "SCHEMA_EMPTY_FILE", "File is empty or contains no valid YAML definitions");
+            return null;
+        }
+        try {
+            var recipe = readDefinition(yamlContent, sourceName, result,
+                    com.storynpcs.creator.recipe.CarpentryRecipe.class);
+            if (recipe == null) return null;
+            if (recipe.getId() == null) {
+                result.addError(sourceName, 1, 1, "SCHEMA_MISSING_ID",
+                        "Recipe definition must declare an 'id'");
+                return null;
+            }
+            if (recipe.getSchemaVersion() != com.storynpcs.creator.recipe.CarpentryRecipe.SCHEMA_VERSION) {
+                result.addError(sourceName, 1, 1, "SCHEMA_VERSION_UNSUPPORTED",
+                        "Recipe schemaVersion " + recipe.getSchemaVersion()
+                                + " is not supported (expected "
+                                + com.storynpcs.creator.recipe.CarpentryRecipe.SCHEMA_VERSION + ")");
+                return null;
+            }
+            if (recipe.getGroupId() == null) {
+                result.addError(sourceName, 1, 1, "RECIPE_MISSING_GROUP",
+                        "Recipe '" + recipe.getId() + "' must declare a 'groupId'");
+                return null;
+            }
+            var modelValidation = recipe.validate();
+            for (var error : modelValidation.getErrors()) {
+                result.addError(sourceName, 1, 1, error.code(), error.message());
+            }
+            if (!modelValidation.getErrors().isEmpty()) {
+                return null;
+            }
+            if (registry.getRecipe(recipe.getId()).isPresent()) {
+                result.addError(sourceName, 1, 1, "DUPLICATE_DEFINITION_ID",
+                        "Duplicate recipe ID '" + recipe.getId() + "' is already defined in another file");
+                return null;
+            }
+            registry.registerRecipe(recipe);
+            return recipe;
+        } catch (JsonParseException e) {
+            result.addError(sourceName, e.getLocation().getLineNr(), e.getLocation().getColumnNr(),
+                    "YAML_PARSE_ERROR", e.getOriginalMessage());
+        } catch (UnrecognizedPropertyException e) {
+            addUnknownFieldError(yamlContent, sourceName, e, result);
+        } catch (JsonMappingException e) {
+            result.addError(sourceName, e.getLocation() != null ? e.getLocation().getLineNr() : 1,
+                    e.getLocation() != null ? e.getLocation().getColumnNr() : 1,
+                    "YAML_MAPPING_ERROR", e.getOriginalMessage());
+        } catch (Exception e) {
+            result.addError(sourceName, 1, 1, "LOAD_ERROR", e.getMessage());
+        }
+        return null;
+    }
+
     private <T> T readDefinition(String yamlContent, String sourceName,
                                  ValidationResult result, Class<T> type) throws IOException {
         JsonNode normalized = DefinitionSchema.normalize(mapper, yamlContent, sourceName, result);
@@ -708,6 +770,7 @@ public class YamlDefinitionLoader {
             case "template", "templates" -> "templates";
             case "spawner", "spawners" -> "spawners";
             case "worldtool", "worldtools" -> "worldtools";
+            case "recipe", "recipes" -> "recipes";
             default -> null;
         };
     }
@@ -771,7 +834,7 @@ public class YamlDefinitionLoader {
                         result.addError(file.toString(), 1, 1, "SCHEMA_FAMILY_UNSUPPORTED",
                                 "Definition family '" + dirName + "' is recognized but not yet loadable;"
                                         + " remove the file or move it to a supported family directory"
-                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/)");
+                                        + " (npcs/, dialogues/, factions/, quests/, transports/, templates/, spawners/, worldtools/, recipes/)");
                         return;
                     }
                 }
@@ -787,6 +850,7 @@ public class YamlDefinitionLoader {
                 case "templates" -> loadTemplate(content, file.toString(), result);
                 case "spawners" -> loadSpawner(content, file.toString(), result);
                 case "worldtools" -> loadWorldTool(content, file.toString(), result);
+                case "recipes" -> loadRecipe(content, file.toString(), result);
                 default -> throw new IllegalStateException("Unsupported definition type: " + type);
             }
             indexDefinitionFile(type, file, content, result);
@@ -823,6 +887,10 @@ public class YamlDefinitionLoader {
         if (parentName.equals("worldtools") || parentName.equals("worldtool")
                 || fileName.startsWith("worldtool_")) {
             return "worldtools";
+        }
+        if (parentName.equals("recipes") || parentName.equals("recipe")
+                || fileName.startsWith("recipe_")) {
+            return "recipes";
         }
 
         // Fallback: inspect content signatures, matching the legacy loader behavior.

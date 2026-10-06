@@ -1951,6 +1951,170 @@ public class StoryNpcsApplicationService {
         return fields;
     }
 
+    /**
+     * P8-4: canonical recipe save — mirrors {@link #saveWorldTool}. The recipe
+     * persists under {@code recipes/*.yaml}; malformed recipes are rejected
+     * before any file or registry write (no partial registration).
+     */
+    public ValidationResult saveRecipe(com.storynpcs.creator.recipe.CarpentryRecipe recipe) {
+        Objects.requireNonNull(recipe, "recipe");
+        if (recipe.getId() == null) {
+            ValidationResult result = ValidationResult.valid();
+            result.addError("RECIPE_ID_MISSING", "Recipe must have an ID");
+            return result;
+        }
+        return saveRecipe(new MutationRequest(
+                "recipe.replace", "adapter", "recipe.mutate", recipe.getId(),
+                definitionRevisions.getOrDefault(revisionKey("recipe", recipe.getId()), 0L),
+                UUID.randomUUID()), recipe).diagnostics();
+    }
+
+    public CanonicalMutationResult saveRecipe(MutationRequest request,
+            com.storynpcs.creator.recipe.CarpentryRecipe recipe) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(recipe, "recipe");
+        var payload = detachedRecipeCopy(recipe);
+        return executeCanonicalMutation(request, "recipe", "replace",
+                MutationPayloadFingerprint.ofFields("recipe.replace", canonicalRecipeFields(payload)),
+                () -> {
+                    if (payload.getId() == null) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("RECIPE_ID_MISSING", "Recipe must have an ID");
+                        return result;
+                    }
+                    if (!request.targetId().equals(payload.getId())) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("TARGET_ID_MISMATCH", "Recipe ID does not match request target");
+                        return result;
+                    }
+                    return saveRecipeUnderCanonicalLock(payload);
+                });
+    }
+
+    /** Replay-safe, revision-checked recipe delete — mirrors {@link #deleteWorldTool(MutationRequest)}. */
+    public CanonicalMutationResult deleteRecipe(MutationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return executeCanonicalMutation(request, "recipe", "delete",
+                MutationPayloadFingerprint.of("recipe.delete", request.targetId().toString()), () -> {
+                    if (registry.getRecipe(request.targetId()).isEmpty()) {
+                        ValidationResult result = ValidationResult.valid();
+                        result.addError("RECIPE_NOT_FOUND", "Recipe not found: " + request.targetId());
+                        return result;
+                    }
+                    if (!deleteRecipe(request.targetId())) {
+                        ValidationResult failure = ValidationResult.valid();
+                        failure.addError(registry.getRecipe(request.targetId()).isPresent()
+                                        ? "DEFINITION_DELETE_FAILED" : "RECIPE_NOT_FOUND",
+                                "Recipe '" + request.targetId() + "' could not be deleted");
+                        return failure;
+                    }
+                    return ValidationResult.valid();
+                });
+    }
+
+    /** File-first recipe delete under the canonical lock. */
+    public boolean deleteRecipe(NamespacedId id) {
+        Objects.requireNonNull(id, "id");
+        synchronized (canonicalMutationLock) {
+            synchronized (this) {
+                if (registry.getRecipe(id).isEmpty()) {
+                    return false;
+                }
+                if (!deleteDefinitionFileBeforeRegistryMutation("recipes", id)) {
+                    return false;
+                }
+                if (registry.removeRecipe(id)) {
+                    definitionRevisions.merge(revisionKey("recipe", id), 1L, Long::sum);
+                    notifyRecipesLoaded("recipe.delete");
+                    return true;
+                }
+                return false;
+            }
+        }
+    }
+
+    private synchronized ValidationResult saveRecipeUnderCanonicalLock(
+            com.storynpcs.creator.recipe.CarpentryRecipe recipe) {
+        Objects.requireNonNull(recipe, "recipe");
+        ValidationResult result = ValidationResult.valid();
+
+        if (recipe.getId() == null) {
+            result.addError("RECIPE_ID_MISSING", "Recipe must have an ID");
+            return result;
+        }
+        if (recipe.getSchemaVersion() != com.storynpcs.creator.recipe.CarpentryRecipe.SCHEMA_VERSION) {
+            result.addError("SCHEMA_VERSION_UNSUPPORTED",
+                    "Recipe schemaVersion " + recipe.getSchemaVersion()
+                            + " is not supported (expected "
+                            + com.storynpcs.creator.recipe.CarpentryRecipe.SCHEMA_VERSION + ")");
+            return result;
+        }
+        if (recipe.getGroupId() == null) {
+            result.addError("RECIPE_MISSING_GROUP",
+                    "Recipe '" + recipe.getId() + "' must declare a 'groupId'");
+            return result;
+        }
+        result.merge(recipe.validate());
+        if (!result.getErrors().isEmpty()) {
+            return result;
+        }
+
+        if (loader != null && loader.getLastLoadedRootPath() != null) {
+            try {
+                var savedFile = new YamlDefinitionWriter(loader.getDefinitionWriteCoordinator()).writeDefinition(
+                        loader.getLastLoadedRootPath(), "recipes",
+                        YamlDefinitionWriter.fileNameFor(recipe.getId()), recipe,
+                        loader.getDefinitionFiles("recipes", recipe.getId()));
+                loader.recordDefinitionFile("recipes", recipe.getId(), savedFile);
+            } catch (IOException e) {
+                result.addError("PERSIST_WRITE_FAILED", "Failed to write recipe file: " + e.getMessage());
+                return result;
+            }
+        }
+
+        registry.registerRecipe(recipe);
+        definitionRevisions.merge(revisionKey("recipe", recipe.getId()), 1L, Long::sum);
+        notifyRecipesLoaded("recipe.replace");
+        return result;
+    }
+
+    /**
+     * Publishes {@link RecipesLoadedEvent} after the recipe set changes —
+     * canonical save/delete or a definitions reload. Script/API consumers of
+     * the recipe set listen here rather than polling the registry.
+     */
+    public void notifyRecipesLoaded(String origin) {
+        var recipes = registry.getAllRecipes();
+        long groups = recipes.stream().map(r -> r.getGroupId().toString()).distinct().count();
+        eventPublisher.publish(new RecipesLoadedEvent(origin, recipes.size(), (int) groups));
+    }
+
+    private static com.storynpcs.creator.recipe.CarpentryRecipe detachedRecipeCopy(
+            com.storynpcs.creator.recipe.CarpentryRecipe source) {
+        var copy = new com.storynpcs.creator.recipe.CarpentryRecipe();
+        copy.setId(source.getId());
+        copy.setSchemaVersion(source.getSchemaVersion());
+        copy.setGroupId(source.getGroupId());
+        copy.setGrid(new java.util.ArrayList<>(source.getGrid()));
+        copy.setOutputItemId(source.getOutputItemId());
+        copy.setOutputCount(source.getOutputCount());
+        copy.setShapeless(source.isShapeless());
+        return copy;
+    }
+
+    private static List<String> canonicalRecipeFields(
+            com.storynpcs.creator.recipe.CarpentryRecipe recipe) {
+        List<String> fields = new java.util.ArrayList<>();
+        fields.add(recipe.getId() == null ? null : recipe.getId().toString());
+        fields.add(Integer.toString(recipe.getSchemaVersion()));
+        fields.add(recipe.getGroupId() == null ? null : recipe.getGroupId().toString());
+        fields.addAll(recipe.getGrid());
+        fields.add(recipe.getOutputItemId());
+        fields.add(Integer.toString(recipe.getOutputCount()));
+        fields.add(Boolean.toString(recipe.isShapeless()));
+        return fields;
+    }
+
     private static com.storynpcs.creator.template.NpcTemplate detachedTemplateCopy(
             com.storynpcs.creator.template.NpcTemplate source) {
         var copy = new com.storynpcs.creator.template.NpcTemplate();
