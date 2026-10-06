@@ -16,11 +16,11 @@ cannot slip into a release announcement.
   API + bounded scripting, command/admin contracts, authoring hub + AI patch
   plans, creator docs, and the import contract.
 - Evidence artifacts under `docs/parity/reports/`: fixture report
-  (25/25 OBSERVED, 0 blocked, 0 failed), compatibility report
+  (41/41 OBSERVED, 0 blocked, 0 failed), compatibility report
   (2,836/2,836 rows mapped to terminal states), three headless benchmark
-  artifacts, release-gate report.
-- Verified test base: **81 suites / 710 JUnit tests / 0 failures** (1 skipped)
-  plus the Python parity toolchain (122 tests).
+  artifacts + three live-runtime benchmark artifacts, release-gate report.
+- Verified test base: **145 suites / 1,433 JUnit tests / 0 failures**
+  plus the Python parity toolchain (162 tests).
 
 ## Explicitly blocked / unverified — keep visible
 

@@ -1,6 +1,6 @@
 # P11 — Import contract, evidence closure, release gate (P11-1..P11-3)
 
-Status: `DONE` for P11-1 (issue #91, PR #189) and P11-2 (issue #92); P11-3 is `BLOCKED` pending its runtime and issue-closure gates.
+Status: `DONE` for P11-1 (issue #91, PR #189) and P11-2 (issue #92, PR #190); P11-3 is `BLOCKED-ACCEPTED` per user decision 2026-10-06.
 Evidence: `MigrationImportTest`, `SimCertificationBenchmarkTest` + 3 headless benchmark
 artifacts, compatibility-report (2,836/2,836 rows terminal), feature-status checker (`declared=0`),
 truth gate, and the current fixture report. The latest
@@ -82,7 +82,17 @@ creator world data:
 
 ## P11-3 — Adversarial certification and release gate (#93)
 
-Status: `BLOCKED` — target-runtime probes are unavailable, remaining issues are not all done or user-accepted blocked, and headless JVM/GameTest evidence does not satisfy the release gate.
+Status: `BLOCKED-ACCEPTED` — user decision 2026-10-06 accepts the honestly blocked certification:
+target-runtime probes are unavailable and headless JVM/GameTest evidence does not satisfy a
+parity claim. Every other issue is terminal (`DONE`/`DONE-LOCAL`).
+
+Current gate report (`reports/release-gate-report.json`, regenerated 2026-10-06):
+`issue_ids_unique` PASS, `dependency_graph` PASS, `issue_statuses_terminal` BLOCKED on P11-3 only,
+`storynpcs_fixture_execution` PASS (fingerprint-bound, 41/41 observed),
+`target_runtime_evidence` BLOCKED (3 imported `VERIFIED_TARGET_RUNTIME` observations; no `VERIFIED_PARITY`),
+`fifteen_operations_evidence` PASS, `twentytwo_domains_mapped` PASS, `benchmark_artifacts` PASS.
+Adversarial coverage: [2026-09-25 final review](reviews/2026-09-25-final-adversarial.md) +
+[2026-10-06 addendum](reviews/2026-10-06-final-adversarial-addendum.md) covering the M9–M12 tranche.
 
 - `sim/cert/HeadlessBenchmark`: deterministic seeded workloads for all three
   contract scenarios (500-NPC population, 25v25 siege, 2,500-NPC stress)

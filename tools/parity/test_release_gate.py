@@ -171,7 +171,7 @@ class ReleaseGateTest(unittest.TestCase):
                           | release_gate.BLOCKED_STATES
                           | release_gate.UNFINISHED_STATES,
                           f"{issue}: {status}")
-        self.assertEqual(statuses["P11-3"], "BLOCKED")
+        self.assertIn(statuses["P11-3"], {"BLOCKED", "BLOCKED-ACCEPTED"})
 
 
 if __name__ == "__main__":

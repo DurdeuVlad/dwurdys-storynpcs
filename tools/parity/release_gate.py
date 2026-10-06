@@ -351,11 +351,14 @@ def run_gate(root: Path) -> dict[str, Any]:
                           "only completed or user-accepted blocked issues satisfy release closure.",
     }
     p11_3_status = statuses.get("P11-3", "NO-LOCAL-STATUS")
+    # BLOCKED-ACCEPTED is still a blocked gate — it only adds the recorded
+    # user decision on top of BLOCKED, so both satisfy this check.
+    p11_3_blocked = p11_3_status in {"BLOCKED", "BLOCKED-ACCEPTED"}
     checks["p11_3_status"] = {
-        "pass": p11_3_status == "BLOCKED",
-        "blocked": p11_3_status == "BLOCKED",
-        "findings": [] if p11_3_status == "BLOCKED" else [
-            f"P11-3 must remain BLOCKED until runtime and evidence gates pass; found {p11_3_status}"
+        "pass": p11_3_blocked,
+        "blocked": p11_3_blocked,
+        "findings": [] if p11_3_blocked else [
+            f"P11-3 must remain BLOCKED or BLOCKED-ACCEPTED until runtime and evidence gates pass; found {p11_3_status}"
         ],
         "detail": p11_3_status,
     }
