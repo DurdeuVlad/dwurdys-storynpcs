@@ -1,7 +1,8 @@
 # P5 — Dialogue + quest milestone progress (P5-1..P5-5)
 
 Status: local implementation of P5-1/P5-2/P5-4/P5-5 acceptance surfaces
-complete; P5-3 editor floors remain deferred to P10-1/P10-2.
+complete; P5-3 authoring/editor floors delivered in the P10-1 integration work
+and closed via this branch's PR.
 
 ## P5-1 — Authoritative dialogue runtime
 
@@ -20,9 +21,10 @@ complete; P5-3 editor floors remain deferred to P10-1/P10-2.
 
 ## P5-3 — Authoring workflow
 
-- `DialogueGraphValidator` runs in production: `YamlDefinitionLoader.loadDialogue` rejects cyclic/unreachable/dangling graphs at load; `StoryNpcsApplicationService.saveDialogue` re-validates before cross-reference checks and persistence.
+- `DialogueGraphValidator` runs in production: `YamlDefinitionLoader.loadDialogue` rejects cyclic/unreachable/dangling graphs at load; `StoryNpcsApplicationService.saveDialogue` re-validates before cross-reference checks and persistence (unknown quest/item/faction refs reject via `CrossReferenceValidator`).
 - The standalone `DialogueAuthoringModel` duplicate was removed — `DialogueEditorScreenModel` remains the single editor mutation path.
-- Still open (owned by P10-1/P10-2): undo/redo, search, and minimum-viewport floors for the editor.
+- Editor floors delivered (this branch): undo/redo with deep-copy snapshots (`DialogueGraphLayout.deepCopy` duplicates condition/action/availability lists — verified by snapshot-isolation fixture), coalesced keystroke edits, redo-clear on mutation; case-insensitive search across every authored field (node id/text/speaker/sound/textKey, edge text/textKey/endpoints, condition/action payloads) with wrap-around match cycling; full node editing (id rename with edge/entry remap and collision refusal, text, speaker, sound, textKey, x/y position); full edge editing (option text, textKey, once-only, retarget, condition CRUD, action CRUD); dialogue-level editing (title key, availability conditions, entry node via Set Entry); diagnostics pane driven by the same `DialogueGraphValidator` the save path runs (clickable node-jump rows); entry-first BFS preview with bounded walk and gated-option annotations; JSON import/export through `DialogueGraphSerde` (all semantic fields round-trip; bad JSON refused); keyboard surface (Ctrl+Z/Y, Tab/Shift-Tab selection cycling, Ctrl+F search, Ctrl+E export, Delete with armed-confirm); `EditorViewport` documents the 427x240-minimum layout contract with the paged edge inspector keeping every field reachable.
+- Known limit: undo restores full layout snapshots including canvas positions, so undoing a text edit also reverts node drags since that snapshot — consistent snapshot semantics, positions are editor-visual only (not persisted to the graph).
 
 ## P5-4 — Quest definitions
 
@@ -49,9 +51,9 @@ complete; P5-3 editor floors remain deferred to P10-1/P10-2.
 
 - Reconnect/resume policy is close-only (no session resume).
 - Mail claiming has no player-facing UI yet — delivery runs through `deliverQuestMail` on login/postman paths.
-- P5-3 editor floors (undo/redo, search, viewport) remain open under P10-1/P10-2.
+- P5-3 editor floors delivered under this branch's PR (undo/redo, search, panes, keyboard nav, min-res viewport contract).
 - COMMAND reward execution is verified at service level (headless marks delivered); the live command-dispatch path shares the dialogue `EXECUTE_COMMAND` sanitizer and is exercised in the GameTest environment only.
 
 ## Verification
 
-`./gradlew test`: 1,222 tests, 0 failures, 1 skipped. `git diff --check` clean. No live MC testing for this slice.
+`./gradlew test`: 1,390 tests, 0 failures. `git diff --check` clean. Editor verification is headless model-level (the Screen is a thin adapter; widget rendering itself is exercised only in the client runtime).

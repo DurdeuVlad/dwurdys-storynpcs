@@ -300,6 +300,8 @@ Status: `DONE` — closed by PR #168 (merged). Server-issued opaque `DialogueCho
 
 ### P5-3 — Build the full dialogue authoring and asset workflow
 
+Status: `DONE` — editor floors delivered on the model layer (`DialogueEditorScreenModel`) with the Screen as a thin adapter: deep-copy undo/redo with keystroke coalescing, full-field search + match cycling, node editing (id rename with edge/entry remap, text/speaker/sound/textKey/x-y), edge editing (text, textKey, once-only, retarget, condition/action CRUD), dialogue-level titleKey + availability + entry assignment, diagnostics pane on the production `DialogueGraphValidator` with click-to-select rows, BFS preview with gate annotations, JSON import/export via `DialogueGraphSerde`, keyboard navigation, and a minimum-viewport contract (`EditorViewport`, paged edge inspector). Unknown quest/item/faction references reject server-side at save through `CrossReferenceValidator`.
+
 - **Intent:** Make graph dialogue faster and clearer to author than target linear GUI flows.
 - **Expectation:** Searchable node/edge editor, reusable condition/action property panels, speaker/line/sound/localization asset fields, validation pane, preview, undo/redo, import/export, and keyboard navigation exist.
 - **Acceptance criteria:** Every P5-1 field is editable without raw YAML; save/load round-trips all fields; invalid references point to node/field; large graphs pan/zoom/search without losing selection; preview uses server validation; UI behavior works at the supported minimum resolution defined by the certification contract: 854x480 physical display, GUI scale 2, and at least 427x240 logical GUI viewport.

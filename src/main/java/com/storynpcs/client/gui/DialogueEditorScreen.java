@@ -1,5 +1,8 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.domain.common.DiagnosticError;
+import com.storynpcs.domain.dialogue.DialogueAction;
+import com.storynpcs.domain.dialogue.DialogueCondition;
 import com.storynpcs.editor.DialogueEditorScreenModel;
 import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.editor.DialogueGraphLayout;
@@ -13,6 +16,9 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.List;
 
 public class DialogueEditorScreen extends Screen {
 
@@ -20,9 +26,12 @@ public class DialogueEditorScreen extends Screen {
     private static final int INSPECTOR_MAX_H = 240;
     /** Smallest inspector height that still clears every widget pair (issue #20). */
     private static final int INSPECTOR_MIN_H = 154;
-    private static final int INSPECTOR_Y = 50;
+    /** Second toolbar row drops the inspector start below both rows. */
+    private static final int TOOLBAR_H = 62;
+    private static final int INSPECTOR_Y = TOOLBAR_H + 6;
     /** How long a delete button stays in its "Confirm?" state before reverting. */
     private static final long DELETE_CONFIRM_MS = 4000;
+
 
     private final DialogueEditorScreenModel model;
     private boolean isPanning = false;
@@ -33,6 +42,10 @@ public class DialogueEditorScreen extends Screen {
     private MultiLineEditBox nodeTextBox;
     private EditBox speakerBox;
     private EditBox soundBox;
+    private EditBox nodeIdBox;
+    private EditBox nodeTextKeyBox;
+    private EditBox nodeXBox;
+    private EditBox nodeYBox;
     /** Inline warning under the sound field — null when the id is blank or resolves. */
     private String soundWarning;
     /** Guards programmatic setValue during selection sync so it doesn't mark the graph dirty. */
@@ -42,8 +55,41 @@ public class DialogueEditorScreen extends Screen {
     private Button deleteEdgeButton;
     private Button setEntryButton;
     private EditBox questActionBox;
+    /** Dialogue-inspector field (shown when nothing is selected): localization title key. */
+    private EditBox dialogueTitleKeyBox;
+    /** Edge inspector widgets (P5-3): option text, once-only, localization key, target, condition/action tables. */
+    private EditBox edgeTextBox;
+    private Button edgeOnceOnlyButton;
+    private EditBox edgeTextKeyBox;
+    private EditBox edgeTargetBox;
+    private EditBox condTypeBox;
+    private EditBox condTargetBox;
+    private EditBox condOperatorBox;
+    private EditBox condValueBox;
+    private EditBox actTypeBox;
+    private EditBox actTargetBox;
+    private EditBox actValueBox;
+    private Button condAddButton;
+    private Button condRemoveButton;
+    private Button actAddButton;
+    private Button actRemoveButton;
+    private int selectedConditionIndex = -1;
+    private int selectedActionIndex = -1;
+    /** Edge inspector page: 0 fields, 1 conditions, 2 actions. */
+    private int edgePage;
+    private Button edgePageFieldsButton;
+    private Button edgePageCondsButton;
+    private Button edgePageActsButton;
     /** Inline warning under the quest field — format errors only; unknown quests are rejected at save. */
     private String questWarning;
+
+    private EditBox searchBox;
+    private boolean previewOpen;
+    private boolean diagnosticsOpen;
+    private List<DiagnosticError> diagnostics = List.of();
+    /** Y-coordinate → node id for clickable diagnostics rows (rebuilt each render). */
+    private final List<int[]> diagRowHitY = new java.util.ArrayList<>();
+    private final List<String> diagRowHitNode = new java.util.ArrayList<>();
     /** "node"/"edge" while a delete is armed for confirmation, else null. */
     private String deleteArmed;
     private long deleteArmUntil;
@@ -107,6 +153,57 @@ public class DialogueEditorScreen extends Screen {
             this.onClose();
         }).bounds(width - 70, 10, 60, 20).build());
 
+        // ── Second toolbar row (P5-3): search, validate, preview, history, IO ──
+        int row2 = 36;
+        searchBox = new EditBox(this.font, 10, row2, 120, 16, Component.literal("Search"));
+        searchBox.setHint(Component.literal("Search nodes/edges"));
+        searchBox.setMaxLength(80);
+        searchBox.setResponder(v -> {
+            model.search(v);
+            if (!model.searchMatches().isEmpty()) {
+                model.nextSearchMatch(true);
+                centerOnSelection();
+                syncInspectorWidgets();
+            }
+        });
+        this.addRenderableWidget(searchBox);
+
+        this.addRenderableWidget(Button.builder(Component.literal("Match+"), b -> {
+            model.nextSearchMatch(true); centerOnSelection(); syncInspectorWidgets();
+        }).bounds(134, row2 - 1, 48, 18).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Match-"), b -> {
+            model.nextSearchMatch(false); centerOnSelection(); syncInspectorWidgets();
+        }).bounds(184, row2 - 1, 48, 18).build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Validate"), b -> {
+            diagnostics = model.validate();
+            diagnosticsOpen = !diagnostics.isEmpty();
+            model.setStatusMessage(diagnostics.isEmpty()
+                    ? "Validation passed — no diagnostics"
+                    : diagnostics.size() + " diagnostic(s) — see pane");
+        }).bounds(236, row2 - 1, 56, 18).build());
+
+        this.addRenderableWidget(Button.builder(Component.literal(previewOpen ? "Preview ▾" : "Preview ▸"), b -> {
+            previewOpen = !previewOpen;
+        }).bounds(296, row2 - 1, 60, 18).build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Undo"), b -> {
+            model.undo(); syncInspectorWidgets();
+        }).bounds(360, row2 - 1, 44, 18).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Redo"), b -> {
+            model.redo(); syncInspectorWidgets();
+        }).bounds(406, row2 - 1, 44, 18).build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Export"), b -> {
+            String json = model.exportJson();
+            this.minecraft.keyboardHandler.setClipboard(json);
+            model.setStatusMessage("Exported " + json.length() + " chars to clipboard");
+        }).bounds(454, row2 - 1, 48, 18).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Import"), b -> {
+            model.importJson(this.minecraft.keyboardHandler.getClipboard());
+            syncInspectorWidgets();
+        }).bounds(504, row2 - 1, 48, 18).build());
+
         // Inspector text box — created hidden; shown/populated by syncInspectorWidgets().
         // Edits commit live on every keystroke (auto-commit model: selection changes
         // can never silently drop text because the model already holds it).
@@ -137,8 +234,8 @@ public class DialogueEditorScreen extends Screen {
         soundBox.visible = false;
         this.addRenderableWidget(soundBox);
 
-        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 108,
-                INSPECTOR_W - 16, Math.max(10, panelH - 140),
+        nodeTextBox = new MultiLineEditBox(this.font, panelX + 8, INSPECTOR_Y + 112,
+                INSPECTOR_W - 16, Math.max(10, panelH - 144),
                 Component.literal("Node text…"), Component.literal("Node text"));
         nodeTextBox.setCharacterLimit(2000);
         nodeTextBox.setValueListener(v -> {
@@ -187,7 +284,222 @@ public class DialogueEditorScreen extends Screen {
         questActionBox.visible = false;
         this.addRenderableWidget(questActionBox);
 
+        // Page tabs sit above every edge-inspector page.
+        edgePageFieldsButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Fields"), b -> { edgePage = 0; syncInspectorWidgets(); })
+                .bounds(panelX + 8, INSPECTOR_Y + 24, 58, 14).build());
+        edgePageCondsButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Conds"), b -> { edgePage = 1; syncInspectorWidgets(); })
+                .bounds(panelX + 68, INSPECTOR_Y + 24, 56, 14).build());
+        edgePageActsButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Acts"), b -> { edgePage = 2; syncInspectorWidgets(); })
+                .bounds(panelX + 126, INSPECTOR_Y + 24, 56, 14).build());
+        edgePageFieldsButton.visible = false;
+        edgePageCondsButton.visible = false;
+        edgePageActsButton.visible = false;
+
+        // ── Node inspector additions (P5-3): id rename + localization key ──
+        nodeIdBox = new EditBox(this.font, panelX + 34, INSPECTOR_Y + 22,
+                INSPECTOR_W - 44, 14, Component.literal("Node id"));
+        nodeIdBox.setMaxLength(64);
+        nodeIdBox.setResponder(v -> { if (!syncingInspector) model.renameSelectedNode(v); });
+        nodeIdBox.visible = false;
+        this.addRenderableWidget(nodeIdBox);
+
+        nodeTextKeyBox = new EditBox(this.font, panelX + 40, INSPECTOR_Y + 88,
+                INSPECTOR_W - 50, 14, Component.literal("Text key"));
+        nodeTextKeyBox.setMaxLength(160);
+        nodeTextKeyBox.setHint(Component.literal("localization key"));
+        nodeTextKeyBox.setResponder(v -> { if (!syncingInspector) model.updateSelectedNodeTextKey(v); });
+        nodeTextKeyBox.visible = false;
+        this.addRenderableWidget(nodeTextKeyBox);
+
+        // Editable canvas position — replaces the old read-only Pos line.
+        nodeXBox = new EditBox(this.font, panelX + 34, INSPECTOR_Y + 38,
+                70, 14, Component.literal("x"));
+        nodeXBox.setMaxLength(10);
+        nodeXBox.setHint(Component.literal("x"));
+        nodeXBox.setResponder(v -> applyNodePosition());
+        nodeXBox.visible = false;
+        this.addRenderableWidget(nodeXBox);
+
+        nodeYBox = new EditBox(this.font, panelX + 116, INSPECTOR_Y + 38,
+                70, 14, Component.literal("y"));
+        nodeYBox.setMaxLength(10);
+        nodeYBox.setHint(Component.literal("y"));
+        nodeYBox.setResponder(v -> applyNodePosition());
+        nodeYBox.visible = false;
+        this.addRenderableWidget(nodeYBox);
+
+        // ── Edge inspector additions (P5-3): paged sections so every field is
+        // reachable at the minimum 240px-high viewport. Page tabs at +24; the
+        // fields/conditions/actions content occupies +40..+118 of the panel. ──
+        edgeTextBox = new EditBox(this.font, panelX + 10, INSPECTOR_Y + 44,
+                INSPECTOR_W - 20, 14, Component.literal("Option text"));
+        edgeTextBox.setMaxLength(400);
+        edgeTextBox.setResponder(v -> { if (!syncingInspector) model.updateSelectedEdgeText(v); });
+        edgeTextBox.visible = false;
+        this.addRenderableWidget(edgeTextBox);
+
+        edgeOnceOnlyButton = this.addRenderableWidget(Button.builder(
+                Component.literal("Once-only: off"), b -> {
+                    model.setSelectedEdgeOnceOnly(!model.getEditorState().getSelectedEdge().isOnceOnly());
+                    syncInspectorWidgets();
+                }).bounds(panelX + 10, INSPECTOR_Y + 60, 90, 14).build());
+        edgeOnceOnlyButton.visible = false;
+
+        edgeTextKeyBox = new EditBox(this.font, panelX + 104, INSPECTOR_Y + 60,
+                INSPECTOR_W - 114, 14, Component.literal("Text key"));
+        edgeTextKeyBox.setMaxLength(160);
+        edgeTextKeyBox.setHint(Component.literal("key"));
+        edgeTextKeyBox.setResponder(v -> { if (!syncingInspector) model.updateSelectedEdgeTextKey(v); });
+        edgeTextKeyBox.visible = false;
+        this.addRenderableWidget(edgeTextKeyBox);
+
+        edgeTargetBox = new EditBox(this.font, panelX + 10, INSPECTOR_Y + 76,
+                INSPECTOR_W - 20, 14, Component.literal("Target node"));
+        edgeTargetBox.setMaxLength(64);
+        edgeTargetBox.setHint(Component.literal("target node id"));
+        edgeTargetBox.setResponder(v -> { if (!syncingInspector) model.retargetSelectedEdge(v); });
+        edgeTargetBox.visible = false;
+        this.addRenderableWidget(edgeTargetBox);
+
+        // Row editors sit on their own pages: type+target share one line, then
+        // op/value (conditions) or value+buttons (actions) on the next. Compact
+        // "+"/"−" buttons leave room on the second line at 140px min width.
+        condTypeBox = smallBox(panelX + 8, INSPECTOR_Y + 88, 96, "type", 40,
+                v -> applyConditionEdit());
+        condTargetBox = smallBox(panelX + 108, INSPECTOR_Y + 88, INSPECTOR_W - 116, "target", 160,
+                v -> applyConditionEdit());
+        condOperatorBox = smallBox(panelX + 8, INSPECTOR_Y + 104, 40, "op", 8,
+                v -> applyConditionEdit());
+        condValueBox = smallBox(panelX + 52, INSPECTOR_Y + 104, INSPECTOR_W - 140, "value", 160,
+                v -> applyConditionEdit());
+        condAddButton = this.addRenderableWidget(Button.builder(Component.literal("+"), b -> {
+            DialogueCondition fresh = new DialogueCondition(
+                    DialogueCondition.Type.QUEST_STATUS, "storynpcs:quest", "==", "IN_PROGRESS");
+            if (model.getEditorState().getSelectedEdge() != null) {
+                model.addSelectedEdgeCondition(fresh);
+                selectedConditionIndex = model.getSelectedEdgeConditions().size() - 1;
+            } else {
+                model.addAvailabilityCondition(fresh);
+                selectedConditionIndex = model.getAvailability().size() - 1;
+            }
+            syncInspectorWidgets();
+        }).bounds(panelX + INSPECTOR_W - 78, INSPECTOR_Y + 104, 20, 14).build());
+        condRemoveButton = this.addRenderableWidget(Button.builder(Component.literal("−"), b -> {
+            if (model.getEditorState().getSelectedEdge() != null) {
+                model.removeSelectedEdgeCondition(selectedConditionIndex);
+            } else {
+                model.removeAvailabilityCondition(selectedConditionIndex);
+            }
+            selectedConditionIndex = -1;
+            syncInspectorWidgets();
+        }).bounds(panelX + INSPECTOR_W - 56, INSPECTOR_Y + 104, 20, 14).build());
+
+        actTypeBox = smallBox(panelX + 8, INSPECTOR_Y + 88, 96, "type", 40,
+                v -> applyActionEdit());
+        actTargetBox = smallBox(panelX + 108, INSPECTOR_Y + 88, INSPECTOR_W - 116, "target", 160,
+                v -> applyActionEdit());
+        actValueBox = smallBox(panelX + 8, INSPECTOR_Y + 104, INSPECTOR_W - 96, "value", 160,
+                v -> applyActionEdit());
+        actAddButton = this.addRenderableWidget(Button.builder(Component.literal("+"), b -> {
+            model.addSelectedEdgeAction(new DialogueAction(
+                    DialogueAction.Type.CLOSE_DIALOGUE, "", ""));
+            selectedActionIndex = model.getSelectedEdgeActions().size() - 1;
+            syncInspectorWidgets();
+        }).bounds(panelX + INSPECTOR_W - 78, INSPECTOR_Y + 104, 20, 14).build());
+        actRemoveButton = this.addRenderableWidget(Button.builder(Component.literal("−"), b -> {
+            model.removeSelectedEdgeAction(selectedActionIndex);
+            selectedActionIndex = -1;
+            syncInspectorWidgets();
+        }).bounds(panelX + INSPECTOR_W - 56, INSPECTOR_Y + 104, 20, 14).build());
+
+        // Dialogue-level inspector (nothing selected): title localization key.
+        // Availability conditions reuse the cond* row widgets — the same page
+        // layout serves both the edge inspector's conditions page and this one.
+        dialogueTitleKeyBox = new EditBox(this.font, panelX + 52, INSPECTOR_Y + 44,
+                INSPECTOR_W - 62, 14, Component.literal("Title key"));
+        dialogueTitleKeyBox.setMaxLength(160);
+        dialogueTitleKeyBox.setHint(Component.literal("title localization key"));
+        dialogueTitleKeyBox.setResponder(v -> { if (!syncingInspector) model.setTitleKey(v); });
+        dialogueTitleKeyBox.visible = false;
+        this.addRenderableWidget(dialogueTitleKeyBox);
+
         syncInspectorWidgets();
+    }
+
+    private EditBox smallBox(int x, int y, int w, String hint, int maxLen,
+                             java.util.function.Consumer<String> responder) {
+        EditBox box = new EditBox(this.font, x, y, w, 14, Component.literal(hint));
+        box.setMaxLength(maxLen);
+        box.setHint(Component.literal(hint));
+        box.setResponder(v -> { if (!syncingInspector) responder.accept(v); });
+        box.visible = false;
+        this.addRenderableWidget(box);
+        return box;
+    }
+
+    /** Applies the condition-row fields back onto the selected condition index —
+     *  edge conditions when an edge is selected, dialogue availability otherwise. */
+    private void applyConditionEdit() {
+        VisualEdge edge = model.getEditorState().getSelectedEdge();
+        boolean dialogueInspector = model.getEditorState().getSelectedNodeId() == null && edge == null;
+        if ((!dialogueInspector && edge == null) || selectedConditionIndex < 0) return;
+        DialogueCondition.Type type = parseConditionType(condTypeBox.getValue());
+        if (type == null) return;
+        DialogueCondition updated = new DialogueCondition(
+                type, condTargetBox.getValue(), condOperatorBox.getValue(), condValueBox.getValue());
+        if (dialogueInspector) {
+            model.updateAvailabilityCondition(selectedConditionIndex, updated);
+        } else {
+            model.updateSelectedEdgeCondition(selectedConditionIndex, updated);
+        }
+    }
+
+    private void applyActionEdit() {
+        VisualEdge edge = model.getEditorState().getSelectedEdge();
+        if (edge == null || selectedActionIndex < 0) return;
+        DialogueAction.Type type = parseActionType(actTypeBox.getValue());
+        if (type == null) return;
+        model.updateSelectedEdgeAction(selectedActionIndex, new DialogueAction(
+                type, actTargetBox.getValue(), actValueBox.getValue()));
+    }
+
+    private static DialogueCondition.Type parseConditionType(String raw) {
+        try {
+            return DialogueCondition.Type.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static DialogueAction.Type parseActionType(String raw) {
+        try {
+            return DialogueAction.Type.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private void centerOnSelection() {
+        model.centerOnSelection(width - (insideInspectorVisible() ? INSPECTOR_W + 20 : 0), height);
+    }
+
+    private void applyNodePosition() {
+        if (syncingInspector) return;
+        try {
+            double x = Double.parseDouble(nodeXBox.getValue().trim());
+            double y = Double.parseDouble(nodeYBox.getValue().trim());
+            model.updateSelectedNodePosition(x, y);
+        } catch (NumberFormatException ignored) {
+            // Incomplete numeric input — leave the node where it is
+        }
+    }
+
+    private boolean insideInspectorVisible() {
+        return model.getEditorState().getSelectedNodeId() != null
+                || model.getEditorState().getSelectedEdge() != null;
     }
 
     /** Shows the inspector widgets for the current selection (node, edge, or none). */
@@ -201,10 +513,18 @@ public class DialogueEditorScreen extends Screen {
             nodeTextBox.visible = node != null;
             speakerBox.visible = node != null;
             soundBox.visible = node != null;
+            nodeIdBox.visible = node != null;
+            nodeTextKeyBox.visible = node != null;
+            nodeXBox.visible = node != null;
+            nodeYBox.visible = node != null;
             if (node == null) {
                 nodeTextBox.setFocused(false);
                 speakerBox.setFocused(false);
                 soundBox.setFocused(false);
+                nodeIdBox.setFocused(false);
+                nodeTextKeyBox.setFocused(false);
+                nodeXBox.setFocused(false);
+                nodeYBox.setFocused(false);
                 soundWarning = null;
             } else {
                 syncingInspector = true;
@@ -212,6 +532,10 @@ public class DialogueEditorScreen extends Screen {
                     nodeTextBox.setValue(node.getText() != null ? node.getText() : "");
                     speakerBox.setValue(node.getSpeaker() != null ? node.getSpeaker() : "");
                     soundBox.setValue(node.getSound() != null ? node.getSound() : "");
+                    nodeIdBox.setValue(node.getId() != null ? node.getId() : "");
+                    nodeTextKeyBox.setValue(node.getTextKey() != null ? node.getTextKey() : "");
+                    nodeXBox.setValue(String.valueOf((int) node.getX()));
+                    nodeYBox.setValue(String.valueOf((int) node.getY()));
                 } finally {
                     syncingInspector = false;
                 }
@@ -220,14 +544,105 @@ public class DialogueEditorScreen extends Screen {
             }
         }
         if (questActionBox != null) {
-            questActionBox.visible = node == null && edge != null;
+            boolean edgeInspector = node == null && edge != null;
+            boolean dialogueInspector = node == null && edge == null;
+            edgePageFieldsButton.visible = edgeInspector;
+            edgePageCondsButton.visible = edgeInspector;
+            edgePageActsButton.visible = edgeInspector;
+            boolean fieldsPage = edgeInspector && edgePage == 0;
+            boolean condsPage = (edgeInspector && edgePage == 1) || dialogueInspector;
+            boolean actsPage = edgeInspector && edgePage == 2;
+            questActionBox.visible = fieldsPage;
+            edgeTextBox.visible = fieldsPage;
+            edgeOnceOnlyButton.visible = fieldsPage;
+            edgeTextKeyBox.visible = fieldsPage;
+            edgeTargetBox.visible = fieldsPage;
+            condTypeBox.visible = condsPage;
+            condTargetBox.visible = condsPage;
+            condOperatorBox.visible = condsPage;
+            condValueBox.visible = condsPage;
+            condAddButton.visible = condsPage;
+            condRemoveButton.visible = condsPage && selectedConditionIndex >= 0;
+            actTypeBox.visible = actsPage;
+            actTargetBox.visible = actsPage;
+            actValueBox.visible = actsPage;
+            actAddButton.visible = actsPage;
+            actRemoveButton.visible = actsPage && selectedActionIndex >= 0;
+            dialogueTitleKeyBox.visible = dialogueInspector;
+            if (dialogueInspector) {
+                // The same condition widgets serve the dialogue page, sitting
+                // lower to clear the title-key field.
+                int dTop = INSPECTOR_Y + 112;
+                int dBottom = INSPECTOR_Y + 128;
+                condTypeBox.setY(dTop); condTargetBox.setY(dTop);
+                condOperatorBox.setY(dBottom); condValueBox.setY(dBottom);
+                condAddButton.setY(dBottom); condRemoveButton.setY(dBottom);
+                syncingInspector = true;
+                try {
+                    dialogueTitleKeyBox.setValue(model.getTitleKey());
+                    var conds = model.getAvailability();
+                    if (selectedConditionIndex >= conds.size()) {
+                        selectedConditionIndex = conds.isEmpty() ? -1 : 0;
+                    }
+                    if (selectedConditionIndex >= 0) {
+                        DialogueCondition c = conds.get(selectedConditionIndex);
+                        condTypeBox.setValue(c.getType().name());
+                        condTargetBox.setValue(c.getTarget());
+                        condOperatorBox.setValue(c.getOperator());
+                        condValueBox.setValue(c.getValue());
+                    } else {
+                        condTypeBox.setValue(""); condTargetBox.setValue("");
+                        condOperatorBox.setValue(""); condValueBox.setValue("");
+                    }
+                } finally {
+                    syncingInspector = false;
+                }
+                selectedActionIndex = -1;
+                questWarning = null;
+                return;
+            }
             if (edge == null) {
                 questActionBox.setFocused(false);
                 questWarning = null;
+                selectedConditionIndex = -1;
+                selectedActionIndex = -1;
             } else {
+                // Edge pages use the compact row-editor positions.
+                int eTop = INSPECTOR_Y + 88;
+                int eBottom = INSPECTOR_Y + 104;
+                condTypeBox.setY(eTop); condTargetBox.setY(eTop);
+                condOperatorBox.setY(eBottom); condValueBox.setY(eBottom);
+                condAddButton.setY(eBottom); condRemoveButton.setY(eBottom);
                 syncingInspector = true;
                 try {
                     questActionBox.setValue(model.getSelectedEdgeStartQuest());
+                    edgeTextBox.setValue(edge.getText() != null ? edge.getText() : "");
+                    edgeTextKeyBox.setValue(edge.getTextKey() != null ? edge.getTextKey() : "");
+                    edgeTargetBox.setValue(edge.getTargetNodeId() != null ? edge.getTargetNodeId() : "");
+                    edgeOnceOnlyButton.setMessage(Component.literal(
+                            "Once-only: " + (edge.isOnceOnly() ? "on" : "off")));
+                    var conds = model.getSelectedEdgeConditions();
+                    if (selectedConditionIndex >= conds.size()) selectedConditionIndex = conds.isEmpty() ? -1 : 0;
+                    if (selectedConditionIndex >= 0) {
+                        DialogueCondition c = conds.get(selectedConditionIndex);
+                        condTypeBox.setValue(c.getType().name());
+                        condTargetBox.setValue(c.getTarget());
+                        condOperatorBox.setValue(c.getOperator());
+                        condValueBox.setValue(c.getValue());
+                    } else {
+                        condTypeBox.setValue(""); condTargetBox.setValue("");
+                        condOperatorBox.setValue(""); condValueBox.setValue("");
+                    }
+                    var acts = model.getSelectedEdgeActions();
+                    if (selectedActionIndex >= acts.size()) selectedActionIndex = acts.isEmpty() ? -1 : 0;
+                    if (selectedActionIndex >= 0) {
+                        DialogueAction a = acts.get(selectedActionIndex);
+                        actTypeBox.setValue(a.getType().name());
+                        actTargetBox.setValue(a.getTarget());
+                        actValueBox.setValue(a.getValue());
+                    } else {
+                        actTypeBox.setValue(""); actTargetBox.setValue(""); actValueBox.setValue("");
+                    }
                 } finally {
                     syncingInspector = false;
                 }
@@ -247,10 +662,9 @@ public class DialogueEditorScreen extends Screen {
         return Math.min(INSPECTOR_MAX_H, Math.max(INSPECTOR_MIN_H, height - INSPECTOR_Y - 16));
     }
 
-    /** Inspector occupies the right side while a node OR an edge is selected — canvas clicks there must not deselect. */
+    /** Inspector is always on the right edge (dialogue inspector when nothing
+     *  is selected) — canvas clicks there must never reach the canvas. */
     private boolean insideInspector(double mouseX, double mouseY) {
-        if (model.getEditorState().getSelectedNodeId() == null
-                && model.getEditorState().getSelectedEdge() == null) return false;
         int panelX = width - INSPECTOR_W - 10;
         return mouseX >= panelX && mouseX <= panelX + INSPECTOR_W
                 && mouseY >= INSPECTOR_Y && mouseY <= INSPECTOR_Y + inspectorHeight();
@@ -365,9 +779,9 @@ public class DialogueEditorScreen extends Screen {
             }
         }
 
-        // Render Top Bar
-        graphics.fill(0, 0, width, 40, 0xDD0F172A);
-        graphics.renderOutline(0, 0, width, 40, 0xFF334155);
+        // Render Top Bar (two rows)
+        graphics.fill(0, 0, width, TOOLBAR_H, 0xDD0F172A);
+        graphics.renderOutline(0, 0, width, TOOLBAR_H, 0xFF334155);
         // Title sits in the gap between the two button groups — cap it so it
         // can never render underneath the Save/Close buttons on narrow windows.
         int titleMaxW = Math.max(0, width - 130 - 6 - 250);
@@ -392,6 +806,9 @@ public class DialogueEditorScreen extends Screen {
         renderInspector(graphics);
 
         super.render(graphics, mouseX, mouseY, partialTick);
+
+        // Overlay panes draw above widgets
+        renderPane(graphics);
     }
 
     private void renderGrid(GuiGraphics graphics, double panX, double panY, double zoom) {
@@ -415,7 +832,6 @@ public class DialogueEditorScreen extends Screen {
         }
         String selectedId = model.getEditorState().getSelectedNodeId();
         VisualEdge selEdge = model.getEditorState().getSelectedEdge();
-        if (selectedId == null && selEdge == null) return;
 
         int panelX = width - INSPECTOR_W - 10;
         int panelY = INSPECTOR_Y;
@@ -423,21 +839,50 @@ public class DialogueEditorScreen extends Screen {
         graphics.fill(panelX, panelY, panelX + INSPECTOR_W, panelY + inspectorHeight(), 0xEE0F172A);
         graphics.renderOutline(panelX, panelY, INSPECTOR_W, inspectorHeight(), 0xFF38BDF8);
 
+        if (selectedId == null && selEdge == null) {
+            // Dialogue-level inspector — title key + availability conditions.
+            graphics.drawString(this.font, "Dialogue Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
+            graphics.drawString(this.font, "title key:", panelX + 10, panelY + 48, 0xFF64748B, false);
+            graphics.drawString(this.font, "Availability (all must hold):", panelX + 10, panelY + 60,
+                    0xFF94A3B8, false);
+            List<DialogueCondition> conds = model.getAvailability();
+            int rowY = panelY + 66;
+            for (int i = 0; i < Math.min(conds.size(), 4); i++) {
+                DialogueCondition c = conds.get(i);
+                boolean sel = i == selectedConditionIndex;
+                if (sel) {
+                    graphics.fill(panelX + 6, rowY - 1, panelX + INSPECTOR_W - 6, rowY + 10, 0x3338BDF8);
+                }
+                String row = c.getType().name() + " " + c.getTarget() + " " + c.getOperator()
+                        + " " + c.getValue();
+                graphics.drawString(this.font,
+                        this.font.plainSubstrByWidth((i + 1) + ". " + row, INSPECTOR_W - 24),
+                        panelX + 10, rowY, sel ? 0xFF38BDF8 : 0xFFCBD5E1, false);
+                rowY += 11;
+            }
+            if (conds.isEmpty()) {
+                graphics.drawString(this.font, "none — + adds a row", panelX + 10, rowY, 0xFF64748B, false);
+            } else if (conds.size() > 4) {
+                graphics.drawString(this.font, "+" + (conds.size() - 4) + " more",
+                        panelX + 10, rowY, 0xFF64748B, false);
+            }
+            return;
+        }
+
         if (selEdge != null) {
             graphics.drawString(this.font, "Edge Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
-            String endpoints = selEdge.getSourceNodeId() + " -> " + selEdge.getTargetNodeId();
-            graphics.drawString(this.font,
-                    this.font.plainSubstrByWidth(endpoints, INSPECTOR_W - 20),
-                    panelX + 10, panelY + 24, 0xFFE2E8F0, false);
-            graphics.drawString(this.font, "Option text:", panelX + 10, panelY + 38, 0xFF94A3B8, false);
-            // Long option text must not wrap down into the action widgets below
-            graphics.enableScissor(panelX, panelY + 46, panelX + INSPECTOR_W, panelY + 78);
-            graphics.drawWordWrap(this.font, Component.literal(selEdge.getText()),
-                    panelX + 10, panelY + 48, INSPECTOR_W - 20, 0xFFCBD5E1);
-            graphics.disableScissor();
-            graphics.drawString(this.font, "Actions — START_QUEST:", panelX + 10, panelY + 82, 0xFF94A3B8, false);
-            if (questWarning != null) {
-                graphics.drawString(this.font, questWarning, panelX + 10, panelY + 110, 0xFFFBBF24, false);
+            if (edgePage == 0) {
+                graphics.drawString(this.font, "Option text / flags:", panelX + 10, panelY + 40,
+                        0xFF94A3B8, false);
+                graphics.drawString(this.font, "Quest (START_QUEST):", panelX + 10, panelY + 98,
+                        0xFF94A3B8, false);
+                if (questWarning != null) {
+                    graphics.drawString(this.font, questWarning, panelX + 10, panelY + 116, 0xFFFBBF24, false);
+                }
+            } else {
+                String label = edgePage == 1 ? "Conditions (all must hold):" : "Actions (run on choice):";
+                graphics.drawString(this.font, label, panelX + 10, panelY + 40, 0xFF94A3B8, false);
+                renderEdgeRows(graphics, selEdge, panelX, panelY);
             }
             return;
         }
@@ -446,15 +891,124 @@ public class DialogueEditorScreen extends Screen {
         if (node == null) return;
 
         graphics.drawString(this.font, "Node Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
-        graphics.drawString(this.font, "ID: " + node.getId(), panelX + 10, panelY + 26, 0xFFE2E8F0, false);
-        graphics.drawString(this.font, "Pos: (" + (int)node.getX() + ", " + (int)node.getY() + ")   Entry: " + node.isEntryNode(),
-                panelX + 10, panelY + 40, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "id:", panelX + 10, panelY + 26, 0xFF64748B, false);
+        graphics.drawString(this.font, "x:", panelX + 10, panelY + 42, 0xFF64748B, false);
+        graphics.drawString(this.font, "y:", panelX + 106, panelY + 42, 0xFF64748B, false);
+        if (node.isEntryNode()) {
+            graphics.drawString(this.font, "entry", panelX + INSPECTOR_W - 34, panelY + 26,
+                    0xFF4ADE80, false);
+        }
         graphics.drawString(this.font, "Speaker:", panelX + 10, panelY + 56, 0xFF94A3B8, false);
         graphics.drawString(this.font, "Sound:", panelX + 10, panelY + 72, 0xFF94A3B8, false);
         if (soundWarning != null) {
-            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 88, 0xFFFBBF24, false);
+            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 84, 0xFFFBBF24, false);
         }
-        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 100, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "key:", panelX + 10, panelY + 92, 0xFF64748B, false);
+        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 106, 0xFF94A3B8, false);
+    }
+
+    /** Renders the condition/action row list for the active edge-inspector page. */
+    private void renderEdgeRows(GuiGraphics graphics, VisualEdge edge, int panelX, int panelY) {
+        List<String> rows = new java.util.ArrayList<>();
+        if (edgePage == 1) {
+            for (DialogueCondition c : edge.getConditions()) {
+                rows.add(c.getType().name() + " " + c.getTarget() + " " + c.getOperator() + " " + c.getValue());
+            }
+        } else {
+            for (DialogueAction a : edge.getActions()) {
+                rows.add(a.getType().name() + " " + a.getTarget() + " " + a.getValue());
+            }
+        }
+        int selected = edgePage == 1 ? selectedConditionIndex : selectedActionIndex;
+        int rowY = panelY + 46;
+        for (int i = 0; i < Math.min(rows.size(), 4); i++) {
+            boolean sel = i == selected;
+            if (sel) {
+                graphics.fill(panelX + 6, rowY - 1, panelX + INSPECTOR_W - 6, rowY + 10, 0x3338BDF8);
+            }
+            graphics.drawString(this.font,
+                    this.font.plainSubstrByWidth((i + 1) + ". " + rows.get(i), INSPECTOR_W - 24),
+                    panelX + 10, rowY, sel ? 0xFF38BDF8 : 0xFFCBD5E1, false);
+            rowY += 11;
+        }
+        if (rows.size() > 4) {
+            graphics.drawString(this.font, "+" + (rows.size() - 4) + " more",
+                    panelX + 10, rowY, 0xFF64748B, false);
+        }
+        if (rows.isEmpty()) {
+            graphics.drawString(this.font, "none — + adds a row", panelX + 10, rowY, 0xFF64748B, false);
+        }
+    }
+
+    /**
+     * Overlay panes for validation diagnostics and the authoring preview.
+     * Diagnostics rows are clickable — a row selects the node it references.
+     */
+    private void renderPane(GuiGraphics graphics) {
+        if (!diagnosticsOpen && !previewOpen) return;
+        int paneW = Math.min(360, width - 40);
+        int paneH = Math.min(260, height - 80);
+        int x = (width - paneW) / 2;
+        int y = (height - paneH) / 2;
+        graphics.fill(x - 2, y - 2, x + paneW + 2, y + paneH + 2, 0xFF38BDF8);
+        graphics.fill(x, y, x + paneW, y + paneH, 0xF0101420);
+        diagRowHitY.clear();
+        diagRowHitNode.clear();
+        if (diagnosticsOpen) {
+            graphics.drawString(this.font, "Diagnostics (click a row to select; Esc closes)",
+                    x + 8, y + 8, 0xFF38BDF8, false);
+            int rowY = y + 24;
+            if (diagnostics.isEmpty()) {
+                graphics.drawString(this.font, "No problems detected.", x + 8, rowY, 0xFF4ADE80, false);
+            }
+            for (DiagnosticError d : diagnostics) {
+                if (rowY > y + paneH - 14) break;
+                String nodeId = DialogueEditorScreenModel.referencedNodeId(d);
+                String line = (nodeId != null ? nodeId + ": " : "")
+                        + "[" + d.code() + "] " + d.message();
+                graphics.drawString(this.font, this.font.plainSubstrByWidth(line, paneW - 16),
+                        x + 8, rowY, d.severity() == DiagnosticError.Severity.ERROR
+                                ? 0xFFFCA5A5 : 0xFFFDE68A, false);
+                diagRowHitY.add(new int[]{rowY - 2, rowY + 9});
+                diagRowHitNode.add(nodeId);
+                rowY += 11;
+            }
+        } else {
+            graphics.drawString(this.font, "Preview (entry-first walkthrough; Esc closes)",
+                    x + 8, y + 8, 0xFF38BDF8, false);
+            var prev = model.preview();
+            int rowY = y + 24;
+            if (prev.lines().isEmpty()) {
+                graphics.drawString(this.font, prev.valid()
+                                ? "Empty graph or no entry node."
+                                : "Validation failed — see Diagnostics.",
+                        x + 8, rowY, 0xFF94A3B8, false);
+            }
+            for (var line : prev.lines()) {
+                if (rowY > y + paneH - 14) break;
+                String head = (line.entry() ? "> " : "  ") + line.nodeId()
+                        + (line.speaker() != null && !line.speaker().isBlank()
+                                ? " (" + line.speaker() + ")" : "")
+                        + ": " + line.text();
+                graphics.drawString(this.font, this.font.plainSubstrByWidth(head, paneW - 16),
+                        x + 8, rowY, line.entry() ? 0xFF4ADE80 : 0xFFE2E8F0, false);
+                rowY += 11;
+                for (String opt : line.options()) {
+                    if (rowY > y + paneH - 14) break;
+                    graphics.drawString(this.font,
+                            this.font.plainSubstrByWidth("    - " + opt, paneW - 20),
+                            x + 12, rowY, 0xFF94A3B8, false);
+                    rowY += 11;
+                }
+            }
+        }
+    }
+
+    /** Pane bounds used by both rendering and click hit-testing. */
+    private int[] paneBounds() {
+        int paneW = Math.min(360, width - 40);
+        int paneH = Math.min(260, height - 80);
+        return new int[]{(width - paneW) / 2, (height - paneH) / 2, paneW, paneH};
     }
 
     /**
@@ -484,8 +1038,55 @@ public class DialogueEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // An open pane owns the click space: rows select, inside consumes, outside closes.
+        if (diagnosticsOpen || previewOpen) {
+            int[] pb = paneBounds();
+            boolean insidePane = mouseX >= pb[0] && mouseX <= pb[0] + pb[2]
+                    && mouseY >= pb[1] && mouseY <= pb[1] + pb[3];
+            if (insidePane && diagnosticsOpen) {
+                for (int i = 0; i < diagRowHitY.size(); i++) {
+                    int[] band = diagRowHitY.get(i);
+                    String nodeId = diagRowHitNode.get(i);
+                    if (nodeId != null && mouseY >= band[0] && mouseY <= band[1]) {
+                        model.getEditorState().setSelectedNodeId(nodeId);
+                        centerOnSelection();
+                        syncInspectorWidgets();
+                    }
+                }
+            }
+            if (!insidePane) {
+                diagnosticsOpen = false;
+                previewOpen = false;
+            }
+            return true;
+        }
+        // Inspector row clicks (condition/action lists) select the row. The
+        // dialogue inspector's availability list starts lower than the edge's.
+        VisualEdge selEdge = model.getEditorState().getSelectedEdge();
+        boolean dialogueRows = model.getEditorState().getSelectedNodeId() == null && selEdge == null;
+        if ((dialogueRows || (selEdge != null && edgePage > 0)) && insideInspector(mouseX, mouseY)) {
+            int panelX = width - INSPECTOR_W - 10;
+            double listTop = dialogueRows ? 66 : 44;
+            double relY = mouseY - INSPECTOR_Y;
+            if (mouseX >= panelX + 6 && mouseX <= panelX + INSPECTOR_W - 6
+                    && relY >= listTop && relY < listTop + 4 * 11) {
+                int idx = (int) ((relY - listTop) / 11);
+                int size = dialogueRows ? model.getAvailability().size()
+                        : edgePage == 1 ? model.getSelectedEdgeConditions().size()
+                        : model.getSelectedEdgeActions().size();
+                if (idx < size) {
+                    if (dialogueRows || edgePage == 1) {
+                        selectedConditionIndex = idx;
+                    } else {
+                        selectedActionIndex = idx;
+                    }
+                    syncInspectorWidgets();
+                    return true;
+                }
+            }
+        }
         // Inspector clicks must reach its widgets, not the canvas — otherwise they would deselect
-        if (mouseY > 40 && !insideInspector(mouseX, mouseY)) {
+        if (mouseY > TOOLBAR_H && !insideInspector(mouseX, mouseY)) {
             VisualNode hit = model.getEditorState().findNodeAtScreen(mouseX, mouseY);
             if (hit != null) {
                 if (model.getEditorState().getConnectingSourceNodeId() != null) {
@@ -554,6 +1155,67 @@ public class DialogueEditorScreen extends Screen {
             model.getEditorState().zoomOut();
         }
         return true;
+    }
+
+    /**
+     * Keyboard surface (P5-3): Ctrl+Z/Y undo/redo, Tab/Shift-Tab cycle selection,
+     * Ctrl+F search focus, Delete removes the selection (armed-confirm applies),
+     * Ctrl+E exports, Esc closes an open pane before falling through to close.
+     * Text widgets keep their normal editing keys — shortcuts only fire when no
+     * editor field is focused.
+     */
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        boolean textFocused = getFocused() instanceof EditBox
+                || getFocused() instanceof MultiLineEditBox;
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && (diagnosticsOpen || previewOpen)) {
+            diagnosticsOpen = false;
+            previewOpen = false;
+            return true;
+        }
+        if (Screen.hasControlDown() && keyCode == GLFW.GLFW_KEY_F) {
+            setFocused(searchBox);
+            searchBox.setFocused(true);
+            return true;
+        }
+        if (Screen.hasControlDown() && keyCode == GLFW.GLFW_KEY_E && !textFocused) {
+            String json = model.exportJson();
+            this.minecraft.keyboardHandler.setClipboard(json);
+            model.setStatusMessage("Exported " + json.length() + " chars to clipboard");
+            return true;
+        }
+        if (Screen.hasControlDown() && keyCode == GLFW.GLFW_KEY_Z && !textFocused) {
+            if (Screen.hasShiftDown()) model.redo(); else model.undo();
+            syncInspectorWidgets();
+            return true;
+        }
+        if (Screen.hasControlDown() && keyCode == GLFW.GLFW_KEY_Y && !textFocused) {
+            model.redo();
+            syncInspectorWidgets();
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_TAB && !textFocused) {
+            model.cycleSelection(!Screen.hasShiftDown());
+            syncInspectorWidgets();
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ENTER && searchBox != null && getFocused() == searchBox) {
+            model.nextSearchMatch(!Screen.hasShiftDown());
+            centerOnSelection();
+            syncInspectorWidgets();
+            return true;
+        }
+        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !textFocused) {
+            if (model.getEditorState().getSelectedNodeId() != null) {
+                onDeleteNodePressed();
+                return true;
+            }
+            if (model.getEditorState().getSelectedEdge() != null) {
+                onDeleteEdgePressed();
+                return true;
+            }
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override

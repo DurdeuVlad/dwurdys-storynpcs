@@ -52,6 +52,21 @@ public class DialogueGraphLayout {
         updateEntryFlags();
     }
 
+    /**
+     * Re-keys a node under a new id without touching edges — unlike
+     * {@link #removeNode}, attached edges survive for the caller to retarget.
+     */
+    public void renameNodeId(String oldId, String newId) {
+        VisualNode node = nodes.remove(oldId);
+        if (node != null && newId != null && !newId.isBlank() && !nodes.containsKey(newId)) {
+            node.setId(newId);
+            nodes.put(newId, node);
+            updateEntryFlags();
+        } else if (node != null) {
+            nodes.put(oldId, node);
+        }
+    }
+
     public void addEdge(VisualEdge edge) {
         if (edge != null) {
             edges.add(edge);
@@ -68,6 +83,59 @@ public class DialogueGraphLayout {
         for (VisualNode node : nodes.values()) {
             node.setEntryNode(Objects.equals(node.getId(), entryNodeId));
         }
+    }
+
+    /**
+     * Deep copy for undo snapshots (P5-3): nodes, edges, conditions, actions,
+     * and availability are duplicated — the copy shares no mutable state with
+     * the original, so restoring a snapshot can never be corrupted by later
+     * edits on the live layout.
+     */
+    public DialogueGraphLayout deepCopy() {
+        DialogueGraphLayout copy = new DialogueGraphLayout();
+        copy.entryNodeId = entryNodeId;
+        copy.titleKey = titleKey;
+        List<com.storynpcs.domain.dialogue.DialogueCondition> copiedAvailability = new ArrayList<>();
+        for (var condition : availability) {
+            copiedAvailability.add(condition == null ? null
+                    : new com.storynpcs.domain.dialogue.DialogueCondition(
+                            condition.getType(), condition.getTarget(),
+                            condition.getOperator(), condition.getValue()));
+        }
+        copy.availability = copiedAvailability;
+        for (VisualNode node : nodes.values()) {
+            VisualNode n = new VisualNode(node.getId(), node.getText(), node.getX(), node.getY());
+            n.setWidth(node.getWidth());
+            n.setHeight(node.getHeight());
+            n.setSound(node.getSound());
+            n.setSpeaker(node.getSpeaker());
+            n.setTextKey(node.getTextKey());
+            copy.addNode(n);
+        }
+        for (VisualEdge edge : edges) {
+            VisualEdge e = new VisualEdge(edge.getSourceNodeId(), edge.getTargetNodeId(), edge.getText());
+            e.setCyclic(edge.isCyclic());
+            e.setOnceOnly(edge.isOnceOnly());
+            e.setTextKey(edge.getTextKey());
+            List<com.storynpcs.domain.dialogue.DialogueCondition> copiedConditions = new ArrayList<>();
+            for (var condition : edge.getConditions()) {
+                copiedConditions.add(condition == null ? null
+                        : new com.storynpcs.domain.dialogue.DialogueCondition(
+                                condition.getType(), condition.getTarget(),
+                                condition.getOperator(), condition.getValue()));
+            }
+            e.setConditions(copiedConditions);
+            List<com.storynpcs.domain.dialogue.DialogueAction> copiedActions = new ArrayList<>();
+            for (var action : edge.getActions()) {
+                copiedActions.add(action == null ? null
+                        : new com.storynpcs.domain.dialogue.DialogueAction(
+                                action.getType(), action.getTarget(), action.getValue()));
+            }
+            e.setActions(copiedActions);
+            copy.addEdge(e);
+        }
+        copy.recalculateCycles();
+        return copy;
     }
 
     public static DialogueGraphLayout fromDialogueGraph(DialogueGraph graph) {

@@ -146,6 +146,44 @@ class DialogueGraphLayoutTest {
     }
 
     @Test
+    @DisplayName("deepCopy copies mutable lists — mutating the copy leaves the source untouched")
+    void testDeepCopyIsolation() {
+        DialogueGraphLayout layout = new DialogueGraphLayout();
+        VisualNode a = new VisualNode("a", "A", 0, 0);
+        VisualNode b = new VisualNode("b", "B", 200, 0);
+        layout.addNode(a);
+        layout.addNode(b);
+        VisualEdge edge = new VisualEdge("a", "b", "go");
+        edge.setOnceOnly(true);
+        edge.getConditions().add(new com.storynpcs.domain.dialogue.DialogueCondition(
+                com.storynpcs.domain.dialogue.DialogueCondition.Type.QUEST_STATUS,
+                "storynpcs:q", "==", "DONE"));
+        edge.getActions().add(new com.storynpcs.domain.dialogue.DialogueAction(
+                com.storynpcs.domain.dialogue.DialogueAction.Type.START_QUEST, "storynpcs:q", ""));
+        layout.addEdge(edge);
+        layout.setTitleKey("key");
+
+        DialogueGraphLayout copy = layout.deepCopy();
+        assertNotSame(layout, copy);
+        // Mutate the copy at every level — source must not change
+        copy.getNodes().get("a").setText("MUTATED");
+        copy.getEdges().get(0).getConditions().get(0).setTarget("mutated:q");
+        copy.getEdges().get(0).getActions().clear();
+        copy.getEdges().get(0).setText("mutated");
+        copy.setTitleKey("mutated");
+
+        assertEquals("A", layout.getNodes().get("a").getText());
+        assertEquals("storynpcs:q", layout.getEdges().get(0).getConditions().get(0).getTarget());
+        assertEquals(1, layout.getEdges().get(0).getActions().size());
+        assertEquals("go", layout.getEdges().get(0).getText());
+        assertEquals("key", layout.getTitleKey());
+
+        // And the copy itself round-trips through the domain graph
+        DialogueGraph reexported = copy.toDialogueGraph(NamespacedId.of("test:copy"), "Copy");
+        assertTrue(reexported.getNode("a").orElseThrow().getOptions().get(0).isOnceOnly());
+    }
+
+    @Test
     @DisplayName("Canvas coordinate transformations with pan and zoom")
     void testCoordinateTransformations() {
         double panX = 100;
