@@ -134,6 +134,9 @@ public class StoryNpcs {
 
     public StoryNpcs(IEventBus modEventBus, ModContainer modContainer) {
         LOGGER.info("Dwurdy's StoryNPCs initializing...");
+        // #125/ADR-008: the pinned script engine must resolve at boot — fail
+        // loudly rather than degrade the script host silently (P9-2 consumes it).
+        com.storynpcs.script.ScriptEnginePin.assertAvailable();
 
         this.registry = new DefinitionRegistry();
         this.loader = new YamlDefinitionLoader(registry);
