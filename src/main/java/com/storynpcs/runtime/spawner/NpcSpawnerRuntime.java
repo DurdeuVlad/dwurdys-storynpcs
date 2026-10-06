@@ -385,6 +385,24 @@ public final class NpcSpawnerRuntime {
         return null;
     }
 
+    /**
+     * Drops the cached and durable ledger for a spawner — used when the rule
+     * itself is being replaced wholesale (canonical delete does the same via
+     * the store) or by tests that must prove fresh-spawn behavior against a
+     * world whose durable records persist across runs.
+     */
+    public void resetState(NamespacedId spawnerId) {
+        states.remove(spawnerId.toString());
+        var s = store.get();
+        if (s != null) {
+            try {
+                s.delete(spawnerId);
+            } catch (java.io.IOException e) {
+                LOGGER.warn("Could not reset spawner state {}: {}", spawnerId, e.getMessage());
+            }
+        }
+    }
+
     private SpawnerRuntimeState stateFor(NamespacedId spawnerId) {
         String key = spawnerId.toString();
         var cached = states.get(key);

@@ -21,6 +21,62 @@ public final class RuntimeSessionRegistry {
     private final Map<UUID, RoleSession> roleSessions = new ConcurrentHashMap<>();
     private final Map<UUID, EntitySession> entitySessions = new ConcurrentHashMap<>();
     private final Map<UUID, LinkedHashMap<UUID, Boolean>> acceptedRequests = new ConcurrentHashMap<>();
+    private final Map<UUID, PendingToolConfirmation> pendingToolConfirmations = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> selectedTeleportEntities = new ConcurrentHashMap<>();
+
+    /**
+     * Armed destructive-tool operation (P8-2): the first click stores a
+     * bounded confirmation; only a matching second click inside the TTL
+     * executes — a stray click can never silently destroy a target.
+     */
+    public record PendingToolConfirmation(String tool, int targetEntityId, long expiryMillis) {}
+
+    public void armToolConfirmation(UUID playerId, String tool, int targetEntityId, long ttlMillis) {
+        if (playerId != null && tool != null) {
+            pendingToolConfirmations.put(playerId,
+                    new PendingToolConfirmation(tool, targetEntityId, System.currentTimeMillis() + ttlMillis));
+        }
+    }
+
+    /**
+     * Returns the pending confirmation when it matches the tool and target and
+     * has not expired — the pending entry is always consumed (match or not),
+     * so a stale confirmation can never fire on a later different target.
+     */
+    public PendingToolConfirmation consumeToolConfirmation(UUID playerId, String tool,
+                                                         int targetEntityId, long nowMillis) {
+        if (playerId == null) {
+            return null;
+        }
+        var pending = pendingToolConfirmations.remove(playerId);
+        if (pending == null || !pending.tool().equals(tool)
+                || pending.targetEntityId() != targetEntityId || pending.expiryMillis() < nowMillis) {
+            return null;
+        }
+        return pending;
+    }
+
+    public void clearToolConfirmation(UUID playerId) {
+        if (playerId != null) {
+            pendingToolConfirmations.remove(playerId);
+        }
+    }
+
+    public void selectTeleportEntity(UUID playerId, int entityId) {
+        if (playerId != null) {
+            selectedTeleportEntities.put(playerId, entityId);
+        }
+    }
+
+    public Integer selectedTeleportEntity(UUID playerId) {
+        return playerId == null ? null : selectedTeleportEntities.get(playerId);
+    }
+
+    public void clearSelectedTeleportEntity(UUID playerId) {
+        if (playerId != null) {
+            selectedTeleportEntities.remove(playerId);
+        }
+    }
 
     public record RoleSession(String kind, NamespacedId npcId, UUID sessionId) {}
 
@@ -178,6 +234,8 @@ public final class RuntimeSessionRegistry {
         roleSessions.remove(playerId);
         entitySessions.remove(playerId);
         acceptedRequests.remove(playerId);
+        pendingToolConfirmations.remove(playerId);
+        selectedTeleportEntities.remove(playerId);
     }
 
     public void clearAll() {
@@ -190,6 +248,8 @@ public final class RuntimeSessionRegistry {
         roleSessions.clear();
         entitySessions.clear();
         acceptedRequests.clear();
+        pendingToolConfirmations.clear();
+        selectedTeleportEntities.clear();
     }
 
     private static boolean throttle(Map<UUID, Long> timestamps, UUID playerId, long nowMillis, long minimumIntervalMillis) {

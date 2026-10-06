@@ -24,7 +24,7 @@ public class WaypointPath {
 
     public WaypointPath(PatrolMode mode, List<Waypoint> waypoints) {
         this.mode = mode != null ? mode : PatrolMode.LOOP;
-        this.waypoints = waypoints != null ? new ArrayList<>(waypoints) : new ArrayList<>();
+        setWaypoints(waypoints);
     }
 
     public PatrolMode getMode() { return mode; }
@@ -32,13 +32,41 @@ public class WaypointPath {
 
     public List<Waypoint> getWaypoints() { return Collections.unmodifiableList(waypoints); }
     public void setWaypoints(List<Waypoint> waypoints) {
-        this.waypoints = waypoints != null ? new ArrayList<>(waypoints) : new ArrayList<>();
+        var next = waypoints != null ? new ArrayList<>(waypoints) : new ArrayList<Waypoint>();
+        if (next.size() > MAX_WAYPOINTS) {
+            next = new ArrayList<>(next.subList(0, MAX_WAYPOINTS));
+        }
+        this.waypoints = next;
     }
 
-    public void addWaypoint(Waypoint waypoint) {
-        if (waypoint != null) {
-            this.waypoints.add(waypoint);
+    /** P8-2: waypoints are bounded — the 65th add must be a diagnostic, not silent growth. */
+    public static final int MAX_WAYPOINTS = 64;
+
+    /** Returns false when the path is already at {@link #MAX_WAYPOINTS}. */
+    public boolean addWaypoint(Waypoint waypoint) {
+        if (waypoint == null || waypoints.size() >= MAX_WAYPOINTS) {
+            return false;
         }
+        waypoints.add(waypoint);
+        return true;
+    }
+
+    /** Moves the waypoint at {@code index}; returns false for an invalid index. */
+    public boolean moveWaypoint(int index, Waypoint waypoint) {
+        if (waypoint == null || index < 0 || index >= waypoints.size()) {
+            return false;
+        }
+        waypoints.set(index, waypoint);
+        return true;
+    }
+
+    /** Removes the waypoint at {@code index}; returns false for an invalid index. */
+    public boolean removeWaypoint(int index) {
+        if (index < 0 || index >= waypoints.size()) {
+            return false;
+        }
+        waypoints.remove(index);
+        return true;
     }
 
     public int size() {

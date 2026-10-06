@@ -39,6 +39,15 @@ public final class StoryNpcsItems {
     public static final DeferredHolder<Item, NbtBookItem> NBT_BOOK =
             ITEMS.register("nbt_book", () -> new NbtBookItem(new Item.Properties().stacksTo(1).rarity(Rarity.RARE)));
 
+    public static final DeferredHolder<Item, NpcTeleporterItem> NPC_TELEPORTER =
+            ITEMS.register("npc_teleporter", () -> new NpcTeleporterItem(new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON)));
+
+    public static final DeferredHolder<Item, NpcRemoverItem> NPC_REMOVER =
+            ITEMS.register("npc_remover", () -> new NpcRemoverItem(new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON)));
+
+    public static final DeferredHolder<Item, NpcSoulStoneItem> NPC_SOULSTONE =
+            ITEMS.register("npc_soulstone", () -> new NpcSoulStoneItem(new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON)));
+
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> STORYNPCS_TAB =
             CREATIVE_MODE_TABS.register("storynpcs_tab", () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.storynpcs"))
@@ -50,6 +59,9 @@ public final class StoryNpcsItems {
                         output.accept(NPC_MOUNTER.get());
                         output.accept(NPC_DIALOGUE_WAND.get());
                         output.accept(NBT_BOOK.get());
+                        output.accept(NPC_TELEPORTER.get());
+                        output.accept(NPC_REMOVER.get());
+                        output.accept(NPC_SOULSTONE.get());
                     })
                     .build());
 

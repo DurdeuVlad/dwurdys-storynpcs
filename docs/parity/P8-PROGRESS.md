@@ -12,13 +12,20 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 - `NpcSpawnerRuntime`: staggered 20-tick evaluation; spawn only when the anchor chunk is loaded; owned-actor ledger via the `TemplateSpawner` persistent-data key + `EntityLeaveLevelEvent` resolution; `cleanupOnChunkUnload` discards on unload; `respawnOnDeath=false` permanently consumes quota slots; a 400-tick missing-grace releases dead-in-unloaded-chunk actors; spawn definitions are instantiated lazily once per rule under `storynpcs:spawned/<path>` via canonical `npc.create` (system actor) — clone-spawns share one definition rather than polluting the registry.
 - `SpawnerRuntimeStore` (`IndexedRecordStore`, `storynpcs/spawner_state/`): owned UUIDs, last spawn tick, deaths, instantiated definition id — durable per change so restart enforces quotas against surviving actors; stale records prune on a bounded cadence.
 - `NpcSpawnerLifecycleEvent` audit events: spawned, released-death, released-unload-cleanup, released-despawned, released-missing-grace, state-pruned.
+- Canonical `spawner.delete` clears the durable+cached runtime ledger via `spawnerDeleteListener` → `NpcSpawnerRuntime.resetState` — a recreated same-id spawner can never inherit orphaned quota debt.
 - Live evidence: `templateSpawnerSpawnsOwnedNpcInLiveWorld` GameTest (12/12 pass) — real ServerLevel spawn, owner-tag binding, quota-1 never exceeded, `storynpcs:spawned/` definition resolution.
 
 ## P8-2 — Movement/utility tools
 
-- `WaypointPath`: ≤64 waypoints, add/move/delete with explicit index validation, LOOP/PING_PONG/ONCE traversal.
-- `MountPolicy`: rejects SELF/CYCLE/STACK_TOO_DEEP/PASSENGER_ALREADY_MOUNTED (depth ≤4).
-- Selection sessions already managed via RuntimeSessionRegistry — no static maps added.
+- `domain.ai.WaypointPath`: ≤64 waypoints (add returns false at the cap — a diagnostic, never silent growth; oversized loads truncate at the model boundary); `moveWaypoint`/`removeWaypoint` with index diagnostics; LOOP/PING_PONG/ONCE traversal.
+- `NpcPathItem`: op-2 select/append/clear via canonical `npc.mutate` + cap diagnostic surfacing; `npc path list|add|move|delete|mode|clear` commands cover the full editing vocabulary through the same canonical path with pre-validation (a rejected op never writes a no-op revision bump) + live `applyDefinition` refresh.
+- `NpcMounterItem`: `MountPolicy.check` runs against the live mount graph (`mountChain` builds the passenger→vehicle edges the policy needs) — rejects SELF/CYCLE/STACK_TOO_DEEP(≤4)/PASSENGER_ALREADY_MOUNTED before `startRiding`; chair seating also enforces the already-mounted gate; sneak-click dismount/eject audited.
+- `NpcTeleporterItem` (`npc_teleporter`): op-2 click-NPC select → click-block teleport; sneak clears; stale selection recovers with a diagnostic; `npc teleport <npc_id> <pos>` command maps the same op.
+- `NpcRemoverItem` (`npc_remover`): op-2 two-click confirm (10s TTL via `RuntimeSessionRegistry` pending-tool confirmations — mismatching second clicks consume fail-closed, expiry cannot execute) → live `discard`; definition preserved.
+- `NpcSoulStoneItem` (`npc_soulstone`): op-2 two-click capture binds the definition id into the stack's `CUSTOM_DATA` component and despawns the live NPC; block-click redeploys via `StoryNpcRegistry.create` + `setDefinitionId` (stale bindings rejected with a diagnostic).
+- `CreatorToolAuditEvent` (`tool, action, playerUuid, target, outcome`) published on every consequential op: waypoint.add/clear, mount/seat apply+reject, dismount/eject, teleport, despawn, soulstone capture/deploy.
+- Selections live in `RuntimeSessionRegistry` (per-server instance, per-player keys — no mutable static maps; `clearPlayer` drops them on logout).
+- Live evidence: `mountPolicyGatesLiveMountStack` GameTest — real 3-deep mount stack accepts a legal rider while bottom→top is refused CYCLE, a mounted passenger is refused PASSENGER_ALREADY_MOUNTED, self-mount is refused SELF.
 
 ## P8-3 — World tools
 
@@ -44,11 +51,11 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## Explicit limits
 
-- P8-2..P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet (P8-1 spawner runtime is wired; the rest are not).
+- P8-1 and P8-2 are wired end-to-end (runtime, items, commands, audit, durable state). P8-3..P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet.
 - Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; spawner runtime state via the durable `IndexedRecordStore` ledger.
 - A spawner whose template is deleted keeps spawning from its last-instantiated definition (snapshot semantics); deleting a spawner stops future spawns but leaves already-spawned actors in-world — both are surfaced explicitly.
 - Placement uses a seeded `RandomSource` (deterministic per rule+tick sequence); quota/interval/chunk/unload rules are deterministic.
 
 ## Verification
 
-`./gradlew test`: 1253 tests, 0 failures, 1 skipped. `./gradlew runGameTestServer`: 12/12 pass (includes the live spawner fixture). `git diff --check` clean.
+`./gradlew test`: 1259 tests, 0 failures. `./gradlew runGameTestServer`: 13/13 pass (live spawner + live mount-policy fixtures). `git diff --check` clean.

@@ -386,6 +386,7 @@ public class StoryNpcs {
     public void setApplicationService(StoryNpcsApplicationService applicationService) {
         if (applicationService != null) {
             applicationService.setRuntimeTunables(runtimeTunables);
+            applicationService.setSpawnerDeleteListener(spawnerRuntime::resetState);
         }
         this.applicationService = applicationService;
     }

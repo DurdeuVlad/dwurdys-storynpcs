@@ -239,6 +239,64 @@ public final class StoryNpcsCommands {
                                                 .executes(ctx -> despawnNpc(ctx,
                                                         ResourceLocationArgument.getId(ctx, "npc_id"),
                                                         com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "radius"))))))
+                        .then(Commands.literal("teleport")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
+                                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                                .executes(ctx -> teleportNpc(ctx,
+                                                        ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                        net.minecraft.commands.arguments.coordinates.BlockPosArgument.getBlockPos(ctx, "pos"))))))
+                        .then(Commands.literal("path")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.literal("list")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .executes(ctx -> pathList(ctx, ResourceLocationArgument.getId(ctx, "npc_id")))))
+                                .then(Commands.literal("add")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                                        .executes(ctx -> pathMutate(ctx,
+                                                                ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                                net.minecraft.commands.arguments.coordinates.BlockPosArgument.getBlockPos(ctx, "pos"),
+                                                                PathOp.ADD, -1, null)))))
+                                .then(Commands.literal("move")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("index", com.mojang.brigadier.arguments.IntegerArgumentType.integer(0))
+                                                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                                                .executes(ctx -> pathMutate(ctx,
+                                                                        ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                                        net.minecraft.commands.arguments.coordinates.BlockPosArgument.getBlockPos(ctx, "pos"),
+                                                                        PathOp.MOVE,
+                                                                        com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "index"),
+                                                                        null))))))
+                                .then(Commands.literal("delete")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("index", com.mojang.brigadier.arguments.IntegerArgumentType.integer(0))
+                                                        .executes(ctx -> pathMutate(ctx,
+                                                                ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                                null, PathOp.DELETE,
+                                                                com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "index"),
+                                                                null)))))
+                                .then(Commands.literal("mode")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("value", StringArgumentType.string())
+                                                        .suggests((c, b) -> net.minecraft.commands.SharedSuggestionProvider.suggest(
+                                                                java.util.List.of("loop", "ping_pong", "once"), b))
+                                                        .executes(ctx -> pathMutate(ctx,
+                                                                ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                                null, PathOp.MODE, -1,
+                                                                StringArgumentType.getString(ctx, "value"))))))
+                                .then(Commands.literal("clear")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .executes(ctx -> pathMutate(ctx,
+                                                        ResourceLocationArgument.getId(ctx, "npc_id"),
+                                                        null, PathOp.CLEAR, -1, null)))))
                         .then(Commands.literal("set")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.literal("name")
@@ -3713,6 +3771,152 @@ public final class StoryNpcsCommands {
         String targetName = targetNpcId != null ? targetNpcId.toString() : "all";
         source.sendSuccess(() -> Component.literal(String.format("§a[StoryNPCs] Despawned %d in-world '%s' entity(ies) within %.0f blocks.", removedCount, targetName, radius)), true);
         return removedCount;
+    }
+
+    private enum PathOp { ADD, MOVE, DELETE, MODE, CLEAR }
+
+    /** P8-2 teleporter-tool command mapping: move a live NPC to a position. */
+    private static int teleportNpc(CommandContext<CommandSourceStack> ctx, ResourceLocation targetNpcId,
+                                   net.minecraft.core.BlockPos pos) {
+        CommandSourceStack source = ctx.getSource();
+        var level = source.getLevel();
+        List<StoryNpcEntity> entities = level.getEntitiesOfClass(StoryNpcEntity.class,
+                new AABB(
+                        source.getPosition().x - 512, level.getMinBuildHeight(), source.getPosition().z - 512,
+                        source.getPosition().x + 512, level.getMaxBuildHeight(), source.getPosition().z + 512),
+                npc -> targetNpcId.toString().equals(npc.getDefinitionId()) && npc.isAlive());
+        if (entities.isEmpty()) {
+            source.sendFailure(Component.literal(
+                    "[StoryNPCs] No live '" + targetNpcId + "' entity found within 512 blocks."));
+            return 0;
+        }
+        StoryNpcs mod = mod(ctx);
+        var actorUuid = source.getEntity() instanceof ServerPlayer player ? player.getUUID() : null;
+        for (StoryNpcEntity npc : entities) {
+            npc.teleportTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
+            npc.getNavigation().stop();
+            if (mod != null && actorUuid != null && source.getEntity() instanceof ServerPlayer sp) {
+                com.storynpcs.item.CreatorToolAudit.publish(mod, sp, "teleporter", "teleport",
+                        npc.getName().getString(), "applied");
+            }
+        }
+        source.sendSuccess(() -> Component.literal(String.format(
+                "§a[StoryNPCs] Teleported %d '%s' entity(ies) to (%d, %d, %d).",
+                entities.size(), targetNpcId, pos.getX(), pos.getY(), pos.getZ())), true);
+        return entities.size();
+    }
+
+    /** P8-2 path diagnostics: mode, waypoint count, and coordinates for an NPC. */
+    private static int pathList(CommandContext<CommandSourceStack> ctx, ResourceLocation targetNpcId) {
+        NpcDefinition def = requireNpc(ctx, "npc_id");
+        if (def == null) {
+            return 0;
+        }
+        var path = def.getAi() != null ? def.getAi().getWaypointPath() : null;
+        if (path == null || path.size() == 0) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "§e[StoryNPCs] '" + targetNpcId + "' has no waypoints."), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "§a[StoryNPCs] '%s' path: mode=%s, %d/%d waypoints:",
+                targetNpcId, path.getMode(), path.size(),
+                com.storynpcs.domain.ai.WaypointPath.MAX_WAYPOINTS)), false);
+        for (int i = 0; i < path.size(); i++) {
+            var wp = path.getWaypoint(i);
+            int idx = i;
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "  §7#%d: (%.1f, %.1f, %.1f)", idx, wp.x(), wp.y(), wp.z())), false);
+        }
+        return path.size();
+    }
+
+    /** P8-2 canonical path editing: add/move/delete/mode/clear via npc.mutate. */
+    private static int pathMutate(CommandContext<CommandSourceStack> ctx, ResourceLocation targetNpcId,
+                                  net.minecraft.core.BlockPos pos, PathOp op, int index, String mode) {
+        NpcDefinition def = requireNpc(ctx, "npc_id");
+        if (def == null) {
+            return 0;
+        }
+        NamespacedId id = NamespacedId.of(targetNpcId.toString());
+        StoryNpcs mod = mod(ctx);
+        var service = mod.getApplicationService();
+        var path = def.getAi() != null ? def.getAi().getWaypointPath() : null;
+        // Pre-validate so a rejected op never writes a no-op revision bump.
+        String rejection = switch (op) {
+            case ADD -> path != null && path.size() >= com.storynpcs.domain.ai.WaypointPath.MAX_WAYPOINTS
+                    ? String.format("path is full (%d/%d)",
+                            com.storynpcs.domain.ai.WaypointPath.MAX_WAYPOINTS,
+                            com.storynpcs.domain.ai.WaypointPath.MAX_WAYPOINTS) : null;
+            case MOVE, DELETE -> path == null || index < 0 || index >= path.size()
+                    ? "no waypoint at index " + index : null;
+            case MODE -> parsePatrolMode(mode) == null
+                    ? "invalid mode '" + mode + "' (loop|ping_pong|once)" : null;
+            case CLEAR -> null;
+        };
+        if (rejection != null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "§c[StoryNPCs] Path " + op.name().toLowerCase() + " rejected for '" + id + "': " + rejection));
+            return 0;
+        }
+        var result = mutateNpc(ctx, service, id, d -> {
+            if (d.getAi() == null) {
+                d.setAi(new com.storynpcs.domain.npc.NpcAi());
+            }
+            var p = d.getAi().getWaypointPath();
+            switch (op) {
+                case ADD -> {
+                    p.addWaypoint(new com.storynpcs.domain.ai.Waypoint(
+                            pos.getX(), pos.getY(), pos.getZ()));
+                    d.getAi().setMovementType(com.storynpcs.domain.npc.NpcAi.MovementType.PATHING);
+                }
+                case MOVE -> p.moveWaypoint(index, new com.storynpcs.domain.ai.Waypoint(
+                        pos.getX(), pos.getY(), pos.getZ()));
+                case DELETE -> p.removeWaypoint(index);
+                case MODE -> p.setMode(parsePatrolMode(mode));
+                case CLEAR -> p.setWaypoints(new java.util.ArrayList<>());
+            }
+        });
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "§c[StoryNPCs] Failed to persist path for '" + id + "': " + result.formatReport(2)));
+            return 0;
+        }
+        refreshLiveNpcs(ctx, id);
+        if (ctx.getSource().getEntity() instanceof ServerPlayer sp) {
+            com.storynpcs.item.CreatorToolAudit.publish(mod, sp, "path",
+                    "waypoint." + op.name().toLowerCase(), id.toString(), "applied");
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§a[StoryNPCs] Path " + op.name().toLowerCase() + " applied to '" + id + "'."), true);
+        return 1;
+    }
+
+    private static com.storynpcs.domain.ai.WaypointPath.PatrolMode parsePatrolMode(String value) {
+        if (value == null) {
+            return null;
+        }
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "loop" -> com.storynpcs.domain.ai.WaypointPath.PatrolMode.LOOP;
+            case "ping_pong" -> com.storynpcs.domain.ai.WaypointPath.PatrolMode.PING_PONG;
+            case "once" -> com.storynpcs.domain.ai.WaypointPath.PatrolMode.ONCE;
+            default -> null;
+        };
+    }
+
+    /** Re-applies a definition to every live entity after a canonical path mutation. */
+    private static void refreshLiveNpcs(CommandContext<CommandSourceStack> ctx, NamespacedId id) {
+        var server = ctx.getSource().getServer();
+        if (server == null) {
+            return;
+        }
+        for (net.minecraft.server.level.ServerLevel sl : server.getAllLevels()) {
+            for (net.minecraft.world.entity.Entity entity : sl.getAllEntities()) {
+                if (entity instanceof StoryNpcEntity sne && id.toString().equals(sne.getDefinitionId())) {
+                    sne.applyDefinition();
+                }
+            }
+        }
     }
 
     private static int recallFollowers(CommandContext<CommandSourceStack> ctx) {
