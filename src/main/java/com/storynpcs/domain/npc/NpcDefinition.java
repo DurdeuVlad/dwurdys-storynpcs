@@ -70,6 +70,14 @@ public class NpcDefinition {
     @JsonProperty
     private com.storynpcs.domain.role.transporter.TransporterRole transporter;
 
+    /**
+     * Scripts bound to this NPC (P9-2): entity hooks — init, tick, interact,
+     * damaged, killed, target — dispatch only to these script ids. Referenced
+     * scripts must resolve to registered {@code ScriptDefinition}s.
+     */
+    @JsonProperty
+    private List<NamespacedId> scripts = new ArrayList<>();
+
     public NpcDefinition() {}
 
     public NpcDefinition(NamespacedId id, String name) {
@@ -113,6 +121,17 @@ public class NpcDefinition {
     public void setInventory(NpcInventory inventory) {
         if (inventory == null) throw new IllegalArgumentException("inventory cannot be null");
         this.inventory = inventory;
+    }
+
+    public List<NamespacedId> getScripts() { return scripts; }
+    public void setScripts(List<NamespacedId> scripts) {
+        this.scripts = new ArrayList<>();
+        if (scripts == null) return;
+        if (scripts.size() > 8) throw new IllegalArgumentException("scripts cannot exceed 8 entries");
+        for (NamespacedId script : scripts) {
+            if (script == null) throw new IllegalArgumentException("scripts cannot contain null");
+            this.scripts.add(script);
+        }
     }
 
     public List<com.storynpcs.domain.rule.BehaviorRule> getRules() { return rules; }

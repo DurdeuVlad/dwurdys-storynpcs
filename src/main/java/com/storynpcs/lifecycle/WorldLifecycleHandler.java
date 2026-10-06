@@ -402,6 +402,14 @@ public class WorldLifecycleHandler {
             } else {
                 LOGGER.warn("StoryNPCs definitions loaded with warnings/errors:\n{}", result.formatReport());
             }
+            // P9-2: (re)register script definitions with the sandboxed runtime —
+            // enabled scripts compile + init under a metered dispatch; disabled
+            // ones stay registered in the YAML registry but never execute.
+            int scriptCount = mod.getScriptRuntime().reload(
+                    mod.getRegistry().getAllScripts());
+            if (scriptCount > 0) {
+                LOGGER.info("StoryNPCs scripts registered: {}", scriptCount);
+            }
         } catch (Exception e) {
             LOGGER.error("Error loading definitions from {}: {}", definitionsDir, e.getMessage(), e);
         }

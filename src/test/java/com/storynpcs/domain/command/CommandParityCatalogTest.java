@@ -53,11 +53,12 @@ class CommandParityCatalogTest {
         long deviation = CommandParityCatalog.all().stream()
                 .filter(e -> e.getStatus() == CommandParityStatus.INTENTIONAL_DEVIATION).count();
 
-        // P9-3 triaged all 70 leaves: 58 supported, 12 intentional deviations
-        // (chunkloaders x2, font x3, scene tick-set x2, scene pause x2, script x3).
-        assertThat(supported).isEqualTo(58);
+        // P9-3 triaged all 70 leaves; P9-2 delivered the 3 script leaves →
+        // 61 supported, 9 intentional deviations
+        // (chunkloaders x2, font x3, scene tick-set x2, scene pause x2).
+        assertThat(supported).isEqualTo(61);
         assertThat(unverified).isZero();
-        assertThat(deviation).isEqualTo(12);
+        assertThat(deviation).isEqualTo(9);
         assertThat(supported + unverified + deviation).isEqualTo(70);
     }
 

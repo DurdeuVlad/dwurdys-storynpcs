@@ -250,16 +250,16 @@ class MigrationImportTest {
                 schemaVersion: 1
                 id: "storynpcs:scripted"
                 display: { name: "Scripted" }
-                scripts: [ "on_tick.js" ]
+                scriptData: "UEsDBBQAAAAIA=="
                 """);
         ImportPlan plan = importer.plan(yamlSource, ConflictPolicy.FAIL, documents, sink);
-        // `scripts` is recognized-but-unsupported → QUARANTINE (loader fails closed too),
+        // `scriptData` is recognized-but-unsupported → QUARANTINE (loader fails closed too),
         // and the field mapping records UNSUPPORTED explicitly.
         Step step = plan.steps().get(0);
         assertThat(step.resolution()).isEqualTo(Step.Resolution.QUARANTINE);
         assertThat(step.fieldMappings())
                 .anySatisfy(m -> {
-                    assertThat(m.fieldPath()).isEqualTo("scripts");
+                    assertThat(m.fieldPath()).isEqualTo("scriptData");
                     assertThat(m.action()).isEqualTo(FieldMappingRegistry.Action.UNSUPPORTED);
                 });
     }

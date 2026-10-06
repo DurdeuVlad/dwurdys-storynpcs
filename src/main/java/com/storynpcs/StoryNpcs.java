@@ -72,6 +72,8 @@ public class StoryNpcs {
     private final com.storynpcs.admin.RuntimeTunables runtimeTunables;
     /** Bounded script dispatch host (P9-2) — per-instance, never static. */
     private final com.storynpcs.script.ScriptScheduler scriptScheduler;
+    /** Sandboxed script runtime (P9-2) — built lazily once the service exists. */
+    private volatile com.storynpcs.script.ScriptRuntime scriptRuntime;
     /** Actor simulation-tier scheduler (P4-1) — per-instance, never static. */
     private final com.storynpcs.sim.SimulationScheduler simulationScheduler;
     /**
@@ -209,6 +211,11 @@ public class StoryNpcs {
     private void onServerTick(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
         scriptScheduler.beginTick();
         MinecraftServer server = event.getServer();
+        // P9-2: due script timers dispatch inside this tick's aggregate window.
+        var scripts = scriptRuntime;
+        if (scripts != null) {
+            scripts.tick(server.overworld().getGameTime());
+        }
         schematicBuildService.tick();
         spawnerRuntime.tick(server);
         // P8-5: durable timer drain (overworld clock — timers schedule against it)
@@ -359,6 +366,63 @@ public class StoryNpcs {
 
     public com.storynpcs.script.ScriptScheduler getScriptScheduler() {
         return scriptScheduler;
+    }
+
+    /**
+     * The sandboxed script runtime (P9-2), built on first use once the
+     * application service exists. Log lines route to the mod logger.
+     */
+    public com.storynpcs.script.ScriptRuntime getScriptRuntime() {
+        var runtime = scriptRuntime;
+        if (runtime == null) {
+            if (applicationService == null) {
+                throw new IllegalStateException(
+                        "script runtime requires the application service");
+            }
+            synchronized (this) {
+                runtime = scriptRuntime;
+                if (runtime == null) {
+                    runtime = new com.storynpcs.script.ScriptRuntime(
+                            applicationService, scriptScheduler, LOGGER::info);
+                    scriptRuntime = runtime;
+                    // P9-2 event bridge: DIALOG/QUEST hooks are global — every
+                    // registered script declaring them sees the lifecycle
+                    // events. NPC-bound entity hooks dispatch at the entity.
+                    eventPublisher.register(event -> {
+                        var rt = scriptRuntime;
+                        if (rt == null) {
+                            return;
+                        }
+                        if (event instanceof com.storynpcs.api.event.DialogueOpenEvent e) {
+                            rt.dispatch(com.storynpcs.script.ScriptHook.DIALOG,
+                                    com.storynpcs.script.ScriptRuntime.subjectContext(
+                                            com.storynpcs.script.ScriptHook.DIALOG, null,
+                                            e.playerUuid().toString(),
+                                            e.dialogueId().toString(), null, null));
+                        } else if (event instanceof com.storynpcs.api.event.DialogueOptionSelectEvent e) {
+                            rt.dispatch(com.storynpcs.script.ScriptHook.DIALOG,
+                                    com.storynpcs.script.ScriptRuntime.subjectContext(
+                                            com.storynpcs.script.ScriptHook.DIALOG, null,
+                                            e.playerUuid().toString(),
+                                            e.dialogueId().toString(), null, null));
+                        } else if (event instanceof com.storynpcs.api.event.QuestStartEvent e) {
+                            rt.dispatch(com.storynpcs.script.ScriptHook.QUEST,
+                                    com.storynpcs.script.ScriptRuntime.subjectContext(
+                                            com.storynpcs.script.ScriptHook.QUEST, null,
+                                            e.playerUuid().toString(), null,
+                                            e.questId().toString(), null));
+                        } else if (event instanceof com.storynpcs.api.event.QuestCompleteEvent e) {
+                            rt.dispatch(com.storynpcs.script.ScriptHook.QUEST,
+                                    com.storynpcs.script.ScriptRuntime.subjectContext(
+                                            com.storynpcs.script.ScriptHook.QUEST, null,
+                                            e.playerUuid().toString(), null,
+                                            e.questId().toString(), null));
+                        }
+                    });
+                }
+            }
+        }
+        return runtime;
     }
 
     /** Read-only view of the shared live tunable store. */

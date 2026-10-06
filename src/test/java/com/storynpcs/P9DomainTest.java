@@ -72,17 +72,22 @@ class P9DomainTest {
         UUID script = UUID.randomUUID();
         scheduler.register(script, UUID.randomUUID());
         scheduler.beginTick();
-        assertThat(scheduler.dispatch(script, ScriptHook.TICK, () -> {}))
-                .isInstanceOf(ScriptScheduler.DispatchOutcome.Completed.class);
-        assertThat(scheduler.dispatch(script, ScriptHook.TICK, () -> {}))
-                .isInstanceOf(ScriptScheduler.DispatchOutcome.Completed.class);
-        assertThat(scheduler.dispatch(script, ScriptHook.TICK, () -> {}))
-                .isInstanceOf(ScriptScheduler.DispatchOutcome.Completed.class);
-        assertThat(scheduler.dispatch(script, ScriptHook.TICK, () -> {}))
-                .isInstanceOf(ScriptScheduler.DispatchOutcome.Completed.class);
-        // 4ms aggregate exhausted at 4 x 1ms TICK hooks.
-        assertThat(scheduler.dispatch(script, ScriptHook.TICK, () -> {}))
-                .isInstanceOf(ScriptScheduler.DispatchOutcome.Skipped.class);
+        // Actual-charging semantics: each dispatch spends its real elapsed
+        // time against the 4ms window — a ~0.9ms spin (deterministic under
+        // any timer granularity) drains it in 4-6 dispatches, then defers.
+        Runnable spends900us = () -> {
+            long end = System.nanoTime() + 900_000L;
+            while (System.nanoTime() < end) { /* deliberate spin */ }
+        };
+        int ran = 0;
+        ScriptScheduler.DispatchOutcome last = null;
+        for (int i = 0; i < 8; i++) {
+            last = scheduler.dispatch(script, ScriptHook.TICK, spends900us);
+            if (last instanceof ScriptScheduler.DispatchOutcome.Skipped) break;
+            ran++;
+        }
+        assertThat(ran).isBetween(4, 6);
+        assertThat(last).isInstanceOf(ScriptScheduler.DispatchOutcome.Skipped.class);
 
         // Over-budget runner → consecutive failures → quarantined.
         Runnable overflow = () -> {

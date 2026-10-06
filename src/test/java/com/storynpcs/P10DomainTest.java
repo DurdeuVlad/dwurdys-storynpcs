@@ -54,9 +54,10 @@ class P10DomainTest {
         assertThat(bundle.families()).containsKeys("npc", "dialogue", "quest", "faction",
                 "template", "recipe", "transport", "worldTool");
         assertThat(bundle.supports("npc", "display")).isTrue();
-        assertThat(bundle.unsupported("npc", "scripts")).isNotEmpty();   // explicit
-        assertThat(bundle.unsupported("npc", "madeUp")).isNotEmpty();    // not in schema
+        assertThat(bundle.unsupported("npc", "linkedData")).isNotEmpty(); // explicit
+        assertThat(bundle.unsupported("npc", "madeUp")).isNotEmpty();     // not in schema
         assertThat(bundle.unsupported("npc", "display")).isEmpty();
+        assertThat(bundle.unsupported("npc", "scripts")).isEmpty();       // P9-2: bound script ids are schema-supported
     }
 
     @Test
@@ -78,7 +79,7 @@ class P10DomainTest {
         var good = new PatchPlan.PatchOp("create", "npc", "storynpcs:new", "",
                 "{\"id\":\"storynpcs:new\",\"dialogueId\":\"storynpcs:intro\"}", "gen:1");
         var badOp = new PatchPlan.PatchOp("explode", "npc", "storynpcs:new2", "", "{}", "gen:5");
-        var badField = new PatchPlan.PatchOp("set", "npc", "storynpcs:new", "scripts", "x", "gen:9");
+        var badField = new PatchPlan.PatchOp("set", "npc", "storynpcs:new", "linkedData", "x", "gen:9");
         var plan = new PatchPlan("p", 5, List.of(good, badOp, badField));
 
         var report = validator.dryRun(plan, bundle, Set.of("storynpcs:intro"), 5);

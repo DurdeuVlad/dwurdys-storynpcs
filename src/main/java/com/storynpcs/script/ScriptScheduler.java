@@ -100,33 +100,59 @@ public final class ScriptScheduler {
         }
         long hookBudget = hook.budgetClass() == ScriptHook.BudgetClass.TICK
                 ? tickHookNanos() : standardHookNanos();
-        // Per-tick aggregate caps spend, not hook size — a hook with a larger
-        // budget charges what remains this tick and may span multiple ticks.
         long remaining = tickAggregateNanos() - tickNanosUsed;
         if (remaining <= 0) {
             return new DispatchOutcome.Skipped("aggregate tick budget exhausted");
         }
-        tickNanosUsed += Math.min(hookBudget, remaining);
         long startedNanos = System.nanoTime();
         try {
             runner.run();
-            long elapsedNanos = System.nanoTime() - startedNanos;
-            if (elapsedNanos > hookBudget) {
-                // Wall-clock enforcement: the callback completed but consumed
-                // more real time than its class allows — a budget failure even
-                // though the body finished.
-                return recordBudgetFailure(scriptId, handle, "elapsed_nanos");
-            }
-            scripts.put(scriptId, new ScriptHandle(scriptId, handle.actorId(), Status.ACTIVE, 0));
-            return new DispatchOutcome.Completed();
         } catch (ScriptBudget.BudgetExceeded over) {
+            chargeActual(startedNanos, hookBudget);
             return recordBudgetFailure(scriptId, handle, over.metric());
         } catch (RuntimeException failure) {
-            int failures = handle.consecutiveFailures() + 1;
-            Status next = failures >= QUARANTINE_AFTER_FAILURES ? Status.QUARANTINED : Status.ACTIVE;
-            scripts.put(scriptId, new ScriptHandle(scriptId, handle.actorId(), next, failures));
-            return new DispatchOutcome.Skipped("script threw: " + failure.getMessage());
+            chargeActual(startedNanos, hookBudget);
+            return recordRuntimeFailure(scriptId, handle, "script threw: " + failure.getMessage());
+        } catch (OutOfMemoryError | StackOverflowError exhausted) {
+            // A single interpreter step can grow the heap faster than the
+            // instruction observer fires (e.g. string doubling), so raw JS
+            // allocation cannot be hard-bounded. Catching VM exhaustion at
+            // this boundary unwinds the dispatch frame — the script's garbage
+            // becomes reclaimable — and routes through the failure/quarantine
+            // path instead of crashing the server tick. Other Errors are real
+            // bugs and still propagate.
+            chargeActual(startedNanos, hookBudget);
+            return recordRuntimeFailure(scriptId, handle,
+                    "script exhausted vm: " + exhausted.getClass().getSimpleName());
         }
+        long elapsedNanos = chargeActual(startedNanos, hookBudget);
+        if (elapsedNanos > hookBudget) {
+            // Wall-clock enforcement: the callback completed but consumed
+            // more real time than its class allows — a budget failure even
+            // though the body finished.
+            return recordBudgetFailure(scriptId, handle, "elapsed_nanos");
+        }
+        scripts.put(scriptId, new ScriptHandle(scriptId, handle.actorId(), Status.ACTIVE, 0));
+        return new DispatchOutcome.Completed();
+    }
+
+    /**
+     * Charges the dispatch's actual wall-clock cost against the per-tick
+     * aggregate — a hook that finishes in 20 µs spends 20 µs of the window,
+     * not its full budget ceiling. Charging actuals (capped at the hook
+     * budget) keeps many fast dispatches inside one tick.
+     */
+    private long chargeActual(long startedNanos, long hookBudget) {
+        long elapsedNanos = System.nanoTime() - startedNanos;
+        tickNanosUsed += Math.min(elapsedNanos, hookBudget);
+        return elapsedNanos;
+    }
+
+    private DispatchOutcome recordRuntimeFailure(UUID scriptId, ScriptHandle handle, String reason) {
+        int failures = handle.consecutiveFailures() + 1;
+        Status next = failures >= QUARANTINE_AFTER_FAILURES ? Status.QUARANTINED : Status.ACTIVE;
+        scripts.put(scriptId, new ScriptHandle(scriptId, handle.actorId(), next, failures));
+        return new DispatchOutcome.Skipped(reason);
     }
 
     private DispatchOutcome recordBudgetFailure(UUID scriptId, ScriptHandle handle, String metric) {

@@ -133,6 +133,49 @@ public final class AuthorizationPolicy {
         return AuthorizationDecision.allow();
     }
 
+    /**
+     * Scripted-path authorization (P9-2): a {@code script} actor is allowed
+     * exactly when the server-validated grant set (the authored
+     * {@code ScriptDefinition.capabilities}) contains the request operation.
+     * Scripts never gain subject or permission privileges implicitly — the
+     * grant IS the authority, and ungranted operations fail closed.
+     */
+    public static AuthorizationDecision evaluateScripted(
+            PlayerProgressionActionRequest request, java.util.Set<String> grants) {
+        return evaluateScriptGrant(request.actorType(), request.operation(), grants);
+    }
+
+    /** Scripted-path authorization for faction-standing mutations (P9-2). */
+    public static AuthorizationDecision evaluateScripted(
+            FactionProgressionMutationRequest request, java.util.Set<String> grants) {
+        return evaluateScriptGrant(request.actorType(), request.operation(), grants);
+    }
+
+    /** Scripted-path authorization for quest progression mutations (P9-2). */
+    public static AuthorizationDecision evaluateScripted(
+            QuestProgressionMutationRequest request, java.util.Set<String> grants) {
+        return evaluateScriptGrant(request.actorType(), request.operation(), grants);
+    }
+
+    /** Scripted-path authorization for quest completion mutations (P9-2). */
+    public static AuthorizationDecision evaluateScripted(
+            QuestCompletionMutationRequest request, java.util.Set<String> grants) {
+        return evaluateScriptGrant(request.actorType(), request.operation(), grants);
+    }
+
+    private static AuthorizationDecision evaluateScriptGrant(
+            String actorType, String operation, java.util.Set<String> grants) {
+        if (!"script".equals(actorType)) {
+            return AuthorizationDecision.deny("SCRIPT_ACTOR_REQUIRED",
+                    "The scripted boundary requires actor 'script', got '" + actorType + "'.");
+        }
+        if (grants == null || !grants.contains(operation)) {
+            return AuthorizationDecision.deny("SCRIPT_CAPABILITY_NOT_GRANTED",
+                    "Script does not declare capability grant '" + operation + "'.");
+        }
+        return AuthorizationDecision.allow();
+    }
+
     /** Remote mutations fail closed until a server-owned capability-session registry is integrated. */
     public static AuthorizationDecision evaluateRemote(MutationRequest request,
             com.storynpcs.admin.RemoteAccessProof proof, long nowTick) {

@@ -54,6 +54,8 @@ public final class CapabilityRegistry {
             Map.entry("guilayout.delete", Policy.DEFINITION),
             Map.entry("modelpreset.mutate", Policy.DEFINITION),
             Map.entry("modelpreset.delete", Policy.DEFINITION),
+            Map.entry("script.mutate", Policy.DEFINITION),
+            Map.entry("script.delete", Policy.DEFINITION),
             Map.entry("overlay.show", Policy.PLAYER_SCOPED),
             Map.entry("npc.link", Policy.DEFINITION),
             Map.entry("template.edit", Policy.DEFINITION),

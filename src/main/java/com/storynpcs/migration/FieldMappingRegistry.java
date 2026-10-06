@@ -36,9 +36,8 @@ public final class FieldMappingRegistry {
 
     /** Fields that are recognized-but-unsupported across every family. */
     private static final Set<String> UNSUPPORTED_KEYS = Set.of(
-            "scripts",        // P9-2 accepts typed hook bindings, not arbitrary source scripts
             "linkedData",     // CustomNPCs LinkedData class — transform rules cover the use case
-            "scriptData"      // binary script payload
+            "scriptData"      // binary script payload — P9-2 scripts are named YAML definitions
     );
 
     private static final Map<String, Set<String>> KNOWN_KEYS = Map.of(
@@ -46,7 +45,9 @@ public final class FieldMappingRegistry {
                     "mark", "marks", "inventory", "rules", "trader", "banker",
                     // NPC-attached role sections loadable since P6/P8 slices —
                     // importer must not quarantine valid NPC docs carrying them.
-                    "job", "companion", "bard", "healer", "postman", "transporter"),
+                    "job", "companion", "bard", "healer", "postman", "transporter",
+                    // P9-2: typed hook bindings — values migrate as namespaced ids.
+                    "scripts"),
             "dialogue", Set.of("id", "title", "titleKey", "availability", "entryNodeId", "nodes"),
             "quest", Set.of("id", "title", "description", "category", "repeatType",
                     "prerequisites", "objectives", "rewards"),
@@ -58,7 +59,8 @@ public final class FieldMappingRegistry {
     /** Value-level legacy forms the loader migrates (field → note). */
     private static final Map<String, String> VALUE_MIGRATIONS = Map.of(
             "inventory", "legacy string-array form migrates onto visible drop slots at 100% chance",
-            "repeatType", "value ONCE loads as NORMAL"
+            "repeatType", "value ONCE loads as NORMAL",
+            "scripts", "legacy script file paths bind as namespaced script ids — dangling references error at load"
     );
 
     private FieldMappingRegistry() {}
