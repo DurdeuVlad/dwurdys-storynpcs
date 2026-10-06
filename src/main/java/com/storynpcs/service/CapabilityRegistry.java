@@ -85,6 +85,10 @@ public final class CapabilityRegistry {
             Map.entry("dialogue.visit.record", Policy.PLAYER_SCOPED),
             Map.entry("dialogue.mark.read", Policy.PLAYER_SCOPED),
             Map.entry("dialogue.mark.clear", Policy.PLAYER_SCOPED),
+            // P9-4 player-data administration — SELF for a player's own data,
+            // ADMIN (permission 2) for cross-player operations.
+            Map.entry("playerdata.read", Policy.PLAYER_SCOPED),
+            Map.entry("playerdata.clear", Policy.PLAYER_SCOPED),
             // Shared-party membership actions (P5-5) — subject is the player
             // whose membership changes; ADMIN scope gates cross-subject ops.
             Map.entry("team.create", Policy.PLAYER_SCOPED),

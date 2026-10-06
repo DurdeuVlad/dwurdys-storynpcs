@@ -233,6 +233,28 @@ public class ProgressionRepository {
         }
     }
 
+    /**
+     * Remove a player's progression record entirely (P9-4 admin player-data
+     * remove): evicts the cached instance under its lock so a stale copy can
+     * never be re-flushed, then deletes the durable file.
+     */
+    public boolean delete(UUID playerUuid) throws IOException {
+        if (playerUuid == null) return false;
+        synchronized (progressionLock(playerUuid)) {
+            PlayerProgression cached = cache.get(playerUuid);
+            if (cached != null) {
+                synchronized (cached) {
+                    cache.remove(playerUuid, cached);
+                }
+            } else {
+                cache.remove(playerUuid);
+            }
+            unavailableRecords.remove(playerUuid);
+            return java.nio.file.Files.deleteIfExists(
+                    storageDirectory.resolve(playerUuid.toString() + ".json"));
+        }
+    }
+
     public void unload(UUID playerUuid) {
         if (playerUuid == null) return;
         synchronized (progressionLock(playerUuid)) {

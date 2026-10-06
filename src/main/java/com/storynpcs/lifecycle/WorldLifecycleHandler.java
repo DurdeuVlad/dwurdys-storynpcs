@@ -246,6 +246,32 @@ public class WorldLifecycleHandler {
             mod.setSpawnerRuntimeStore(null);
         }
 
+        // P9-4: durable runtime tunables — committed config survives restarts.
+        // Restore is validated (corrupt records keep defaults); the service
+        // persists every committed ConfigTransaction through this store.
+        Path adminDir = storyNpcsDir.resolve("admin");
+        try {
+            var tunablesStore = new com.storynpcs.persistence.RuntimeTunablesStore(
+                    adminDir, new com.fasterxml.jackson.databind.ObjectMapper());
+            java.nio.file.Files.createDirectories(adminDir);
+            var persisted = tunablesStore.load();
+            if (persisted.isPresent() && mod.getRuntimeTunables() instanceof
+                    com.storynpcs.admin.RuntimeTunables tunables) {
+                var restore = tunables.restore(
+                        persisted.get().values(), persisted.get().revision());
+                if (restore.hasErrors()) {
+                    LOGGER.warn("Persisted runtime tunables rejected — keeping defaults: {}",
+                            restore.formatReport(3));
+                }
+            }
+            if (mod.getApplicationService() != null) {
+                mod.getApplicationService().setRuntimeTunablesPersister(tunablesStore::save);
+            }
+        } catch (Exception tunablesFailure) {
+            LOGGER.error("Runtime tunables store could not be opened at {}: {}",
+                    adminDir, tunablesFailure.getMessage());
+        }
+
         // P8-3: durable world-tool bindings — activated positions and their
         // inert hook payloads survive restarts; rollback semantics live in the
         // executor, the ledger is plain durable data.

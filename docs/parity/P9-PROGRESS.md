@@ -1,6 +1,6 @@
 # P9 — API, scripting, commands, admin progress (P9-1..P9-4)
 
-Status: P9-1 `MERGED` (#179), #125 engine pin `MERGED` (#178), P9-3 implemented pending delivery.
+Status: P9-1 `MERGED` (#179), #125 engine pin `MERGED` (#178), P9-3 `MERGED` (#180), P9-4 implemented pending delivery.
 
 ## P9-1 — Public API
 
@@ -59,12 +59,22 @@ Status: P9-1 `MERGED` (#179), #125 engine pin `MERGED` (#178), P9-3 implemented 
 
 ## P9-4 — Remote/admin/config
 
-- `RemoteAccessProof` models session, capability, and expiry claims, but no server-owned session
-  issuer/validator is wired. API mutations therefore fail closed; a caller-supplied proof object is
-  not authorization evidence.
-- `PlayerDataScope` SELF (operator==target only) vs ADMIN.
-- `ConfigTransaction`: stage → validate → commit-or-rollback; stale revision and validation
-  failures leave the live map untouched; committed revision increments.
+- `AdminParityCatalog`: all 16 named target surfaces mapped — `SPacketRemote*` (5 SUPPORTED +
+  remote-menu deviation), `SPacketPlayerData*` (SUPPORTED), `SPacketMenu*` (SUPPORTED via
+  CustomGuiLayout canonical ops + OverlaySession close), `GuiNpcRemoteEditor`/`GuiNpcManagePlayerData`/
+  `GuiAchievement`/`PacketAchievement`/`PacketConfigFont` (client surfaces → P10-1, disclosed).
+- Remote ops (`/storynpcs remote freeze|delete|reset|tp|list`, perm 2): entity-uuid targets
+  resolved per-level — unloaded or wrong-world targets fail `REMOTE_TARGET_UNLOADED` before any
+  mutation; every consequential op publishes `RemoteAdminAuditEvent`.
+- Player-data admin (`/storynpcs playerdata read|clear [player]`): canonical
+  `adminReadPlayerData`/`adminClearPlayerData` through the player-scoped boundary — SELF for own
+  data, ADMIN (perm 2) for cross-player; clear deletes the durable record, idempotent.
+- Config durability: `RuntimeTunablesStore` (atomic JSON record under `data/storynpcs/admin/`),
+  `RuntimeTunables.restore` validates persisted state on load (corrupt records keep defaults),
+  and `mutateRuntimeTunables` persists the committed snapshot before reporting success —
+  `CONFIG_PERSIST_FAILED` on store failure.
+- `RemoteAccessProof` remains untrusted claims only — authorization evidence is the server-owned
+  `ApiSessionRegistry` from P9-1; fabricated proofs still fail closed.
 
 ## Explicit limits
 
