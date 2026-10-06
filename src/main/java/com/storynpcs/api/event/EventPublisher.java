@@ -11,6 +11,11 @@ public class EventPublisher {
         listeners.add(listener);
     }
 
+    /** Remove a listener — subscription teardown for API clients. */
+    public boolean unregister(Consumer<StoryNpcsEvent> listener) {
+        return listeners.remove(listener);
+    }
+
     public void publish(StoryNpcsEvent event) {
         for (Consumer<StoryNpcsEvent> listener : listeners) {
             try {

@@ -926,7 +926,9 @@ class CanonicalRuntimeMutationTest {
 
         var unproved = service.mutateRuntimeTunables(request, changes);
         assertThat(unproved.applied()).isFalse();
-        assertThat(unproved.diagnostics().formatReport()).contains("REMOTE_AUTH_UNAVAILABLE");
+        // P9-1: bare 'api' actors fail closed — a server-owned capability
+        // session ('api:<sessionId>') is required for any API mutation.
+        assertThat(unproved.diagnostics().formatReport()).contains("API_SESSION_REQUIRED");
 
         var fabricatedProof = new com.storynpcs.admin.RemoteAccessProof(
                 UUID.randomUUID(), UUID.randomUUID(), java.util.Set.of("config.mutate"), 0, 100);
