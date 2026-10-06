@@ -592,7 +592,7 @@ Status: `DONE-LOCAL` — `AuthoringHub` (17-panel model: deterministic search/pa
 
 ### P10-2 — Define safe AI-generated content and patch plans
 
-Status: `IN-REVIEW` — `DefinitionRegistry.revision()` now provides a deterministic staleness primitive for patch plans; `SchemaBundle.current()`/`PatchPlanValidator` dry-run paths exist and the import sink routes applies through canonical saves. Deterministic patch-plan apply ordering, source-location references, and rollback-on-failed-apply remain open.
+Status: `DONE-LOCAL` — `SchemaBundle.current()` (8 families), `PatchPlan` (idempotency-keyed ops, deterministic order, dedup, source locations), `PatchPlanValidator` dry-run, and `PatchPlanApplier` canonical apply: dry-run gate → per-op canonical dispatch (per-def expected revision, capability names, fresh request ids, proven permission level) → failed-apply rollback restoring pre-apply snapshots through canonical ops (`ROLLBACK_INCOMPLETE` surfaced). `/storynpcs author validate|apply <plan>` (perm 2). Apply scope = npc/dialogue/quest/faction; other families reject `PATCH_APPLY_SCOPE`; `set` resolves scalar-leaf JSON paths (npc `name`→`display.name`), unmapped fields reject `PATCH_APPLY_FIELD`; payloads may be YAML or JSON. Verified: `P102PatchPlanApplyTest` (8 fixtures incl. rollback, stale-base no-write, dedup, absent-delete no-op) + full suite.
 
 - **Intent:** Let an AI read the docs and generate NPCs exactly within the supported contract without raw unrestricted mutation.
 - **Expectation:** A versioned schema/reference bundle, examples, deterministic patch-plan format, dry-run validator, diagnostics, allowlist, permission context and rollback path let an external AI produce validated content.
