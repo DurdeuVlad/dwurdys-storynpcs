@@ -38,7 +38,11 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## P8-4 — Recipes
 
-- `CarpentryRecipe`: namespaced id/group, exact 3x3 grid, output stack, shapeless flag; slot-accurate validation diagnostics.
+- `CarpentryRecipe`: schemaVersion, namespaced id/group, exact 3x3 grid, output stack ≤64, shapeless flag; slot-accurate validation diagnostics; unsupported fields fail closed at load.
+- YAML family `definitions/recipes/*.yaml` loads through `YamlDefinitionLoader`, registers in `DefinitionRegistry` (+ group index), mutates via canonical `saveRecipe`/`deleteRecipe` + `storynpcs recipe {list,info,delete}` commands; malformed recipes reject before any file/registry write — no partial registration.
+- `CarpentryBenchMatcher`: pure shaped (exact grid) / shapeless (multiset) matching; ambiguous matches reported via `allMatches` — never silently resolved by iteration order.
+- `RecipesLoadedEvent` published on initial load, reload, import apply, and canonical save/delete.
+- Deferred honestly: `BlockCarpentryBench`/`ContainerCarpentryBench`/GUIs (`GuiNpcManageRecipes`, `GuiNpcCarpentryBench`, `GuiRecipes`) — P10-1 screen wave; `SPacketRecipe*` — P1-3 protocol; `RecipesDefault` bundled-content seeding — StoryNPCs ships no target recipe corpus (authors write YAML).
 
 ## P8-5 — Links/scenes/transforms/timers/natural spawn
 
@@ -55,11 +59,11 @@ Status: `IN-PROGRESS` for all six issues (local implementation under `com.storyn
 
 ## Explicit limits
 
-- P8-1, P8-2, and P8-3 are wired end-to-end (runtime, items/commands, audit, durable state). P8-4..P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet.
-- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; spawner runtime state and world-tool activation bindings via durable `IndexedRecordStore` ledgers.
+- P8-1, P8-2, P8-3, and P8-4 are wired end-to-end (runtime, items/commands, audit, durable state). P8-5 and P8-6 remain domain contracts only — no network packets, client screens, or entity wiring yet.
+- Templates persist via `templates/*.yaml`; spawner rules via `spawners/*.yaml`; world tools via `worldtools/*.yaml`; recipes via `recipes/*.yaml`; spawner runtime state and world-tool activation bindings via durable `IndexedRecordStore` ledgers.
 - A spawner whose template is deleted keeps spawning from its last-instantiated definition (snapshot semantics); deleting a spawner stops future spawns but leaves already-spawned actors in-world — both are surfaced explicitly.
 - Placement uses a seeded `RandomSource` (deterministic per rule+tick sequence); quota/interval/chunk/unload rules are deterministic.
 
 ## Verification
 
-`./gradlew test`: 1272 tests, 0 failures. `./gradlew runGameTestServer`: 14/14 pass (live spawner, mount-policy, and world-tool activation fixtures). `git diff --check` clean.
+`./gradlew test`: 1285 tests, 0 failures. `./gradlew runGameTestServer`: 14/14 pass (live spawner, mount-policy, and world-tool activation fixtures). `git diff --check` clean.

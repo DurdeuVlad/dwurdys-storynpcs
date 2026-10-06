@@ -12,6 +12,10 @@ import com.storynpcs.domain.common.NamespacedId;
 public class CarpentryRecipe {
 
     public static final int GRID = 9; // 3x3
+    public static final int SCHEMA_VERSION = 1;
+
+    @JsonProperty
+    private int schemaVersion = SCHEMA_VERSION;
 
     @JsonProperty(required = true)
     private NamespacedId id;
@@ -34,6 +38,9 @@ public class CarpentryRecipe {
     private boolean shapeless = false;
 
     public CarpentryRecipe() {}
+
+    public int getSchemaVersion() { return schemaVersion; }
+    public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
 
     public NamespacedId getId() { return id; }
     public void setId(NamespacedId id) { this.id = id; }

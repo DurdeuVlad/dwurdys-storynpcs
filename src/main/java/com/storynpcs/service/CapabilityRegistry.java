@@ -42,6 +42,8 @@ public final class CapabilityRegistry {
             Map.entry("worldtool.edit", Policy.DEFINITION),
             Map.entry("worldtool.delete", Policy.DEFINITION),
             Map.entry("worldtool.activate", Policy.DEFINITION),
+            Map.entry("recipe.mutate", Policy.DEFINITION),
+            Map.entry("recipe.delete", Policy.DEFINITION),
             Map.entry("template.edit", Policy.DEFINITION),
             Map.entry("template.delete", Policy.DEFINITION),
             // Player-scoped progression operations
