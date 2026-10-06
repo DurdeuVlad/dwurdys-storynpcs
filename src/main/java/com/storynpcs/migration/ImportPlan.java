@@ -54,6 +54,7 @@ public record ImportPlan(ImportSource source, ConflictPolicy policy, List<Step> 
             Resolution resolution,
             NamespacedId resolvedId,
             List<FieldMappingRegistry.FieldMapping> fieldMappings,
+            List<String> referencedResources,
             String detail) {
 
         public enum Resolution {
@@ -65,12 +66,24 @@ public record ImportPlan(ImportSource source, ConflictPolicy policy, List<Step> 
             ABORT            // FAIL-policy collision or fatal source — apply() refuses all writes
         }
 
+        /** Back-compat constructor — no referenced-resource rows. */
+        public Step(int sequence, String family, String sourceName,
+                    NamespacedId definitionId, Resolution resolution,
+                    NamespacedId resolvedId,
+                    List<FieldMappingRegistry.FieldMapping> fieldMappings,
+                    String detail) {
+            this(sequence, family, sourceName, definitionId, resolution,
+                    resolvedId, fieldMappings, List.of(), detail);
+        }
+
         public Step {
             if (sequence < 0) throw new IllegalArgumentException("sequence cannot be negative");
             if (family == null || family.isBlank()) throw new IllegalArgumentException("family required");
             if (sourceName == null || sourceName.isBlank()) throw new IllegalArgumentException("sourceName required");
             if (resolution == null) throw new IllegalArgumentException("resolution required");
             fieldMappings = fieldMappings == null ? List.of() : List.copyOf(fieldMappings);
+            referencedResources = referencedResources == null
+                    ? List.of() : List.copyOf(referencedResources);
             detail = detail == null ? "" : detail;
         }
     }

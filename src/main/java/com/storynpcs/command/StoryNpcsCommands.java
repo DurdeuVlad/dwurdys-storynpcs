@@ -6604,11 +6604,13 @@ public final class StoryNpcsCommands {
                 wasDryRun ? wouldApply : applied, skipped, quarantined, failed,
                 report.rollbackOutcome())), true);
         for (var r : report.steps()) {
-            final var line = Component.literal(String.format("  §7[%s] %s/%s%s — %s",
+            String resSuffix = r.referencedResources().isEmpty() ? ""
+                    : " §8res[" + String.join(", ", r.referencedResources()) + "]";
+            final var line = Component.literal(String.format("  §7[%s] %s/%s%s — %s%s",
                     r.outcome(), r.family(), r.sourceName(),
                     r.resolvedId() != null && !r.resolvedId().equals(r.definitionId())
                             ? "→" + r.resolvedId() : "",
-                    r.detail()));
+                    r.detail(), resSuffix));
             ctx.getSource().sendSuccess(() -> line, false);
         }
         if (!report.failureReason().isBlank()) {
