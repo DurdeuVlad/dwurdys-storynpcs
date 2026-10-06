@@ -161,7 +161,35 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("apply")
                                 .then(Commands.argument("template_id", ResourceLocationArgument.id())
                                         .then(Commands.argument("npc_id", ResourceLocationArgument.id())
-                                                .executes(StoryNpcsCommands::applyTemplate)))))
+                                                .executes(StoryNpcsCommands::applyTemplate))))
+                        // P9-3 clone parity: capture a definition into a template,
+                        // spawn a template directly, spawn a bounded grid.
+                        .then(Commands.literal("capture")
+                                .then(Commands.argument("template_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .executes(StoryNpcsCommands::captureTemplate))))
+                        .then(Commands.literal("spawn")
+                                .then(Commands.argument("template_id", ResourceLocationArgument.id())
+                                        .executes(ctx -> spawnTemplate(ctx, null, null))
+                                        .then(Commands.argument("pos", Vec3Argument.vec3())
+                                                .executes(ctx -> spawnTemplate(ctx,
+                                                        Vec3Argument.getVec3(ctx, "pos"), null))
+                                                .then(Commands.argument("display_name", StringArgumentType.greedyString())
+                                                        .executes(ctx -> spawnTemplate(ctx,
+                                                                Vec3Argument.getVec3(ctx, "pos"),
+                                                                StringArgumentType.getString(ctx, "display_name")))))))
+                        .then(Commands.literal("grid")
+                                .then(Commands.argument("template_id", ResourceLocationArgument.id())
+                                        .then(Commands.argument("length", IntegerArgumentType.integer(1, 16))
+                                                .then(Commands.argument("width", IntegerArgumentType.integer(1, 16))
+                                                        .executes(ctx -> gridTemplate(ctx, null))
+                                                        .then(Commands.argument("pos", Vec3Argument.vec3())
+                                                                .executes(ctx -> gridTemplate(ctx,
+                                                                        Vec3Argument.getVec3(ctx, "pos"))))))))
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("template_id", ResourceLocationArgument.id())
+                                        .executes(StoryNpcsCommands::deleteTemplate))))
                 // P8-1 spawners: list/info plus place/delete through canonical ops
                 .then(Commands.literal("spawner")
                         .requires(source -> source.hasPermission(2))
@@ -212,6 +240,8 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("cancel")
                                 .then(Commands.argument("scene_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::cancelScene)))
+                        .then(Commands.literal("cancelall")
+                                .executes(StoryNpcsCommands::cancelAllScenes))
                         .then(Commands.literal("delete")
                                 .then(Commands.argument("scene_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteScene))))
@@ -231,6 +261,19 @@ public final class StoryNpcsCommands {
                         .then(Commands.literal("delete")
                                 .then(Commands.argument("rule_id", ResourceLocationArgument.id())
                                         .executes(StoryNpcsCommands::deleteNaturalSpawn))))
+                // P9-3 config parity: runtime tunables through canonical ConfigTransaction
+                .then(Commands.literal("config")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("get")
+                                .executes(StoryNpcsCommands::configList)
+                                .then(Commands.argument("key", StringArgumentType.word())
+                                        .suggests(TUNABLE_KEYS)
+                                        .executes(StoryNpcsCommands::configGet)))
+                        .then(Commands.literal("set")
+                                .then(Commands.argument("key", StringArgumentType.word())
+                                        .suggests(TUNABLE_KEYS)
+                                        .then(Commands.argument("value", StringArgumentType.word())
+                                                .executes(StoryNpcsCommands::configSet)))))
                 // P8-6 custom-GUI/overlay surfaces
                 .then(Commands.literal("layout")
                         .requires(source -> source.hasPermission(2))
@@ -353,6 +396,17 @@ public final class StoryNpcsCommands {
                                                 .executes(ctx -> teleportNpc(ctx,
                                                         ResourceLocationArgument.getId(ctx, "npc_id"),
                                                         net.minecraft.commands.arguments.coordinates.BlockPosArgument.getBlockPos(ctx, "pos"))))))
+                        // P9-3: reset start/home position + respawn parity
+                        .then(Commands.literal("home")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
+                                        .executes(StoryNpcsCommands::setNpcHome)))
+                        .then(Commands.literal("respawn")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
+                                        .executes(StoryNpcsCommands::respawnNpc)))
                         .then(Commands.literal("path")
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.literal("list")
@@ -466,6 +520,20 @@ public final class StoryNpcsCommands {
                                                 .then(Commands.argument("type", StringArgumentType.word())
                                                         .suggests((c, b) -> SharedSuggestionProvider.suggest(List.of("guard", "passive", "neutral", "aggressive", "evasive"), b))
                                                         .executes(StoryNpcsCommands::setNpcStance))))
+                                // P9-3 mark/visibility parity on the definition surface
+                                .then(Commands.literal("marks")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.literal("clear")
+                                                        .executes(ctx -> setNpcMarks(ctx, null)))
+                                                .then(Commands.argument("color", StringArgumentType.word())
+                                                        .executes(ctx -> setNpcMarks(ctx,
+                                                                StringArgumentType.getString(ctx, "color"))))))
+                                .then(Commands.literal("visibility")
+                                        .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                                .suggests(NPC_IDS)
+                                                .then(Commands.argument("mode", IntegerArgumentType.integer(0, 2))
+                                                        .executes(StoryNpcsCommands::setNpcVisibility))))
                                 .then(Commands.literal("dialogue")
                                         .then(Commands.argument("npc_id", ResourceLocationArgument.id())
                                                 .suggests(NPC_IDS)
@@ -552,7 +620,20 @@ public final class StoryNpcsCommands {
                                         .suggests(DIALOGUE_IDS)
                                         .executes(ctx -> startDialogue(ctx, null))
                                         .then(Commands.argument("player", EntityArgument.player())
-                                                .executes(ctx -> startDialogue(ctx, EntityArgument.getPlayer(ctx, "player")))))))
+                                                .executes(ctx -> startDialogue(ctx, EntityArgument.getPlayer(ctx, "player"))))))
+                        // P9-3 dialog read-marker parity (target /noppes dialog read|unread)
+                        .then(Commands.literal("markread")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .suggests(DIALOGUE_IDS)
+                                        .then(Commands.argument("player", EntityArgument.player())
+                                                .executes(ctx -> dialogueMarkRead(ctx, true)))))
+                        .then(Commands.literal("unmarkread")
+                                .requires(source -> source.hasPermission(2))
+                                .then(Commands.argument("dialogue_id", ResourceLocationArgument.id())
+                                        .suggests(DIALOGUE_IDS)
+                                        .then(Commands.argument("player", EntityArgument.player())
+                                                .executes(ctx -> dialogueMarkRead(ctx, false))))))
                 // Quest commands
                 .then(questCommands())
                 // Faction commands
@@ -576,7 +657,16 @@ public final class StoryNpcsCommands {
                                                                 com.mojang.brigadier.arguments.DoubleArgumentType.getDouble(ctx, "spacing")))))))
                         .then(Commands.literal("state")
                                 .then(Commands.argument("state", StringArgumentType.word())
-                                        .executes(StoryNpcsCommands::setFollowerStateCmd))));
+                                        .executes(StoryNpcsCommands::setFollowerStateCmd)))
+                        // P9-3 owner parity: report / reassign loaded follower owners
+                        .then(Commands.literal("owner")
+                                .executes(StoryNpcsCommands::followerOwnerReport)
+                                .then(Commands.argument("npc_id", ResourceLocationArgument.id())
+                                        .suggests(NPC_IDS)
+                                        .executes(ctx -> followerOwnerReport(ctx))
+                                        .then(Commands.argument("player", EntityArgument.player())
+                                                .executes(ctx -> followerOwnerSet(ctx,
+                                                        EntityArgument.getPlayer(ctx, "player")))))));
 
         dispatcher.register(root);
         // Register alias /sn (inherits subcommand permissions from root and executes help when called alone)
@@ -798,6 +888,23 @@ public final class StoryNpcsCommands {
                         .executes(ctx -> resetQuest(ctx, EntityArgument.getPlayer(ctx, "player"))));
         quest.then(Commands.literal("reset").requires(s -> s.hasPermission(2)).then(questIdReset));
 
+        // P9-3: objective report + direct progress set (target /noppes quest)
+        var questIdObjectives = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .suggests(QUEST_IDS)
+                .executes(ctx -> reportQuestObjectives(ctx, null))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> reportQuestObjectives(ctx, EntityArgument.getPlayer(ctx, "player"))));
+        quest.then(Commands.literal("objectives").requires(s -> s.hasPermission(2)).then(questIdObjectives));
+
+        var questIdProgress = Commands.argument("quest_id", ResourceLocationArgument.id())
+                .suggests(QUEST_IDS)
+                .then(Commands.argument("objective_id", StringArgumentType.word())
+                        .then(Commands.argument("amount", IntegerArgumentType.integer(0))
+                                .executes(ctx -> setQuestProgress(ctx, null))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(ctx -> setQuestProgress(ctx, EntityArgument.getPlayer(ctx, "player"))))));
+        quest.then(Commands.literal("progress").requires(s -> s.hasPermission(2)).then(questIdProgress));
+
         // Authoring — create / set / objective / reward (issue #17)
         var questIdCreate = Commands.argument("quest_id", ResourceLocationArgument.id())
                 .executes(ctx -> createQuest(ctx, null))
@@ -992,6 +1099,21 @@ public final class StoryNpcsCommands {
                         .then(Commands.argument("player", EntityArgument.player())
                                 .executes(ctx -> adjustFaction(ctx, EntityArgument.getPlayer(ctx, "player")))));
         faction.then(Commands.literal("adjust").requires(s -> s.hasPermission(2)).then(factionIdAdjust));
+
+        // P9-3: reset standing to the faction's authored default; remove the entry
+        var factionIdReset = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .suggests(FACTION_IDS)
+                .executes(ctx -> resetFaction(ctx, null))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> resetFaction(ctx, EntityArgument.getPlayer(ctx, "player"))));
+        faction.then(Commands.literal("reset").requires(s -> s.hasPermission(2)).then(factionIdReset));
+
+        var factionIdRemove = Commands.argument("faction_id", ResourceLocationArgument.id())
+                .suggests(FACTION_IDS)
+                .executes(ctx -> removeFaction(ctx, null))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> removeFaction(ctx, EntityArgument.getPlayer(ctx, "player"))));
+        faction.then(Commands.literal("remove").requires(s -> s.hasPermission(2)).then(factionIdRemove));
 
         // Authoring — create / configure (issue #18)
         var factionIdCreate = Commands.argument("faction_id", ResourceLocationArgument.id())
@@ -1661,6 +1783,506 @@ public final class StoryNpcsCommands {
         refreshLoadedEntities(ctx.getSource(), npcId);
         ctx.getSource().sendSuccess(() -> Component.literal(String.format("[StoryNPCs] Set tactical stance of '%s' to %s (persisted to YAML).", npcId, stance)), true);
         return 1;
+    }
+
+    // ── P9-3 parity handlers ─────────────────────────────────────────────────
+
+    /** {@code npc set marks <npc_id> clear|<color>} — canonical definition marks. */
+    private static int setNpcMarks(CommandContext<CommandSourceStack> ctx, String colorArg) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        StoryNpcs mod = mod(ctx);
+        if (mod.getRegistry().getNpc(npcId).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        List<com.storynpcs.domain.npc.NpcMark> marks;
+        if (colorArg == null) {
+            marks = List.of();
+        } else {
+            int color;
+            try {
+                color = colorArg.startsWith("#") || colorArg.startsWith("0x")
+                        ? Integer.decode(colorArg) : Integer.parseInt(colorArg);
+            } catch (NumberFormatException bad) {
+                ctx.getSource().sendFailure(Component.literal(
+                        "[StoryNPCs] Invalid mark color '" + colorArg + "' — decimal, #hex, or 0xhex."));
+                return 0;
+            }
+            marks = List.of(new com.storynpcs.domain.npc.NpcMark(0, color & 0xFFFFFF, ""));
+        }
+        var finalMarks = marks;
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                def -> def.setMarks(finalMarks));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Mark update rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        var applied = marks;
+        ctx.getSource().sendSuccess(() -> Component.literal(applied.isEmpty()
+                ? "[StoryNPCs] Cleared marks on " + npcId
+                : "[StoryNPCs] Set mark color on " + npcId), true);
+        return 1;
+    }
+
+    /** {@code npc set visibility <npc_id> <0|1|2>} — authored display visibility. */
+    private static int setNpcVisibility(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        int mode = IntegerArgumentType.getInteger(ctx, "mode");
+        StoryNpcs mod = mod(ctx);
+        if (mod.getRegistry().getNpc(npcId).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] NPC not found: " + npcId));
+            return 0;
+        }
+        var result = mutateNpc(ctx, mod.getApplicationService(), npcId,
+                def -> def.getDisplay().setVisibility(mode));
+        if (result.hasErrors()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Visibility update rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        refreshLoadedEntities(ctx.getSource(), npcId);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Set visibility of " + npcId + " to " + mode), true);
+        return 1;
+    }
+
+    /** {@code npc home <npc_id>} — reset start/home position to current entity spot. */
+    private static int setNpcHome(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        var level = ctx.getSource().getLevel();
+        var found = new java.util.ArrayList<com.storynpcs.entity.StoryNpcEntity>();
+        for (var entity : level.getEntitiesOfClass(com.storynpcs.entity.StoryNpcEntity.class,
+                ctx.getSource().getPosition() != null
+                        ? new net.minecraft.world.phys.AABB(
+                                level.getWorldBorder().getMinX(), level.getMinBuildHeight(),
+                                level.getWorldBorder().getMinZ(), level.getWorldBorder().getMaxX(),
+                                level.getMaxBuildHeight(), level.getWorldBorder().getMaxZ())
+                        : new net.minecraft.world.phys.AABB(0, 0, 0, 0, 0, 0))) {
+            if (npcId.toString().equals(entity.getDefinitionId())) found.add(entity);
+        }
+        if (found.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] No loaded entity for " + npcId + " — spawn it first."));
+            return 0;
+        }
+        int count = 0;
+        for (var entity : found) {
+            entity.setStartPosition(entity.blockPosition());
+            count++;
+        }
+        final int n = count;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Reset home position for " + n + " entity(ies) of " + npcId), true);
+        return n;
+    }
+
+    /** {@code npc respawn <npc_id>} — despawn live entities then re-spawn at source pos. */
+    private static int respawnNpc(CommandContext<CommandSourceStack> ctx) {
+        NamespacedId npcId = getNamespacedId(ctx, "npc_id");
+        if (mod(ctx).getRegistry().getNpc(npcId).isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] NPC definition not found: " + npcId));
+            return 0;
+        }
+        var level = ctx.getSource().getLevel();
+        var position = ctx.getSource().getPosition();
+        int removed = 0;
+        for (var entity : level.getEntitiesOfClass(com.storynpcs.entity.StoryNpcEntity.class,
+                new net.minecraft.world.phys.AABB(
+                        level.getWorldBorder().getMinX(), level.getMinBuildHeight(),
+                        level.getWorldBorder().getMinZ(), level.getWorldBorder().getMaxX(),
+                        level.getMaxBuildHeight(), level.getWorldBorder().getMaxZ()))) {
+            if (npcId.toString().equals(entity.getDefinitionId())) {
+                entity.discard();
+                removed++;
+            }
+        }
+        var entity = com.storynpcs.entity.StoryNpcRegistry.STORY_NPC.get().create(level);
+        if (entity == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to create NPC entity"));
+            return 0;
+        }
+        entity.setPos(position.x, position.y, position.z);
+        entity.setDefinitionId(npcId.toString());
+        entity.setStartPosition(entity.blockPosition());
+        level.addFreshEntity(entity);
+        final int n = removed;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Respawned " + npcId + " (despawned " + n + " prior entity(ies))"), true);
+        return 1;
+    }
+
+    // ── P9-3 clone-template handlers ─────────────────────────────────────────
+
+    /** {@code template capture <template_id> <npc_id>} — clone/add parity. */
+    private static int captureTemplate(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var templateId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "template_id").toString());
+        var npcId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "npc_id").toString());
+        var def = mod.getRegistry().getNpc(npcId).orElse(null);
+        if (def == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] NPC definition not found: " + npcId));
+            return 0;
+        }
+        var template = new com.storynpcs.creator.template.NpcTemplate();
+        template.setId(templateId);
+        // Detach through the serde round-trip so the template never aliases the
+        // live definition's mutable facets.
+        var detached = com.storynpcs.domain.npc.NpcDefinitionSerde.fromJson(
+                com.storynpcs.domain.npc.NpcDefinitionSerde.toJson(def)).orElse(null);
+        if (detached == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] NPC definition failed to snapshot."));
+            return 0;
+        }
+        template.setDefinition(detached);
+        var result = service.saveTemplate(
+                commandMutationRequest(ctx, service, "template", "replace", templateId), template);
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template capture rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Captured " + npcId + " as template " + templateId), true);
+        return 1;
+    }
+
+    /** {@code template spawn <template_id> [pos] [name]} — clone/spawn parity. */
+    private static int spawnTemplate(CommandContext<CommandSourceStack> ctx, Vec3 pos, String displayName) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var templateId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "template_id").toString());
+        var template = mod.getRegistry().getTemplate(templateId).orElse(null);
+        if (template == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template not found: " + templateId));
+            return 0;
+        }
+        Vec3 spawnPos = pos != null ? pos : ctx.getSource().getPosition();
+        // Derived NPC id: template-<hash> — deterministic, namespaced, collision-checked.
+        var npcId = NamespacedId.of(templateId + "_clone_" + Integer.toHexString(
+                java.util.Objects.hash(spawnPos.x, spawnPos.y, spawnPos.z, displayName)));
+        var definition = template.instantiate(npcId);
+        if (displayName != null) {
+            definition.getDisplay().setName(displayName);
+        }
+        var create = service.createNpc(
+                commandMutationRequest(ctx, service, "npc", "create", npcId), definition);
+        if (!create.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Clone spawn rejected:\n" + create.formatReport(5)));
+            return 0;
+        }
+        return spawnNpcEntity(ctx, mod, service, npcId, spawnPos);
+    }
+
+    /** {@code template grid <template_id> <length> <width> [pos]} — bounded clone grid. */
+    private static int gridTemplate(CommandContext<CommandSourceStack> ctx, Vec3 pos) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        int length = IntegerArgumentType.getInteger(ctx, "length");
+        int width = IntegerArgumentType.getInteger(ctx, "width");
+        if ((long) length * width > 16) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Grid too large — length*width must be <= 16."));
+            return 0;
+        }
+        var templateId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "template_id").toString());
+        var template = mod.getRegistry().getTemplate(templateId).orElse(null);
+        if (template == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template not found: " + templateId));
+            return 0;
+        }
+        Vec3 base = pos != null ? pos : ctx.getSource().getPosition();
+        int spawned = 0;
+        for (int x = 0; x < length; x++) {
+            for (int z = 0; z < width; z++) {
+                var cell = new Vec3(base.x + x, base.y, base.z + z);
+                var npcId = NamespacedId.of(templateId + "_grid_" + x + "_" + z + "_"
+                        + Integer.toHexString(java.util.Objects.hash(base.x, base.z)));
+                var definition = template.instantiate(npcId);
+                var create = service.createNpc(
+                        commandMutationRequest(ctx, service, "npc", "create", npcId), definition);
+                if (create.applied()
+                        && spawnNpcEntity(ctx, mod, service, npcId, cell) > 0) {
+                    spawned++;
+                }
+            }
+        }
+        final int n = spawned;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Spawned " + n + "/" + (length * width) + " clone(s) for " + templateId), true);
+        return n;
+    }
+
+    private static int spawnNpcEntity(CommandContext<CommandSourceStack> ctx, StoryNpcs mod,
+                                      com.storynpcs.service.StoryNpcsApplicationService service,
+                                      NamespacedId npcId, Vec3 pos) {
+        var level = ctx.getSource().getLevel();
+        var entity = com.storynpcs.entity.StoryNpcRegistry.STORY_NPC.get().create(level);
+        if (entity == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Failed to create NPC entity"));
+            return 0;
+        }
+        entity.setPos(pos.x, pos.y, pos.z);
+        entity.setDefinitionId(npcId.toString());
+        entity.setStartPosition(entity.blockPosition());
+        level.addFreshEntity(entity);
+        return 1;
+    }
+
+    // ── P9-3 config/dialogue/faction/follower handlers ───────────────────────
+
+    private static final com.mojang.brigadier.suggestion.SuggestionProvider<CommandSourceStack> TUNABLE_KEYS =
+            (ctx, builder) -> {
+                var mod = modOrNull(ctx);
+                var keys = mod != null ? mod.getRuntimeTunables().snapshot().keySet() : java.util.Set.<String>of();
+                return net.minecraft.commands.SharedSuggestionProvider.suggest(keys, builder);
+            };
+
+    private static int configList(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        var snapshot = mod.getRuntimeTunables().snapshot();
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Runtime tunables (rev " + mod.getRuntimeTunables().revision() + "):"), false);
+        snapshot.forEach((k, v) -> ctx.getSource().sendSuccess(
+                () -> Component.literal("  " + k + " = " + v), false));
+        return snapshot.size();
+    }
+
+    private static int configGet(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Mod not initialized."));
+            return 0;
+        }
+        String key = StringArgumentType.getString(ctx, "key");
+        var snapshot = mod.getRuntimeTunables().snapshot();
+        if (!snapshot.containsKey(key)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Unknown tunable: " + key));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] " + key + " = " + snapshot.get(key)), false);
+        return 1;
+    }
+
+    private static int configSet(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        String key = StringArgumentType.getString(ctx, "key");
+        String value = StringArgumentType.getString(ctx, "value");
+        var result = service.mutateRuntimeTunables(
+                new com.storynpcs.service.MutationRequest("config.mutate", "command",
+                        "config.mutate", com.storynpcs.domain.common.NamespacedId.of("storynpcs:config"),
+                        mod.getRuntimeTunables().revision(), java.util.UUID.randomUUID(),
+                        ctx.getSource().hasPermission(2) ? 2 : 0),
+                java.util.Map.of(key, value));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Config set rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] " + key + " = " + value), true);
+        return 1;
+    }
+
+    /** {@code dialogue markread|unmarkread <dialogue_id> <player>} — visit-marker parity. */
+    private static int dialogueMarkRead(CommandContext<CommandSourceStack> ctx, boolean mark) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var dialogueId = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "dialogue_id").toString());
+        ServerPlayer subject;
+        try {
+            subject = EntityArgument.getPlayer(ctx, "player");
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Player not found."));
+            return 0;
+        }
+        var actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor ? actor.getUUID() : null;
+        var request = new com.storynpcs.service.PlayerProgressionActionRequest(
+                mark ? "dialogue.mark.read" : "dialogue.mark.clear",
+                actorUuid != null ? "player" : "command", actorUuid, subject.getUUID(),
+                java.util.UUID.randomUUID(), ctx.getSource().hasPermission(2) ? 2 : 0);
+        var result = mark
+                ? service.markDialogueRead(request, dialogueId)
+                : service.clearDialogueReadMarkers(request, dialogueId);
+        if (!result.applied()) {
+            String reason = result.decision() != null ? result.decision().message() : "not applicable";
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] " + reason));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] " + (mark ? "Marked" : "Cleared") + " read state on "
+                        + dialogueId + " for " + subject.getScoreboardName()), true);
+        return 1;
+    }
+
+    /** {@code faction reset <faction_id> [player]} — standing back to authored default. */
+    private static int resetFaction(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
+        ServerPlayer player = resolvePlayer(ctx, targetPlayer);
+        if (player == null) return 0;
+        var id = getNamespacedId(ctx, "faction_id");
+        var mod = mod(ctx);
+        var faction = mod.getRegistry().getFaction(id).orElse(null);
+        if (faction == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Faction not found: " + id));
+            return 0;
+        }
+        var service = mod.getApplicationService();
+        var actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor ? actor.getUUID() : null;
+        var request = com.storynpcs.service.FactionProgressionMutationRequest.set(
+                "command", actorUuid, player.getUUID(), id, faction.getDefaultPoints(),
+                service.currentFactionProgressionRevision(player.getUUID()), java.util.UUID.randomUUID(),
+                ctx.getSource().hasPermission(2) ? 2 : 0);
+        var result = service.mutateFactionProgression(request);
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "Failed to reset faction standing: " + result.formatReport()));
+            return 0;
+        }
+        var target = player;
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "Reset faction '%s' standing to default %d for %s",
+                id, faction.getDefaultPoints(), target.getScoreboardName())), true);
+        return 1;
+    }
+
+    /** {@code faction remove <faction_id> [player]} — drop the standing entry. */
+    private static int removeFaction(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
+        ServerPlayer player = resolvePlayer(ctx, targetPlayer);
+        if (player == null) return 0;
+        var id = getNamespacedId(ctx, "faction_id");
+        var service = mod(ctx).getApplicationService();
+        var actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor ? actor.getUUID() : null;
+        var request = com.storynpcs.service.FactionProgressionMutationRequest.remove(
+                "command", actorUuid, player.getUUID(), id,
+                service.currentFactionProgressionRevision(player.getUUID()), java.util.UUID.randomUUID(),
+                ctx.getSource().hasPermission(2) ? 2 : 0);
+        var result = service.mutateFactionProgression(request);
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "Failed to remove faction entry: " + result.formatReport()));
+            return 0;
+        }
+        var target = player;
+        ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                "Removed faction '%s' entry for %s", id, target.getScoreboardName())), true);
+        return 1;
+    }
+
+    private static ServerPlayer resolvePlayer(CommandContext<CommandSourceStack> ctx, ServerPlayer target) {
+        if (target != null) return target;
+        if (ctx.getSource().getEntity() instanceof ServerPlayer sp) return sp;
+        ctx.getSource().sendFailure(Component.literal(
+                "Player must be specified when executed from console"));
+        return null;
+    }
+
+    /** {@code follower owner [npc_id]} — report loaded follower owners. */
+    private static int followerOwnerReport(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Only players can inspect followers."));
+            return 0;
+        }
+        NamespacedId filter = null;
+        try {
+            filter = getNamespacedId(ctx, "npc_id");
+        } catch (IllegalArgumentException notProvided) {
+            // zero-arg form — report all loaded followers
+        }
+        var level = ctx.getSource().getLevel();
+        var followers = new java.util.ArrayList<com.storynpcs.entity.StoryNpcEntity>();
+        for (var entity : level.getEntitiesOfClass(com.storynpcs.entity.StoryNpcEntity.class,
+                player.getBoundingBox().inflate(256.0))) {
+            var role = entity.getFollowerRole();
+            if (role == null) continue;
+            if (filter != null && !filter.toString().equals(entity.getDefinitionId())) continue;
+            followers.add(entity);
+        }
+        if (followers.isEmpty()) {
+            var scope = filter != null ? " for " + filter : "";
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] No loaded followers" + scope + "."), false);
+            return 0;
+        }
+        for (var entity : followers) {
+            var role = entity.getFollowerRole();
+            var owner = role != null && role.getOwnerUuid() != null
+                    ? role.getOwnerUuid().toString() : "<none>";
+            var label = entity.getDefinitionId() + " @ " + entity.blockPosition().toShortString();
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] " + label + " owner=" + owner), false);
+        }
+        return followers.size();
+    }
+
+    /** {@code follower owner <npc_id> <player>} — reassign ownership via canonical op. */
+    private static int followerOwnerSet(CommandContext<CommandSourceStack> ctx, ServerPlayer newOwner) {
+        if (!(ctx.getSource().getEntity() instanceof ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Only the current owner can reassign a follower."));
+            return 0;
+        }
+        var npcId = getNamespacedId(ctx, "npc_id");
+        var level = ctx.getSource().getLevel();
+        var service = mod(ctx).getApplicationService();
+        int changed = 0;
+        for (var entity : level.getEntitiesOfClass(com.storynpcs.entity.StoryNpcEntity.class,
+                player.getBoundingBox().inflate(256.0))) {
+            if (!npcId.toString().equals(entity.getDefinitionId())) continue;
+            var role = entity.getFollowerRole();
+            if (role == null || !role.isOwnedBy(player.getUUID())) continue;
+            var request = com.storynpcs.service.FollowerStateMutationRequest.setOwner(
+                    "player", player.getUUID(), player.getUUID(), npcId,
+                    newOwner.getUUID(), java.util.UUID.randomUUID(),
+                    ctx.getSource().hasPermission(2) ? 2 : 0);
+            var result = service.mutateFollowerState(request, role);
+            if (result.applied()) changed++;
+        }
+        final int n = changed;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Reassigned " + n + " follower(s) of " + npcId
+                        + " to " + newOwner.getScoreboardName()), true);
+        return n;
     }
 
     private static int setNpcDialogue(CommandContext<CommandSourceStack> ctx) {
@@ -2486,6 +3108,69 @@ public final class StoryNpcsCommands {
             return 1;
         } catch (Exception e) {
             ctx.getSource().sendFailure(Component.literal("Failed to reset quest: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    /** {@code quest objectives <quest_id> [player]} — report per-objective progress. */
+    private static int reportQuestObjectives(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
+        ServerPlayer player = resolvePlayer(ctx, targetPlayer);
+        if (player == null) return 0;
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        StoryNpcs mod = mod(ctx);
+        var quest = mod.getRegistry().getQuest(id).orElse(null);
+        if (quest == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Quest not found: " + id));
+            return 0;
+        }
+        var repo = mod.getProgressionRepository();
+        var prog = repo.getOrCreate(player.getUUID());
+        var state = prog.peekQuestState(id);
+        var objectives = quest.getObjectives();
+        if (objectives.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[StoryNPCs] Quest " + id + " defines no objectives."), false);
+            return 0;
+        }
+        var finalPlayer = player;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "[StoryNPCs] Objectives for " + id + " (" + finalPlayer.getScoreboardName() + "):"), false);
+        for (var objective : objectives) {
+            int count = state.getCount(objective.getId());
+            int required = objective.getRequiredCount();
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "  " + objective.getId() + ": " + count + "/" + required), false);
+        }
+        return objectives.size();
+    }
+
+    /** {@code quest progress <quest_id> <objective_id> <amount> [player]} — canonical progress set. */
+    private static int setQuestProgress(CommandContext<CommandSourceStack> ctx, ServerPlayer targetPlayer) {
+        ServerPlayer player = resolvePlayer(ctx, targetPlayer);
+        if (player == null) return 0;
+        NamespacedId id = getNamespacedId(ctx, "quest_id");
+        String objectiveId = StringArgumentType.getString(ctx, "objective_id");
+        int amount = IntegerArgumentType.getInteger(ctx, "amount");
+        try {
+            var service = mod(ctx).getApplicationService();
+            UUID actorUuid = ctx.getSource().getEntity() instanceof ServerPlayer actor
+                    ? actor.getUUID() : null;
+            var request = com.storynpcs.service.QuestProgressionMutationRequest.progress(
+                    "command", actorUuid, player.getUUID(), id, objectiveId, amount,
+                    service.currentQuestProgressionRevision(player.getUUID()), UUID.randomUUID());
+            var result = service.mutateQuestProgression(request);
+            if (!result.applied()) {
+                ctx.getSource().sendFailure(Component.literal(
+                        "Failed to set quest progress: " + result.formatReport()));
+                return 0;
+            }
+            ServerPlayer finalPlayer = player;
+            ctx.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "Set objective '%s' progress to %d on quest '%s' for %s",
+                    objectiveId, amount, id, finalPlayer.getScoreboardName())), true);
+            return 1;
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("Failed to set quest progress: " + e.getMessage()));
             return 0;
         }
     }
@@ -4498,6 +5183,28 @@ public final class StoryNpcsCommands {
         return 1;
     }
 
+    /** {@code template delete <template_id>} — canonical template removal (P9-3). */
+    private static int deleteTemplate(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        var service = mod != null ? mod.getApplicationService() : null;
+        if (service == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        var id = NamespacedId.of(
+                ResourceLocationArgument.getId(ctx, "template_id").toString());
+        var result = service.deleteTemplate(
+                commandMutationRequest(ctx, service, "template", "delete", id));
+        if (!result.applied()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "[StoryNPCs] Template delete rejected:\n" + result.formatReport(5)));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aDeleted template " + id), true);
+        return 1;
+    }
+
     // ── P8-3 world tools ─────────────────────────────────────────────────────
 
     private static int listWorldTools(CommandContext<CommandSourceStack> ctx) {
@@ -4787,6 +5494,20 @@ public final class StoryNpcsCommands {
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§aCancelled scene " + id + " (recovery applied)"), true);
         return 1;
+    }
+
+    /** {@code scene cancelall} — cancel every active scene in the caller's dimension (P9-3). */
+    private static int cancelAllScenes(CommandContext<CommandSourceStack> ctx) {
+        var mod = modOrNull(ctx);
+        if (mod == null) {
+            ctx.getSource().sendFailure(Component.literal("[StoryNPCs] Service unavailable."));
+            return 0;
+        }
+        int cancelled = mod.getSceneRuntime().cancelAll(ctx.getSource().getLevel());
+        final int n = cancelled;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "§aCancelled " + n + " active scene(s)"), true);
+        return n;
     }
 
     private static int deleteScene(CommandContext<CommandSourceStack> ctx) {

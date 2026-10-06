@@ -1109,6 +1109,60 @@ public class StoryNpcsApplicationService {
     }
 
     /**
+     * P9-3 (target `/noppes dialog read`): mark every node of a dialogue as
+     * visited for the request subject through the canonical player-scoped
+     * boundary — same authorization, replay dedup, and durable save as a
+     * session-driven visit.
+     */
+    public AuthorizedActionResult markDialogueRead(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(dialogueId, "dialogueId");
+        return runProgressionAction(request, "dialogue.mark.read",
+                dialogueId.toString(), dialogueId, () -> {
+            var graph = registry.getDialogue(dialogueId).orElse(null);
+            if (graph == null) {
+                return AuthorizedActionResult.denied(AuthorizationDecision.deny(
+                        "DIALOGUE_NOT_FOUND", "Dialogue not found: " + dialogueId));
+            }
+            PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+            int marked;
+            synchronized (progression) {
+                marked = 0;
+                for (String nodeId : graph.getNodes().keySet()) {
+                    if (!progression.hasVisitedDialogueNode(dialogueId, nodeId)) {
+                        progression.recordDialogueNodeVisit(dialogueId, nodeId);
+                        marked++;
+                    }
+                }
+                if (marked > 0) {
+                    saveProgression(request.playerUuid(), progression);
+                }
+            }
+            return AuthorizedActionResult.of(marked > 0);
+        });
+    }
+
+    /** P9-3 (target `/noppes dialog unread`): remove all visit markers for a dialogue. */
+    public AuthorizedActionResult clearDialogueReadMarkers(
+            PlayerProgressionActionRequest request, NamespacedId dialogueId) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(dialogueId, "dialogueId");
+        return runProgressionAction(request, "dialogue.mark.clear",
+                dialogueId.toString(), dialogueId, () -> {
+            PlayerProgression progression = progressionRepository.getOrCreate(request.playerUuid());
+            int cleared;
+            synchronized (progression) {
+                cleared = progression.clearDialogueVisits(dialogueId);
+                if (cleared > 0) {
+                    saveProgression(request.playerUuid(), progression);
+                }
+            }
+            return AuthorizedActionResult.of(cleared > 0);
+        });
+    }
+
+    /**
      * Evaluates authorization then applies the visit to the supplied progression
      * instance, so session paths reuse the object already fetched for the view.
      */
@@ -3666,6 +3720,8 @@ public class StoryNpcsApplicationService {
         try {
             if (request.action() == FactionProgressionMutationRequest.Action.SET) {
                 progression.setFactionScore(request.factionId(), request.amount());
+            } else if (request.action() == FactionProgressionMutationRequest.Action.REMOVE) {
+                progression.removeFactionScore(request.factionId());
             } else {
                 progression.adjustFactionScore(request.factionId(), request.amount(), faction.getDefaultPoints());
             }
@@ -6092,6 +6148,11 @@ public class StoryNpcsApplicationService {
                 role.setState(request.state());
                 notifications.add(new com.storynpcs.api.event.FollowerStateChangeEvent(
                         request.playerUuid(), request.npcId(), oldState, request.state()));
+            } else if (request.action() == FollowerStateMutationRequest.Action.SET_OWNER) {
+                var oldOwner = role.getOwnerUuid();
+                role.setOwnerUuid(request.ownerUuid());
+                notifications.add(new com.storynpcs.api.event.FollowerOwnerChangeEvent(
+                        request.playerUuid(), request.npcId(), oldOwner, request.ownerUuid()));
             } else {
                 var oldFormation = role.getFormation();
                 role.setFormation(request.formation());
@@ -6103,8 +6164,11 @@ public class StoryNpcsApplicationService {
             }
         }
 
-        String eventName = request.action() == FollowerStateMutationRequest.Action.SET_STATE
-                ? "FollowerStateChangeEvent" : "FollowerFormationChangeEvent";
+        String eventName = switch (request.action()) {
+            case SET_STATE -> "FollowerStateChangeEvent";
+            case SET_OWNER -> "FollowerOwnerChangeEvent";
+            default -> "FollowerFormationChangeEvent";
+        };
         CanonicalMutationResult applied = new CanonicalMutationResult(true, false, 0L,
                 ValidationResult.valid(), List.of(eventName), "COMMITTED");
         rememberFollowerMutation(request, fingerprint, applied);

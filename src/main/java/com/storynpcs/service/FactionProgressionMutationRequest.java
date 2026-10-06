@@ -18,7 +18,7 @@ public record FactionProgressionMutationRequest(
         UUID requestId,
         int permissionLevel) {
 
-    public enum Action { SET, ADJUST }
+    public enum Action { SET, ADJUST, REMOVE }
 
     private static final Set<String> ACTORS = Set.of("command", "dialogue", "player", "script", "system");
 
@@ -61,8 +61,19 @@ public record FactionProgressionMutationRequest(
                 Action.ADJUST, delta, expectedRevision, requestId, permissionLevel);
     }
 
+    public static FactionProgressionMutationRequest remove(
+            String actorType, UUID actorId, UUID playerUuid, NamespacedId factionId,
+            long expectedRevision, UUID requestId, int permissionLevel) {
+        return new FactionProgressionMutationRequest(actorType, actorId, playerUuid, factionId,
+                Action.REMOVE, 0, expectedRevision, requestId, permissionLevel);
+    }
+
     public String operation() {
-        return action == Action.SET ? "faction.progress.set" : "faction.progress.adjust";
+        return switch (action) {
+            case SET -> "faction.progress.set";
+            case ADJUST -> "faction.progress.adjust";
+            case REMOVE -> "faction.progress.remove";
+        };
     }
 
     public String capability() {
