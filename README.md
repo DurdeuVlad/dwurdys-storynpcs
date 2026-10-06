@@ -4,6 +4,8 @@
 
 Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capabilities traditionally found in CustomNPCs.
 
+**[v0.11.0-beta.1 is out](https://github.com/DurdeuVlad/dwurdys-storynpcs/releases/tag/v0.11.0-beta.1)** — first public beta. New here? [Getting started](docs/getting-started.md) · [Changelog](CHANGELOG.md) · [Beta testing guide](docs/beta-testing.md)
+
 ## Key Features
 
 - 📜 **YAML-First Content**: NPCs, dialogues, quests, and factions defined in clean, readable, versioned YAML files.
@@ -24,7 +26,7 @@ Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capab
 
 ## Current truth gate
 
-StoryNPCs is a partial implementation and CustomNPCs parity is an active roadmap, not a delivered feature claim. The exact target inventory, 42-issue implementation sequence, evidence states, and unsupported claims are tracked in the [CustomNPCs parity roadmap](docs/CUSTOMNPCS_PARITY_ROADMAP.md). Static target inventory and passing unit tests do not prove runtime parity.
+The full CustomNPCs-parity program is **implemented** in v0.11.0-beta.1 — but parity with the target runtime is **not certified**: no CustomNPCs runtime probe exists, so behavioral rows are `UNVERIFIED_TARGET_RUNTIME` and the release gate remains `BLOCKED` by design. The exact inventory, evidence states, intentional deviations, and unsupported claims are tracked in the [parity roadmap](docs/CUSTOMNPCS_PARITY_ROADMAP.md) and [release notes](docs/RELEASE-NOTES.md). Static target inventory and passing unit tests do not prove runtime parity.
 
 ## Architecture
 
