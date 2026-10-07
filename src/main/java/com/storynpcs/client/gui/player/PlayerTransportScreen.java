@@ -1,12 +1,16 @@
 package com.storynpcs.client.gui.player;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.domain.panel.PlayerPanels.TransportRow;
 import com.storynpcs.domain.panel.PlayerPanels.TransportView;
 import com.storynpcs.network.ServerboundTransportSelectPayload;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
@@ -18,7 +22,7 @@ import java.util.UUID;
  * sends {@link ServerboundTransportSelectPayload} on selection — the server
  * re-evaluates lock state, fee, and safety before moving the player.
  */
-public class PlayerTransportScreen extends Screen {
+public class PlayerTransportScreen extends UiScreen {
 
     private final TransportView view;
     private final UUID sessionId;
@@ -31,71 +35,79 @@ public class PlayerTransportScreen extends Screen {
     }
 
     private List<TransportRow> rows() {
-        return view.destinations() == null ? List.of() : view.destinations();
+        return view == null || view.destinations() == null ? List.of() : view.destinations();
     }
-    private int listTop() { return 36; }
-    private int listBottom() { return this.height - 30; }
-    private int maxVisible() { return Math.max(1, (listBottom() - listTop()) / 12); }
+    /** Whole visible rows that fit in the content band; 0 at degenerate heights. */
+    private int maxVisible() {
+        return Math.max(0, (contentBottom() - contentTop()) / UiTheme.ROW_H);
+    }
+    /** Bottom edge of the painted/clickable row band — never past contentBottom(). */
+    private int rowBandBottom() { return contentTop() + maxVisible() * UiTheme.ROW_H; }
+    /** Right edge of the clickable row band — leaves the scroll column clear. */
+    private int rowRight() { return contentRight() - 18; }
 
     @Override
-    protected void init() {
-        int cx = this.width / 2;
-        if (rows().size() > maxVisible()) {
+    protected void initContent() {
+        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, rows().size() - maxVisible())));
+        setStatus(Component.literal(rows().size() + " destination(s)"));
+        if (maxVisible() > 0 && rows().size() > maxVisible()) {
             addRenderableWidget(Button.builder(Component.literal("^"),
                             b -> scrollOffset = Math.max(0, scrollOffset - 1))
-                    .bounds(cx + 176, listTop(), 14, 12).build());
+                    .bounds(contentRight() - 14, contentTop(), 14, 12).build());
             addRenderableWidget(Button.builder(Component.literal("v"),
                             b -> scrollOffset = Math.min(rows().size() - maxVisible(), scrollOffset + 1))
-                    .bounds(cx + 176, listBottom() - 12, 14, 12).build());
+                    .bounds(contentRight() - 14, contentBottom() - 12, 14, 12).build());
         }
-        addRenderableWidget(Button.builder(Component.literal("Close"),
-                        b -> onClose())
-                .bounds(cx - 40, this.height - 24, 80, 16).build());
+        addFooterAction(Component.literal("Close"), b -> onClose());
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
-        super.render(graphics, mouseX, mouseY, partialTick);
-        int cx = this.width / 2;
-        graphics.drawCenteredString(this.font, "Transport", cx, 10, 0xFFFFFF);
-        graphics.drawCenteredString(this.font,
-                "§7" + rows().size() + " destination(s)", cx, 22, 0xAAAAAA);
-
+    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         var rows = rows();
-        int y = listTop();
+        int y = contentTop();
+        int bandRight = Math.max(contentLeft(), rowRight());
+        if (maxVisible() > 0 && bandRight > contentLeft()) {
+            graphics.enableScissor(contentLeft(), contentTop(), bandRight, rowBandBottom());
+        }
         for (int i = scrollOffset; i < Math.min(rows.size(), scrollOffset + maxVisible()); i++) {
             TransportRow row = rows.get(i);
-            if (row == null) { y += 12; continue; }
+            if (row == null) { y += UiTheme.ROW_H; continue; }
             String status = row.unlocked()
                     ? "§a" + (row.fee() > 0 ? row.fee() + "e" : "free")
                     : "§8locked";
             graphics.drawString(this.font,
                     (row.unlocked() ? "§f" : "§8") + row.name() + " §8["
                             + status + "§8]",
-                    cx - 190, y, 0xFFFFFF);
-            y += 12;
+                    contentLeft(), y, UiTheme.TEXT);
+            y += UiTheme.ROW_H;
+        }
+        if (maxVisible() > 0 && bandRight > contentLeft()) {
+            graphics.disableScissor();
         }
         if (rows.isEmpty()) {
             graphics.drawCenteredString(this.font,
-                    "§7No transport destinations available.", cx, y + 8, 0xAAAAAA);
+                    "§7No transport destinations available.",
+                    panelX + panelW / 2, y + UiTheme.PAD_M, UiTheme.TEXT_MUTED);
         }
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int cx = this.width / 2;
-        if (button == 0 && mouseX >= cx - 190 && mouseX <= cx + 170
-                && mouseY >= listTop() && mouseY <= listBottom()) {
-            int index = scrollOffset + (int) ((mouseY - listTop()) / 12);
+        if (button == 0 && mouseX >= contentLeft() && mouseX < rowRight()
+                && mouseY >= contentTop() && mouseY < rowBandBottom()) {
+            int index = scrollOffset + (int) ((mouseY - contentTop()) / UiTheme.ROW_H);
             var rows = rows();
-            if (index >= 0 && index < rows.size()) {
+            if (index < rows.size()) {
                 var row = rows.get(index);
                 if (row != null && row.unlocked()) {
                     PacketDistributor.sendToServer(new ServerboundTransportSelectPayload(
                             sessionId, UUID.randomUUID(), row.id()));
+                    Minecraft.getInstance().getSoundManager().play(
+                            SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                    onClose();
                 }
             }
+            return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
