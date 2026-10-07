@@ -116,7 +116,11 @@ public class CustomGuiScreen extends Screen {
                 }
             }
         }
-        super.render(graphics, mouseX, mouseY, partialTick);
+        // Render widgets directly — super.render() would re-run the blur
+        // background pass and smear the authored elements drawn above (#197).
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
     }
 
     @Override

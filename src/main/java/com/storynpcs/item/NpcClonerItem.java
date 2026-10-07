@@ -29,7 +29,7 @@ import java.util.UUID;
  * - Right-click NPC: Captures its definition template into memory.
  * - Right-click ground: Spawns an instance of the captured template.
  */
-public class NpcClonerItem extends Item {
+public class NpcClonerItem extends Item implements CreatorToolItem {
 
     public NpcClonerItem(Properties properties) {
         super(properties);

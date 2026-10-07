@@ -17,7 +17,7 @@ import net.minecraft.world.item.ItemStack;
  * second click (within the TTL) executes. The authored YAML definition is
  * untouched; only the live entity instance is removed.
  */
-public class NpcRemoverItem extends Item {
+public class NpcRemoverItem extends Item implements CreatorToolItem {
 
     private static final long CONFIRM_TTL_MILLIS = 10_000;
 

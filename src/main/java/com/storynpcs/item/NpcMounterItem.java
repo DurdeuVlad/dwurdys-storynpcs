@@ -24,7 +24,7 @@ import com.storynpcs.StoryNpcsAccess;
  * - Right-click a block with a passenger selected: seats the passenger on a
  *   transient chair mount (#148).
  */
-public class NpcMounterItem extends Item {
+public class NpcMounterItem extends Item implements CreatorToolItem {
 
     public NpcMounterItem(Properties properties) {
         super(properties);

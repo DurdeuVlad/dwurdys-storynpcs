@@ -24,7 +24,7 @@ import net.minecraft.world.level.Level;
  * stone redeploys the NPC there via the entity factory. The authored YAML
  * definition is only read, never mutated.
  */
-public class NpcSoulStoneItem extends Item {
+public class NpcSoulStoneItem extends Item implements CreatorToolItem {
 
     private static final long CONFIRM_TTL_MILLIS = 10_000;
     private static final String BOUND_NPC_KEY = "storynpcs_soulstone_npc";

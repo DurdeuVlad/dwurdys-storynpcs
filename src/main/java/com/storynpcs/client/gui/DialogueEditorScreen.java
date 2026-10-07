@@ -721,6 +721,11 @@ public class DialogueEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Screen#render runs the menu-blur post-process over whatever is
+        // already in the framebuffer — background first, canvas next, widgets
+        // last, or the whole graph canvas is blurred while buttons stay
+        // sharp (#197).
+        this.renderBackground(graphics, mouseX, mouseY, partialTick);
         // Dark background canvas
         graphics.fill(0, 0, width, height, 0xFF121214);
 
@@ -805,7 +810,11 @@ public class DialogueEditorScreen extends Screen {
         // Inspector panel for selected node
         renderInspector(graphics);
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        // Render widgets directly — super.render() would re-run the blur
+        // background pass and smear the canvas drawn above (#197).
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
 
         // Overlay panes draw above widgets
         renderPane(graphics);
