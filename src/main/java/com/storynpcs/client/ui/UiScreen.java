@@ -39,11 +39,14 @@ public abstract class UiScreen extends Screen {
 
     @Override
     protected final void init() {
-        panelW = Math.min(this.width - UiTheme.PANEL_INSET * 2, UiTheme.PANEL_MAX_W);
-        panelH = Math.min(this.height - UiTheme.PANEL_INSET * 2, UiTheme.PANEL_MAX_H);
+        panelW = Math.max(UiTheme.PAD_XL * 2,
+                Math.min(this.width - UiTheme.PANEL_INSET * 2, UiTheme.PANEL_MAX_W));
+        panelH = Math.max(UiTheme.HEADER_H + UiTheme.FOOTER_H + UiTheme.PAD_S * 2 + 1,
+                Math.min(this.height - UiTheme.PANEL_INSET * 2, UiTheme.PANEL_MAX_H));
         panelX = (this.width - panelW) / 2;
         panelY = (this.height - panelH) / 2;
         footerActions.clear();
+        status = null;
         initContent();
         layoutFooter();
     }
@@ -54,7 +57,11 @@ public abstract class UiScreen extends Screen {
     /** Body rendering between header and footer; default is empty. */
     protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {}
 
-    /** Register a footer button; laid out right-aligned in the footer row. */
+    /**
+     * Register a footer button; laid out right-aligned in the footer row.
+     * Valid only during {@link #initContent} — actions added after {@link #init}
+     * completes are never laid out and are discarded on the next rebuild.
+     */
     protected void addFooterAction(Component label, Button.OnPress onPress) {
         footerActions.add(new FooterAction(label, onPress));
     }
@@ -70,6 +77,8 @@ public abstract class UiScreen extends Screen {
         for (int i = footerActions.size() - 1; i >= 0; i--) {
             FooterAction action = footerActions.get(i);
             int w = Math.max(54, this.font.width(action.label()) + UiTheme.PAD_L * 2);
+            w = Math.min(w, x - contentLeft());
+            if (w < 20) break;
             x -= w;
             addRenderableWidget(Button.builder(action.label(), action.onPress())
                     .bounds(x, by, w, UiTheme.BUTTON_H).build());
@@ -92,8 +101,11 @@ public abstract class UiScreen extends Screen {
         renderChrome(graphics);
         renderContent(graphics, mouseX, mouseY, partialTick);
         suppressBackground = true;
-        super.render(graphics, mouseX, mouseY, partialTick);
-        suppressBackground = false;
+        try {
+            super.render(graphics, mouseX, mouseY, partialTick);
+        } finally {
+            suppressBackground = false;
+        }
     }
 
     /**

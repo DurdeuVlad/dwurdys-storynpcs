@@ -37,9 +37,12 @@ public class PlayerTransportScreen extends UiScreen {
     private int maxVisible() {
         return Math.max(1, (contentBottom() - contentTop()) / UiTheme.ROW_H);
     }
+    /** Right edge of the clickable row band — leaves the scroll column clear. */
+    private int rowRight() { return contentRight() - 18; }
 
     @Override
     protected void initContent() {
+        scrollOffset = Math.min(scrollOffset, Math.max(0, rows().size() - maxVisible()));
         setStatus(Component.literal(rows().size() + " destination(s)"));
         if (rows().size() > maxVisible()) {
             addRenderableWidget(Button.builder(Component.literal("^"),
@@ -56,6 +59,8 @@ public class PlayerTransportScreen extends UiScreen {
     protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         var rows = rows();
         int y = contentTop();
+        graphics.enableScissor(contentLeft(), contentTop(),
+                rowRight(), contentTop() + maxVisible() * UiTheme.ROW_H);
         for (int i = scrollOffset; i < Math.min(rows.size(), scrollOffset + maxVisible()); i++) {
             TransportRow row = rows.get(i);
             if (row == null) { y += UiTheme.ROW_H; continue; }
@@ -68,6 +73,7 @@ public class PlayerTransportScreen extends UiScreen {
                     contentLeft(), y, UiTheme.TEXT);
             y += UiTheme.ROW_H;
         }
+        graphics.disableScissor();
         if (rows.isEmpty()) {
             graphics.drawCenteredString(this.font,
                     "§7No transport destinations available.",
@@ -77,11 +83,12 @@ public class PlayerTransportScreen extends UiScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0 && mouseX >= contentLeft() && mouseX <= contentRight()
-                && mouseY >= contentTop() && mouseY <= contentBottom()) {
+        if (button == 0 && mouseX >= contentLeft() && mouseX < rowRight()
+                && mouseY >= contentTop()
+                && mouseY < contentTop() + maxVisible() * UiTheme.ROW_H) {
             int index = scrollOffset + (int) ((mouseY - contentTop()) / UiTheme.ROW_H);
             var rows = rows();
-            if (index >= 0 && index < rows.size()) {
+            if (index < rows.size()) {
                 var row = rows.get(index);
                 if (row != null && row.unlocked()) {
                     PacketDistributor.sendToServer(new ServerboundTransportSelectPayload(
