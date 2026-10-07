@@ -146,7 +146,11 @@ public class DialogueScreen extends Screen {
         // Draw dialogue body text with word wrap
         graphics.drawWordWrap(this.font, Component.literal(model.getText()), startX + 15, textY, panelWidth - 30, 0xFFFFFFFF);
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        // Render widgets directly — super.render() would re-run the blur
+        // background pass and smear the dialogue panel drawn above (#197).
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
     }
 
     @Override

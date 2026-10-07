@@ -228,6 +228,11 @@ public class FactionEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        // Screen#render runs the menu-blur post-process over whatever is
+        // already in the framebuffer — background first, custom content next,
+        // widgets last, or the rows below are blurred while buttons stay
+        // sharp (#197).
+        this.renderBackground(g, mouseX, mouseY, partial);
         g.fill(0, 0, this.width, this.height, 0xE0101014);
         g.renderOutline(0, 0, this.width, this.height, 0xFF3F3F46);
 
@@ -236,7 +241,9 @@ public class FactionEditorScreen extends Screen {
         } else {
             renderEdit(g);
         }
-        super.render(g, mouseX, mouseY, partial);
+        for (var renderable : this.renderables) {
+            renderable.render(g, mouseX, mouseY, partial);
+        }
     }
 
     private void renderList(GuiGraphics g, int mouseX, int mouseY) {

@@ -33,7 +33,7 @@ import java.util.List;
  * - Right-click NPC: Opens the NPC Editor GUI for that existing NPC.
  * - Left-click NPC (creative): Despawns the NPC.
  */
-public class NpcWandItem extends Item {
+public class NpcWandItem extends Item implements CreatorToolItem {
 
     public NpcWandItem(Properties properties) {
         super(properties);

@@ -181,7 +181,11 @@ public class NbtBookScreen extends Screen {
         if (!statusMessage.isEmpty()) {
             graphics.drawString(this.font, statusMessage, cx - 170, this.height - 42, COLOR_PATH);
         }
-        super.render(graphics, mouseX, mouseY, partialTick);
+        // Render widgets directly — super.render() would re-run the blur
+        // background pass and smear the rows drawn above (#197).
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
     }
 
     @Override

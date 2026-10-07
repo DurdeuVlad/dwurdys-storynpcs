@@ -1708,11 +1708,15 @@ public class StoryNpcEntity extends PathfinderMob {
             return InteractionResult.PASS;
         }
 
-        // Creator tools inspect rather than interact — PASS so the fall-through
-        // to Item#interactLivingEntity reaches NbtBookItem (#148). Without
-        // this, every SUCCESS path below would consume the interact first and
-        // the book could never open on a StoryNPC.
-        if (player.getItemInHand(hand).getItem() instanceof com.storynpcs.item.NbtBookItem) {
+        // Creator tools inspect/mutate rather than interact — PASS so the
+        // fall-through to Item#interactLivingEntity reaches them (#148, #195,
+        // #197). Without this, every SUCCESS path below would consume the
+        // interact first and no tool could ever fire on a StoryNPC — the wand
+        // editor, dialogue-wand graph editor, cloner, pather, mounter,
+        // teleporter, remover, soulstone, and NBT book would all be dead on
+        // any NPC, dialogued or not. The check precedes the client-side
+        // SUCCESS so tools pass through on both sides.
+        if (com.storynpcs.item.CreatorToolItem.isCreatorTool(player.getItemInHand(hand).getItem())) {
             return InteractionResult.PASS;
         }
 

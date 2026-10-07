@@ -264,6 +264,11 @@ public class NpcEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Screen#render runs the menu-blur post-process over whatever is
+        // already in the framebuffer — background first, custom content next,
+        // widgets last, or every panel below is blurred while buttons stay
+        // sharp (#197).
+        this.renderBackground(graphics, mouseX, mouseY, partialTick);
         int panelWidth = Math.min(400, this.width - 8);
         int panelHeight = Math.min(245, this.height - 8);
         int startX = (this.width - panelWidth) / 2;
@@ -309,6 +314,10 @@ public class NpcEditorScreen extends Screen {
                     startX + 12, startY + panelHeight - 14, statusColor);
         }
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        // Render widgets directly — super.render() would re-run the blur
+        // background pass and smear the panel drawn above (#197).
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
     }
 }

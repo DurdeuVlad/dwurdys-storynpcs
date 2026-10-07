@@ -73,6 +73,11 @@ public class AuthoringHubScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Screen#render runs the menu-blur post-process over whatever is
+        // already in the framebuffer — background first, custom content next,
+        // widgets last, or the hub lists are blurred while buttons stay
+        // sharp (#197).
+        this.renderBackground(graphics, mouseX, mouseY, partialTick);
         graphics.fill(0, 0, width, height, 0xFF101418);
         graphics.drawString(this.font, "StoryNPCs — Authoring Hub", LIST_X, 32, 0xFF38BDF8, false);
 
@@ -128,7 +133,9 @@ public class AuthoringHubScreen extends Screen {
                     this.font.plainSubstrByWidth(statusLine, width - 16),
                     DETAIL_X, height - 20, 0xFFFBBF24, false);
         }
-        super.render(graphics, mouseX, mouseY, partialTick);
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
+        }
     }
 
     @Override

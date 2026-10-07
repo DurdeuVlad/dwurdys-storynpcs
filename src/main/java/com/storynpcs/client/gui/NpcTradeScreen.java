@@ -8,6 +8,8 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
@@ -40,9 +42,15 @@ public class NpcTradeScreen extends Screen {
         this.sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
     }
 
-    private int listTop() { return 22; }
+    /** Row height fits a 16px item icon with a pixel of margin either side. */
+    private static final int ROW_H = 18;
+    private static final int BUY_W = 44;
+    private static final int ARROW_W = 20;
+
+    private int rowWidth() { return Math.min(this.width - 24, 460); }
+    private int listTop() { return 30; }
     private int listBottom() { return this.height - 20; }
-    private int maxVisibleRows() { return Math.max(1, (listBottom() - listTop()) / 12); }
+    private int maxVisibleRows() { return Math.max(1, (listBottom() - listTop()) / ROW_H); }
 
     @Override
     protected void init() {
@@ -50,12 +58,11 @@ public class NpcTradeScreen extends Screen {
         int maxScroll = Math.max(0, listings.size() - maxVisibleRows());
         scrollOffset = Math.min(scrollOffset, maxScroll);
 
-        int rowW = Math.min(this.width - 24, 340);
-        int buyW = 44;
+        int rowW = rowWidth();
         int visible = Math.min(listings.size() - scrollOffset, maxVisibleRows());
         for (int i = 0; i < visible; i++) {
             int index = scrollOffset + i;
-            int y = listTop() + i * 12;
+            int y = listTop() + i * ROW_H;
             TradeListing listing = listings.get(index);
             int score = listing.getRequiredFaction() != null
                     ? factionScores.getOrDefault(listing.getRequiredFaction().toString(), 0)
@@ -65,7 +72,7 @@ public class NpcTradeScreen extends Screen {
                             b -> PacketDistributor.sendToServer(
                                     new ServerboundTradeExecutePayload(npcId, index, sessionId,
                                             requestIds.computeIfAbsent(index, ignored -> UUID.randomUUID()))))
-                    .bounds(12 + rowW - buyW, y, buyW, 11)
+                    .bounds(12 + rowW - BUY_W, y + 3, BUY_W, 12)
                     .build();
             buy.active = available;
             addRenderableWidget(buy);
@@ -89,26 +96,60 @@ public class NpcTradeScreen extends Screen {
         graphics.drawString(this.font, title, 12, 8, 0xFFFFFF);
 
         List<TradeListing> listings = trader.getListings();
-        int rowW = Math.min(this.width - 24, 340);
-        int textW = rowW - 48;
+        int rowW = rowWidth();
+        int buyX = 12 + rowW - BUY_W;
+        // Buy-left / sell-right columns (#197): the trader buys the price on
+        // the left, sells the offer on the right, each with an item icon.
+        int buyColW = (rowW - BUY_W - 8 - ARROW_W) / 2;
+        int sellColX = 12 + buyColW + ARROW_W;
+        int sellColW = buyX - 4 - sellColX;
+
+        graphics.drawString(this.font, "§7Trader buys", 12, listTop() - 9, 0xAAAAAA);
+        graphics.drawString(this.font, "§7Trader sells", sellColX, listTop() - 9, 0xAAAAAA);
 
         graphics.enableScissor(0, listTop() - 1, this.width, listBottom() + 1);
         int visible = Math.min(listings.size() - scrollOffset, maxVisibleRows());
         for (int i = 0; i < visible; i++) {
             TradeListing listing = listings.get(scrollOffset + i);
-            int y = listTop() + i * 12;
-            String label = offerText(listing);
-            if (this.font.width(label) > textW) {
-                label = this.font.plainSubstrByWidth(label, textW);
-            }
-            graphics.drawString(this.font, label, 12, y + 2, 0xFFFFFF);
+            int y = listTop() + i * ROW_H;
 
+            // Left column — the price: what the trader buys from the player.
+            int px = 12;
+            px += itemLabel(graphics, px, y, buyColW,
+                    listing.getPriceItemId(), Math.max(1, listing.getPriceCount()));
+            String secondaryId = listing.getSecondaryPriceItemId();
+            if (secondaryId != null && !secondaryId.isBlank()
+                    && listing.getSecondaryPriceCount() > 0 && px + 12 < 12 + buyColW) {
+                graphics.drawString(this.font, "+", px + 2, y + 5, 0xAAAAAA);
+                px += 10;
+                itemLabel(graphics, px, y, 12 + buyColW - px,
+                        secondaryId, Math.max(1, listing.getSecondaryPriceCount()));
+            }
+            graphics.drawString(this.font, "->", 12 + buyColW + 6, y + 5, 0xAAAAAA);
+
+            // Right column — the offer: what the trader sells to the player.
             int score = listing.getRequiredFaction() != null
                     ? factionScores.getOrDefault(listing.getRequiredFaction().toString(), 0)
                     : 0;
             String reason = TradeSummaries.unavailableReason(listing, score);
+            int reasonW = reason != null ? this.font.width(reason) + 8 : 0;
+
+            int sx = sellColX;
+            ItemStack offerStack = itemStack(listing.getOfferItemId());
+            if (offerStack != null && sellColW - reasonW >= 18) {
+                graphics.renderItem(offerStack, sx, y + 1);
+                sx += 18;
+            }
+            String offerLabel = Math.max(1, listing.getOfferCount()) + "x " + itemName(listing.getOfferItemId());
+            if (listing.getMaxUses() > 0) {
+                offerLabel += " §7(" + listing.getUses() + "/" + listing.getMaxUses() + " left)";
+            }
+            offerLabel = this.font.plainSubstrByWidth(offerLabel,
+                    Math.max(0, sellColX + sellColW - reasonW - sx));
+            graphics.drawString(this.font, offerLabel, sx, y + 5, 0xFFFFFF);
+
             if (reason != null) {
-                graphics.drawString(this.font, reason, 12 + rowW - 48 - this.font.width(reason) - 4, y + 2, 0xFF5555);
+                graphics.drawString(this.font, reason, buyX - 4 - this.font.width(reason), y + 5, 0xFF5555);
             }
         }
         graphics.disableScissor();
@@ -123,24 +164,40 @@ public class NpcTradeScreen extends Screen {
         }
     }
 
-    /** Player-facing row text: item display names where resolvable, raw ids otherwise. */
-    private String offerText(TradeListing listing) {
-        String offer = itemName(listing.getOfferItemId());
-        String price = itemName(listing.getPriceItemId());
-        String text = Math.max(1, listing.getOfferCount()) + "x " + offer
-                + "  <-  " + Math.max(1, listing.getPriceCount()) + "x " + price;
-        if (listing.getMaxUses() > 0) {
-            text += "  (" + listing.getUses() + "/" + listing.getMaxUses() + " left)";
+    /**
+     * Renders an item icon + "Nx name" clipped to {@code maxW}; returns the
+     * width consumed so a second price item can follow on the same row.
+     */
+    private int itemLabel(GuiGraphics graphics, int x, int y, int maxW, String itemId, int count) {
+        if (maxW <= 0 || itemId == null || itemId.isBlank()) {
+            return 0;
         }
-        return text;
+        int used = 0;
+        ItemStack stack = itemStack(itemId);
+        if (stack != null && maxW >= 18) {
+            graphics.renderItem(stack, x, y + 1);
+            used += 18;
+        }
+        String label = this.font.plainSubstrByWidth(count + "x " + itemName(itemId),
+                Math.max(0, maxW - used));
+        graphics.drawString(this.font, label, x + used, y + 5, 0xFFFFFF);
+        return used + this.font.width(label);
     }
 
     private static String itemName(String itemId) {
-        var rl = net.minecraft.resources.ResourceLocation.tryParse(itemId);
-        if (rl == null) return itemId;
+        ItemStack stack = itemStack(itemId);
+        return stack != null ? stack.getHoverName().getString() : itemId;
+    }
+
+    private static ItemStack itemStack(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return null;
+        }
+        ResourceLocation rl = ResourceLocation.tryParse(itemId);
+        if (rl == null) return null;
         return net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(rl)
-                .map(i -> new net.minecraft.world.item.ItemStack(i).getHoverName().getString())
-                .orElse(itemId);
+                .map(ItemStack::new)
+                .orElse(null);
     }
 
     @Override

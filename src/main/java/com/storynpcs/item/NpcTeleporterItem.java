@@ -23,7 +23,7 @@ import net.minecraft.world.level.Level;
  * server sessions, the move is audited, and a stale/despawned selection
  * recovers cleanly instead of targeting nothing.
  */
-public class NpcTeleporterItem extends Item {
+public class NpcTeleporterItem extends Item implements CreatorToolItem {
 
     public NpcTeleporterItem(Properties properties) {
         super(properties);

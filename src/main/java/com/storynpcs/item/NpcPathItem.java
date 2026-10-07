@@ -30,7 +30,7 @@ import java.util.List;
  * - Right-click block: Appends a waypoint, switches AI to PATHING, and saves YAML.
  * - Sneak + right-click air: Clears waypoints for the selected NPC.
  */
-public class NpcPathItem extends Item {
+public class NpcPathItem extends Item implements CreatorToolItem {
 
     public NpcPathItem(Properties properties) {
         super(properties);

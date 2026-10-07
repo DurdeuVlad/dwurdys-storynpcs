@@ -29,7 +29,7 @@ import java.util.List;
  * supported — definition-backed NPC data is only mutable through canonical
  * operations (ADR-006), so everything outside the allowlist is read-only.
  */
-public class NbtBookItem extends Item {
+public class NbtBookItem extends Item implements CreatorToolItem {
 
     public static final String SESSION_KIND = "nbt_book";
 

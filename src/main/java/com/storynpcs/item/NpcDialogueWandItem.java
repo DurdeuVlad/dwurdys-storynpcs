@@ -26,7 +26,7 @@ import java.util.Optional;
  * NPC Dialogue Wand — Instant access to the visual directed-graph dialogue editor.
  * - Right-click NPC: Opens the visual dialogue graph editor (scaffolding a starter graph if none exists).
  */
-public class NpcDialogueWandItem extends Item {
+public class NpcDialogueWandItem extends Item implements CreatorToolItem {
 
     public NpcDialogueWandItem(Properties properties) {
         super(properties);
