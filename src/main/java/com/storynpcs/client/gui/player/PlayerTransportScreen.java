@@ -5,9 +5,12 @@ import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.domain.panel.PlayerPanels.TransportRow;
 import com.storynpcs.domain.panel.PlayerPanels.TransportView;
 import com.storynpcs.network.ServerboundTransportSelectPayload;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
@@ -32,19 +35,22 @@ public class PlayerTransportScreen extends UiScreen {
     }
 
     private List<TransportRow> rows() {
-        return view.destinations() == null ? List.of() : view.destinations();
+        return view == null || view.destinations() == null ? List.of() : view.destinations();
     }
+    /** Whole visible rows that fit in the content band; 0 at degenerate heights. */
     private int maxVisible() {
-        return Math.max(1, (contentBottom() - contentTop()) / UiTheme.ROW_H);
+        return Math.max(0, (contentBottom() - contentTop()) / UiTheme.ROW_H);
     }
+    /** Bottom edge of the painted/clickable row band — never past contentBottom(). */
+    private int rowBandBottom() { return contentTop() + maxVisible() * UiTheme.ROW_H; }
     /** Right edge of the clickable row band — leaves the scroll column clear. */
     private int rowRight() { return contentRight() - 18; }
 
     @Override
     protected void initContent() {
-        scrollOffset = Math.min(scrollOffset, Math.max(0, rows().size() - maxVisible()));
+        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, rows().size() - maxVisible())));
         setStatus(Component.literal(rows().size() + " destination(s)"));
-        if (rows().size() > maxVisible()) {
+        if (maxVisible() > 0 && rows().size() > maxVisible()) {
             addRenderableWidget(Button.builder(Component.literal("^"),
                             b -> scrollOffset = Math.max(0, scrollOffset - 1))
                     .bounds(contentRight() - 14, contentTop(), 14, 12).build());
@@ -59,8 +65,10 @@ public class PlayerTransportScreen extends UiScreen {
     protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         var rows = rows();
         int y = contentTop();
-        graphics.enableScissor(contentLeft(), contentTop(),
-                rowRight(), contentTop() + maxVisible() * UiTheme.ROW_H);
+        int bandRight = Math.max(contentLeft(), rowRight());
+        if (maxVisible() > 0 && bandRight > contentLeft()) {
+            graphics.enableScissor(contentLeft(), contentTop(), bandRight, rowBandBottom());
+        }
         for (int i = scrollOffset; i < Math.min(rows.size(), scrollOffset + maxVisible()); i++) {
             TransportRow row = rows.get(i);
             if (row == null) { y += UiTheme.ROW_H; continue; }
@@ -73,7 +81,9 @@ public class PlayerTransportScreen extends UiScreen {
                     contentLeft(), y, UiTheme.TEXT);
             y += UiTheme.ROW_H;
         }
-        graphics.disableScissor();
+        if (maxVisible() > 0 && bandRight > contentLeft()) {
+            graphics.disableScissor();
+        }
         if (rows.isEmpty()) {
             graphics.drawCenteredString(this.font,
                     "§7No transport destinations available.",
@@ -84,8 +94,7 @@ public class PlayerTransportScreen extends UiScreen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && mouseX >= contentLeft() && mouseX < rowRight()
-                && mouseY >= contentTop()
-                && mouseY < contentTop() + maxVisible() * UiTheme.ROW_H) {
+                && mouseY >= contentTop() && mouseY < rowBandBottom()) {
             int index = scrollOffset + (int) ((mouseY - contentTop()) / UiTheme.ROW_H);
             var rows = rows();
             if (index < rows.size()) {
@@ -93,8 +102,12 @@ public class PlayerTransportScreen extends UiScreen {
                 if (row != null && row.unlocked()) {
                     PacketDistributor.sendToServer(new ServerboundTransportSelectPayload(
                             sessionId, UUID.randomUUID(), row.id()));
+                    Minecraft.getInstance().getSoundManager().play(
+                            SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+                    onClose();
                 }
             }
+            return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
