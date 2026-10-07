@@ -1708,6 +1708,12 @@ public class StoryNpcEntity extends PathfinderMob {
             return InteractionResult.PASS;
         }
 
+        // Prevent interacting while dead, spectating, or through solid obstacles without line of sight (VULN-12).
+        // Runs before the creator-tool fall-through so tools can't bypass walls either.
+        if (!player.isAlive() || player.isSpectator() || !this.hasLineOfSight(player)) {
+            return InteractionResult.FAIL;
+        }
+
         // Creator tools inspect/mutate rather than interact — PASS so the
         // fall-through to Item#interactLivingEntity reaches them (#148, #195,
         // #197). Without this, every SUCCESS path below would consume the
@@ -1722,11 +1728,6 @@ public class StoryNpcEntity extends PathfinderMob {
 
         if (this.level().isClientSide) {
             return InteractionResult.SUCCESS;
-        }
-
-        // Prevent interacting while dead, spectating, or through solid obstacles without line of sight (VULN-12)
-        if (!player.isAlive() || player.isSpectator() || !this.hasLineOfSight(player)) {
-            return InteractionResult.FAIL;
         }
 
         if (player instanceof ServerPlayer serverPlayer) {

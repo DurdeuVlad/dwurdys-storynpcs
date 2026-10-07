@@ -332,12 +332,11 @@ public class QuestEditorScreen extends Screen {
         } else {
             renderEdit(g, mouseX, mouseY);
         }
-        for (var renderable : this.renderables) {
-            renderable.render(g, mouseX, mouseY, partial);
-        }
-
         if (model.getRowKind() != RowKind.NONE) {
             renderRowEditorOverlay(g);
+        }
+        for (var renderable : this.renderables) {
+            renderable.render(g, mouseX, mouseY, partial);
         }
     }
 

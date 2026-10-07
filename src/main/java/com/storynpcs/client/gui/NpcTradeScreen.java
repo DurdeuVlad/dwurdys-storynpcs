@@ -85,8 +85,10 @@ public class NpcTradeScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Screen#render runs the menu-blur post-process over whatever is in the
+        // framebuffer — background first, custom content next, widgets last,
+        // or rows are blurred while buttons stay sharp (#197).
         renderBackground(graphics, mouseX, mouseY, partialTick);
-        super.render(graphics, mouseX, mouseY, partialTick);
 
         String title = trader.getMarketName() + " — " + npcName;
         int titleW = this.font.width(title);
@@ -161,6 +163,10 @@ public class NpcTradeScreen extends Screen {
             graphics.drawString(this.font, "§7scroll for more (" + (scrollOffset + 1) + "-" +
                     Math.min(listings.size(), scrollOffset + maxVisibleRows()) + "/" + listings.size() + ")",
                     12 + 66, this.height - 12, 0xAAAAAA);
+        }
+
+        for (var renderable : this.renderables) {
+            renderable.render(graphics, mouseX, mouseY, partialTick);
         }
     }
 

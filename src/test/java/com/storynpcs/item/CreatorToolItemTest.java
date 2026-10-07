@@ -67,10 +67,19 @@ class CreatorToolItemTest {
 
         // The creator-tool PASS check must appear inside mobInteract, after
         // the hand filter, and before the client-side SUCCESS that would
-        // otherwise consume the interact before the item sees it.
-        int check = text.indexOf("CreatorToolItem.isCreatorTool", method);
+        // otherwise consume the interact before the item sees it. The check
+        // must be the positive form `if (...isCreatorTool(...)` — an inverted
+        // `!isCreatorTool` would silently block every tool, so pin the exact
+        // statement shape rather than the bare call site.
+        int check = text.indexOf("if (com.storynpcs.item.CreatorToolItem.isCreatorTool(", method);
         assertTrue(check > method,
                 "mobInteract must return PASS for CreatorToolItem so interactLivingEntity fires");
+
+        // VULN-12: the alive/spectator/line-of-sight gate must run before the
+        // tool PASS, or tools could reach through walls.
+        int losGate = text.indexOf("!this.hasLineOfSight(player)", method);
+        assertTrue(losGate > method && losGate < check,
+                "the VULN-12 line-of-sight gate must precede the creator-tool PASS");
 
         int clientSideSuccess = text.indexOf("isClientSide", method);
         assertTrue(clientSideSuccess > 0 && check < clientSideSuccess,
