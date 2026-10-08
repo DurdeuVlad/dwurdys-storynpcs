@@ -41,6 +41,7 @@ public class DialogueScreen extends UiScreen {
     private static final int PORTRAIT_W = 84;
     private static final int MIN_TEXT_H = 24;
     private static final int MIN_TEXT_W = 40;
+    private static final UUID ZERO_SESSION = new UUID(0L, 0L);
 
     private final DialogueScreenModel model;
     private final UUID sessionId;
@@ -110,28 +111,30 @@ public class DialogueScreen extends UiScreen {
         if (mc.level == null || mc.player == null) {
             return null;
         }
+        // Strongest evidence first: a still-open screen of the same session
+        // knows the speaker — a speaker change mid-dialogue must not drop the
+        // portrait. Zero UUID marks sessionless (terminal) payloads.
+        if (mc.screen instanceof DialogueScreen previous && previous.portrait != null
+                && !ZERO_SESSION.equals(sessionId) && previous.sessionId.equals(sessionId)) {
+            return previous.portrait;
+        }
         boolean nameKnown = npcName != null && !npcName.isBlank();
         if (nameKnown && mc.crosshairPickEntity instanceof LivingEntity living
                 && isPortraitable(living) && npcName.equals(living.getName().getString())) {
             return living;
         }
+        if (!nameKnown) {
+            return null;
+        }
         // The payload lands a tick or two after the interact, so the crosshair
         // pick is often empty — scan for the named NPC instead.
-        LivingEntity named = nearest(mc, e -> nameKnown && npcName.equals(e.getName().getString()), 64.0);
+        LivingEntity named = nearest(mc, e -> npcName.equals(e.getName().getString()), 64.0);
         if (named != null) {
             return named;
         }
         // Speaker-override nodes can't name-match; the NPC the player could
         // have interacted with is within reach regardless of what it's called.
-        LivingEntity nearby = nearest(mc, e -> true, 20.25); // 4.5-block interact reach
-        if (nearby != null) {
-            return nearby;
-        }
-        if (mc.screen instanceof DialogueScreen previous && previous.portrait != null
-                && previous.sessionId.equals(sessionId)) {
-            return previous.portrait;
-        }
-        return null;
+        return nearest(mc, ignored -> true, 9.0); // 3-block entity interaction reach
     }
 
     private static LivingEntity nearest(Minecraft mc,
