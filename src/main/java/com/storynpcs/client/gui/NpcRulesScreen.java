@@ -1,15 +1,20 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.FieldValidator;
+import com.storynpcs.client.ui.widgets.FormRow;
+import com.storynpcs.client.ui.widgets.ScrollState;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcDefinitionSerde;
 import com.storynpcs.editor.PayloadBoundRequestId;
-import com.storynpcs.domain.rule.BehaviorRule;
 import com.storynpcs.editor.NpcRulesScreenModel;
 import com.storynpcs.network.ServerboundNpcSavePayload;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -22,40 +27,32 @@ import java.util.UUID;
  * rule authoring mirroring /storynpcs npc rule add|list|remove. Mutations go
  * through the existing whole-definition save payload → saveNpc, so server-side
  * validation is identical to the command path.
+ *
+ * <p>Migrated onto the shared chrome (#206): the list is a {@link SelectableList},
+ * remove is an armed footer action, and status echoes ride the footer's
+ * contrast-safe line instead of dark-green text over the dimmed world (D2).
  */
-public class NpcRulesScreen extends Screen {
-
-    private static final int ROW_H = 12;
-    private static final int COLOR_OK = 0xFF4ADE80;
-    private static final int COLOR_ERR = 0xFFF87171;
-    private static final int COLOR_LABEL = 0xFFA1A1AA;
+public class NpcRulesScreen extends UiScreen {
 
     private final NpcRulesScreenModel model;
-    private final List<Button> ruleRowButtons = new ArrayList<>();
-    private int listScroll;
-    private int armedRemove = -1; // two-click remove confirm (row index)
+    private final SelectionModel<Integer> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
+    private SelectableList<RuleRow, Integer> ruleList;
+    private boolean armedRemove = false;
     private EditBox filterField;
     private long expectedRevision;
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
+    private final List<FormRow> argRows = new ArrayList<>();
 
-    // Add-form arg fields (created per picker state)
-    private EditBox condFactionField;
-    private EditBox condThresholdField;
-    private EditBox actTextField;
-    private EditBox actAmountField;
-    private EditBox actRadiusField;
-    private EditBox actMessageField;
-    private EditBox actFractionField;
-    private EditBox actDialogueField;
-    private EditBox actFactionField;
-    private EditBox actDeltaField;
+    /** Selection identity is the underlying rule index, not the filtered position. */
+    private record RuleRow(int ruleIndex, String label) {}
 
     public NpcRulesScreen(NpcDefinition npc) {
         this(npc, 0L);
     }
 
     public NpcRulesScreen(NpcDefinition npc, long expectedRevision) {
-        super(Component.literal("NPC Rules"));
+        super(Component.literal("Rules — " + (npc.getId() != null ? npc.getId().toString() : "?")));
         this.model = new NpcRulesScreenModel(npc);
         this.expectedRevision = Math.max(0L, expectedRevision);
     }
@@ -65,15 +62,24 @@ public class NpcRulesScreen extends Screen {
     public void onSaveResult(UUID requestId, boolean success, String message, long revision) {
         if (!saveRequestId.matchesCurrent(requestId)) return;
         model.setStatus(message, !success);
+        syncStatus();
         // The response revision is authoritative on success AND on rejection
         // (the server echoes the current token) — never guess with ++.
         expectedRevision = Math.max(0L, revision);
         saveRequestId.acknowledge(requestId);
     }
 
+    private void syncStatus() {
+        if (!model.getStatusMessage().isEmpty()) {
+            // Transient echo — the base help line restores after it expires.
+            echo(Component.literal(model.getStatusMessage())
+                    .withColor(model.isStatusError() ? UiTheme.DANGER : UiTheme.TEXT), 4000);
+        }
+    }
+
     @Override
-    protected void init() {
-        super.init();
+    protected void initContent() {
+        argRows.clear();
         if (model.isAddMode()) {
             initAddWidgets();
         } else {
@@ -84,183 +90,206 @@ public class NpcRulesScreen extends Screen {
     // ── List mode ───────────────────────────────────────────────────────────
 
     private void initListWidgets() {
-        int bottom = this.height - 26;
-        int top = 22;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-        var visible = model.filteredRuleIndices();
-        listScroll = Math.max(0, Math.min(listScroll, Math.max(0, visible.size() - maxRows)));
-
-        // Search/filter (issue #21) — typing refreshes the visible rows live.
-        // The EditBox is recreated on every rebuildWidgets(), so the responder is
-        // attached LAST: setValue/moveCursorToEnd fire onValueChange and would
-        // re-enter the responder mid-init otherwise (infinite recursion). Typing
-        // refreshes only the row buttons — a full rebuild would drop focus and
-        // swallow subsequent keystrokes.
-        boolean hadFocus = filterField != null
-                && (filterField.isFocused() || this.getFocused() == filterField);
-        filterField = new EditBox(this.font, this.width - 168, 4, 106, 14, Component.literal("Filter"));
+        int filterW = Math.min(110, contentWidth() / 3);
+        filterField = new EditBox(this.font, contentRight() - filterW, contentTop() - 2,
+                filterW, UiTheme.BUTTON_H, Component.literal("Filter"));
         filterField.setHint(Component.literal("filter…"));
         filterField.setMaxLength(48);
         filterField.setValue(model.getListFilter());
-        if (hadFocus || !model.getListFilter().isEmpty()) {
+        if (!model.getListFilter().isEmpty()) {
             filterField.setFocused(true);
             this.setFocused(filterField);
             filterField.moveCursorToEnd(false);
         }
         filterField.setResponder(v -> {
             model.setListFilter(v);
-            listScroll = 0;
-            armedRemove = -1;
-            refreshRuleRowButtons();
+            armedRemove = false;
+            refreshRules();
         });
         addRenderableWidget(filterField);
 
-        refreshRuleRowButtons();
+        ruleList = new SelectableList<>(contentLeft(), contentTop() + UiTheme.ROW_H + 4,
+                contentWidth(), contentBottom() - contentTop() - UiTheme.ROW_H - 4,
+                UiTheme.ROW_H, RuleRow::ruleIndex,
+                r -> Component.literal("§7[" + (r.ruleIndex() + 1) + "] §f" + r.label()),
+                selection, scroll);
+        addRenderableWidget(ruleList);
+        refreshRules();
 
-        addRenderableWidget(Button.builder(Component.literal("§a+ Add Rule"), b -> {
+        addFooterAction(Component.literal("+ Add Rule"), b -> {
             model.beginAdd();
-            armedRemove = -1;
+            armedRemove = false;
             rebuildWidgets();
-        }).bounds(12, this.height - 22, 90, 16).build());
-
-        addRenderableWidget(Button.builder(Component.literal("Back"), b ->
-                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)))
-                .bounds(this.width - 56, 4, 46, 14).build());
+        });
+        addFooterAction(Component.literal(armedRemove ? "Sure?" : "Remove"), b -> {
+            RuleRow row = ruleList.selectedRow();
+            if (row == null) {
+                echo(Component.literal("Select a rule first."), 1600);
+                return;
+            }
+            if (!armedRemove) {
+                armedRemove = true;
+                rebuildWidgets();
+                return;
+            }
+            armedRemove = false;
+            String err = model.removeRule(row.ruleIndex());
+            if (err == null) {
+                sendSave("Removing rule...");
+            } else {
+                model.setStatus(err, true);
+            }
+            syncStatus();
+            rebuildWidgets();
+        });
+        addFooterAction(Component.literal("Back"), b ->
+                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)));
+        setStatus(Component.literal("Click a rule to select — Remove asks to confirm.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private void refreshRuleRowButtons() {
-        for (Button b : ruleRowButtons) {
-            removeWidget(b);
-        }
-        ruleRowButtons.clear();
+    private void refreshRules() {
         var visible = model.filteredRuleIndices();
-        int maxRows = Math.max(1, (this.height - 26 - 22) / ROW_H);
-        listScroll = Math.max(0, Math.min(listScroll, Math.max(0, visible.size() - maxRows)));
-        for (int i = 0; i < maxRows && i + listScroll < visible.size(); i++) {
-            int idx = visible.get(i + listScroll);
-            int ry = 22 + i * ROW_H;
-            boolean armed = armedRemove == idx;
-            Button btn = Button.builder(
-                    Component.literal(armed ? "§cSure?" : "§c✕"), b -> {
-                        if (armedRemove != idx) {
-                            armedRemove = idx;
-                            rebuildWidgets();
-                        } else {
-                            armedRemove = -1;
-                            String err = model.removeRule(idx);
-                            if (err == null) {
-                                sendSave("Removing rule...");
-                            }
-                            rebuildWidgets();
-                        }
-                    }).bounds(this.width - 34, ry, 30, 11).build();
-            ruleRowButtons.add(btn);
-            addRenderableWidget(btn);
+        var rules = model.getRules();
+        List<RuleRow> rows = new ArrayList<>(visible.size());
+        for (int idx : visible) {
+            rows.add(new RuleRow(idx, model.describe(rules.get(idx))));
         }
+        ruleList.setRows(rows);
     }
 
     // ── Add mode ────────────────────────────────────────────────────────────
 
     private void initAddWidgets() {
-        int y = 22;
+        int y = contentTop();
+        int pickW = Math.min(150, contentWidth() * 2 / 5);
+        int argX = contentLeft() + pickW + UiTheme.PAD_M;
+        int argW = contentRight() - argX;
 
         addRenderableWidget(cycleBtn("Trigger: " + NpcRulesScreenModel.TRIGGERS[model.getTriggerIdx()],
-                12, y, () -> model.cycleTrigger(1)));
-        y += 18;
+                contentLeft(), y, pickW, () -> model.cycleTrigger(1)));
+        y += UiTheme.BUTTON_H + 4;
 
         addRenderableWidget(cycleBtn("If: " + NpcRulesScreenModel.CONDITIONS[model.getCondIdx()],
-                12, y, () -> { model.cycleCondition(1); rebuildWidgets(); }));
+                contentLeft(), y, pickW, () -> { model.cycleCondition(1); rebuildWidgets(); }));
 
-        int argX = 150;
         if (model.condNeedsFaction()) {
-            condFactionField = argField(argX, y);
-            condFactionField.setHint(Component.literal("faction id"));
-            condFactionField.setResponder(model::setCondFaction);
+            argRows.add(argRow(argX, y, argW, "faction id", model::setCondFaction,
+                    FieldValidator.all(FieldValidator.required("faction id"),
+                            FieldValidator.namespacedId())));
         }
         if (model.condNeedsStanding()) {
             addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANDINGS[model.getStandingIdx()],
-                    argX + 96, y, 70, () -> model.cycleStanding(1)));
+                    argX, y, Math.min(90, argW), () -> model.cycleStanding(1)));
         }
         if (model.condNeedsThreshold()) {
             addRenderableWidget(cycleBtn(NpcRulesScreenModel.OPERATORS[model.getCondOpIdx()],
-                    argX, y, 26, () -> model.cycleCondOp(1)));
-            condThresholdField = argField(argX + 30, y);
-            condThresholdField.setHint(Component.literal("value"));
-            condThresholdField.setResponder(model::setCondThreshold);
+                    argX, y, 30, () -> model.cycleCondOp(1)));
+            argRows.add(argRow(argX + 34, y, argW - 34, "value", model::setCondThreshold,
+                    number(true)));
         }
-        y += 18;
+        y += UiTheme.ROW_H + UiTheme.PAD_S;
 
         addRenderableWidget(cycleBtn("Do: " + NpcRulesScreenModel.ACTIONS[model.getActionIdx()],
-                12, y, () -> { model.cycleAction(1); rebuildWidgets(); }));
+                contentLeft(), y, pickW, () -> { model.cycleAction(1); rebuildWidgets(); }));
 
         if (model.actNeedsText()) {
-            actTextField = argField(argX, y);
-            actTextField.setHint(Component.literal("message text"));
-            actTextField.setResponder(model::setActText);
+            argRows.add(argRow(argX, y, argW, "message text", model::setActText,
+                    FieldValidator.required("message text")));
         }
         if (model.actNeedsAmount()) {
-            actAmountField = argField(argX, y);
-            actAmountField.setHint(Component.literal("amount (def 100)"));
-            actAmountField.setResponder(model::setActAmount);
+            argRows.add(argRow(argX, y, argW, "amount (def 100)", model::setActAmount,
+                    number(false)));
         }
         if (model.actNeedsRadiusMessage()) {
-            actRadiusField = argField(argX, y);
-            actRadiusField.setHint(Component.literal("radius"));
-            actRadiusField.setResponder(model::setActRadius);
-            actMessageField = argField(argX + 74, y);
-            actMessageField.setHint(Component.literal("alert message"));
-            actMessageField.setResponder(model::setActMessage);
+            int half = (argW - UiTheme.PAD_S) / 2;
+            argRows.add(argRow(argX, y, half, "radius", model::setActRadius, number(false)));
+            argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "alert message",
+                    model::setActMessage, FieldValidator.required("alert message")));
         }
         if (model.actNeedsFractionDialogue()) {
-            actFractionField = argField(argX, y);
-            actFractionField.setHint(Component.literal("heal frac (0.5)"));
-            actFractionField.setResponder(model::setActFraction);
-            actDialogueField = argField(argX + 74, y);
-            actDialogueField.setHint(Component.literal("yield line"));
-            actDialogueField.setResponder(model::setActDialogue);
+            int half = (argW - UiTheme.PAD_S) / 2;
+            argRows.add(argRow(argX, y, half, "heal frac (0.5)", model::setActFraction,
+                    number(false)));
+            argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "yield line",
+                    model::setActDialogue));
         }
         if (model.actNeedsStance()) {
             addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANCES[model.getStanceIdx()],
-                    argX, y, 90, () -> model.cycleStance(1)));
+                    argX, y, Math.min(110, argW), () -> model.cycleStance(1)));
         }
         if (model.actNeedsFactionDelta()) {
-            actFactionField = argField(argX, y);
-            actFactionField.setHint(Component.literal("faction id"));
-            actFactionField.setResponder(model::setActFaction);
-            actDeltaField = argField(argX + 74, y);
-            actDeltaField.setHint(Component.literal("delta"));
-            actDeltaField.setResponder(model::setActDelta);
+            int half = (argW - UiTheme.PAD_S) / 2;
+            argRows.add(argRow(argX, y, half, "faction id", model::setActFaction,
+                    FieldValidator.all(FieldValidator.required("faction id"),
+                            FieldValidator.namespacedId())));
+            argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "delta",
+                    model::setActDelta, number(true)));
         }
 
-        int footer = this.height - 22;
-        addRenderableWidget(Button.builder(Component.literal("§aAdd & Save"), b -> {
+        addFooterAction(Component.literal("Add & Save"), b -> {
+            boolean invalid = false;
+            for (FormRow row : argRows) {
+                if (!row.validate()) invalid = true;
+            }
+            if (invalid) {
+                echo(Component.literal("Fix the highlighted field(s).").withColor(UiTheme.DANGER), 3000);
+                return;
+            }
             String err = model.commitAdd();
             if (err == null) {
                 sendSave("Adding rule...");
             }
+            syncStatus();
             rebuildWidgets();
-        }).bounds(12, footer, 80, 16).build());
-
-        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> {
+        });
+        addFooterAction(Component.literal("Cancel"), b -> {
             model.cancelAdd();
             rebuildWidgets();
-        }).bounds(98, footer, 50, 16).build());
+        });
+        setStatus(Component.literal("Pick trigger / if / do — fill the arg fields inline.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private Button cycleBtn(String label, int x, int y, Runnable onClick) {
-        return cycleBtn(label, x, y, 132, onClick);
+    private FormRow argRow(int x, int y, int w, String hint,
+                           java.util.function.Consumer<String> responder) {
+        return argRow(x, y, w, hint, responder, v -> null);
+    }
+
+    private FormRow argRow(int x, int y, int w, String hint,
+                           java.util.function.Consumer<String> responder,
+                           FieldValidator check) {
+        FormRow row = new FormRow(this.font, Component.empty(), Component.literal(hint));
+        row.editBox().setMaxLength(96);
+        // The model owns the value; commitAdd remains the authoritative gate.
+        // Sync through the validator slot — overriding the EditBox responder
+        // would detach FormRow's per-edit validation.
+        row.setValidator(v -> { responder.accept(v); return check.validate(v); });
+        row.layout(x, y, w, 0);
+        addRenderableWidget(row.editBox());
+        return row;
+    }
+
+    /** Numeric check mirroring the model's parse* paths; blank may be legal. */
+    private static FieldValidator number(boolean required) {
+        return v -> {
+            if (v == null || v.isBlank()) {
+                return required ? "Number required" : null;
+            }
+            try {
+                Double.parseDouble(v.trim());
+                return null;
+            } catch (NumberFormatException e) {
+                return "Not a number";
+            }
+        };
     }
 
     private Button cycleBtn(String label, int x, int y, int w, Runnable onClick) {
         return Button.builder(Component.literal(label), b -> onClick.run())
-                .bounds(x, y, w, 15).build();
-    }
-
-    private EditBox argField(int x, int y) {
-        EditBox box = new EditBox(this.font, x, y, 70, 14, Component.literal("arg"));
-        box.setMaxLength(96);
-        addRenderableWidget(box);
-        return box;
+                .bounds(x, y, Math.max(20, w), UiTheme.BUTTON_H).build();
     }
 
     // ── Save plumbing (same payload as the NPC editor — saveNpc path) ───────
@@ -277,82 +306,23 @@ public class NpcRulesScreen extends Screen {
     // ── Rendering ───────────────────────────────────────────────────────────
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
-        // Screen#render runs the menu-blur post-process over whatever is
-        // already in the framebuffer — background first, custom content next,
-        // widgets last, or the rows below are blurred while buttons stay
-        // sharp (#197).
-        this.renderBackground(g, mouseX, mouseY, partial);
-        g.fill(0, 0, this.width, this.height, 0xE0101014);
-        g.renderOutline(0, 0, this.width, this.height, 0xFF3F3F46);
-
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partial) {
         if (model.isAddMode()) {
-            renderAdd(g);
-        } else {
-            renderList(g, mouseX, mouseY);
-        }
-        for (var renderable : this.renderables) {
-            renderable.render(g, mouseX, mouseY, partial);
-        }
-    }
-
-    private void renderList(GuiGraphics g, int mouseX, int mouseY) {
-        var npc = model.getNpc();
-        g.drawString(this.font, this.font.plainSubstrByWidth(
-                "§6Rules — §e" + (npc.getId() != null ? npc.getId() : "?"), this.width - 176),
-                12, 8, 0xFFFFFFFF);
-
-        var rules = model.getRules();
-        var visible = model.filteredRuleIndices();
-        int top = 22;
-        int bottom = this.height - 26;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-
-        if (rules.isEmpty()) {
-            g.drawString(this.font, "§7No behavior rules — add one below.", 12, top + 4, COLOR_LABEL);
-        } else if (visible.isEmpty()) {
-            g.drawString(this.font, "§7No rules match the filter.", 12, top + 4, COLOR_LABEL);
-        }
-        g.enableScissor(0, top, this.width, bottom);
-        for (int i = 0; i < maxRows && i + listScroll < visible.size(); i++) {
-            int idx = visible.get(i + listScroll);
-            int ry = top + i * ROW_H;
-            boolean hover = mouseY >= ry && mouseY < ry + ROW_H;
-            if (hover) {
-                g.fill(4, ry, this.width - 4, ry + ROW_H, 0x33FFFFFF);
+            for (FormRow row : argRows) {
+                row.render(g, mouseX, mouseY);
             }
-            String line = "§7[" + (idx + 1) + "] §f" + model.describe(rules.get(idx));
-            g.drawString(this.font, this.font.plainSubstrByWidth(line, this.width - 48),
-                    10, ry + 2, hover ? 0xFFFFFFFF : 0xFFD4D4D8);
+            return;
         }
-        g.disableScissor();
-        if (visible.size() > maxRows) {
-            g.drawString(this.font, "§7(scroll — " + visible.size() + " rules)", 108, this.height - 20, COLOR_LABEL);
+        var rules = model.getRules();
+        if (rules.isEmpty()) {
+            renderEmpty(g, "No behavior rules — add one below.");
+        } else if (model.filteredRuleIndices().isEmpty()) {
+            renderEmpty(g, "No rules match the filter.");
         }
-        drawStatus(g, this.height - 10);
-    }
-
-    private void renderAdd(GuiGraphics g) {
-        g.drawString(this.font, "§6Add Rule — §e" + model.getNpc().getId(), 12, 8, 0xFFFFFFFF);
-        drawStatus(g, this.height - 38);
-    }
-
-    private void drawStatus(GuiGraphics g, int y) {
-        if (!model.getStatusMessage().isEmpty()) {
-            // x=108 keeps the line clear of the "+ Add Rule" button (x12..102)
-            String msg = this.font.plainSubstrByWidth(model.getStatusMessage(), this.width - 116);
-            g.drawString(this.font, msg, 108, y, model.isStatusError() ? COLOR_ERR : COLOR_OK);
+        if (ruleList != null && ruleList.scroll().maxOffset() > 0) {
+            g.drawString(this.font, "§7" + model.filteredRuleIndices().size() + " rules",
+                    contentLeft(), contentTop() + 2, UiTheme.TEXT_MUTED);
         }
-    }
-
-    @Override
-    public boolean mouseScrolled(double mx, double my, double dx, double dy) {
-        if (!model.isAddMode()) {
-            listScroll = Math.max(0, listScroll - (int) Math.signum(dy));
-            rebuildWidgets();
-            return true;
-        }
-        return super.mouseScrolled(mx, my, dx, dy);
     }
 
     @Override
