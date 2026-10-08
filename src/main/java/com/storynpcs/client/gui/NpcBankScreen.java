@@ -1,150 +1,214 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.AttemptIds;
+import com.storynpcs.client.ui.PendingAck;
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.domain.role.banker.BankVault;
 import com.storynpcs.domain.role.banker.BankerRole;
 import com.storynpcs.network.ServerboundBankActionPayload;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
  * Player-facing vault screen for a banker-role NPC. Opened server-side via
  * {@link com.storynpcs.network.ClientboundBankOpenPayload}; every action sends
- * {@link ServerboundBankActionPayload} and the server replies with a fresh open
- * packet, which re-renders this screen.
+ * {@link ServerboundBankActionPayload} and the server replies with a fresh
+ * open packet, which refreshes this screen in place (tab + scroll preserved).
+ *
+ * <p>UI-kit migration (issue #204): shared {@link UiScreen} chrome, vault
+ * tab row + per-row Withdraw inside the content band, and footer actions
+ * (Deposit held / Unlock tab / Close) carrying a {@link PendingAck} pending
+ * state so an action is never a silent no-op.
  */
-public class NpcBankScreen extends Screen {
+public class NpcBankScreen extends UiScreen {
+
+    private static final int ROW_H = 12;
+    private static final int WD_W = 56;
+    private static final int ECHO_MS = 3_000;
 
     private final String npcId;
-    private final BankerRole banker;
-    private final BankVault vault;
+    private BankerRole banker;
+    private BankVault vault;
     private final UUID sessionId;
-    private final java.util.Map<String, UUID> requestIds = new java.util.HashMap<>();
+    private final AttemptIds requestIds = new AttemptIds();
+    private final PendingAck pending = new PendingAck();
+    private final List<Button> rowButtons = new ArrayList<>();
+    private boolean wasPending;
     private int currentTab = 0;
     private int scrollOffset = 0;
 
     public NpcBankScreen(String npcId, BankerRole banker, BankVault vault, UUID sessionId) {
-        super(Component.literal(banker.getBankName()));
+        super(Component.literal(banker == null ? "Bank" : banker.getBankName()));
         this.npcId = npcId != null ? npcId : "";
         this.banker = banker;
         this.vault = vault;
         this.sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
     }
 
-    private int listTop() { return 34; }
-    private int listBottom() { return this.height - 34; }
-    private int maxVisibleRows() { return Math.max(1, (listBottom() - listTop()) / 12); }
-    private int unlockedTabs() { return Math.max(1, Math.min(vault.getUnlockedTabs(), Math.max(1, banker.getMaxTabs()))); }
+    /** Identity check for the refresh contract — this payload is for this session. */
+    public boolean matches(UUID sessionId) {
+        return Objects.equals(this.sessionId, sessionId);
+    }
+
+    /** In-place refresh: new banker/vault without losing the open tab or scroll. */
+    public void updateView(BankerRole banker, BankVault vault) {
+        if (banker == null || vault == null) return;
+        this.banker = banker;
+        this.vault = vault;
+        pending.ack();
+        wasPending = false;
+        // See NpcTradeScreen.updateView — resolved journal records must not be
+        // replayed by a stale request id on the next action.
+        requestIds.ack();
+        rebuildWidgets();
+    }
+
+    // ---- geometry ----
+
+    private int rowsTop() { return contentTop() + 16; }
+    private int maxVisibleRows() { return Math.max(1, (contentBottom() - rowsTop()) / ROW_H); }
+    private int unlockedTabs() {
+        return vault == null || banker == null ? 1
+                : Math.max(1, Math.min(vault.getUnlockedTabs(), Math.max(1, banker.getMaxTabs())));
+    }
 
     private List<BankVault.VaultItem> tabItems() {
+        if (vault == null) return List.of();
         return vault.getTabItems(currentTab).stream()
                 .sorted(Comparator.comparingInt(BankVault.VaultItem::getSlot))
                 .toList();
     }
 
-    @Override
-    protected void init() {
-        currentTab = Math.min(currentTab, unlockedTabs() - 1);
+    private boolean isPending() {
+        return pending.pending(System.currentTimeMillis());
+    }
 
-        // Tab row: [ < ] Tab X/Y [ > ] when multiple tabs are unlocked
+    @Override
+    protected void initContent() {
+        currentTab = Math.min(currentTab, unlockedTabs() - 1);
+        rowButtons.clear();
+
+        // Tab row: [ < ] Tab X/Y [ > ] when multiple tabs are unlocked.
         if (unlockedTabs() > 1) {
             addRenderableWidget(Button.builder(Component.literal("<"),
                             b -> { currentTab = Math.max(0, currentTab - 1); scrollOffset = 0; rebuildWidgets(); })
-                    .bounds(12, 18, 16, 12).build());
+                    .bounds(contentLeft(), contentTop(), 16, 12).build());
             addRenderableWidget(Button.builder(Component.literal(">"),
                             b -> { currentTab = Math.min(unlockedTabs() - 1, currentTab + 1); scrollOffset = 0; rebuildWidgets(); })
-                    .bounds(100, 18, 16, 12).build());
+                    .bounds(contentLeft() + 88, contentTop(), 16, 12).build());
         }
 
         var items = tabItems();
         int maxScroll = Math.max(0, items.size() - maxVisibleRows());
         scrollOffset = Math.min(scrollOffset, maxScroll);
 
-        int rowW = Math.min(this.width - 24, 340);
-        int wdW = 56;
         int visible = Math.min(items.size() - scrollOffset, maxVisibleRows());
         for (int i = 0; i < visible; i++) {
             var item = items.get(scrollOffset + i);
-            int y = listTop() + i * 12;
+            int y = rowsTop() + i * ROW_H;
             int tab = currentTab;
             int slot = item.getSlot();
-            addRenderableWidget(Button.builder(Component.literal("Withdraw"),
-                            b -> PacketDistributor.sendToServer(
-                                new ServerboundBankActionPayload(npcId, "withdraw", tab, slot,
-                                        sessionId, requestIds.computeIfAbsent(
-                                                "withdraw:" + tab + ":" + slot,
-                                                ignored -> UUID.randomUUID()))))
-                    .bounds(12 + rowW - wdW, y, wdW, 11)
-                    .build());
+            Button withdraw = Button.builder(Component.literal("Withdraw"),
+                            b -> act("withdraw", tab, slot))
+                    .bounds(contentRight() - WD_W, y, WD_W, 11)
+                    .build();
+            rowButtons.add(withdraw);
+            addRenderableWidget(withdraw);
         }
 
-        // Footer: deposit held + unlock + close
-        int footerY = this.height - 16;
-        addRenderableWidget(Button.builder(Component.literal("Deposit held"), b ->
-                        PacketDistributor.sendToServer(
-                                new ServerboundBankActionPayload(npcId, "deposit_held", currentTab, 0,
-                                        sessionId, requestIds.computeIfAbsent(
-                                                "deposit:" + currentTab, ignored -> UUID.randomUUID()))))
-                .bounds(12, footerY, 90, 12).build());
+        setStatus(Component.literal("Tab " + (currentTab + 1) + "/" + unlockedTabs()
+                + " — " + items.size() + " item(s)"));
 
-        if (unlockedTabs() < Math.max(1, banker.getMaxTabs())) {
+        addFooterAction(Component.literal("Deposit held"),
+                b -> act("deposit_held", currentTab, 0));
+        if (banker != null && unlockedTabs() < Math.max(1, banker.getMaxTabs())) {
             int cost = Math.max(0, banker.getTabUpgradeCost());
-            String label = cost > 0
-                    ? "Unlock tab (" + cost + " emeralds)"
-                    : "Unlock tab (free)";
-            addRenderableWidget(Button.builder(Component.literal(label), b ->
-                            PacketDistributor.sendToServer(
-                                new ServerboundBankActionPayload(npcId, "unlock_tab", 0, 0,
-                                        sessionId, requestIds.computeIfAbsent(
-                                                "unlock", ignored -> UUID.randomUUID()))))
-                    .bounds(108, footerY, Math.min(140, this.width - 180), 12).build());
+            addFooterAction(Component.literal(
+                    cost > 0 ? "Unlock tab (" + cost + " emeralds)" : "Unlock tab (free)"),
+                    b -> act("unlock_tab", 0, 0));
         }
-
-        addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(this.width - 72, footerY, 60, 12).build());
+        addFooterAction(Component.literal("Close"), b -> onClose());
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
-        super.render(graphics, mouseX, mouseY, partialTick);
+    protected void postInit() {
+        applyPendingDisabled(isPending());
+    }
 
-        String title = banker.getBankName();
-        graphics.drawString(this.font, title, 12, 6, 0xFFFFFF);
+    private void act(String action, int tab, int slot) {
+        if (isPending()) return;
+        pending.begin(switch (action) {
+            case "deposit_held" -> "Depositing…";
+            case "unlock_tab" -> "Unlocking…";
+            default -> "Working…";
+        }, System.currentTimeMillis());
+        PacketDistributor.sendToServer(new ServerboundBankActionPayload(npcId, action, tab, slot,
+                sessionId, requestIds.idFor(action + ":" + tab + ":" + slot)));
+        applyPendingDisabled(true);
+    }
 
+    private void applyPendingDisabled(boolean nowPending) {
+        for (Button b : rowButtons) b.active = !nowPending;
+        // Footer order: Deposit held, [Unlock tab], Close — never disable Close.
+        int actionCount = Math.max(0, footerButtons().size() - 1);
+        for (int i = 0; i < actionCount; i++) {
+            footerButtons().get(i).active = !nowPending;
+        }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        long now = System.currentTimeMillis();
+        boolean nowPending = isPending();
+        String label = pending.label(now);
+        if (label != null) {
+            overrideStatus(Component.literal("§e" + label));
+        }
+        if (wasPending && !nowPending) {
+            echo(Component.literal("No response from server — try again."), ECHO_MS);
+        }
+        wasPending = nowPending;
+        applyPendingDisabled(nowPending);
+    }
+
+    @Override
+    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         String tabLabel = "Tab " + (currentTab + 1) + "/" + unlockedTabs();
         graphics.drawString(this.font, tabLabel,
-                unlockedTabs() > 1 ? 34 : 12, 20, 0xAAAAAA);
+                unlockedTabs() > 1 ? contentLeft() + 22 : contentLeft(),
+                contentTop() + 3, UiTheme.TEXT_MUTED);
 
         var items = tabItems();
-        int rowW = Math.min(this.width - 24, 340);
-        int textW = rowW - 60;
-
-        graphics.enableScissor(0, listTop() - 1, this.width, listBottom() + 1);
         int visible = Math.min(items.size() - scrollOffset, maxVisibleRows());
+        int textW = contentWidth() - WD_W - UiTheme.PAD_M;
+        graphics.enableScissor(contentLeft(), rowsTop(), contentRight() - WD_W - UiTheme.PAD_S,
+                rowsTop() + visible * ROW_H);
         for (int i = 0; i < visible; i++) {
             var item = items.get(scrollOffset + i);
-            int y = listTop() + i * 12;
+            int y = rowsTop() + i * ROW_H;
             String label = item.getCount() + "x " + itemName(item.getItemId());
             if (this.font.width(label) > textW) {
                 label = this.font.plainSubstrByWidth(label, textW);
             }
-            graphics.drawString(this.font, label, 12, y + 2, 0xFFFFFF);
+            graphics.drawString(this.font, label, contentLeft(), y + 2, UiTheme.TEXT);
         }
         graphics.disableScissor();
 
         if (items.isEmpty()) {
-            graphics.drawString(this.font, "§7(empty — hold an item and press Deposit held)",
-                    12, listTop() + 4, 0xAAAAAA);
+            renderEmpty(graphics, "Empty — hold an item and press Deposit held.");
         } else if (items.size() > maxVisibleRows()) {
             graphics.drawString(this.font, "§7scroll for more",
-                    12, listBottom() + 2, 0xAAAAAA);
+                    contentLeft(), contentBottom() - 9, UiTheme.TEXT_MUTED);
         }
     }
 

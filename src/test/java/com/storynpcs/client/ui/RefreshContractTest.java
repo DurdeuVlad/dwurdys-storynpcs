@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -92,5 +93,26 @@ class RefreshContractTest {
         withNull.add(null);
         withNull.add(row("x"));
         assertEquals(1, RowKeys.indexOf(withNull, MailRow::id, "x"));
+    }
+
+    // ---- AttemptIds (#204: request id lifetime vs server replay journal) ----
+
+    @Test
+    @DisplayName("attempt id: same key reuses id until ack — a lost-response retry replays the journal record")
+    void attemptIdReusedBeforeAck() {
+        AttemptIds ids = new AttemptIds();
+        UUID first = ids.idFor("0");
+        assertEquals(first, ids.idFor("0"), "retry before ack must reuse the id");
+        assertNotEquals(first, ids.idFor("1"), "a different attempt needs its own id");
+    }
+
+    @Test
+    @DisplayName("attempt id: ack clears — a post-refresh action on the same target mints a fresh id")
+    void attemptIdFreshAfterAck() {
+        AttemptIds ids = new AttemptIds();
+        UUID first = ids.idFor("0");
+        ids.ack();
+        assertNotEquals(first, ids.idFor("0"),
+                "reusing a resolved request id would be misclassified as a journal replay");
     }
 }
