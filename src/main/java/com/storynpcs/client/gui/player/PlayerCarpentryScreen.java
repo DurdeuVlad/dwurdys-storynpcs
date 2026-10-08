@@ -2,6 +2,8 @@ package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.CarpentryRow;
 import com.storynpcs.domain.panel.PlayerPanels.CarpentryView;
 import com.storynpcs.service.PlayerPanelViews;
@@ -29,6 +31,8 @@ public class PlayerCarpentryScreen extends UiScreen {
     private final CarpentryView view;
     private final UUID sessionId;
     private SelectableList<CarpentryRow, String> list;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerCarpentryScreen(CarpentryView view, UUID sessionId) {
         super(Component.literal("Carpentry Bench"));
@@ -48,7 +52,8 @@ public class PlayerCarpentryScreen extends UiScreen {
                 contentBottom() - contentTop(), ROW_H,
                 CarpentryRow::id,
                 r -> Component.literal("§f" + r.outputItemId() + " x" + r.outputCount()
-                        + (r.shapeless() ? " §8(shapeless)" : "")));
+                        + (r.shapeless() ? " §8(shapeless)" : "")),
+                selection, scroll);
         list.setDetailRenderer(r -> r.ingredientSummary() == null || r.ingredientSummary().isEmpty()
                 ? null
                 : Component.literal(String.join(", ", r.ingredientSummary())));

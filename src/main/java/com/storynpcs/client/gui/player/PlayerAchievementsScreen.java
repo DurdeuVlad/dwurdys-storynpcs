@@ -3,6 +3,8 @@ package com.storynpcs.client.gui.player;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.AchievementRow;
 import com.storynpcs.domain.panel.PlayerPanels.AchievementView;
 import net.minecraft.client.gui.GuiGraphics;
@@ -24,6 +26,8 @@ public class PlayerAchievementsScreen extends UiScreen {
 
     private final AchievementView view;
     private final UUID sessionId;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerAchievementsScreen(AchievementView view, UUID sessionId) {
         super(Component.literal("Achievements"));
@@ -41,7 +45,8 @@ public class PlayerAchievementsScreen extends UiScreen {
         SelectableList<AchievementRow, String> list = new SelectableList<>(
                 contentLeft(), contentTop(), contentWidth(),
                 contentBottom() - contentTop(), UiTheme.ROW_H + 2,
-                AchievementRow::id, r -> Component.literal("§6" + r.title() + " §8" + r.detail()));
+                AchievementRow::id, r -> Component.literal("§6" + r.title() + " §8" + r.detail()),
+                selection, scroll);
         list.setRows(rows());
         addRenderableWidget(list);
         addFooterAction(Component.literal("Close"), b -> onClose());

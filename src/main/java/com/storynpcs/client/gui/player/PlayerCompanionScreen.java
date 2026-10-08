@@ -2,6 +2,8 @@ package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.CompanionRow;
 import com.storynpcs.domain.panel.PlayerPanels.CompanionView;
 import net.minecraft.client.gui.GuiGraphics;
@@ -26,6 +28,8 @@ public class PlayerCompanionScreen extends UiScreen {
 
     private final CompanionView view;
     private final UUID sessionId;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerCompanionScreen(CompanionView view, UUID sessionId) {
         super(Component.literal("Companions"));
@@ -43,7 +47,8 @@ public class PlayerCompanionScreen extends UiScreen {
         SelectableList<CompanionRow, String> list = new SelectableList<>(
                 contentLeft(), contentTop(), contentWidth(),
                 contentBottom() - contentTop(), ROW_H,
-                CompanionRow::entityUuid, PlayerCompanionScreen::label);
+                CompanionRow::entityUuid, PlayerCompanionScreen::label,
+                selection, scroll);
         list.setDetailRenderer(PlayerCompanionScreen::detail);
         list.setRows(rows());
         addRenderableWidget(list);

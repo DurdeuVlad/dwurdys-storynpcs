@@ -3,6 +3,8 @@ package com.storynpcs.client.gui.player;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.FactionPanelView;
 import com.storynpcs.domain.panel.PlayerPanels.FactionRow;
 import net.minecraft.client.gui.GuiGraphics;
@@ -24,6 +26,8 @@ public class PlayerFactionPanelScreen extends UiScreen {
 
     private final FactionPanelView view;
     private final UUID sessionId;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerFactionPanelScreen(FactionPanelView view, UUID sessionId) {
         super(Component.literal("Faction Standing"));
@@ -41,7 +45,8 @@ public class PlayerFactionPanelScreen extends UiScreen {
         SelectableList<FactionRow, String> list = new SelectableList<>(
                 contentLeft(), contentTop(), contentWidth(),
                 contentBottom() - contentTop(), UiTheme.ROW_H,
-                FactionRow::factionId, PlayerFactionPanelScreen::label);
+                FactionRow::factionId, PlayerFactionPanelScreen::label,
+                selection, scroll);
         list.setRows(rows());
         addRenderableWidget(list);
         addFooterAction(Component.literal("Close"), b -> onClose());

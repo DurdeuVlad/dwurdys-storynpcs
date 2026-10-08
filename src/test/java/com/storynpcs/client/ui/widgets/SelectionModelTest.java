@@ -57,4 +57,30 @@ class SelectionModelTest {
         m.setItems(List.of());
         assertFalse(m.move(1), "empty list never moves");
     }
+
+    @Test
+    @DisplayName("malformed keys degrade: nulls unselectable, dups resolve first")
+    void malformedKeysDegrade() {
+        SelectionModel<String> m = new SelectionModel<>();
+        // A payload with null + duplicate keys must never crash the model.
+        java.util.List<String> keys = new java.util.ArrayList<>();
+        keys.add("a");
+        keys.add(null);
+        keys.add("a"); // duplicate
+        keys.add("b");
+        m.setItems(keys);
+
+        assertFalse(m.selectIndex(1), "a null-keyed row can never be selected");
+        assertNull(m.selected());
+        assertTrue(m.selectIndex(2), "a duplicate key still selects its row");
+        assertEquals(0, m.selectedIndex(), "duplicates resolve to the first match");
+
+        assertTrue(m.move(1));
+        assertEquals("b", m.selected(), "move() skips from first match onward");
+
+        // And a null entry must not poison setItems' own bookkeeping: the
+        // vanished "b" drops the selection rather than wedging it.
+        m.setItems(List.of("a"));
+        assertNull(m.selected());
+    }
 }

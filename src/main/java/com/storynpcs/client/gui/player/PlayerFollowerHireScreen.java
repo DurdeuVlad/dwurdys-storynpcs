@@ -2,6 +2,8 @@ package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.HireRow;
 import com.storynpcs.domain.panel.PlayerPanels.HireView;
 import com.storynpcs.service.PlayerPanelViews;
@@ -30,6 +32,8 @@ public class PlayerFollowerHireScreen extends UiScreen {
     private final HireView view;
     private final UUID sessionId;
     private SelectableList<HireRow, String> list;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerFollowerHireScreen(HireView view, UUID sessionId) {
         super(Component.literal("Hire Follower"));
@@ -48,7 +52,8 @@ public class PlayerFollowerHireScreen extends UiScreen {
                 contentLeft(), contentTop(), contentWidth(),
                 contentBottom() - contentTop(), ROW_H,
                 HireRow::entityUuid,
-                r -> Component.literal("§f" + r.name()));
+                r -> Component.literal("§f" + r.name()),
+                selection, scroll);
         list.setDetailRenderer(r -> Component.literal(
                 "wage " + r.wageAmount() + " per " + (r.wageIntervalTicks() / 20) + "s"));
         list.setRows(rows());

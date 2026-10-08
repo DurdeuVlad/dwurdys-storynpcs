@@ -30,6 +30,7 @@ public abstract class UiScreen extends Screen {
     private final List<FooterAction> footerActions = new ArrayList<>();
     private final List<Button> footerButtons = new ArrayList<>();
     private Component status;
+    private Component baseStatus;
     private long statusUntilMs = Long.MAX_VALUE;
     private boolean suppressBackground;
 
@@ -53,12 +54,20 @@ public abstract class UiScreen extends Screen {
         footerActions.clear();
         footerButtons.clear();
         status = null;
+        baseStatus = null;
         initContent();
         layoutFooter();
+        postInit();
     }
 
     /** Add content widgets and footer actions; panel metrics are already set. */
     protected void initContent() {}
+
+    /**
+     * Runs after footer buttons exist — screens can adjust {@code .active}
+     * (e.g. re-apply an armed pending state) without waiting for a tick.
+     */
+    protected void postInit() {}
 
     /** Body rendering between header and footer; default is empty. */
     protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {}
@@ -74,18 +83,28 @@ public abstract class UiScreen extends Screen {
 
     /** Persistent status line rendered at the left of the footer; null clears it. */
     protected void setStatus(Component status) {
+        this.baseStatus = status;
         this.status = status;
         this.statusUntilMs = Long.MAX_VALUE;
     }
 
     /**
      * Transient status echo (issue #199/#201): shows for {@code millis} then
-     * reverts to no status — used for "Select a row first." style feedback.
-     * A later {@link #setStatus} call overrides it.
+     * reverts to the {@link #setStatus} base status — used for "Select a row
+     * first." style feedback. A later {@link #setStatus} call overrides both.
      */
     protected void echo(Component status, int millis) {
         this.status = status;
         this.statusUntilMs = System.currentTimeMillis() + Math.max(0, millis);
+    }
+
+    /**
+     * Overrides the shown status without touching the base status or arming
+     * an expiry — for pending labels that own the footer until replaced.
+     */
+    protected void overrideStatus(Component status) {
+        this.status = status;
+        this.statusUntilMs = Long.MAX_VALUE;
     }
 
     /**
@@ -171,7 +190,8 @@ public abstract class UiScreen extends Screen {
         int ft = footerTop();
         graphics.fill(panelX, ft, panelX + panelW, ft + 1, UiTheme.BORDER);
         if (status != null && System.currentTimeMillis() >= statusUntilMs) {
-            status = null; // echo expired
+            status = baseStatus; // echo expired — restore the base status
+            statusUntilMs = Long.MAX_VALUE;
             onStatusExpired();
         }
         if (status != null) {

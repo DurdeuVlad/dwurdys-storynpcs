@@ -3,6 +3,8 @@ package com.storynpcs.client.gui.player;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.TransportRow;
 import com.storynpcs.domain.panel.PlayerPanels.TransportView;
 import com.storynpcs.network.ServerboundTransportSelectPayload;
@@ -19,17 +21,20 @@ import java.util.UUID;
 /**
  * Player-facing transport picker (issue #150, GuiTransportSelection parity):
  * lists only destinations the server marked visible, flags unlocked ones, and
- * sends {@link ServerboundTransportSelectPayload} on selection — the server
+ * sends {@link ServerboundTransportSelectPayload} on activation — the server
  * re-evaluates lock state, fee, and safety before moving the player.
  *
  * <p>UI-kit migration (issue #202): {@link SelectableList} gives the row
- * highlight, wheel/keyboard nav, and scrollbar; selection of an unlocked row
- * commits and closes (repeat-charge guard retained from #198).
+ * highlight, wheel/keyboard nav, and scrollbar; activating an unlocked row
+ * (click-on-selected / Enter / Space) commits and closes — arrow-key
+ * navigation only moves selection and can never charge the player.
  */
 public class PlayerTransportScreen extends UiScreen {
 
     private final TransportView view;
     private final UUID sessionId;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerTransportScreen(TransportView view, UUID sessionId) {
         super(Component.literal("Transport"));
@@ -47,7 +52,7 @@ public class PlayerTransportScreen extends UiScreen {
         SelectableList<TransportRow, String> list = new SelectableList<>(
                 contentLeft(), contentTop(), contentWidth(),
                 contentBottom() - contentTop(), UiTheme.ROW_H,
-                TransportRow::id, PlayerTransportScreen::label);
+                TransportRow::id, PlayerTransportScreen::label, selection, scroll);
         list.setRows(rows());
         // Click selects; click-again or Enter activates (fee guard — a
         // stray arrow press must never charge the player).
@@ -65,7 +70,11 @@ public class PlayerTransportScreen extends UiScreen {
     }
 
     private void commit(TransportRow row) {
-        if (row == null || !row.unlocked()) return;
+        if (row == null) return;
+        if (!row.unlocked()) {
+            echo(Component.literal("That destination is locked."), 2_000);
+            return;
+        }
         PacketDistributor.sendToServer(new ServerboundTransportSelectPayload(
                 sessionId, UUID.randomUUID(), row.id()));
         Minecraft.getInstance().getSoundManager().play(

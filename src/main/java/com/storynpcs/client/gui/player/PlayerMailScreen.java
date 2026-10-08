@@ -4,6 +4,8 @@ import com.storynpcs.client.ui.PendingAck;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.MailRow;
 import com.storynpcs.domain.panel.PlayerPanels.MailView;
 import com.storynpcs.network.ServerboundMailActionPayload;
@@ -45,6 +47,10 @@ public class PlayerMailScreen extends UiScreen {
     private EditBox subjectBox;
     private EditBox bodyBox;
     private SelectableList<MailRow, String> list;
+    // Owned at screen level so selection/scroll survive widget rebuilds
+    // (window resize, compose ↔ list transitions).
+    private final SelectionModel<String> mailSelection = new SelectionModel<>();
+    private final ScrollState mailScroll = new ScrollState();
     private final PendingAck pending = new PendingAck();
     private boolean wasPending;
 
@@ -88,14 +94,6 @@ public class PlayerMailScreen extends UiScreen {
         echo(Component.literal(message), ECHO_MS);
     }
 
-    /** After an echo clears, restore the mailbox count as the default status. */
-    @Override
-    protected void onStatusExpired() {
-        if (!composing) {
-            setStatus(Component.literal(rows().size() + " message(s)"));
-        }
-    }
-
     @Override
     public void tick() {
         super.tick();
@@ -106,14 +104,28 @@ public class PlayerMailScreen extends UiScreen {
         boolean nowPending = isPending();
         String pendingLabel = pending.label(now);
         if (pendingLabel != null) {
-            setStatus(Component.literal("§e" + pendingLabel));
+            overrideStatus(Component.literal("§e" + pendingLabel));
         }
         if (wasPending && !nowPending) {
             echo("No response from server — try again.");
         }
         wasPending = nowPending;
-        // Index-stable by declaration: list mode [Read, Delete, Compose,
-        // Close] disables 0..1; compose mode [Send, Back] disables 0.
+        applyPendingDisabled(nowPending);
+    }
+
+    /**
+     * Re-apply the pending-disabled state right after a rebuild — footer
+     * buttons come back enabled by default and tick() only runs once per
+     * frame, so without this a rebuild opens a ~1-tick clickable window.
+     */
+    @Override
+    protected void postInit() {
+        applyPendingDisabled(isPending());
+    }
+
+    /** Index-stable by declaration: list mode [Read, Delete, Compose, Close]
+     * disables 0..1; compose mode [Send, Back] disables 0. */
+    private void applyPendingDisabled(boolean nowPending) {
         int disableUpTo = composing ? 1 : 2;
         for (int i = 0; i < Math.min(disableUpTo, footerButtons().size()); i++) {
             footerButtons().get(i).active = !nowPending;
@@ -133,7 +145,8 @@ public class PlayerMailScreen extends UiScreen {
                 contentBottom() - contentTop() - DETAIL_H - UiTheme.PAD_S);
         list = new SelectableList<>(
                 contentLeft(), contentTop(), cw, listH,
-                UiTheme.ROW_H, MailRow::id, PlayerMailScreen::label);
+                UiTheme.ROW_H, MailRow::id, PlayerMailScreen::label,
+                mailSelection, mailScroll);
         list.setRows(rows());
         addRenderableWidget(list);
         addFooterAction(Component.literal("Read"),

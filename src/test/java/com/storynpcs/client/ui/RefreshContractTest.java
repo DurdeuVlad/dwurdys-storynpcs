@@ -55,7 +55,8 @@ class RefreshContractTest {
         assertFalse(p.pending(7000));
     }
 
-    // ---- id-based selection (RowKeys.indexOf, used by PlayerMailScreen) ----
+    // ---- id-based selection (RowKeys.indexOf — the shared re-resolution
+    //      helper; SelectableList applies the same contract via keys) ----
 
     private static MailRow row(String id) {
         return new MailRow(id, "sender", "subject", "body", 0L, false);

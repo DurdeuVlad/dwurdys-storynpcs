@@ -3,6 +3,8 @@ package com.storynpcs.client.gui.player;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.QuestLogView;
 import com.storynpcs.domain.panel.PlayerPanels.QuestRow;
 import net.minecraft.client.gui.GuiGraphics;
@@ -27,6 +29,8 @@ public class PlayerQuestLogScreen extends UiScreen {
     private final QuestLogView view;
     private final UUID sessionId;
     private SelectableList<QuestRow, String> list;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerQuestLogScreen(QuestLogView view, UUID sessionId) {
         super(Component.literal("Quest Log"));
@@ -45,7 +49,8 @@ public class PlayerQuestLogScreen extends UiScreen {
                 contentBottom() - contentTop() - DETAIL_H - UiTheme.PAD_S);
         list = new SelectableList<>(
                 contentLeft(), contentTop(), contentWidth(), listH,
-                UiTheme.ROW_H, QuestRow::questId, PlayerQuestLogScreen::label);
+                UiTheme.ROW_H, QuestRow::questId, PlayerQuestLogScreen::label,
+                selection, scroll);
         list.setRows(rows());
         addRenderableWidget(list);
         addFooterAction(Component.literal("Close"), b -> onClose());
