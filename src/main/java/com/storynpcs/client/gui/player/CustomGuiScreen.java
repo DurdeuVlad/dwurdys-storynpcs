@@ -1,12 +1,13 @@
 package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.gui.model.CustomGuiScreenModel;
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.creator.gui.CustomGuiLayout;
 import com.storynpcs.network.ServerboundCustomGuiActionPayload;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -16,13 +17,24 @@ import java.util.UUID;
 
 /**
  * Runtime renderer for authored {@link CustomGuiLayout}s (issue #150,
- * GuiCustom* parity). Renders the layout's flattened element tree verbatim:
- * panels and textures draw bounded fills, labels/text keys draw text,
- * buttons post session-bound commits, and inputs feed the commit payload.
- * Element types outside the interactive vocabulary render as labelled
- * placeholders — never silently dropped, never executed.
+ * GuiCustom* parity). Renders the layout's flattened element tree inside the
+ * shared {@link UiScreen} chrome: the layout id is the title, the authored
+ * extent is centered in the content band and scissored to it, and Close lives
+ * in the footer (issue #203).
+ *
+ * <p>Element semantics are unchanged: panels and textures draw bounded fills,
+ * labels/text keys draw text, buttons post session-bound commits, and inputs
+ * feed the commit payload. Element types outside the interactive vocabulary
+ * render as labelled placeholders — never silently dropped, never executed.
  */
-public class CustomGuiScreen extends Screen {
+public class CustomGuiScreen extends UiScreen {
+
+    /** Authored panel fill — translucent dark so sibling panels blend rather
+     *  than occlude, tinted to the FIELD_BG tone. */
+    private static final int PANEL_FILL = 0x6610131A;
+    /** Unsupported-element placeholder fill — warning-tinted so it stays
+     *  visibly distinct from authored panels. */
+    private static final int UNSUPPORTED_FILL = 0x22FBBF24;
 
     private final CustomGuiLayout layout;
     private final CustomGuiScreenModel model;
@@ -40,22 +52,31 @@ public class CustomGuiScreen extends Screen {
     }
 
     @Override
-    protected void init() {
+    protected void initContent() {
+        // Authored coordinates are relative to the layout extent; center the
+        // extent inside the content band (top-left anchored when it overflows).
         int[] extent = model.extent();
-        originX = Math.max(0, (this.width - extent[0]) / 2);
-        originY = Math.max(0, (this.height - extent[1]) / 2);
+        originX = contentLeft() + Math.max(0, (contentWidth() - extent[0]) / 2);
+        originY = contentTop() + Math.max(0, (contentBottom() - contentTop() - extent[1]) / 2);
         inputBoxes.clear();
+        int clipped = 0;
         for (var e : model.entries()) {
-            int x = originX + e.absX();
-            int y = originY + e.absY();
             int w = Math.max(20, e.width());
             int h = Math.max(12, e.height());
             switch (e.type()) {
-                case "button" -> addRenderableWidget(Button.builder(
-                                resolveText(e), b -> commit(e.path()))
-                        .bounds(x, y, Math.min(w, 200), Math.min(h, 24)).build());
+                case "button" -> {
+                    int[] r = bandClamp(originX + e.absX(), originY + e.absY(),
+                            Math.min(w, 200), Math.min(h, 24));
+                    if (r == null) { clipped++; break; }
+                    addRenderableWidget(Button.builder(
+                                    resolveText(e), b -> commit(e.path()))
+                            .bounds(r[0], r[1], r[2], r[3]).build());
+                }
                 case "input" -> {
-                    var box = new EditBox(this.font, x, y, Math.min(w, 220), 14,
+                    int[] r = bandClamp(originX + e.absX(), originY + e.absY(),
+                            Math.min(w, 220), 14);
+                    if (r == null) { clipped++; break; }
+                    var box = new EditBox(this.font, r[0], r[1], r[2], r[3],
                             resolveText(e));
                     box.setMaxLength(128);
                     box.setResponder(v -> model.setInputValue(e.path(), v));
@@ -65,8 +86,24 @@ public class CustomGuiScreen extends Screen {
                 default -> { }
             }
         }
-        addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(this.width - 70, this.height - 22, 60, 16).build());
+        setStatus(Component.literal(Math.max(0, model.entries().size() - 1) + " element(s)"
+                + (clipped > 0 ? ", " + clipped + " clipped" : "")));
+        addFooterAction(Component.literal("Close"), b -> onClose());
+    }
+
+    /**
+     * Intersects an authored rect with the content band — widgets are
+     * scissored for drawing but vanilla hit-tests use widget bounds, so the
+     * only honest containment is to clamp the widget itself. Fully outside
+     * returns null (the element is skipped, counted as clipped).
+     */
+    private int[] bandClamp(int x, int y, int w, int h) {
+        int cx = Math.max(x, contentLeft());
+        int cy = Math.max(y, contentTop());
+        int cr = Math.min(x + w, contentRight());
+        int cb = Math.min(y + h, contentBottom());
+        if (cr <= cx || cb <= cy) return null;
+        return new int[]{cx, cy, Math.max(1, cr - cx), Math.max(1, cb - cy)};
     }
 
     private Component resolveText(CustomGuiScreenModel.RenderEntry e) {
@@ -91,36 +128,34 @@ public class CustomGuiScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Authored elements stay inside the content band — an oversized
+        // element may clip but can never paint over the header or footer.
+        graphics.enableScissor(contentLeft(), contentTop(), contentRight(), contentBottom());
         for (var e : model.entries()) {
             int x = originX + e.absX();
             int y = originY + e.absY();
             int w = Math.max(1, e.width());
             int h = Math.max(1, e.height());
             switch (e.type()) {
-                case "panel" -> graphics.fill(x, y, x + w, y + h, 0x66000000);
+                case "panel" -> graphics.fill(x, y, x + w, y + h, PANEL_FILL);
                 case "texture" -> {
                     // Authored texture refs aren't resolved client-side — draw
                     // a bordered placeholder so the authored footprint is real.
-                    graphics.fill(x, y, x + w, y + h, 0x33FFFFFF);
-                    graphics.fill(x, y, x + w, y + 1, 0x88FFFFFF);
+                    graphics.fill(x, y, x + w, y + h, UiTheme.ROW_HOVER);
+                    graphics.fill(x, y, x + w, y + 1, UiTheme.BORDER);
                 }
-                case "label" -> graphics.drawString(this.font, resolveText(e), x, y, 0xFFFFFF);
+                case "label" -> graphics.drawString(this.font, resolveText(e), x, y, UiTheme.TEXT);
                 case "button", "input" -> { } // real widgets render themselves
                 default -> {
                     // Unsupported authored element — honest placeholder.
-                    graphics.fill(x, y, x + w, y + Math.max(10, h), 0x220000FF);
+                    graphics.fill(x, y, x + w, y + Math.max(10, h), UNSUPPORTED_FILL);
                     graphics.drawString(this.font, "§8[" + e.type() + "] " + e.name(),
-                            x + 2, y + 2, 0x8888FF);
+                            x + 2, y + 2, UiTheme.TEXT_MUTED);
                 }
             }
         }
-        // Render widgets directly — super.render() would re-run the blur
-        // background pass and smear the authored elements drawn above (#197).
-        for (var renderable : this.renderables) {
-            renderable.render(graphics, mouseX, mouseY, partialTick);
-        }
+        graphics.disableScissor();
     }
 
     @Override
