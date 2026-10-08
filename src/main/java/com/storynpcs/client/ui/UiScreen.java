@@ -195,7 +195,18 @@ public abstract class UiScreen extends Screen {
             onStatusExpired();
         }
         if (status != null) {
-            graphics.drawString(this.font, status, contentLeft(),
+            // Clip to the space left of the leftmost footer button — a long
+            // status must never underlap the actions.
+            int rightBound = contentRight();
+            for (Button b : footerButtons) {
+                rightBound = Math.min(rightBound, b.getX());
+            }
+            int avail = rightBound - UiTheme.PAD_S - contentLeft();
+            String text = status.getString();
+            if (avail > 0 && this.font.width(text) > avail) {
+                text = this.font.plainSubstrByWidth(text, Math.max(0, avail - 4)) + "…";
+            }
+            graphics.drawString(this.font, text, contentLeft(),
                     ft + (UiTheme.FOOTER_H - 8) / 2 + 1, UiTheme.TEXT_MUTED);
         }
         // border outline last so it sits above surface fills

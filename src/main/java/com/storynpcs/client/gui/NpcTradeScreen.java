@@ -1,12 +1,13 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.PendingAck;
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.domain.role.trader.TradeListing;
 import com.storynpcs.domain.role.trader.TradeSummaries;
 import com.storynpcs.domain.role.trader.TraderRole;
 import com.storynpcs.network.ServerboundTradeExecutePayload;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -14,27 +15,42 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
  * Player-facing trade screen for a trader-role NPC. Opened server-side via
- * {@link com.storynpcs.network.ClientboundTradeOpenPayload}; clicking Buy sends
+ * {@link com.storynpcs.network.ClientboundTradeOpenPayload}; Buy sends
  * {@link ServerboundTradeExecutePayload} and the server replies with a fresh
- * open packet (or a failure message), which re-renders this screen.
+ * open packet (or a failure message), which refreshes this screen in place.
+ *
+ * <p>UI-kit migration (issue #204): shared {@link UiScreen} chrome, the
+ * buy-left / sell-right two-column listing from #197 retained with item
+ * icons, row selection with hover highlight, and a footer Buy action with a
+ * {@link PendingAck} pending state — armed on send, cleared when the
+ * refreshed payload arrives (or the timeout reports the loss).
  */
-public class NpcTradeScreen extends Screen {
+public class NpcTradeScreen extends UiScreen {
+
+    /** Row height fits a 16px item icon with a pixel of margin either side. */
+    private static final int ROW_H = 18;
+    private static final int ARROW_W = 20;
+    private static final int ECHO_MS = 3_000;
 
     private final String npcId;
     private final String npcName;
-    private final TraderRole trader;
-    private final Map<String, Integer> factionScores;
+    private TraderRole trader;
+    private Map<String, Integer> factionScores;
     private final UUID sessionId;
     private final Map<Integer, UUID> requestIds = new java.util.HashMap<>();
+    private final PendingAck pending = new PendingAck();
+    private boolean wasPending;
     private int scrollOffset = 0;
+    private int selected = -1;
 
     public NpcTradeScreen(String npcId, String npcName, TraderRole trader, Map<String, Integer> factionScores,
                           UUID sessionId) {
-        super(Component.literal(trader.getMarketName()));
+        super(Component.literal(titleOf(trader, npcName)));
         this.npcId = npcId != null ? npcId : "";
         this.npcName = npcName != null ? npcName : "";
         this.trader = trader;
@@ -42,92 +58,148 @@ public class NpcTradeScreen extends Screen {
         this.sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
     }
 
-    /** Row height fits a 16px item icon with a pixel of margin either side. */
-    private static final int ROW_H = 18;
-    private static final int BUY_W = 44;
-    private static final int ARROW_W = 20;
+    private static String titleOf(TraderRole trader, String npcName) {
+        String market = trader == null ? "Trade" : String.valueOf(trader.getMarketName());
+        return npcName == null || npcName.isBlank() ? market : market + " — " + npcName;
+    }
 
-    private int rowWidth() { return Math.min(this.width - 24, 460); }
-    private int listTop() { return 30; }
-    private int listBottom() { return this.height - 20; }
-    private int maxVisibleRows() { return Math.max(1, (listBottom() - listTop()) / ROW_H); }
+    /** Identity check for the refresh contract — this payload is for this session. */
+    public boolean matches(UUID sessionId) {
+        return Objects.equals(this.sessionId, sessionId);
+    }
 
-    @Override
-    protected void init() {
-        List<TradeListing> listings = trader.getListings();
-        int maxScroll = Math.max(0, listings.size() - maxVisibleRows());
+    /** In-place refresh: new listings + scores without losing scroll or selection. */
+    public void updateView(TraderRole trader, Map<String, Integer> scores) {
+        if (trader == null) return;
+        this.trader = trader;
+        this.factionScores = scores != null ? scores : Map.of();
+        pending.ack();
+        wasPending = false;
+        int maxScroll = Math.max(0, listings().size() - maxVisibleRows());
         scrollOffset = Math.min(scrollOffset, maxScroll);
-
-        int rowW = rowWidth();
-        int visible = Math.min(listings.size() - scrollOffset, maxVisibleRows());
-        for (int i = 0; i < visible; i++) {
-            int index = scrollOffset + i;
-            int y = listTop() + i * ROW_H;
-            TradeListing listing = listings.get(index);
-            int score = listing.getRequiredFaction() != null
-                    ? factionScores.getOrDefault(listing.getRequiredFaction().toString(), 0)
-                    : 0;
-            boolean available = listing.isAvailable(score);
-            Button buy = Button.builder(Component.literal("Buy"),
-                            b -> PacketDistributor.sendToServer(
-                                    new ServerboundTradeExecutePayload(npcId, index, sessionId,
-                                            requestIds.computeIfAbsent(index, ignored -> UUID.randomUUID()))))
-                    .bounds(12 + rowW - BUY_W, y + 3, BUY_W, 12)
-                    .build();
-            buy.active = available;
-            addRenderableWidget(buy);
+        if (selected >= listings().size()) {
+            selected = -1;
         }
+        setStatus(Component.literal(listings().size() + " listing(s)"));
+    }
 
-        addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(12, this.height - 16, 60, 12)
-                .build());
+    private List<TradeListing> listings() {
+        var l = trader == null ? null : trader.getListings();
+        return l == null ? List.of() : l;
+    }
+
+    // ---- geometry (content band) ----
+
+    private int rowsTop() { return contentTop() + 12; }
+    private int maxVisibleRows() { return Math.max(1, (contentBottom() - rowsTop()) / ROW_H); }
+    private int buyColW() { return (contentWidth() - ARROW_W) / 2; }
+    private int sellColX() { return contentLeft() + buyColW() + ARROW_W; }
+    private int sellColW() { return contentRight() - sellColX(); }
+
+    private boolean isPending() {
+        return pending.pending(System.currentTimeMillis());
+    }
+
+    private void echo(String message) {
+        echo(Component.literal(message), ECHO_MS);
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // Screen#render runs the menu-blur post-process over whatever is in the
-        // framebuffer — background first, custom content next, widgets last,
-        // or rows are blurred while buttons stay sharp (#197).
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+    protected void initContent() {
+        int maxScroll = Math.max(0, listings().size() - maxVisibleRows());
+        scrollOffset = Math.min(scrollOffset, maxScroll);
+        setStatus(Component.literal(listings().size() + " listing(s)"));
+        addFooterAction(Component.literal("Buy"), b -> buySelected());
+        addFooterAction(Component.literal("Close"), b -> onClose());
+    }
 
-        String title = trader.getMarketName() + " — " + npcName;
-        int titleW = this.font.width(title);
-        if (titleW > this.width - 24) {
-            title = this.font.plainSubstrByWidth(title, this.width - 24);
+    @Override
+    protected void postInit() {
+        applyPendingDisabled(isPending());
+    }
+
+    private void applyPendingDisabled(boolean nowPending) {
+        if (!footerButtons().isEmpty()) {
+            footerButtons().get(0).active = !nowPending;
         }
-        graphics.drawString(this.font, title, 12, 8, 0xFFFFFF);
+    }
 
-        List<TradeListing> listings = trader.getListings();
-        int rowW = rowWidth();
-        int buyX = 12 + rowW - BUY_W;
-        // Buy-left / sell-right columns (#197): the trader buys the price on
-        // the left, sells the offer on the right, each with an item icon.
-        int buyColW = (rowW - BUY_W - 8 - ARROW_W) / 2;
-        int sellColX = 12 + buyColW + ARROW_W;
-        int sellColW = buyX - 4 - sellColX;
+    private void buySelected() {
+        if (selected < 0 || selected >= listings().size()) {
+            echo("Select a listing first.");
+            return;
+        }
+        TradeListing listing = listings().get(selected);
+        int score = listing.getRequiredFaction() != null
+                ? factionScores.getOrDefault(listing.getRequiredFaction().toString(), 0)
+                : 0;
+        if (!listing.isAvailable(score)) {
+            echo("§c" + String.valueOf(TradeSummaries.unavailableReason(listing, score)));
+            return;
+        }
+        pending.begin("Buying…", System.currentTimeMillis());
+        PacketDistributor.sendToServer(new ServerboundTradeExecutePayload(npcId, selected, sessionId,
+                requestIds.computeIfAbsent(selected, ignored -> UUID.randomUUID())));
+        applyPendingDisabled(true);
+    }
 
-        graphics.drawString(this.font, "§7Trader buys", 12, listTop() - 9, 0xAAAAAA);
-        graphics.drawString(this.font, "§7Trader sells", sellColX, listTop() - 9, 0xAAAAAA);
+    @Override
+    public void tick() {
+        super.tick();
+        long now = System.currentTimeMillis();
+        boolean nowPending = isPending();
+        String label = pending.label(now);
+        if (label != null) {
+            overrideStatus(Component.literal("§e" + label));
+        }
+        if (wasPending && !nowPending) {
+            echo("No response from server — try again.");
+        }
+        wasPending = nowPending;
+        applyPendingDisabled(nowPending);
+    }
 
-        graphics.enableScissor(0, listTop() - 1, this.width, listBottom() + 1);
+    @Override
+    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        List<TradeListing> listings = listings();
+        int left = contentLeft();
+        int buyColW = buyColW();
+        int sellColX = sellColX();
+        int sellColW = sellColW();
+
+        graphics.drawString(this.font, "§7Trader buys", left, contentTop() + 2, UiTheme.TEXT_MUTED);
+        graphics.drawString(this.font, "§7Trader sells", sellColX, contentTop() + 2, UiTheme.TEXT_MUTED);
+
         int visible = Math.min(listings.size() - scrollOffset, maxVisibleRows());
+        int bandBottom = rowsTop() + visible * ROW_H;
+        graphics.enableScissor(contentLeft(), rowsTop(), contentRight(), bandBottom);
         for (int i = 0; i < visible; i++) {
-            TradeListing listing = listings.get(scrollOffset + i);
-            int y = listTop() + i * ROW_H;
+            int index = scrollOffset + i;
+            TradeListing listing = listings.get(index);
+            int y = rowsTop() + i * ROW_H;
+
+            boolean isSel = index == selected;
+            boolean hover = mouseX >= contentLeft() && mouseX < contentRight()
+                    && mouseY >= y && mouseY < y + ROW_H;
+            if (isSel) {
+                graphics.fill(contentLeft(), y, contentRight(), y + ROW_H, UiTheme.ROW_SELECTED);
+            } else if (hover) {
+                graphics.fill(contentLeft(), y, contentRight(), y + ROW_H, UiTheme.ROW_HOVER);
+            }
 
             // Left column — the price: what the trader buys from the player.
-            int px = 12;
+            int px = left;
             px += itemLabel(graphics, px, y, buyColW,
                     listing.getPriceItemId(), Math.max(1, listing.getPriceCount()));
             String secondaryId = listing.getSecondaryPriceItemId();
             if (secondaryId != null && !secondaryId.isBlank()
-                    && listing.getSecondaryPriceCount() > 0 && px + 12 < 12 + buyColW) {
-                graphics.drawString(this.font, "+", px + 2, y + 5, 0xAAAAAA);
+                    && listing.getSecondaryPriceCount() > 0 && px + 12 < left + buyColW) {
+                graphics.drawString(this.font, "+", px + 2, y + 5, UiTheme.TEXT_MUTED);
                 px += 10;
-                itemLabel(graphics, px, y, 12 + buyColW - px,
+                itemLabel(graphics, px, y, left + buyColW - px,
                         secondaryId, Math.max(1, listing.getSecondaryPriceCount()));
             }
-            graphics.drawString(this.font, "->", 12 + buyColW + 6, y + 5, 0xAAAAAA);
+            graphics.drawString(this.font, "->", left + buyColW + 6, y + 5, UiTheme.TEXT_MUTED);
 
             // Right column — the offer: what the trader sells to the player.
             int score = listing.getRequiredFaction() != null
@@ -148,25 +220,75 @@ public class NpcTradeScreen extends Screen {
             }
             offerLabel = this.font.plainSubstrByWidth(offerLabel,
                     Math.max(0, sellColX + sellColW - reasonW - sx));
-            graphics.drawString(this.font, offerLabel, sx, y + 5, 0xFFFFFF);
+            graphics.drawString(this.font, offerLabel, sx, y + 5,
+                    isSel ? UiTheme.ACCENT : UiTheme.TEXT);
 
             if (reason != null) {
-                graphics.drawString(this.font, reason, buyX - 4 - this.font.width(reason), y + 5, 0xFF5555);
+                graphics.drawString(this.font, reason,
+                        contentRight() - this.font.width(reason), y + 5, UiTheme.DANGER);
             }
         }
         graphics.disableScissor();
 
         if (listings.isEmpty()) {
-            graphics.drawString(this.font, "§7(no stock — an admin can add listings via /storynpcs npc trade add)",
-                    12, listTop() + 4, 0xAAAAAA);
+            renderEmpty(graphics, "No stock — an admin can add listings via /storynpcs npc trade add.");
         } else if (listings.size() > maxVisibleRows()) {
-            graphics.drawString(this.font, "§7scroll for more (" + (scrollOffset + 1) + "-" +
-                    Math.min(listings.size(), scrollOffset + maxVisibleRows()) + "/" + listings.size() + ")",
-                    12 + 66, this.height - 12, 0xAAAAAA);
+            graphics.drawString(this.font, "§7scroll for more (" + (scrollOffset + 1) + "-"
+                            + Math.min(listings.size(), scrollOffset + maxVisibleRows()) + "/" + listings.size() + ")",
+                    contentLeft(), contentBottom() - 9, UiTheme.TEXT_MUTED);
         }
+    }
 
-        for (var renderable : this.renderables) {
-            renderable.render(graphics, mouseX, mouseY, partialTick);
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0
+                && mouseX >= contentLeft() && mouseX < contentRight()
+                && mouseY >= rowsTop() && mouseY < rowsTop() + maxVisibleRows() * ROW_H) {
+            int index = scrollOffset + (int) ((mouseY - rowsTop()) / ROW_H);
+            if (index >= 0 && index < listings().size()) {
+                if (index == selected) {
+                    buySelected(); // click-again activates
+                } else {
+                    selected = index;
+                }
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
+                || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER
+                || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE) {
+            buySelected();
+            return true;
+        }
+        int max = listings().size() - 1;
+        int delta = switch (keyCode) {
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_DOWN -> 1;
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_UP -> -1;
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_DOWN -> maxVisibleRows();
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_UP -> -maxVisibleRows();
+            default -> 0;
+        };
+        if (delta != 0 && max >= 0) {
+            selected = selected < 0
+                    ? (delta > 0 ? 0 : max)
+                    : Math.max(0, Math.min(max, selected + delta));
+            ensureSelectedVisible();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private void ensureSelectedVisible() {
+        if (selected < 0) return;
+        if (selected < scrollOffset) {
+            scrollOffset = selected;
+        } else if (selected >= scrollOffset + maxVisibleRows()) {
+            scrollOffset = selected - maxVisibleRows() + 1;
         }
     }
 
@@ -186,7 +308,7 @@ public class NpcTradeScreen extends Screen {
         }
         String label = this.font.plainSubstrByWidth(count + "x " + itemName(itemId),
                 Math.max(0, maxW - used));
-        graphics.drawString(this.font, label, x + used, y + 5, 0xFFFFFF);
+        graphics.drawString(this.font, label, x + used, y + 5, UiTheme.TEXT);
         return used + this.font.width(label);
     }
 
@@ -208,11 +330,10 @@ public class NpcTradeScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int maxScroll = Math.max(0, trader.getListings().size() - maxVisibleRows());
+        int maxScroll = Math.max(0, listings().size() - maxVisibleRows());
         int next = scrollOffset + (scrollY < 0 ? 1 : -1);
         if (next >= 0 && next <= maxScroll) {
             scrollOffset = next;
-            rebuildWidgets();
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);

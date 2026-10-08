@@ -194,6 +194,14 @@ public final class StoryNpcsClient {
                 }
                 return;
             }
+            // Refresh contract (#201/#204): a re-issued trade view for the
+            // open screen updates it in place — scroll and selection survive
+            // a buy, and the pending action is acknowledged.
+            if (mc.screen instanceof com.storynpcs.client.gui.NpcTradeScreen open
+                    && open.matches(payload.sessionId())) {
+                open.updateView(trader, scores);
+                return;
+            }
             mc.setScreen(new com.storynpcs.client.gui.NpcTradeScreen(
                     payload.npcId(), payload.npcName(), trader, scores, payload.sessionId()));
         });
@@ -323,6 +331,11 @@ public final class StoryNpcsClient {
                 if (mc.player != null) {
                     mc.player.sendSystemMessage(Component.literal("§c[StoryNPCs] Failed to parse bank data."));
                 }
+                return;
+            }
+            if (mc.screen instanceof com.storynpcs.client.gui.NpcBankScreen open
+                    && open.matches(payload.sessionId())) {
+                open.updateView(banker, vault);
                 return;
             }
             mc.setScreen(new com.storynpcs.client.gui.NpcBankScreen(
