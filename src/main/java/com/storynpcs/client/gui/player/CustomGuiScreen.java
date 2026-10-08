@@ -1,12 +1,13 @@
 package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.gui.model.CustomGuiScreenModel;
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.creator.gui.CustomGuiLayout;
 import com.storynpcs.network.ServerboundCustomGuiActionPayload;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -16,13 +17,17 @@ import java.util.UUID;
 
 /**
  * Runtime renderer for authored {@link CustomGuiLayout}s (issue #150,
- * GuiCustom* parity). Renders the layout's flattened element tree verbatim:
- * panels and textures draw bounded fills, labels/text keys draw text,
- * buttons post session-bound commits, and inputs feed the commit payload.
- * Element types outside the interactive vocabulary render as labelled
- * placeholders — never silently dropped, never executed.
+ * GuiCustom* parity). Renders the layout's flattened element tree inside the
+ * shared {@link UiScreen} chrome: the layout id is the title, the authored
+ * extent is centered in the content band and scissored to it, and Close lives
+ * in the footer (issue #203).
+ *
+ * <p>Element semantics are unchanged: panels and textures draw bounded fills,
+ * labels/text keys draw text, buttons post session-bound commits, and inputs
+ * feed the commit payload. Element types outside the interactive vocabulary
+ * render as labelled placeholders — never silently dropped, never executed.
  */
-public class CustomGuiScreen extends Screen {
+public class CustomGuiScreen extends UiScreen {
 
     private final CustomGuiLayout layout;
     private final CustomGuiScreenModel model;
@@ -40,10 +45,12 @@ public class CustomGuiScreen extends Screen {
     }
 
     @Override
-    protected void init() {
+    protected void initContent() {
+        // Authored coordinates are relative to the layout extent; center the
+        // extent inside the content band (top-left anchored when it overflows).
         int[] extent = model.extent();
-        originX = Math.max(0, (this.width - extent[0]) / 2);
-        originY = Math.max(0, (this.height - extent[1]) / 2);
+        originX = contentLeft() + Math.max(0, (contentWidth() - extent[0]) / 2);
+        originY = contentTop() + Math.max(0, (contentBottom() - contentTop() - extent[1]) / 2);
         inputBoxes.clear();
         for (var e : model.entries()) {
             int x = originX + e.absX();
@@ -65,8 +72,8 @@ public class CustomGuiScreen extends Screen {
                 default -> { }
             }
         }
-        addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(this.width - 70, this.height - 22, 60, 16).build());
+        setStatus(Component.literal(model.entries().size() + " element(s)"));
+        addFooterAction(Component.literal("Close"), b -> onClose());
     }
 
     private Component resolveText(CustomGuiScreenModel.RenderEntry e) {
@@ -91,36 +98,34 @@ public class CustomGuiScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Authored elements stay inside the content band — an oversized
+        // element may clip but can never paint over the header or footer.
+        graphics.enableScissor(contentLeft(), contentTop(), contentRight(), contentBottom());
         for (var e : model.entries()) {
             int x = originX + e.absX();
             int y = originY + e.absY();
             int w = Math.max(1, e.width());
             int h = Math.max(1, e.height());
             switch (e.type()) {
-                case "panel" -> graphics.fill(x, y, x + w, y + h, 0x66000000);
+                case "panel" -> graphics.fill(x, y, x + w, y + h, UiTheme.FIELD_BG);
                 case "texture" -> {
                     // Authored texture refs aren't resolved client-side — draw
                     // a bordered placeholder so the authored footprint is real.
-                    graphics.fill(x, y, x + w, y + h, 0x33FFFFFF);
-                    graphics.fill(x, y, x + w, y + 1, 0x88FFFFFF);
+                    graphics.fill(x, y, x + w, y + h, UiTheme.ROW_HOVER);
+                    graphics.fill(x, y, x + w, y + 1, UiTheme.BORDER);
                 }
-                case "label" -> graphics.drawString(this.font, resolveText(e), x, y, 0xFFFFFF);
+                case "label" -> graphics.drawString(this.font, resolveText(e), x, y, UiTheme.TEXT);
                 case "button", "input" -> { } // real widgets render themselves
                 default -> {
                     // Unsupported authored element — honest placeholder.
-                    graphics.fill(x, y, x + w, y + Math.max(10, h), 0x220000FF);
+                    graphics.fill(x, y, x + w, y + Math.max(10, h), UiTheme.FIELD_BG);
                     graphics.drawString(this.font, "§8[" + e.type() + "] " + e.name(),
-                            x + 2, y + 2, 0x8888FF);
+                            x + 2, y + 2, UiTheme.TEXT_MUTED);
                 }
             }
         }
-        // Render widgets directly — super.render() would re-run the blur
-        // background pass and smear the authored elements drawn above (#197).
-        for (var renderable : this.renderables) {
-            renderable.render(graphics, mouseX, mouseY, partialTick);
-        }
+        graphics.disableScissor();
     }
 
     @Override
