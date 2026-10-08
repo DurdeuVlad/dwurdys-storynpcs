@@ -24,6 +24,14 @@ import java.util.List;
  * <p>Subclass contract: implement {@link #renderContent} for the body, and
  * {@link #initContent} (not {@code init} — it is final so panel metrics always
  * exist before widget layout) to add widgets and footer actions.
+ *
+ * <p><b>Canvas exception (issue #209):</b> screens whose primary surface is a
+ * bespoke canvas rather than form content — currently only
+ * {@code DialogueEditorScreen}, a pan/zoom node-edge graph — may stay plain
+ * {@code Screen}s instead of extending this class. The exception covers
+ * canvas geometry and graph rendering only: toolbar, inspector, dialogs, and
+ * status surfaces must still draw from {@link UiTheme} tokens, and any canvas
+ * colors must be named constants, never inline literals.
  */
 public abstract class UiScreen extends Screen {
 
