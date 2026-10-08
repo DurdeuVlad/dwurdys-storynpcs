@@ -202,12 +202,17 @@ public abstract class UiScreen extends Screen {
                 rightBound = Math.min(rightBound, b.getX());
             }
             int avail = rightBound - UiTheme.PAD_S - contentLeft();
+            int ellipsisW = this.font.width("…");
             String text = status.getString();
-            if (avail > 0 && this.font.width(text) > avail) {
-                text = this.font.plainSubstrByWidth(text, Math.max(0, avail - 4)) + "…";
+            if (avail > ellipsisW && this.font.width(text) > avail) {
+                text = this.font.plainSubstrByWidth(text, avail - ellipsisW) + "…";
+            } else if (avail <= ellipsisW) {
+                text = "";
             }
-            graphics.drawString(this.font, text, contentLeft(),
-                    ft + (UiTheme.FOOTER_H - 8) / 2 + 1, UiTheme.TEXT_MUTED);
+            if (!text.isEmpty()) {
+                graphics.drawString(this.font, text, contentLeft(),
+                        ft + (UiTheme.FOOTER_H - 8) / 2 + 1, UiTheme.TEXT_MUTED);
+            }
         }
         // border outline last so it sits above surface fills
         graphics.fill(panelX, panelY, panelX + panelW, panelY + 1, UiTheme.BORDER);

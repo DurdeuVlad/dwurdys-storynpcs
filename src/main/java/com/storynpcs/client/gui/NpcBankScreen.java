@@ -1,5 +1,6 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.AttemptIds;
 import com.storynpcs.client.ui.PendingAck;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
@@ -38,7 +39,7 @@ public class NpcBankScreen extends UiScreen {
     private BankerRole banker;
     private BankVault vault;
     private final UUID sessionId;
-    private final java.util.Map<String, UUID> requestIds = new java.util.HashMap<>();
+    private final AttemptIds requestIds = new AttemptIds();
     private final PendingAck pending = new PendingAck();
     private final List<Button> rowButtons = new ArrayList<>();
     private boolean wasPending;
@@ -65,6 +66,9 @@ public class NpcBankScreen extends UiScreen {
         this.vault = vault;
         pending.ack();
         wasPending = false;
+        // See NpcTradeScreen.updateView — resolved journal records must not be
+        // replayed by a stale request id on the next action.
+        requestIds.ack();
         rebuildWidgets();
     }
 
@@ -126,7 +130,7 @@ public class NpcBankScreen extends UiScreen {
 
         addFooterAction(Component.literal("Deposit held"),
                 b -> act("deposit_held", currentTab, 0));
-        if (unlockedTabs() < Math.max(1, banker.getMaxTabs())) {
+        if (banker != null && unlockedTabs() < Math.max(1, banker.getMaxTabs())) {
             int cost = Math.max(0, banker.getTabUpgradeCost());
             addFooterAction(Component.literal(
                     cost > 0 ? "Unlock tab (" + cost + " emeralds)" : "Unlock tab (free)"),
@@ -141,14 +145,14 @@ public class NpcBankScreen extends UiScreen {
     }
 
     private void act(String action, int tab, int slot) {
+        if (isPending()) return;
         pending.begin(switch (action) {
             case "deposit_held" -> "Depositing…";
             case "unlock_tab" -> "Unlocking…";
             default -> "Working…";
         }, System.currentTimeMillis());
         PacketDistributor.sendToServer(new ServerboundBankActionPayload(npcId, action, tab, slot,
-                sessionId, requestIds.computeIfAbsent(
-                        action + ":" + tab + ":" + slot, ignored -> UUID.randomUUID())));
+                sessionId, requestIds.idFor(action + ":" + tab + ":" + slot)));
         applyPendingDisabled(true);
     }
 

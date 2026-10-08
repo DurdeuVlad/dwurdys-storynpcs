@@ -1,5 +1,6 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.AttemptIds;
 import com.storynpcs.client.ui.PendingAck;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
@@ -42,11 +43,14 @@ public class NpcTradeScreen extends UiScreen {
     private TraderRole trader;
     private Map<String, Integer> factionScores;
     private final UUID sessionId;
-    private final Map<Integer, UUID> requestIds = new java.util.HashMap<>();
+    /** One request id per unacknowledged attempt — cleared on ack (#204 review). */
+    private final AttemptIds requestIds = new AttemptIds();
     private final PendingAck pending = new PendingAck();
     private boolean wasPending;
     private int scrollOffset = 0;
     private int selected = -1;
+    /** Stable listing identity so a refresh/reorder can't retarget the selection. */
+    private String selectedKey;
 
     public NpcTradeScreen(String npcId, String npcName, TraderRole trader, Map<String, Integer> factionScores,
                           UUID sessionId) {
@@ -75,17 +79,28 @@ public class NpcTradeScreen extends UiScreen {
         this.factionScores = scores != null ? scores : Map.of();
         pending.ack();
         wasPending = false;
+        // The server answered: any cached request id now points at a resolved
+        // journal record — the next attempt on a listing must mint a fresh one.
+        requestIds.ack();
         int maxScroll = Math.max(0, listings().size() - maxVisibleRows());
         scrollOffset = Math.min(scrollOffset, maxScroll);
-        if (selected >= listings().size()) {
-            selected = -1;
-        }
+        selected = selectedKey == null ? -1
+                : com.storynpcs.client.ui.RowKeys.indexOf(
+                        listings(), NpcTradeScreen::listingKey, selectedKey);
         setStatus(Component.literal(listings().size() + " listing(s)"));
     }
 
     private List<TradeListing> listings() {
         var l = trader == null ? null : trader.getListings();
         return l == null ? List.of() : l;
+    }
+
+    /** Stable per-listing key: authored id, else a content composite. */
+    private static String listingKey(TradeListing l) {
+        String id = l.getListingId();
+        if (id != null && !id.isBlank()) return id;
+        return l.getOfferItemId() + "x" + l.getOfferCount() + "<-"
+                + l.getPriceItemId() + "x" + l.getPriceCount();
     }
 
     // ---- geometry (content band) ----
@@ -119,12 +134,15 @@ public class NpcTradeScreen extends UiScreen {
     }
 
     private void applyPendingDisabled(boolean nowPending) {
-        if (!footerButtons().isEmpty()) {
-            footerButtons().get(0).active = !nowPending;
+        // Footer order: [mutation actions…], Close last — never disable Close.
+        int actionCount = Math.max(0, footerButtons().size() - 1);
+        for (int i = 0; i < actionCount; i++) {
+            footerButtons().get(i).active = !nowPending;
         }
     }
 
     private void buySelected() {
+        if (isPending()) return;
         if (selected < 0 || selected >= listings().size()) {
             echo("Select a listing first.");
             return;
@@ -139,7 +157,7 @@ public class NpcTradeScreen extends UiScreen {
         }
         pending.begin("Buying…", System.currentTimeMillis());
         PacketDistributor.sendToServer(new ServerboundTradeExecutePayload(npcId, selected, sessionId,
-                requestIds.computeIfAbsent(selected, ignored -> UUID.randomUUID())));
+                requestIds.idFor(String.valueOf(selected))));
         applyPendingDisabled(true);
     }
 
@@ -241,15 +259,17 @@ public class NpcTradeScreen extends UiScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        int bandBottom = Math.min(rowsTop() + maxVisibleRows() * ROW_H, contentBottom());
         if (button == 0
                 && mouseX >= contentLeft() && mouseX < contentRight()
-                && mouseY >= rowsTop() && mouseY < rowsTop() + maxVisibleRows() * ROW_H) {
+                && mouseY >= rowsTop() && mouseY < bandBottom) {
             int index = scrollOffset + (int) ((mouseY - rowsTop()) / ROW_H);
             if (index >= 0 && index < listings().size()) {
                 if (index == selected) {
                     buySelected(); // click-again activates
                 } else {
                     selected = index;
+                    selectedKey = listingKey(listings().get(index));
                 }
                 return true;
             }
@@ -262,8 +282,11 @@ public class NpcTradeScreen extends UiScreen {
         if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
                 || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER
                 || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE) {
-            buySelected();
-            return true;
+            if (getFocused() == null && selected >= 0) {
+                buySelected();
+                return true;
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
         }
         int max = listings().size() - 1;
         int delta = switch (keyCode) {
@@ -277,6 +300,9 @@ public class NpcTradeScreen extends UiScreen {
             selected = selected < 0
                     ? (delta > 0 ? 0 : max)
                     : Math.max(0, Math.min(max, selected + delta));
+            if (selected >= 0) {
+                selectedKey = listingKey(listings().get(selected));
+            }
             ensureSelectedVisible();
             return true;
         }
