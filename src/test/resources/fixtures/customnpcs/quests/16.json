@@ -1,0 +1,52 @@
+{
+    "Type": 0,
+    "QuestCompletion": 0,
+    "QuestCommand": "",
+    "QuestFactionPoints": {
+        "DecreaseFaction2Points": 0b,
+        "OptionFaction2Points": 100,
+        "OptionFaction1Points": 100,
+        "OptionFactions2": -1,
+        "OptionFactions1": -1,
+        "DecreaseFaction1Points": 0b
+    },
+    "LeaveItems": 1b,
+    "IgnoreNBT": 0b,
+    "Rewards": {
+        "NpcMiscInv": [
+        ]
+    },
+    "CompleterNpc": "Dodel",
+    "NextQuestId": -1,
+    "CompleteText": "Esti foarte iscusit, tinere. Mai ca ma gandesc sa te las sa imi mangai copacul preferat. Acum hai sa te invat cum sa faci carbune!",
+    "Text": "Adu la padurarul Dodel 3 gramezi de busteni.
+
+HINT! Gramezile de busteni (log piles) se fac folosind 9 busteni din oricare tip de lemn!",
+    "QuestMail": {
+        "Subject": "",
+        "MailQuest": -1,
+        "BeenRead": 0b,
+        "MailItems": [
+        ],
+        "Sender": "",
+        "Message": {
+        },
+        "Time": 0L,
+        "TimePast": 1781642998216L
+    },
+    "RandomReward": 0b,
+    "Title": "Quest#1 Log Piles",
+    "IgnoreDamage": 0b,
+    "Items": {
+        "NpcMiscInv": [
+            {
+                "Slot": 0b,
+                "id": "minecraft:spruce_log",
+                "Count": 32b
+            }
+        ]
+    },
+    "QuestRepeat": 0,
+    "RewardExp": 0,
+    "ModRev": 18
+}

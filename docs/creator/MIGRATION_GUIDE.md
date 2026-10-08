@@ -11,7 +11,8 @@ Status: `CURRENT` — states only what is verified by the test suite.
 | `scripts:` hook lists on NPC definitions | yes | bounded Rhino scripts (P9-2); capability allowlist enforced |
 | Legacy string-array `inventory:` | yes | migrates onto visible drop slots at 100% chance |
 | `repeatType: ONCE` | yes | loads as `NORMAL` |
-| CustomNPCs binary `.dat`/`saves` data | no | no verified export sample exists — the source kind reports `UNSUPPORTED_NEEDS_EVIDENCE` rather than silently reading it |
+| CustomNPCs SNBT text export (`clones/*.json`) | yes | clone files translate to `npc` definitions via `CnpcTextExportTranslator` — verified against the corpus in `src/test/resources/fixtures/customnpcs/` (#194); `dialogs/`/`quests/` exports quarantine pending mapping |
+| CustomNPCs binary `.dat`/`saves` data | no | no verified export sample exists — `TARGET_WORLD_NBT` reports `UNSUPPORTED_NEEDS_EVIDENCE` rather than silently reading it |
 
 ## Package import — `/storynpcs import`
 

@@ -85,6 +85,39 @@ public final class DefinitionImporter {
         // plan can never collide with each other.
         java.util.Set<String> claimed = new java.util.HashSet<>();
         int seq = 0;
+        Map<String, List<FieldMappingRegistry.FieldMapping>> cnpcFields = Map.of();
+        if (source.kind() == ImportSource.Kind.CUSTOMNPCS_TEXT_EXPORT) {
+            // #194: CNPC text exports arrive as SNBT keyed by export family
+            // ("clones", "dialogs", "quests", ...). Clone docs translate to
+            // normalized npc YAML; every other family quarantines with an
+            // explicit re-scope reason rather than guessing a mapping.
+            Map<String, Map<String, String>> normalized = new LinkedHashMap<>();
+            Map<String, List<FieldMappingRegistry.FieldMapping>> translated = new LinkedHashMap<>();
+            for (String family : sortedKeys(documents)) {
+                for (String file : sortedKeys(documents.get(family))) {
+                    if (!"clones".equals(family)) {
+                        steps.add(new Step(seq++, family, file, null, Step.Resolution.QUARANTINE,
+                                null, List.of(), List.of(),
+                                "CustomNPCs '" + family + "' text export not mapped — "
+                                        + "clone files only (#194 scope)"));
+                        continue;
+                    }
+                    try {
+                        var translation = CnpcTextExportTranslator.translateClone(
+                                documents.get(family).get(file));
+                        normalized.computeIfAbsent("npc", k -> new LinkedHashMap<>())
+                                .put(file, translation.yaml());
+                        translated.put(file, translation.mappings());
+                    } catch (Exception e) {
+                        steps.add(new Step(seq++, family, file, null, Step.Resolution.QUARANTINE,
+                                null, List.of(), List.of(),
+                                "unparseable CNPC SNBT clone: " + e.getMessage()));
+                    }
+                }
+            }
+            documents = normalized;
+            cnpcFields = translated;
+        }
         for (String family : sortedKeys(documents)) {
             for (String file : sortedKeys(documents.get(family))) {
                 Step step = FAMILIES.contains(family)
@@ -92,6 +125,14 @@ public final class DefinitionImporter {
                                 probeLoader, sourceDocuments)
                         : new Step(seq, family, file, null, Step.Resolution.QUARANTINE, null,
                                 List.of(), "unknown definition family — nothing applied from this document");
+                List<FieldMappingRegistry.FieldMapping> cnpc = cnpcFields.get(file);
+                if (cnpc != null && step.fieldMappings() != null) {
+                    List<FieldMappingRegistry.FieldMapping> merged = new ArrayList<>(cnpc);
+                    merged.addAll(step.fieldMappings());
+                    step = new Step(step.sequence(), step.family(), step.sourceName(),
+                            step.definitionId(), step.resolution(), step.resolvedId(),
+                            merged, step.referencedResources(), step.detail());
+                }
                 steps.add(resolveConflict(step, policy, sink, claimed));
                 seq++;
             }
