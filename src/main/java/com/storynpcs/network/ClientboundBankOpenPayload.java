@@ -18,7 +18,8 @@ public record ClientboundBankOpenPayload(
         String npcId,
         String bankerJson,
         String vaultJson,
-        UUID sessionId
+        UUID sessionId,
+        UUID requestId
 ) implements CustomPacketPayload {
     public static final int MAX_JSON_LENGTH = 1 << 20; // 1 MiB
 
@@ -27,10 +28,11 @@ public record ClientboundBankOpenPayload(
         bankerJson = bankerJson != null ? bankerJson : "";
         vaultJson = vaultJson != null ? vaultJson : "";
         sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
+        requestId = requestId != null ? requestId : MutationProtocolCodecs.NO_REQUEST_ID;
     }
 
-    public ClientboundBankOpenPayload(String npcId, String bankerJson, String vaultJson) {
-        this(npcId, bankerJson, vaultJson, new UUID(0L, 0L));
+    public ClientboundBankOpenPayload(String npcId, String bankerJson, String vaultJson, UUID sessionId) {
+        this(npcId, bankerJson, vaultJson, sessionId, MutationProtocolCodecs.NO_REQUEST_ID);
     }
 
     public static final Type<ClientboundBankOpenPayload> TYPE =
@@ -42,6 +44,7 @@ public record ClientboundBankOpenPayload(
                     ByteBufCodecs.stringUtf8(MAX_JSON_LENGTH), ClientboundBankOpenPayload::bankerJson,
                     ByteBufCodecs.stringUtf8(MAX_JSON_LENGTH), ClientboundBankOpenPayload::vaultJson,
                     MutationProtocolCodecs.UUID_CODEC, ClientboundBankOpenPayload::sessionId,
+                    MutationProtocolCodecs.UUID_CODEC, ClientboundBankOpenPayload::requestId,
                     ClientboundBankOpenPayload::new
             ));
 

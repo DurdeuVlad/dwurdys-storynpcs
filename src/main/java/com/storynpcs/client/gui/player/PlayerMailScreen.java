@@ -1,5 +1,6 @@
 package com.storynpcs.client.gui.player;
 
+import com.storynpcs.client.ui.AttemptIds;
 import com.storynpcs.client.ui.PendingAck;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
@@ -52,6 +53,8 @@ public class PlayerMailScreen extends UiScreen {
     private final SelectionModel<String> mailSelection = new SelectionModel<>();
     private final ScrollState mailScroll = new ScrollState();
     private final PendingAck pending = new PendingAck();
+    /** Stable request id per unacknowledged action — a retry replays the id (#219). */
+    private final AttemptIds requestIds = new AttemptIds();
     private boolean wasPending;
 
     public PlayerMailScreen(MailView view, UUID sessionId) {
@@ -71,11 +74,15 @@ public class PlayerMailScreen extends UiScreen {
      * key-stable {@code SelectionModel} keeps the same message selected if it
      * still exists, and its scroll state re-clamps automatically.
      */
-    public void updateView(MailView view) {
+    public void updateView(MailView view, UUID requestId) {
         if (view == null) return;
         this.view = view;
-        pending.ack();
-        wasPending = false; // acked — tick() must not report this as expiry
+        // Correlated ack (#219): only a refresh echoing the in-flight request
+        // id clears pending; only the echoed attempt id is released.
+        if (pending.ack(requestId)) {
+            wasPending = false; // acked — tick() must not report this as expiry
+        }
+        requestIds.ack(requestId);
         if (list != null && !composing) {
             list.setRows(rows());
         }
@@ -188,17 +195,19 @@ public class PlayerMailScreen extends UiScreen {
     private void markRead() {
         MailRow row = selectedRow();
         if (row == null || row.id() == null) return;
-        pending.begin("Marking read…", System.currentTimeMillis());
+        UUID requestId = requestIds.idFor("read:" + row.id());
+        pending.begin("Marking read…", System.currentTimeMillis(), requestId);
         PacketDistributor.sendToServer(new ServerboundMailActionPayload(
-                sessionId, ServerboundMailActionPayload.ACTION_MARK_READ, row.id()));
+                sessionId, requestId, ServerboundMailActionPayload.ACTION_MARK_READ, row.id(), "", ""));
     }
 
     private void deleteSelected() {
         MailRow row = selectedRow();
         if (row == null || row.id() == null) return;
-        pending.begin("Deleting…", System.currentTimeMillis());
+        UUID requestId = requestIds.idFor("delete:" + row.id());
+        pending.begin("Deleting…", System.currentTimeMillis(), requestId);
         PacketDistributor.sendToServer(new ServerboundMailActionPayload(
-                sessionId, ServerboundMailActionPayload.ACTION_DELETE, row.id()));
+                sessionId, requestId, ServerboundMailActionPayload.ACTION_DELETE, row.id(), "", ""));
     }
 
     private void sendMail() {
@@ -206,9 +215,14 @@ public class PlayerMailScreen extends UiScreen {
             echo("Recipient name is required.");
             return;
         }
-        pending.begin("Sending…", System.currentTimeMillis());
+        // The attempt key carries the content: a verbatim retry replays the
+        // same id (journal dedupes), but an edited resend is a distinct
+        // attempt and must not be classified as a replay of the lost one.
+        UUID requestId = requestIds.idFor("send:" + recipientBox.getValue().trim()
+                + "|" + subjectBox.getValue() + "|" + bodyBox.getValue());
+        pending.begin("Sending…", System.currentTimeMillis(), requestId);
         PacketDistributor.sendToServer(new ServerboundMailActionPayload(
-                sessionId, UUID.randomUUID(), ServerboundMailActionPayload.ACTION_SEND,
+                sessionId, requestId, ServerboundMailActionPayload.ACTION_SEND,
                 recipientBox.getValue().trim(), subjectBox.getValue(), bodyBox.getValue()));
         composing = false;
         rebuildWidgets();

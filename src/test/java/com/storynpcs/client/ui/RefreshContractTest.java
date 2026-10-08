@@ -115,4 +115,67 @@ class RefreshContractTest {
         assertNotEquals(first, ids.idFor("0"),
                 "reusing a resolved request id would be misclassified as a journal replay");
     }
+
+    // ---- Correlated refresh ack (#219): a refresh must only resolve the
+    //      attempt whose request id the server echoed ----
+
+    @Test
+    @DisplayName("correlated pending: a stale echo for an earlier attempt must NOT ack the in-flight one")
+    void pendingStaleEchoDoesNotAck() {
+        PendingAck p = new PendingAck();
+        UUID requestA = UUID.randomUUID();
+        UUID requestB = UUID.randomUUID();
+        p.begin("Buying…", 1000, 100, requestA);
+        assertFalse(p.pending(2000), "A's window expired");
+        p.begin("Buying…", 2000, 4000, requestB); // attempt B armed
+
+        assertFalse(p.ack(requestA), "A's delayed refresh must not resolve B");
+        assertTrue(p.pending(2500), "B stays pending until its own echo or timeout");
+        assertTrue(p.ack(requestB), "B's own echo acks it");
+        assertFalse(p.pending(2500));
+    }
+
+    @Test
+    @DisplayName("correlated pending: unsolicited/null echoes never ack")
+    void pendingUncorrelatedEchoIgnored() {
+        PendingAck p = new PendingAck();
+        UUID request = UUID.randomUUID();
+        p.begin("Sending…", 1000, 4000, request);
+        assertFalse(p.ack(new UUID(0L, 0L)), "the no-request sentinel must not ack");
+        assertFalse(p.ack(null));
+        assertFalse(p.ack(UUID.randomUUID()), "an unknown id must not ack");
+        assertTrue(p.pending(2000));
+    }
+
+    @Test
+    @DisplayName("correlated pending: legacy unarmed begin ignores id echoes, ack() still clears")
+    void pendingUncorrelatedBegin() {
+        PendingAck p = new PendingAck();
+        p.begin("Working…", 1000, 4000); // no request id bound
+        assertFalse(p.ack(UUID.randomUUID()));
+        p.ack();
+        assertFalse(p.pending(2000));
+    }
+
+    @Test
+    @DisplayName("attempt id: echo-ack clears only the echoed attempt — in-flight siblings keep their id")
+    void attemptIdAckByEchoedIdOnly() {
+        AttemptIds ids = new AttemptIds();
+        UUID a = ids.idFor("0");
+        UUID b = ids.idFor("1");
+
+        ids.ack(a); // stale refresh resolves A only
+        assertNotEquals(a, ids.idFor("0"), "A's resolved id must be retired");
+        assertEquals(b, ids.idFor("1"), "B's in-flight id must survive A's refresh");
+    }
+
+    @Test
+    @DisplayName("attempt id: null and unknown echoes are a no-op")
+    void attemptIdAckEdge() {
+        AttemptIds ids = new AttemptIds();
+        UUID a = ids.idFor("0");
+        ids.ack(null);
+        ids.ack(UUID.randomUUID());
+        assertEquals(a, ids.idFor("0"));
+    }
 }

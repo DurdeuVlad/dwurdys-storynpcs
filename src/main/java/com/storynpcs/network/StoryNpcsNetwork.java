@@ -410,6 +410,15 @@ public class StoryNpcsNetwork {
      * is rejected before a session token is minted.
      */
     public static void sendPlayerPanel(ServerPlayer player, String panel) {
+        sendPlayerPanel(player, panel, null);
+    }
+
+    /**
+     * {@code requestId} echoes the action request this refresh answers so the
+     * client can ack the matching pending attempt (issue #219); unsolicited
+     * pushes pass {@code null}.
+     */
+    public static void sendPlayerPanel(ServerPlayer player, String panel, java.util.UUID requestId) {
         var mod = StoryNpcsAccess.mod(player);
         var service = mod != null ? mod.getApplicationService() : null;
         if (mod == null || service == null
@@ -471,7 +480,7 @@ public class StoryNpcsNetwork {
         }
         var sessionId = sessions.openPanelSession(player.getUUID(), panel);
         PacketDistributor.sendToPlayer(player,
-                new ClientboundPlayerPanelPayload(panel, viewJson, sessionId));
+                new ClientboundPlayerPanelPayload(panel, viewJson, sessionId, requestId));
     }
 
     private static void handleMailAction(ServerPlayer player, ServerboundMailActionPayload payload) {
@@ -546,7 +555,7 @@ public class StoryNpcsNetwork {
                 player.sendSystemMessage(Component.literal(
                         "§a[StoryNPCs] Mail sent."), true);
             }
-            sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL);
+            sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL, payload.requestId());
         } else if (result != null && result.decision() != null && !result.decision().allowed()) {
             player.sendSystemMessage(Component.literal(
                     "§c[StoryNPCs] Mail action rejected: " + result.decision().code()), true);
@@ -1302,6 +1311,12 @@ public class StoryNpcsNetwork {
 
     /** Opens the trade screen for an NPC whose definition has a trader role. */
     public static void sendTradeOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc) {
+        sendTradeOpen(player, npc, null);
+    }
+
+    /** {@code requestId} is echoed so the client acks the matching pending attempt (#219). */
+    public static void sendTradeOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc,
+                                     java.util.UUID requestId) {
         var mod = StoryNpcsAccess.mod(player);
         if (mod == null || npc.getTrader() == null) return;
         var trader = com.storynpcs.domain.role.RoleSerde.copyTrader(npc.getTrader());
@@ -1344,11 +1359,17 @@ public class StoryNpcsNetwork {
         PacketDistributor.sendToPlayer(player, new ClientboundTradeOpenPayload(
                 npc.getId().toString(), npc.getDisplay().getName(),
                 com.storynpcs.domain.role.RoleSerde.toJson(trader),
-                com.storynpcs.domain.role.RoleSerde.toJson(scores), sessionId));
+                com.storynpcs.domain.role.RoleSerde.toJson(scores), sessionId, requestId));
     }
 
     /** Opens the bank screen for an NPC whose definition has a banker role. */
     public static void sendBankOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc) {
+        sendBankOpen(player, npc, null);
+    }
+
+    /** {@code requestId} is echoed so the client acks the matching pending attempt (#219). */
+    public static void sendBankOpen(ServerPlayer player, com.storynpcs.domain.npc.NpcDefinition npc,
+                                    java.util.UUID requestId) {
         var mod = StoryNpcsAccess.mod(player);
         if (mod == null || npc.getBanker() == null || mod.getBankRepository() == null) return;
         // The vault owner resolves from the authored banker role — never from a
@@ -1368,7 +1389,7 @@ public class StoryNpcsNetwork {
         PacketDistributor.sendToPlayer(player, new ClientboundBankOpenPayload(
                 npc.getId().toString(),
                 com.storynpcs.domain.role.RoleSerde.toJson(npc.getBanker()),
-                com.storynpcs.domain.role.RoleSerde.toJson(vault), sessionId));
+                com.storynpcs.domain.role.RoleSerde.toJson(vault), sessionId, requestId));
     }
 
     /**
@@ -1440,7 +1461,7 @@ public class StoryNpcsNetwork {
         int idx = payload.listingIndex();
         if (idx < 0 || idx >= listings.size()) {
             player.sendSystemMessage(Component.literal("§c[StoryNPCs] That listing no longer exists."), true);
-            sendTradeOpen(player, npc);
+            sendTradeOpen(player, npc, payload.requestId());
             return;
         }
         try {
@@ -1458,7 +1479,7 @@ public class StoryNpcsNetwork {
                 player.sendSystemMessage(Component.literal(
                         "§cTrade failed — sold out, insufficient payment, full inventory, or faction requirement not met."), true);
             }
-            sendTradeOpen(player, npc); // refresh listing availability/uses
+            sendTradeOpen(player, npc, payload.requestId()); // refresh listing availability/uses
         } catch (RuntimeException failure) {
             // A malformed or stale packet must fail closed here — an uncaught
             // throw escapes enqueueWork onto the server thread.
@@ -1569,7 +1590,7 @@ public class StoryNpcsNetwork {
             }
             default -> player.sendSystemMessage(Component.literal("§c[StoryNPCs] Unknown bank action."), true);
             }
-            sendBankOpen(player, npc); // refresh vault view
+            sendBankOpen(player, npc, payload.requestId()); // refresh vault view
         } catch (RuntimeException failure) {
             // Same fail-closed boundary as the trade handler: a malformed or
             // stale packet must never escape onto the server thread.

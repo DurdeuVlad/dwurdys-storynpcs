@@ -199,7 +199,7 @@ public final class StoryNpcsClient {
             // a buy, and the pending action is acknowledged.
             if (mc.screen instanceof com.storynpcs.client.gui.NpcTradeScreen open
                     && open.matches(payload.sessionId())) {
-                open.updateView(trader, scores);
+                open.updateView(trader, scores, payload.requestId());
                 return;
             }
             mc.setScreen(new com.storynpcs.client.gui.NpcTradeScreen(
@@ -224,7 +224,7 @@ public final class StoryNpcsClient {
                     && open.matches(payload.sessionId())) {
                 com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
                                 com.storynpcs.domain.panel.PlayerPanels.MailView.class)
-                        .ifPresent(open::updateView);
+                        .ifPresent(v -> open.updateView(v, payload.requestId()));
                 return;
             }
             net.minecraft.client.gui.screens.Screen screen = switch (payload.panel()) {
@@ -335,7 +335,7 @@ public final class StoryNpcsClient {
             }
             if (mc.screen instanceof com.storynpcs.client.gui.NpcBankScreen open
                     && open.matches(payload.sessionId())) {
-                open.updateView(banker, vault);
+                open.updateView(banker, vault, payload.requestId());
                 return;
             }
             mc.setScreen(new com.storynpcs.client.gui.NpcBankScreen(

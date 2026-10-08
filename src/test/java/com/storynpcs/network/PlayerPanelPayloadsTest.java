@@ -29,6 +29,42 @@ class PlayerPanelPayloadsTest {
     }
 
     @Test
+    @DisplayName("refresh payloads round-trip the echoed request id (#219)")
+    void refreshEchoRoundTrips() {
+        UUID requestId = UUID.randomUUID();
+        var panel = new ClientboundPlayerPanelPayload(
+                "mail", "{}", UUID.randomUUID(), requestId);
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundPlayerPanelPayload.STREAM_CODEC.encode(buf, panel);
+        var decodedPanel = ClientboundPlayerPanelPayload.STREAM_CODEC.decode(buf);
+        assertEquals(panel, decodedPanel);
+        assertEquals(requestId, decodedPanel.requestId());
+
+        var trade = new ClientboundTradeOpenPayload(
+                "storynpcs:v", "Vendor", "{}", "{}", UUID.randomUUID(), requestId);
+        buf = Unpooled.buffer();
+        ClientboundTradeOpenPayload.STREAM_CODEC.encode(buf, trade);
+        assertEquals(trade, ClientboundTradeOpenPayload.STREAM_CODEC.decode(buf));
+
+        var bank = new ClientboundBankOpenPayload(
+                "storynpcs:b", "{}", "{}", UUID.randomUUID(), requestId);
+        buf = Unpooled.buffer();
+        ClientboundBankOpenPayload.STREAM_CODEC.encode(buf, bank);
+        assertEquals(bank, ClientboundBankOpenPayload.STREAM_CODEC.decode(buf));
+    }
+
+    @Test
+    @DisplayName("unsolicited refresh payloads carry the no-request sentinel")
+    void unsolicitedRefreshCarriesSentinel() {
+        var payload = new ClientboundPlayerPanelPayload("mail", "{}", UUID.randomUUID());
+        assertEquals(MutationProtocolCodecs.NO_REQUEST_ID, payload.requestId());
+        ByteBuf buf = Unpooled.buffer();
+        ClientboundPlayerPanelPayload.STREAM_CODEC.encode(buf, payload);
+        assertEquals(MutationProtocolCodecs.NO_REQUEST_ID,
+                ClientboundPlayerPanelPayload.STREAM_CODEC.decode(buf).requestId());
+    }
+
+    @Test
     @DisplayName("panel payload rejects unknown panel-agnostic garbage framing")
     void panelRejectsTrailingBytes() {
         ByteBuf buf = Unpooled.buffer();

@@ -9,8 +9,10 @@ import java.util.UUID;
 
 /** Shared bounded codecs for canonical mutation metadata and payload envelopes. */
 public final class MutationProtocolCodecs {
-    /** Payload schema carried inside every StoryNPC packet. */
-    public static final int PROTOCOL_VERSION = 1;
+    /** Payload schema carried inside every StoryNPC packet. v2: refresh payloads carry a request-id echo (#219). */
+    public static final int PROTOCOL_VERSION = 2;
+    /** Sentinel on refresh payloads for pushes that answer no specific request — never acks a pending attempt. */
+    public static final UUID NO_REQUEST_ID = new UUID(0L, 0L);
     public static final int MAX_PACKET_BYTES = 64 * 1024;
     public static final int MAX_EDITOR_DOCUMENT_BYTES = 1 << 20;
     public static final int MAX_REGISTRY_DOCUMENT_BYTES = 4 << 20;
