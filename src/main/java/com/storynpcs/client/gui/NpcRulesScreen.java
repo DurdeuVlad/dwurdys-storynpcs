@@ -74,6 +74,12 @@ public class NpcRulesScreen extends UiScreen {
 
     private String lastEchoed;
 
+    @Override
+    protected void onStatusExpired() {
+        // Allow an identical subsequent message to echo again.
+        lastEchoed = null;
+    }
+
     private void syncStatus() {
         String msg = model.getStatusMessage();
         // Transient echo — the base help line restores after it expires.
@@ -119,7 +125,8 @@ public class NpcRulesScreen extends UiScreen {
         addRenderableWidget(filterField);
 
         ruleList = new SelectableList<>(contentLeft(), contentTop() + UiTheme.ROW_H + 4,
-                contentWidth(), contentBottom() - contentTop() - UiTheme.ROW_H - 4,
+                contentWidth(),
+                Math.max(1, contentBottom() - contentTop() - UiTheme.ROW_H - 4),
                 UiTheme.ROW_H, RuleRow::ruleIndex,
                 r -> Component.literal("§7[" + (r.ruleIndex() + 1) + "] §f" + r.label()),
                 selection, scroll);
@@ -154,8 +161,10 @@ public class NpcRulesScreen extends UiScreen {
             } else {
                 model.setStatus(err, true);
             }
-            syncStatus();
+            // Rebuild first — init() clears the status slot, so an echo sent
+            // before the rebuild would never render.
             rebuildWidgets();
+            syncStatus();
         });
         addFooterAction(Component.literal("Back"), b ->
                 minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)));
@@ -182,11 +191,13 @@ public class NpcRulesScreen extends UiScreen {
         int argX = contentLeft() + pickW + UiTheme.PAD_M;
         int argW = Math.max(40, contentRight() - argX);
 
-        addRenderableWidget(cycleBtn("Trigger: " + NpcRulesScreenModel.TRIGGERS[model.getTriggerIdx()],
+        addRenderableWidget(cycleBtn(
+                () -> "Trigger: " + NpcRulesScreenModel.TRIGGERS[model.getTriggerIdx()],
                 contentLeft(), y, pickW, () -> model.cycleTrigger(1)));
         y += UiTheme.BUTTON_H + 4;
 
-        addRenderableWidget(cycleBtn("If: " + NpcRulesScreenModel.CONDITIONS[model.getCondIdx()],
+        addRenderableWidget(cycleBtn(
+                () -> "If: " + NpcRulesScreenModel.CONDITIONS[model.getCondIdx()],
                 contentLeft(), y, pickW, () -> { model.cycleCondition(1); rebuildWidgets(); }));
 
         int argFieldX = argX;
@@ -194,11 +205,12 @@ public class NpcRulesScreen extends UiScreen {
         // faction_standing needs its standing picker *beside* the faction
         // field, not on top of it — offset the field right of the button.
         if (model.condNeedsStanding()) {
-            int standingW = Math.min(90, argW);
-            addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANDINGS[model.getStandingIdx()],
+            int standingW = Math.max(20, Math.min(90, argW - 44));
+            addRenderableWidget(cycleBtn(
+                    () -> NpcRulesScreenModel.STANDINGS[model.getStandingIdx()],
                     argX, y, standingW, () -> model.cycleStanding(1)));
             argFieldX = argX + standingW + UiTheme.PAD_XS;
-            argFieldW = Math.max(40, argW - standingW - UiTheme.PAD_XS);
+            argFieldW = Math.max(20, argW - standingW - UiTheme.PAD_XS);
         }
         if (model.condNeedsFaction()) {
             argRows.add(argRow(argFieldX, y, argFieldW, "faction id",
@@ -207,16 +219,18 @@ public class NpcRulesScreen extends UiScreen {
                             FieldValidator.namespacedId())));
         }
         if (model.condNeedsThreshold()) {
-            addRenderableWidget(cycleBtn(NpcRulesScreenModel.OPERATORS[model.getCondOpIdx()],
+            addRenderableWidget(cycleBtn(
+                    () -> NpcRulesScreenModel.OPERATORS[model.getCondOpIdx()],
                     argX, y, 30, () -> model.cycleCondOp(1)));
-            argRows.add(argRow(argX + 34, y, Math.max(40, argW - 34), "value",
+            argRows.add(argRow(argX + 34, y, Math.max(20, argW - 34), "value",
                     model::getCondThreshold, model::setCondThreshold,
                     number(true, model.condIdxUsesWholeNumber())));
         }
         // Leave room beneath the If row for a FormRow error line (~9px).
         y += UiTheme.ROW_H + 10;
 
-        addRenderableWidget(cycleBtn("Do: " + NpcRulesScreenModel.ACTIONS[model.getActionIdx()],
+        addRenderableWidget(cycleBtn(
+                () -> "Do: " + NpcRulesScreenModel.ACTIONS[model.getActionIdx()],
                 contentLeft(), y, pickW, () -> { model.cycleAction(1); rebuildWidgets(); }));
 
         if (model.actNeedsText()) {
@@ -244,7 +258,8 @@ public class NpcRulesScreen extends UiScreen {
                     model::getActDialogue, model::setActDialogue));
         }
         if (model.actNeedsStance()) {
-            addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANCES[model.getStanceIdx()],
+            addRenderableWidget(cycleBtn(
+                    () -> NpcRulesScreenModel.STANCES[model.getStanceIdx()],
                     argX, y, Math.min(110, argW), () -> model.cycleStance(1)));
         }
         if (model.actNeedsFactionDelta()) {
@@ -270,8 +285,10 @@ public class NpcRulesScreen extends UiScreen {
             if (err == null) {
                 sendSave("Adding rule...");
             }
-            syncStatus();
+            // Rebuild first — init() clears the status slot; the post-rebuild
+            // syncStatus lands the echo (success or commit error) visibly.
             rebuildWidgets();
+            syncStatus();
         });
         addFooterAction(Component.literal("Cancel"), b -> {
             model.cancelAdd();
@@ -316,8 +333,8 @@ public class NpcRulesScreen extends UiScreen {
             try {
                 if (whole) {
                     Integer.parseInt(v.trim());
-                } else {
-                    Double.parseDouble(v.trim());
+                } else if (!Double.isFinite(Double.parseDouble(v.trim()))) {
+                    return "Not a finite number";
                 }
                 return null;
             } catch (NumberFormatException e) {
@@ -326,9 +343,12 @@ public class NpcRulesScreen extends UiScreen {
         };
     }
 
-    private Button cycleBtn(String label, int x, int y, int w, Runnable onClick) {
-        return Button.builder(Component.literal(label), b -> onClick.run())
-                .bounds(x, y, Math.max(20, w), UiTheme.BUTTON_H).build();
+    private Button cycleBtn(java.util.function.Supplier<String> label,
+                            int x, int y, int w, Runnable onClick) {
+        return Button.builder(Component.literal(label.get()), b -> {
+            onClick.run();
+            b.setMessage(Component.literal(label.get()));
+        }).bounds(x, y, Math.max(20, w), UiTheme.BUTTON_H).build();
     }
 
     // ── Save plumbing (same payload as the NPC editor — saveNpc path) ───────

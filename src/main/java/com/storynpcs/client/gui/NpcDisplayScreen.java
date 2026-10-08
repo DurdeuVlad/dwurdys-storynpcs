@@ -64,6 +64,11 @@ public class NpcDisplayScreen extends UiScreen {
 
     private String lastEchoed;
 
+    @Override
+    protected void onStatusExpired() {
+        lastEchoed = null; // identical later results may echo again
+    }
+
     private void syncStatus() {
         String msg = model.getStatusMessage();
         // Rebuilds re-run initContent — don't replay an identical echo.
