@@ -25,7 +25,12 @@ public final class Leaf implements LayoutNode {
         return new Leaf(id, w, h, false);
     }
 
-    /** Height-fixed leaf that stretches to the offered width (e.g. a text field). */
+    /**
+     * Height-fixed leaf that stretches to the offered width (e.g. a text
+     * field). Intended as a {@code flex ≥ 1} child — placed non-flex inside a
+     * bounded {@link Linear.Row} it legitimately claims the whole offered
+     * width and can push siblings out.
+     */
     public static Leaf fillWidth(String id, int h) {
         return new Leaf(id, Integer.MAX_VALUE, h, true);
     }

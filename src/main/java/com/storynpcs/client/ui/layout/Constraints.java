@@ -33,11 +33,11 @@ public record Constraints(int minWidth, int maxWidth, int minHeight, int maxHeig
         return new Size(clampWidth(size.width()), clampHeight(size.height()));
     }
 
-    /** Same constraints with the axis maxima loosened by {@code amount}. */
+    /** Insets the box symmetrically: every bound shrinks by 2× the pad. */
     public Constraints deflate(int horizontal, int vertical) {
         return new Constraints(
-                Math.max(0, minWidth - horizontal), Math.max(0, maxWidth - horizontal * 2),
-                Math.max(0, minHeight - vertical), Math.max(0, maxHeight - vertical * 2));
+                Math.max(0, minWidth - horizontal * 2), Math.max(0, maxWidth - horizontal * 2),
+                Math.max(0, minHeight - vertical * 2), Math.max(0, maxHeight - vertical * 2));
     }
 
     /** Child constraints sharing this box's maxima but free minima. */

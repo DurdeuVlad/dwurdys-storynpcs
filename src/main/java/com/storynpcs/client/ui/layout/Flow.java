@@ -1,13 +1,18 @@
 package com.storynpcs.client.ui.layout;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Wrapping row of children (issue #200): lays out left→right at each child's
  * measured size and wraps to a new line when the next child would overflow —
- * the footer-reflow primitive for narrow windows. Row height = tallest child
- * on that line.
+ * the footer-reflow primitive for narrow windows. Line height = tallest child
+ * on that line; spacing goes between consecutive children on a line (a
+ * zero-width child still occupies its slot).
+ *
+ * <p>Contract: {@link #measure} must run before {@link #arrange}; adding a
+ * child between them throws {@link IllegalStateException}.
  */
 public final class Flow implements LayoutNode {
 
@@ -16,58 +21,76 @@ public final class Flow implements LayoutNode {
     private int lineSpacing;
     private Rect bounds = Rect.EMPTY;
 
+    private int[] naturalW;
+    private int[] naturalH;
+    private int lines;
+    private int measuredCount = -1;
+
     public Flow spacing(int px) { this.spacing = Math.max(0, px); return this; }
     public Flow lineSpacing(int px) { this.lineSpacing = Math.max(0, px); return this; }
     public Flow add(LayoutNode node) { children.add(node); return this; }
 
-    private int[] naturalW;
-    private int[] naturalH;
-    private int lines;
+    public List<LayoutNode> children() { return Collections.unmodifiableList(children); }
 
     @Override
     public Size measure(Constraints c) {
         int maxW = c.maxWidth();
         naturalW = new int[children.size()];
         naturalH = new int[children.size()];
+        measuredCount = children.size();
         lines = children.isEmpty() ? 0 : 1;
         int x = 0, lineH = 0, h = 0, w = 0;
+        boolean firstOnLine = true;
         for (int i = 0; i < children.size(); i++) {
             Size s = children.get(i).measure(c.loosen());
             naturalW[i] = s.width();
             naturalH[i] = s.height();
-            if (x > 0 && x + spacing + s.width() > maxW) {
-                // wrap: close the current line
+            int advance = (firstOnLine ? 0 : spacing) + s.width();
+            if (!firstOnLine && x + advance > maxW) {
+                // wrap: close the current line — x is already its full width
                 h += lineH + lineSpacing;
                 w = Math.max(w, x);
                 x = 0;
                 lineH = 0;
                 lines++;
+                firstOnLine = true;
+                advance = s.width();
             }
-            x += (x == 0 ? 0 : spacing) + s.width();
+            x += advance;
+            firstOnLine = false;
             lineH = Math.max(lineH, s.height());
         }
-        h += lineH;
         w = Math.max(w, x);
+        h += lineH;
         return c.constrain(new Size(w, h));
     }
 
     @Override
     public void arrange(Rect r) {
+        if (naturalW == null || measuredCount != children.size()) {
+            throw new IllegalStateException(
+                    "measure() must be called before arrange() with no children added between");
+        }
         bounds = r;
         int x = r.x(), y = r.y(), lineH = 0;
+        boolean firstOnLine = true;
         List<LayoutNode> line = new ArrayList<>();
         List<Integer> widths = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
             int w = naturalW[i], h = naturalH[i];
-            if (x > r.x() && x + spacing + w > r.right()) {
+            int advance = (firstOnLine ? 0 : spacing) + w;
+            if (!firstOnLine && x + advance > r.right()) {
                 flushLine(line, widths, x, y, lineH);
                 y += lineH + lineSpacing;
                 x = r.x();
                 lineH = 0;
+                firstOnLine = true;
+                advance = w;
             }
             line.add(children.get(i));
             widths.add(w);
-            x += (x == r.x() && line.size() == 1 ? 0 : spacing) + w;
+            x += advance;
+            firstOnLine = false;
             lineH = Math.max(lineH, h);
         }
         flushLine(line, widths, x, y, lineH);

@@ -216,6 +216,122 @@ class LayoutEngineTest {
         assertTrue(content.bottom() <= footer.y());
     }
 
+    @Test
+    @DisplayName("flex between fixed siblings: header/body/footer never overflows")
+    void flexBetweenFixed() {
+        // The blocker repro: last flex must take leftover, not r.bottom()-y.
+        Leaf header = Leaf.fixed("header", 50, 20);
+        Leaf body = Leaf.fillWidth("body", 0);
+        Leaf footer = Leaf.fixed("footer", 50, 20);
+        Linear.Column col = new Linear.Column();
+        col.add(header).add(body, 1).add(footer);
+        col.measure(Constraints.loose(100, 100));
+        col.arrange(new Rect(0, 0, 100, 100));
+        assertEquals(new Rect(0, 0, 100, 20), header.bounds());
+        assertEquals(new Rect(0, 20, 100, 60), body.bounds());
+        assertEquals(new Rect(0, 80, 100, 20), footer.bounds());
+    }
+
+    @Test
+    @DisplayName("row: flex between fixed siblings mirrors the column fix")
+    void rowFlexBetweenFixed() {
+        Leaf left = Leaf.fixed("l", 20, 10);
+        Leaf mid = Leaf.fillWidth("m", 10);
+        Leaf right = Leaf.fixed("r", 20, 10);
+        Linear.Row row = new Linear.Row();
+        row.add(left).add(mid, 1).add(right);
+        row.measure(Constraints.loose(200, 20));
+        row.arrange(new Rect(0, 0, 200, 20));
+        assertEquals(new Rect(20, 0, 160, 20), mid.bounds());
+        assertEquals(new Rect(180, 0, 20, 20), right.bounds());
+    }
+
+    @Test
+    @DisplayName("arrange before measure, or add() between passes, throws")
+    void measureFirstContract() {
+        Linear.Column col = new Linear.Column();
+        col.add(Leaf.fixed("a", 10, 10));
+        assertThrows(IllegalStateException.class,
+                () -> col.arrange(new Rect(0, 0, 50, 50)));
+        col.measure(Constraints.loose(50, 50));
+        col.add(Leaf.fixed("b", 10, 10));
+        assertThrows(IllegalStateException.class,
+                () -> col.arrange(new Rect(0, 0, 50, 50)),
+                "stale natural[] must not be indexed");
+
+        Flow flow = new Flow();
+        flow.add(Leaf.fixed("a", 10, 10));
+        assertThrows(IllegalStateException.class,
+                () -> flow.arrange(new Rect(0, 0, 50, 50)));
+    }
+
+    @Test
+    @DisplayName("constraints: clamp/deflate/loosen/tightWidth semantics")
+    void constraintsUnits() {
+        Constraints c = Constraints.loose(100, 50);
+        assertEquals(100, c.clampWidth(150));
+        assertEquals(0, c.clampHeight(-5));
+        assertEquals(50, c.clampHeight(150));
+        assertEquals(new Constraints(0, 100, 0, 50), c.loosen());
+        assertEquals(new Constraints(0, 80, 0, 30), c.deflate(10, 10));
+        assertEquals(new Constraints(80, 80, 30, 30),
+                Constraints.tight(100, 50).deflate(10, 10));
+        assertEquals(Integer.MAX_VALUE,
+                Constraints.tightWidth(40).maxHeight());
+        assertEquals(new Size(10, 10), c.constrain(new Size(10, 10)));
+    }
+
+    @Test
+    @DisplayName("flow: empty container and zero-width child stay consistent")
+    void flowEdge() {
+        Flow empty = new Flow();
+        assertEquals(new Size(0, 0), empty.measure(Constraints.loose(100, 50)));
+        assertEquals(0, empty.lineCount());
+
+        Flow f = new Flow().spacing(4);
+        Leaf zero = Leaf.fixed("z", 0, 10);
+        Leaf real = Leaf.fixed("r", 50, 10);
+        f.add(zero).add(real);
+        // spacing still applies between slots — measure and arrange agree
+        assertEquals(54, f.measure(Constraints.loose(200, 50)).width());
+        f.arrange(new Rect(0, 0, 200, 50));
+        assertEquals(new Rect(0, 0, 0, 10), zero.bounds());
+        assertEquals(new Rect(4, 0, 50, 10), real.bounds());
+    }
+
+    @Test
+    @DisplayName("START cross-align keeps the measured cross size, no re-measure")
+    void startAlign() {
+        Leaf wide = Leaf.fixed("w", 30, 10);
+        Linear.Column col = new Linear.Column();
+        col.crossAlign(Linear.CrossAlign.START).add(wide);
+        col.measure(Constraints.loose(200, 50));
+        col.arrange(new Rect(0, 0, 200, 50));
+        assertEquals(30, wide.bounds().width(), "START keeps natural width");
+    }
+
+    @Test
+    @DisplayName("viewport re-measures at the granted width (rewrap-aware)")
+    void viewportRewrap() {
+        Flow flow = new Flow().spacing(0);
+        for (int i = 0; i < 4; i++) flow.add(Leaf.fixed("c" + i, 50, 10));
+        Viewport vp = new Viewport(flow);
+
+        // offered 200 → 4 fit on one line (h=10); granted 100 → wraps to 2 lines
+        vp.measure(Constraints.loose(200, 8));
+        vp.arrange(new Rect(0, 0, 100, 8));
+        assertEquals(20, vp.contentBounds().height(),
+                "content height must reflect the granted width, not the offered one");
+    }
+
+    @Test
+    @DisplayName("panel origin clamps to 0 on degenerate windows")
+    void panelOriginClamped() {
+        Rect p = UiFrames.panel(10, 10);
+        assertTrue(p.x() >= 0 && p.y() >= 0,
+                "panel origin must stay on-screen: " + p);
+    }
+
     // ---- determinism ----
 
     @Test

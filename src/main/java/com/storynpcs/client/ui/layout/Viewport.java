@@ -39,6 +39,11 @@ public final class Viewport implements LayoutNode {
     @Override
     public void arrange(Rect r) {
         bounds = r;
+        // Re-measure at the *granted* width — a width-dependent child (Flow,
+        // wrapped text) re-wraps, so contentHeight must reflect r.width(),
+        // not the offered width from the measure pass.
+        Size natural = child.measure(Constraints.tightWidth(r.width()));
+        contentHeight = natural.height();
         scroll.setContentSize(contentHeight);
         scroll.setViewportSize(r.height());
         // Child gets its natural height starting above the viewport by the

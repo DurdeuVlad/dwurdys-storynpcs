@@ -28,8 +28,10 @@ public final class UiFrames {
         int w = Math.max(UiTheme.PAD_XL * 2, Math.min(safe.width(), UiTheme.PANEL_MAX_W));
         int h = Math.max(UiTheme.HEADER_H + UiTheme.FOOTER_H + UiTheme.PAD_S * 2 + 1,
                 Math.min(safe.height(), UiTheme.PANEL_MAX_H));
-        return new Rect(safe.x() + (safe.width() - w) / 2,
-                safe.y() + (safe.height() - h) / 2, w, h);
+        // Clamp origin to 0: a panel wider/taller than the safe area (only at
+        // degenerate windows below the floors) still starts on-screen.
+        return new Rect(Math.max(0, safe.x() + (safe.width() - w) / 2),
+                Math.max(0, safe.y() + (safe.height() - h) / 2), w, h);
     }
 
     /** Header band inside a panel. */
