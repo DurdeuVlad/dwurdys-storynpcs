@@ -16,9 +16,15 @@ public final class SelectionModel<K> {
     private List<K> keys = List.of();
     private K selected;
 
-    /** Replaces the visible keys; drops the selection if its key vanished. */
+    /**
+     * Replaces the visible keys; drops the selection if its key vanished.
+     * Null entries are tolerated (an unkeyed row simply can never be
+     * selected) — a malformed payload must not crash the client.
+     */
     public void setItems(List<K> newKeys) {
-        keys = newKeys == null ? List.of() : List.copyOf(newKeys);
+        keys = newKeys == null
+                ? List.of()
+                : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(newKeys));
         if (selected != null && !keys.contains(selected)) {
             selected = null;
         }
@@ -50,17 +56,28 @@ public final class SelectionModel<K> {
 
     /**
      * Keyboard navigation: moves selection by {@code delta} rows, clamped to
-     * the list. With nothing selected, delta>0 picks the first row and
-     * delta<0 the last — matching vanilla list conventions.
+     * the list edge. With nothing selected, delta&gt;0 picks the first row and
+     * delta&lt;0 the last — matching vanilla list conventions. Null-keyed rows
+     * and extra occurrences of the already-selected key are skipped so a
+     * malformed payload can never wedge navigation.
      */
     public boolean move(int delta) {
         if (keys.isEmpty() || delta == 0) {
             return false;
         }
-        int current = selectedIndex();
-        int target = current < 0
-                ? (delta > 0 ? 0 : keys.size() - 1)
-                : Math.max(0, Math.min(keys.size() - 1, current + delta));
-        return selectIndex(target);
+        int step = delta > 0 ? 1 : -1;
+        int i = selectedIndex() < 0
+                ? (step > 0 ? -1 : keys.size())
+                : selectedIndex();
+        int landed = -1;
+        for (int remaining = Math.abs(delta); remaining > 0; ) {
+            i += step;
+            if (i < 0 || i >= keys.size()) break;
+            K k = keys.get(i);
+            if (k == null || k.equals(selected)) continue;
+            landed = i;
+            remaining--;
+        }
+        return landed >= 0 && selectIndex(landed);
     }
 }

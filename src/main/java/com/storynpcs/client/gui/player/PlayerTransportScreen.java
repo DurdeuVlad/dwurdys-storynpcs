@@ -2,12 +2,14 @@ package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.TransportRow;
 import com.storynpcs.domain.panel.PlayerPanels.TransportView;
 import com.storynpcs.network.ServerboundTransportSelectPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
@@ -19,14 +21,20 @@ import java.util.UUID;
 /**
  * Player-facing transport picker (issue #150, GuiTransportSelection parity):
  * lists only destinations the server marked visible, flags unlocked ones, and
- * sends {@link ServerboundTransportSelectPayload} on selection — the server
+ * sends {@link ServerboundTransportSelectPayload} on activation — the server
  * re-evaluates lock state, fee, and safety before moving the player.
+ *
+ * <p>UI-kit migration (issue #202): {@link SelectableList} gives the row
+ * highlight, wheel/keyboard nav, and scrollbar; activating an unlocked row
+ * (click-on-selected / Enter / Space) commits and closes — arrow-key
+ * navigation only moves selection and can never charge the player.
  */
 public class PlayerTransportScreen extends UiScreen {
 
     private final TransportView view;
     private final UUID sessionId;
-    private int scrollOffset = 0;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
 
     public PlayerTransportScreen(TransportView view, UUID sessionId) {
         super(Component.literal("Transport"));
@@ -37,78 +45,47 @@ public class PlayerTransportScreen extends UiScreen {
     private List<TransportRow> rows() {
         return view == null || view.destinations() == null ? List.of() : view.destinations();
     }
-    /** Whole visible rows that fit in the content band; 0 at degenerate heights. */
-    private int maxVisible() {
-        return Math.max(0, (contentBottom() - contentTop()) / UiTheme.ROW_H);
-    }
-    /** Bottom edge of the painted/clickable row band — never past contentBottom(). */
-    private int rowBandBottom() { return contentTop() + maxVisible() * UiTheme.ROW_H; }
-    /** Right edge of the clickable row band — leaves the scroll column clear. */
-    private int rowRight() { return contentRight() - 18; }
 
     @Override
     protected void initContent() {
-        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, rows().size() - maxVisible())));
         setStatus(Component.literal(rows().size() + " destination(s)"));
-        if (maxVisible() > 0 && rows().size() > maxVisible()) {
-            addRenderableWidget(Button.builder(Component.literal("^"),
-                            b -> scrollOffset = Math.max(0, scrollOffset - 1))
-                    .bounds(contentRight() - 14, contentTop(), 14, 12).build());
-            addRenderableWidget(Button.builder(Component.literal("v"),
-                            b -> scrollOffset = Math.min(rows().size() - maxVisible(), scrollOffset + 1))
-                    .bounds(contentRight() - 14, contentBottom() - 12, 14, 12).build());
-        }
+        SelectableList<TransportRow, String> list = new SelectableList<>(
+                contentLeft(), contentTop(), contentWidth(),
+                contentBottom() - contentTop(), UiTheme.ROW_H,
+                TransportRow::id, PlayerTransportScreen::label, selection, scroll);
+        list.setRows(rows());
+        // Click selects; click-again or Enter activates (fee guard — a
+        // stray arrow press must never charge the player).
+        list.setOnActivate(this::commit);
+        addRenderableWidget(list);
         addFooterAction(Component.literal("Close"), b -> onClose());
+    }
+
+    private static Component label(TransportRow row) {
+        String status = row.unlocked()
+                ? "§a" + (row.fee() > 0 ? row.fee() + "e" : "free")
+                : "§8locked";
+        return Component.literal((row.unlocked() ? "§f" : "§8") + row.name()
+                + " §8[" + status + "§8]");
+    }
+
+    private void commit(TransportRow row) {
+        if (row == null) return;
+        if (!row.unlocked()) {
+            echo(Component.literal("That destination is locked."), 2_000);
+            return;
+        }
+        PacketDistributor.sendToServer(new ServerboundTransportSelectPayload(
+                sessionId, UUID.randomUUID(), row.id()));
+        Minecraft.getInstance().getSoundManager().play(
+                SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        onClose();
     }
 
     @Override
     protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        var rows = rows();
-        int y = contentTop();
-        int bandRight = Math.max(contentLeft(), rowRight());
-        if (maxVisible() > 0 && bandRight > contentLeft()) {
-            graphics.enableScissor(contentLeft(), contentTop(), bandRight, rowBandBottom());
+        if (rows().isEmpty()) {
+            renderEmpty(graphics, "No transport destinations available.");
         }
-        for (int i = scrollOffset; i < Math.min(rows.size(), scrollOffset + maxVisible()); i++) {
-            TransportRow row = rows.get(i);
-            if (row == null) { y += UiTheme.ROW_H; continue; }
-            String status = row.unlocked()
-                    ? "§a" + (row.fee() > 0 ? row.fee() + "e" : "free")
-                    : "§8locked";
-            graphics.drawString(this.font,
-                    (row.unlocked() ? "§f" : "§8") + row.name() + " §8["
-                            + status + "§8]",
-                    contentLeft(), y, UiTheme.TEXT);
-            y += UiTheme.ROW_H;
-        }
-        if (maxVisible() > 0 && bandRight > contentLeft()) {
-            graphics.disableScissor();
-        }
-        if (rows.isEmpty()) {
-            graphics.drawCenteredString(this.font,
-                    "§7No transport destinations available.",
-                    panelX + panelW / 2, y + UiTheme.PAD_M, UiTheme.TEXT_MUTED);
-        }
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0 && mouseX >= contentLeft() && mouseX < rowRight()
-                && mouseY >= contentTop() && mouseY < rowBandBottom()) {
-            int index = scrollOffset + (int) ((mouseY - contentTop()) / UiTheme.ROW_H);
-            var rows = rows();
-            if (index < rows.size()) {
-                var row = rows.get(index);
-                if (row != null && row.unlocked()) {
-                    PacketDistributor.sendToServer(new ServerboundTransportSelectPayload(
-                            sessionId, UUID.randomUUID(), row.id()));
-                    Minecraft.getInstance().getSoundManager().play(
-                            SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
-                    onClose();
-                }
-            }
-            return true;
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
     }
 }

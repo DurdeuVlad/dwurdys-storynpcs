@@ -1,14 +1,16 @@
 package com.storynpcs.client.gui.player;
 
 import com.storynpcs.client.ui.PendingAck;
-import com.storynpcs.client.ui.RowKeys;
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
+import com.storynpcs.client.ui.widgets.ScrollState;
 import com.storynpcs.domain.panel.PlayerPanels.MailRow;
 import com.storynpcs.domain.panel.PlayerPanels.MailView;
 import com.storynpcs.network.ServerboundMailActionPayload;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -25,27 +27,32 @@ import java.util.UUID;
  *
  * <p>Refresh contract (issue #201): the view is a mutable slot — a re-issued
  * mail payload calls {@link #updateView} in place instead of replacing the
- * screen, preserving scroll and selection. Selection is by row
- * {@code id}, so it survives inserts/removals; serverbound actions arm a
- * {@link PendingAck} that disables the action buttons until the refresh
- * (or a timeout) arrives — no silent no-ops.
+ * screen, preserving scroll and selection. Selection is keyed by row id via
+ * {@link SelectableList}; serverbound actions arm a {@link PendingAck} that
+ * disables the action buttons until the refresh (or a timeout) arrives.
+ *
+ * <p>UI-kit migration (issue #202): shared chrome, list widget, footer
+ * actions, echo feedback.
  */
-public class PlayerMailScreen extends Screen {
+public class PlayerMailScreen extends UiScreen {
 
-    private static final int STATUS_MS = 3_000;
+    /** Reserved strip under the list for the selected message's body. */
+    private static final int DETAIL_H = 56;
+    private static final int ECHO_MS = 3_000;
 
     private MailView view;
     private final UUID sessionId;
-    private int scrollOffset = 0;
-    private String selectedId;
     private boolean composing = false;
     private EditBox recipientBox;
     private EditBox subjectBox;
     private EditBox bodyBox;
+    private SelectableList<MailRow, String> list;
+    // Owned at screen level so selection/scroll survive widget rebuilds
+    // (window resize, compose ↔ list transitions).
+    private final SelectionModel<String> mailSelection = new SelectionModel<>();
+    private final ScrollState mailScroll = new ScrollState();
     private final PendingAck pending = new PendingAck();
     private boolean wasPending;
-    private String statusMessage;
-    private long statusUntilMs;
 
     public PlayerMailScreen(MailView view, UUID sessionId) {
         super(Component.literal("Mailbox"));
@@ -60,41 +67,23 @@ public class PlayerMailScreen extends Screen {
 
     /**
      * Replaces the view in place on a server-issued refresh: acknowledges any
-     * pending action, re-resolves the selection by row id, and clamps the
-     * scroll offset to the new list size.
+     * pending action and pushes fresh rows into the list — the widget's
+     * key-stable {@code SelectionModel} keeps the same message selected if it
+     * still exists, and its scroll state re-clamps automatically.
      */
     public void updateView(MailView view) {
         if (view == null) return;
         this.view = view;
         pending.ack();
-        wasPending = false; // acked — tick() must not report this as an expiry
-        int sel = selectedIndex();
-        if (sel < 0) {
-            selectedId = null;
-        } else {
-            // Keep the selection visually reachable after size changes.
-            scrollOffset = Math.min(scrollOffset, sel);
-            if (sel >= scrollOffset + maxVisible()) {
-                scrollOffset = sel - maxVisible() + 1;
-            }
+        wasPending = false; // acked — tick() must not report this as expiry
+        if (list != null && !composing) {
+            list.setRows(rows());
         }
-        scrollOffset = Math.max(0, Math.min(scrollOffset,
-                Math.max(0, rows().size() - maxVisible())));
-        if (!composing) {
-            rebuildWidgets();
-        }
+        setStatus(Component.literal(rows().size() + " message(s)"));
     }
 
     private List<MailRow> rows() {
         return view.messages() == null ? List.of() : view.messages();
-    }
-    private int listTop() { return 34; }
-    private int listBottom() { return this.height - 96; }
-    private int maxVisible() { return Math.max(1, (listBottom() - listTop()) / 12); }
-
-    /** Index of the selected row in the current view, or -1. */
-    private int selectedIndex() {
-        return RowKeys.indexOf(rows(), MailRow::id, selectedId);
     }
 
     private boolean isPending() {
@@ -102,119 +91,119 @@ public class PlayerMailScreen extends Screen {
     }
 
     private void echo(String message) {
-        statusMessage = message;
-        statusUntilMs = System.currentTimeMillis() + STATUS_MS;
+        echo(Component.literal(message), ECHO_MS);
     }
 
     @Override
     public void tick() {
         super.tick();
-        // Pending expiry re-enables the action buttons — without this a
-        // chat-only server reject would leave them grayed forever.
+        // Pending label owns the footer status while armed; on expiry the
+        // action buttons re-enable and the loss is reported — chat-only
+        // server rejects never send a view payload.
+        long now = System.currentTimeMillis();
         boolean nowPending = isPending();
-        if (wasPending && !nowPending) {
-            wasPending = false;
-            echo("No response from server — try again.");
-            rebuildWidgets();
-        } else if (nowPending) {
-            wasPending = true;
+        String pendingLabel = pending.label(now);
+        if (pendingLabel != null) {
+            overrideStatus(Component.literal("§e" + pendingLabel));
         }
+        if (wasPending && !nowPending) {
+            echo("No response from server — try again.");
+        }
+        wasPending = nowPending;
+        applyPendingDisabled(nowPending);
     }
 
-    private String activeStatus() {
-        String pendingLabel = pending.label(System.currentTimeMillis());
-        if (pendingLabel != null) return pendingLabel;
-        if (statusMessage != null && System.currentTimeMillis() < statusUntilMs) {
-            return statusMessage;
+    /**
+     * Re-apply the pending-disabled state right after a rebuild — footer
+     * buttons come back enabled by default and tick() only runs once per
+     * frame, so without this a rebuild opens a ~1-tick clickable window.
+     */
+    @Override
+    protected void postInit() {
+        applyPendingDisabled(isPending());
+    }
+
+    /** Index-stable by declaration: list mode [Read, Delete, Compose, Close]
+     * disables 0..1; compose mode [Send, Back] disables 0. */
+    private void applyPendingDisabled(boolean nowPending) {
+        int disableUpTo = composing ? 1 : 2;
+        for (int i = 0; i < Math.min(disableUpTo, footerButtons().size()); i++) {
+            footerButtons().get(i).active = !nowPending;
         }
-        return null;
     }
 
     @Override
-    protected void init() {
-        int cx = this.width / 2;
+    protected void initContent() {
+        int cw = contentWidth();
         if (composing) {
-            initCompose(cx);
+            list = null; // detached — updateView skips it until list mode returns
+            initCompose();
             return;
         }
-        if (rows().size() > maxVisible()) {
-            addRenderableWidget(Button.builder(Component.literal("^"),
-                            b -> scrollOffset = Math.max(0, scrollOffset - 1))
-                    .bounds(cx + 176, listTop(), 14, 12).build());
-            addRenderableWidget(Button.builder(Component.literal("v"),
-                            b -> scrollOffset = Math.min(rows().size() - maxVisible(), scrollOffset + 1))
-                    .bounds(cx + 176, listBottom() - 12, 14, 12).build());
-        }
-        int by = this.height - 92;
-        Button readBtn = Button.builder(Component.literal("Read"),
-                        b -> { if (selectedIndex() >= 0) markRead(); else echo("Select a message first."); })
-                .bounds(cx - 190, by, 60, 14).build();
-        Button deleteBtn = Button.builder(Component.literal("Delete"),
-                        b -> { if (selectedIndex() >= 0) deleteSelected(); else echo("Select a message first."); })
-                .bounds(cx - 126, by, 60, 14).build();
-        if (isPending()) {
-            readBtn.active = false;
-            deleteBtn.active = false;
-        }
-        addRenderableWidget(readBtn);
-        addRenderableWidget(deleteBtn);
-        addRenderableWidget(Button.builder(Component.literal("Compose"),
-                        b -> { composing = true; rebuildWidgets(); })
-                .bounds(cx - 62, by, 60, 14).build());
-        addRenderableWidget(Button.builder(Component.literal("Close"),
-                        b -> onClose())
-                .bounds(cx - 40, this.height - 22, 80, 14).build());
+        setStatus(Component.literal(rows().size() + " message(s)"));
+        int listH = Math.max(UiTheme.ROW_H,
+                contentBottom() - contentTop() - DETAIL_H - UiTheme.PAD_S);
+        list = new SelectableList<>(
+                contentLeft(), contentTop(), cw, listH,
+                UiTheme.ROW_H, MailRow::id, PlayerMailScreen::label,
+                mailSelection, mailScroll);
+        list.setRows(rows());
+        addRenderableWidget(list);
+        addFooterAction(Component.literal("Read"),
+                b -> { if (selectedRow() != null) markRead(); else echo("Select a message first."); });
+        addFooterAction(Component.literal("Delete"),
+                b -> { if (selectedRow() != null) deleteSelected(); else echo("Select a message first."); });
+        addFooterAction(Component.literal("Compose"),
+                b -> { composing = true; rebuildWidgets(); });
+        addFooterAction(Component.literal("Close"), b -> onClose());
     }
 
-    private void initCompose(int cx) {
-        recipientBox = new EditBox(this.font, cx - 190, 40, 180, 14, Component.literal("To"));
+    private void initCompose() {
+        int cw = contentWidth();
+        int fieldW = Math.min(cw, 240);
+        recipientBox = new EditBox(this.font, contentLeft(), contentTop(), fieldW, 14,
+                Component.literal("To"));
         recipientBox.setHint(Component.literal("Player name"));
         recipientBox.setMaxLength(64);
-        subjectBox = new EditBox(this.font, cx - 190, 58, 180, 14, Component.literal("Subject"));
+        subjectBox = new EditBox(this.font, contentLeft(), contentTop() + 18, fieldW, 14,
+                Component.literal("Subject"));
         subjectBox.setHint(Component.literal("Subject"));
         subjectBox.setMaxLength(128);
-        bodyBox = new EditBox(this.font, cx - 190, 76, 380, 14, Component.literal("Message"));
+        bodyBox = new EditBox(this.font, contentLeft(), contentTop() + 36, cw, 14,
+                Component.literal("Message"));
         bodyBox.setHint(Component.literal("Message body"));
         bodyBox.setMaxLength(2048);
         addRenderableWidget(recipientBox);
         addRenderableWidget(subjectBox);
         addRenderableWidget(bodyBox);
-        Button sendBtn = Button.builder(Component.literal("Send"), b -> sendMail())
-                .bounds(cx - 190, 94, 60, 14).build();
-        sendBtn.active = !isPending();
-        addRenderableWidget(sendBtn);
-        addRenderableWidget(Button.builder(Component.literal("Back"),
-                        b -> { composing = false; rebuildWidgets(); })
-                .bounds(cx - 126, 94, 60, 14).build());
+        addFooterAction(Component.literal("Send"), b -> sendMail());
+        addFooterAction(Component.literal("Back"),
+                b -> { composing = false; rebuildWidgets(); });
+    }
+
+    private MailRow selectedRow() {
+        return list != null ? list.selectedRow() : null;
     }
 
     private void markRead() {
-        int sel = selectedIndex();
-        if (sel < 0) return;
-        var row = rows().get(sel);
+        MailRow row = selectedRow();
         if (row == null || row.id() == null) return;
         pending.begin("Marking read…", System.currentTimeMillis());
         PacketDistributor.sendToServer(new ServerboundMailActionPayload(
                 sessionId, ServerboundMailActionPayload.ACTION_MARK_READ, row.id()));
-        rebuildWidgets();
     }
 
     private void deleteSelected() {
-        int sel = selectedIndex();
-        if (sel < 0) return;
-        var row = rows().get(sel);
+        MailRow row = selectedRow();
         if (row == null || row.id() == null) return;
         pending.begin("Deleting…", System.currentTimeMillis());
         PacketDistributor.sendToServer(new ServerboundMailActionPayload(
                 sessionId, ServerboundMailActionPayload.ACTION_DELETE, row.id()));
-        selectedId = null;
-        rebuildWidgets();
     }
 
     private void sendMail() {
         if (recipientBox.getValue().trim().isEmpty()) {
             echo("Recipient name is required.");
-            rebuildWidgets();
             return;
         }
         pending.begin("Sending…", System.currentTimeMillis());
@@ -225,78 +214,37 @@ public class PlayerMailScreen extends Screen {
         rebuildWidgets();
     }
 
+    private static Component label(MailRow row) {
+        return Component.literal((row.read() ? "§7" : "§f") + row.sender()
+                + " §8— " + row.subject());
+    }
+
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
-        super.render(graphics, mouseX, mouseY, partialTick);
-        int cx = this.width / 2;
-        graphics.drawCenteredString(this.font,
-                composing ? "Compose Mail" : "Mailbox", cx, 10, 0xFFFFFF);
-        if (composing) {
-            renderStatus(graphics, cx);
+    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if (composing) return;
+        if (rows().isEmpty()) {
+            renderEmpty(graphics, "Your mailbox is empty.");
             return;
         }
-        graphics.drawCenteredString(this.font,
-                "§7" + rows().size() + " message(s)", cx, 22, 0xAAAAAA);
-
-        var rows = rows();
-        int sel = selectedIndex();
-        int y = listTop();
-        for (int i = scrollOffset; i < Math.min(rows.size(), scrollOffset + maxVisible()); i++) {
-            MailRow row = rows.get(i);
-            if (row == null) { y += 12; continue; }
-            String prefix = row.read() ? "§7" : "§f";
-            String line = prefix + (i == sel ? "> " : "") + row.sender()
-                    + " §8— " + row.subject();
-            graphics.drawString(this.font, line, cx - 190, y, 0xFFFFFF);
-            y += 12;
+        // Reading pane for the selected message in the reserved detail strip.
+        int detailTop = contentTop() + Math.max(UiTheme.ROW_H,
+                contentBottom() - contentTop() - DETAIL_H - UiTheme.PAD_S) + UiTheme.PAD_S;
+        MailRow row = selectedRow();
+        if (row == null) {
+            graphics.drawString(this.font, "§8Select a message to read.",
+                    contentLeft(), detailTop, UiTheme.TEXT_MUTED);
+            return;
         }
-        if (rows.isEmpty()) {
-            graphics.drawCenteredString(this.font, "§7Your mailbox is empty.",
-                    cx, y + 8, 0xAAAAAA);
+        graphics.enableScissor(contentLeft(), detailTop, contentRight(), contentBottom());
+        graphics.drawString(this.font, "§9From: §f" + row.sender()
+                + "   §9Subject: §f" + row.subject(), contentLeft(), detailTop, UiTheme.TEXT);
+        int ry = detailTop + 11;
+        for (String line : wrap(String.valueOf(row.body()), 62)) {
+            graphics.drawString(this.font, "§7" + line, contentLeft(), ry, UiTheme.TEXT_MUTED);
+            ry += 10;
+            if (ry > contentBottom() - 9) break;
         }
-
-        // Reading pane for the selected message.
-        if (sel >= 0 && sel < rows.size()) {
-            var row = rows.get(sel);
-            if (row != null) {
-                int ry = listBottom() + 6;
-                graphics.drawString(this.font, "§9From: §f" + row.sender()
-                        + "   §9Subject: §f" + row.subject(), cx - 190, ry, 0xFFFFFF);
-                ry += 11;
-                int bodyFloor = activeStatus() != null ? this.height - 52 : this.height - 30;
-                for (String line : wrap(String.valueOf(row.body()), 62)) {
-                    graphics.drawString(this.font, "§7" + line, cx - 190, ry, 0xCCCCCC);
-                    ry += 10;
-                    if (ry > bodyFloor) break;
-                }
-            }
-        }
-        renderStatus(graphics, cx);
-    }
-
-    private void renderStatus(GuiGraphics graphics, int cx) {
-        String status = activeStatus();
-        if (status != null) {
-            graphics.drawCenteredString(this.font, "§e" + status,
-                    cx, this.height - 40, 0xFFCC00);
-        }
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (!composing && button == 0) {
-            int cx = this.width / 2;
-            if (mouseX >= cx - 190 && mouseX <= cx + 170
-                    && mouseY >= listTop() && mouseY <= listBottom()) {
-                int index = scrollOffset + (int) ((mouseY - listTop()) / 12);
-                if (index >= 0 && index < rows().size()) {
-                    MailRow row = rows().get(index);
-                    selectedId = row != null ? row.id() : null;
-                }
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
+        graphics.disableScissor();
     }
 
     private static List<String> wrap(String text, int width) {
