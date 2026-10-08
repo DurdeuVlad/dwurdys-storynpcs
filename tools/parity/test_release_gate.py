@@ -19,7 +19,17 @@ class ReleaseGateTest(unittest.TestCase):
 
     def test_unverified_target_runtime_keeps_release_gate_blocked(self):
         report = release_gate.run_gate(ROOT)
-        self.assertEqual(report["gate_status"], "BLOCKED")
+        # Live benchmark evidence is present (#192) and honestly records
+        # threshold failures, so the gate now reports FAIL rather than the
+        # pre-live-evidence BLOCKED; target parity itself remains BLOCKED.
+        self.assertEqual(report["gate_status"], "FAIL")
+        live = report["checks"]["live_benchmark_artifacts"]
+        self.assertFalse(live["pass"])
+        self.assertEqual(
+            live["detail"]["siege"]["certification_state"], "LIVE_RUNTIME_PASS")
+        self.assertEqual(
+            live["detail"]["population"]["certification_state"], "LIVE_RUNTIME_FAIL")
+        self.assertIsInstance(live["detail"]["stress"]["mspt_p99"], float)
         self.assertTrue(report["checks"]["storynpcs_fixture_execution"]["pass"],
                         report["checks"]["storynpcs_fixture_execution"]["findings"])
         self.assertTrue(report["checks"]["p11_3_status"]["pass"])

@@ -9,19 +9,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 27.08524516977107,
+     "timing_repeatability_observed_pct": 1.9587185551494346,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 11.807834648418392,
+     "timing_repeatability_observed_pct": 45.23517746930772,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 5.495778811319699,
+     "timing_repeatability_observed_pct": 16.097761501807533,
      "timing_repeatable_within_10pct": null
     }
    },
@@ -73,6 +73,45 @@
    "interpretation": "IN-REVIEW and unaccepted BLOCKED issues are not terminal; only completed or user-accepted blocked issues satisfy release closure.",
    "pass": true
   },
+  "live_benchmark_artifacts": {
+   "detail": {
+    "population": {
+     "certification_state": "LIVE_RUNTIME_FAIL",
+     "hardware": "live-neoforge-gametest: Windows 11/amd64",
+     "minecraft": "1.21.1",
+     "mspt_p50": 4.7419,
+     "mspt_p95": 9.7515,
+     "mspt_p99": 50.9224,
+     "neoforge": "neoforge-21.1.248",
+     "npc_count": 500
+    },
+    "siege": {
+     "certification_state": "LIVE_RUNTIME_PASS",
+     "hardware": "live-neoforge-gametest: Windows 11/amd64",
+     "minecraft": "1.21.1",
+     "mspt_p50": 0.5175,
+     "mspt_p95": 2.3854,
+     "mspt_p99": 43.5123,
+     "neoforge": "neoforge-21.1.248",
+     "npc_count": 50
+    },
+    "stress": {
+     "certification_state": "LIVE_RUNTIME_FAIL",
+     "hardware": "live-neoforge-gametest: Windows 11/amd64",
+     "minecraft": "1.21.1",
+     "mspt_p50": 53.0233,
+     "mspt_p95": 86.8054,
+     "mspt_p99": 95.5564,
+     "neoforge": "neoforge-21.1.248",
+     "npc_count": 2500
+    }
+   },
+   "findings": [
+    "population: 1 live threshold check(s) failed (certification_state=LIVE_RUNTIME_FAIL)",
+    "stress: 2 live threshold check(s) failed (certification_state=LIVE_RUNTIME_FAIL)"
+   ],
+   "pass": false
+  },
   "p11_3_status": {
    "blocked": true,
    "detail": "BLOCKED-ACCEPTED",
@@ -82,7 +121,7 @@
   "storynpcs_fixture_execution": {
    "blocked": false,
    "detail": {
-    "junit_test_case_count": 1440,
+    "junit_test_case_count": 1497,
     "source_fingerprint_matches": true,
     "storynpcs_fixture_counts": {
      "blocked": 0,
@@ -118,7 +157,9 @@
    "pass": true
   }
  },
- "failed_checks": [],
- "gate_status": "BLOCKED",
+ "failed_checks": [
+  "live_benchmark_artifacts"
+ ],
+ "gate_status": "FAIL",
  "honesty": "BLOCKED means required evidence is unavailable; target-runtime parity cannot be certified by JVM tests or headless GameTests."
 }
