@@ -17,6 +17,7 @@ public final class PendingAck {
 
     private String label;
     private long deadlineMillis;
+    private java.util.UUID requestId;
 
     /**
      * Marks an action in flight from {@code nowMillis} until either
@@ -27,6 +28,24 @@ public final class PendingAck {
         if (label == null || label.isBlank()) return;
         this.label = label;
         this.deadlineMillis = nowMillis + Math.max(0, timeoutMillis);
+        this.requestId = null;
+    }
+
+    /**
+     * Arms pending bound to the request id sent with the action (issue #219):
+     * only a refresh echoing that id acks — a delayed refresh for an earlier,
+     * timed-out attempt must not clear this attempt's pending state.
+     */
+    public void begin(String label, long nowMillis, long timeoutMillis, java.util.UUID requestId) {
+        begin(label, nowMillis, timeoutMillis);
+        if (label != null && !label.isBlank()) {
+            this.requestId = requestId;
+        }
+    }
+
+    /** Convenience for the request-bound {@link #begin} with {@link #DEFAULT_TIMEOUT_MS}. */
+    public void begin(String label, long nowMillis, java.util.UUID requestId) {
+        begin(label, nowMillis, DEFAULT_TIMEOUT_MS, requestId);
     }
 
     /** Convenience for {@link #begin} with {@link #DEFAULT_TIMEOUT_MS}. */
@@ -37,6 +56,21 @@ public final class PendingAck {
     /** Clears the pending state — call when the server payload arrives. */
     public void ack() {
         label = null;
+        requestId = null;
+    }
+
+    /**
+     * Correlated ack: clears pending only when the echoed request id matches
+     * the armed attempt's id. Uncorrelated refreshes (unsolicited opens carry
+     * no id, stale echoes carry an earlier attempt's) leave pending armed and
+     * return {@code false}.
+     */
+    public boolean ack(java.util.UUID echoId) {
+        if (requestId == null || echoId == null || !requestId.equals(echoId)) {
+            return false;
+        }
+        ack();
+        return true;
     }
 
     /** Whether the action is still in flight (unacknowledged, unexpired). */

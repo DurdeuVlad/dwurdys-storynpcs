@@ -59,16 +59,21 @@ public class NpcBankScreen extends UiScreen {
         return Objects.equals(this.sessionId, sessionId);
     }
 
-    /** In-place refresh: new banker/vault without losing the open tab or scroll. */
-    public void updateView(BankerRole banker, BankVault vault) {
+    /**
+     * In-place refresh: new banker/vault without losing the open tab or
+     * scroll. {@code requestId} is the server's echo of the request this
+     * refresh answers (issue #219) — pending is acked only on a match and only
+     * the echoed attempt id is cleared, so an in-flight retry keeps its
+     * journal-classifiable id.
+     */
+    public void updateView(BankerRole banker, BankVault vault, UUID requestId) {
         if (banker == null || vault == null) return;
         this.banker = banker;
         this.vault = vault;
-        pending.ack();
-        wasPending = false;
-        // See NpcTradeScreen.updateView — resolved journal records must not be
-        // replayed by a stale request id on the next action.
-        requestIds.ack();
+        if (pending.ack(requestId)) {
+            wasPending = false;
+        }
+        requestIds.ack(requestId);
         rebuildWidgets();
     }
 
@@ -146,13 +151,14 @@ public class NpcBankScreen extends UiScreen {
 
     private void act(String action, int tab, int slot) {
         if (isPending()) return;
+        UUID requestId = requestIds.idFor(action + ":" + tab + ":" + slot);
         pending.begin(switch (action) {
             case "deposit_held" -> "Depositing…";
             case "unlock_tab" -> "Unlocking…";
             default -> "Working…";
-        }, System.currentTimeMillis());
+        }, System.currentTimeMillis(), requestId);
         PacketDistributor.sendToServer(new ServerboundBankActionPayload(npcId, action, tab, slot,
-                sessionId, requestIds.idFor(action + ":" + tab + ":" + slot)));
+                sessionId, requestId));
         applyPendingDisabled(true);
     }
 

@@ -19,7 +19,8 @@ public record ClientboundTradeOpenPayload(
         String npcName,
         String traderJson,
         String factionScoresJson,
-        UUID sessionId
+        UUID sessionId,
+        UUID requestId
 ) implements CustomPacketPayload {
     public static final int MAX_JSON_LENGTH = 1 << 20; // 1 MiB
 
@@ -29,10 +30,12 @@ public record ClientboundTradeOpenPayload(
         traderJson = traderJson != null ? traderJson : "";
         factionScoresJson = factionScoresJson != null ? factionScoresJson : "";
         sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
+        requestId = requestId != null ? requestId : MutationProtocolCodecs.NO_REQUEST_ID;
     }
 
-    public ClientboundTradeOpenPayload(String npcId, String npcName, String traderJson, String factionScoresJson) {
-        this(npcId, npcName, traderJson, factionScoresJson, new UUID(0L, 0L));
+    public ClientboundTradeOpenPayload(String npcId, String npcName, String traderJson, String factionScoresJson,
+                                       UUID sessionId) {
+        this(npcId, npcName, traderJson, factionScoresJson, sessionId, MutationProtocolCodecs.NO_REQUEST_ID);
     }
 
     public static final Type<ClientboundTradeOpenPayload> TYPE =
@@ -45,6 +48,7 @@ public record ClientboundTradeOpenPayload(
                     ByteBufCodecs.stringUtf8(MAX_JSON_LENGTH), ClientboundTradeOpenPayload::traderJson,
                     ByteBufCodecs.stringUtf8(MAX_JSON_LENGTH), ClientboundTradeOpenPayload::factionScoresJson,
                     MutationProtocolCodecs.UUID_CODEC, ClientboundTradeOpenPayload::sessionId,
+                    MutationProtocolCodecs.UUID_CODEC, ClientboundTradeOpenPayload::requestId,
                     ClientboundTradeOpenPayload::new
             ));
 

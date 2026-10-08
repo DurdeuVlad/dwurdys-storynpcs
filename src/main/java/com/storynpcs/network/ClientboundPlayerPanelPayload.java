@@ -17,13 +17,19 @@ import java.util.UUID;
 public record ClientboundPlayerPanelPayload(
         String panel,
         String viewJson,
-        UUID sessionId
+        UUID sessionId,
+        UUID requestId
 ) implements CustomPacketPayload {
 
     public ClientboundPlayerPanelPayload {
         panel = panel != null ? panel : "";
         viewJson = viewJson != null ? viewJson : "";
         sessionId = sessionId != null ? sessionId : new UUID(0L, 0L);
+        requestId = requestId != null ? requestId : MutationProtocolCodecs.NO_REQUEST_ID;
+    }
+
+    public ClientboundPlayerPanelPayload(String panel, String viewJson, UUID sessionId) {
+        this(panel, viewJson, sessionId, MutationProtocolCodecs.NO_REQUEST_ID);
     }
 
     public static final Type<ClientboundPlayerPanelPayload> TYPE =
@@ -34,6 +40,7 @@ public record ClientboundPlayerPanelPayload(
                     MutationProtocolCodecs.ID_CODEC, ClientboundPlayerPanelPayload::panel,
                     MutationProtocolCodecs.JSON_CODEC, ClientboundPlayerPanelPayload::viewJson,
                     MutationProtocolCodecs.UUID_CODEC, ClientboundPlayerPanelPayload::sessionId,
+                    MutationProtocolCodecs.UUID_CODEC, ClientboundPlayerPanelPayload::requestId,
                     ClientboundPlayerPanelPayload::new
             ));
 

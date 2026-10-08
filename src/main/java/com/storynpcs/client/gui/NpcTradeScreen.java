@@ -73,16 +73,22 @@ public class NpcTradeScreen extends UiScreen {
         return Objects.equals(this.sessionId, sessionId);
     }
 
-    /** In-place refresh: new listings + scores without losing scroll or selection. */
-    public void updateView(TraderRole trader, Map<String, Integer> scores) {
+    /**
+     * In-place refresh: new listings + scores without losing scroll or
+     * selection. {@code requestId} is the server's echo of the request this
+     * refresh answers (issue #219): pending is acked only on a match — a stale
+     * refresh for an earlier, timed-out attempt must not ack the current one —
+     * and only the echoed attempt id is cleared, so an in-flight retry keeps
+     * its journal-classifiable id.
+     */
+    public void updateView(TraderRole trader, Map<String, Integer> scores, UUID requestId) {
         if (trader == null) return;
         this.trader = trader;
         this.factionScores = scores != null ? scores : Map.of();
-        pending.ack();
-        wasPending = false;
-        // The server answered: any cached request id now points at a resolved
-        // journal record — the next attempt on a listing must mint a fresh one.
-        requestIds.ack();
+        if (pending.ack(requestId)) {
+            wasPending = false;
+        }
+        requestIds.ack(requestId);
         int maxScroll = Math.max(0, listings().size() - maxVisibleRows());
         scrollOffset = Math.min(scrollOffset, maxScroll);
         selected = selectedKey == null ? -1
@@ -159,9 +165,10 @@ public class NpcTradeScreen extends UiScreen {
             echo("§c" + String.valueOf(TradeSummaries.unavailableReason(listing, score)));
             return;
         }
-        pending.begin("Buying…", System.currentTimeMillis());
+        UUID requestId = requestIds.idFor(String.valueOf(selected));
+        pending.begin("Buying…", System.currentTimeMillis(), requestId);
         PacketDistributor.sendToServer(new ServerboundTradeExecutePayload(npcId, selected, sessionId,
-                requestIds.idFor(String.valueOf(selected))));
+                requestId));
         applyPendingDisabled(true);
     }
 

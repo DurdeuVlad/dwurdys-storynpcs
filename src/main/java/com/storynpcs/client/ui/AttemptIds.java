@@ -31,4 +31,15 @@ public final class AttemptIds {
     public void ack() {
         ids.clear();
     }
+
+    /**
+     * Clears only the attempt whose id the server echoed (issue #219): a stale
+     * refresh for an earlier attempt must not clear an in-flight attempt's id —
+     * that retry would mint a fresh id the journal cannot classify. Unknown or
+     * null ids are a no-op.
+     */
+    public void ack(UUID requestId) {
+        if (requestId == null) return;
+        ids.values().removeIf(requestId::equals);
+    }
 }
