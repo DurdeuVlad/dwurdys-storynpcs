@@ -226,8 +226,8 @@ public class NpcRulesScreen extends UiScreen {
                     model::getCondThreshold, model::setCondThreshold,
                     number(true, model.condIdxUsesWholeNumber())));
         }
-        // Leave room beneath the If row for a FormRow error line (~9px).
-        y += UiTheme.ROW_H + 10;
+        // Leave room beneath the If row for a FormRow error line (9px + gap).
+        y += UiTheme.ROW_H + 12;
 
         addRenderableWidget(cycleBtn(
                 () -> "Do: " + NpcRulesScreenModel.ACTIONS[model.getActionIdx()],

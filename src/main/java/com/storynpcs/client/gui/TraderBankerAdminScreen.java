@@ -1,5 +1,12 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.FieldValidator;
+import com.storynpcs.client.ui.widgets.FormRow;
+import com.storynpcs.client.ui.widgets.ScrollState;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcDefinitionSerde;
 import com.storynpcs.domain.role.trader.TradeListing;
@@ -8,8 +15,6 @@ import com.storynpcs.editor.TraderBankerAdminScreenModel;
 import com.storynpcs.network.ServerboundNpcSavePayload;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -20,47 +25,38 @@ import java.util.UUID;
 /**
  * Admin trader/banker configuration editor (issue #44) — reachable from
  * {@link NpcEditorScreen}. Distinct from the player-facing {@link NpcTradeScreen}
- * / {@link NpcBankScreen}, which remain unchanged. Mutations go through the same
- * whole-definition save payload -&gt; saveNpc path as {@link NpcRulesScreen}, so
- * server-side validation is identical to the command/editor path.
+ * / {@link NpcBankScreen}. Mutations go through the same whole-definition save
+ * payload -&gt; saveNpc path as {@link NpcRulesScreen}, so server-side
+ * validation is identical to the command/editor path.
+ *
+ * <p>Migrated onto the shared chrome (#207): Trader/Banker tabs inside the
+ * bounded panel, the listing table is a {@link SelectableList} with footer
+ * actions (armed Remove), and the add/edit form uses {@link FormRow} with
+ * per-field inline validation.
  */
-public class TraderBankerAdminScreen extends Screen {
-
-    private static final int ROW_H = 12;
-    private static final int COLOR_OK = 0xFF4ADE80;
-    private static final int COLOR_ERR = 0xFFF87171;
-    private static final int COLOR_LABEL = 0xFFA1A1AA;
+public class TraderBankerAdminScreen extends UiScreen {
 
     private final TraderBankerAdminScreenModel model;
-    private final List<Button> listingRowButtons = new ArrayList<>();
-    private int listScroll;
-    private int armedRemove = -1;
+    private final SelectionModel<Integer> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
+    private final List<FormRow> fieldRows = new ArrayList<>();
+    private SelectableList<ListingRow, Integer> listingList;
+    /** Armed remove is bound to the selected listing index. */
+    private int armedListing = -1;
     private long expectedRevision;
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
+    private String lastEchoed;
 
-    private EditBox listingIdField;
-    private EditBox offerItemIdField;
-    private EditBox offerCountField;
-    private EditBox priceItemIdField;
-    private EditBox priceCountField;
-    private EditBox maxUsesField;
-    private EditBox secondaryPriceItemIdField;
-    private EditBox secondaryPriceCountField;
-    private EditBox pageField;
-    private EditBox restockIntervalField;
-    private EditBox requiredFactionField;
-    private EditBox requiredFactionPointsField;
-
-    private EditBox bankNameField;
-    private EditBox maxTabsField;
-    private EditBox tabUpgradeCostField;
+    /** Selection identity is the absolute listing index. */
+    private record ListingRow(int index, String label) {}
 
     public TraderBankerAdminScreen(NpcDefinition npc) {
         this(npc, 0L);
     }
 
     public TraderBankerAdminScreen(NpcDefinition npc, long expectedRevision) {
-        super(Component.literal("Trade & Bank Admin"));
+        super(Component.literal("Trade & Bank Admin — "
+                + (npc.getId() != null ? npc.getId().toString() : "?")));
         this.model = new TraderBankerAdminScreenModel(npc);
         this.expectedRevision = Math.max(0L, expectedRevision);
     }
@@ -70,19 +66,37 @@ public class TraderBankerAdminScreen extends Screen {
     public void onSaveResult(UUID requestId, boolean success, String message, long revision) {
         if (!saveRequestId.matchesCurrent(requestId)) return;
         model.setStatus(message, !success);
+        syncStatus();
+        // The response revision is authoritative on success AND on rejection.
         expectedRevision = Math.max(0L, revision);
         saveRequestId.acknowledge(requestId);
     }
 
     @Override
-    protected void init() {
-        super.init();
+    protected void onStatusExpired() {
+        lastEchoed = null; // identical later results may echo again
+    }
+
+    private void syncStatus() {
+        String msg = model.getStatusMessage();
+        if (!msg.isEmpty() && !msg.equals(lastEchoed)) {
+            lastEchoed = msg;
+            echo(Component.literal(msg)
+                    .withColor(model.isStatusError() ? UiTheme.DANGER : UiTheme.TEXT), 4000);
+        }
+    }
+
+    @Override
+    protected void initContent() {
+        fieldRows.clear();
         if (model.isEditingListing()) {
-            initListingEditWidgets();
+            initListingEdit();
         } else if (model.getTab() == TraderBankerAdminScreenModel.Tab.TRADER) {
-            initTraderListWidgets();
+            initTabBar();
+            initTraderList();
         } else {
-            initBankerWidgets();
+            initTabBar();
+            initBanker();
         }
     }
 
@@ -90,187 +104,245 @@ public class TraderBankerAdminScreen extends Screen {
 
     private void initTabBar() {
         boolean trader = model.getTab() == TraderBankerAdminScreenModel.Tab.TRADER;
-        addRenderableWidget(Button.builder(Component.literal(trader ? "§e[Trader]" : "Trader"), b -> {
+        int tabW = 90;
+        Button traderBtn = Button.builder(Component.literal("Trader"), b -> {
             model.setTab(TraderBankerAdminScreenModel.Tab.TRADER);
             rebuildWidgets();
-        }).bounds(12, 4, 60, 14).build());
-        addRenderableWidget(Button.builder(Component.literal(trader ? "Banker" : "§e[Banker]"), b -> {
+        }).bounds(contentLeft(), contentTop(), tabW, UiTheme.BUTTON_H).build();
+        traderBtn.active = !trader;
+        addRenderableWidget(traderBtn);
+        Button bankerBtn = Button.builder(Component.literal("Banker"), b -> {
             model.setTab(TraderBankerAdminScreenModel.Tab.BANKER);
             rebuildWidgets();
-        }).bounds(74, 4, 60, 14).build());
-        addRenderableWidget(Button.builder(Component.literal("Back"), b ->
-                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)))
-                .bounds(this.width - 56, 4, 46, 14).build());
+        }).bounds(contentLeft() + tabW + UiTheme.PAD_S, contentTop(), tabW,
+                UiTheme.BUTTON_H).build();
+        bankerBtn.active = trader;
+        addRenderableWidget(bankerBtn);
     }
 
     // ── Trader tab: listing list ─────────────────────────────────────────────
 
-    private void initTraderListWidgets() {
-        initTabBar();
-        refreshListingRowButtons();
+    private void initTraderList() {
+        int listTop = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
+        listingList = new SelectableList<>(contentLeft(), listTop, contentWidth(),
+                Math.max(1, contentBottom() - listTop), UiTheme.ROW_H,
+                ListingRow::index,
+                r -> Component.literal("§7[" + (r.index() + 1) + "] §f" + r.label()),
+                selection, scroll);
+        addRenderableWidget(listingList);
+        refreshListings();
 
-        addRenderableWidget(Button.builder(Component.literal("§a+ Add Listing"), b -> {
+        addFooterAction(Component.literal("+ Add Listing"), b -> {
             model.beginAddListing();
+            armedListing = -1;
             rebuildWidgets();
-        }).bounds(12, this.height - 22, 100, 16).build());
-    }
-
-    private void refreshListingRowButtons() {
-        for (Button b : listingRowButtons) removeWidget(b);
-        listingRowButtons.clear();
-        List<TradeListing> listings = model.getListings();
-        int top = 22;
-        int bottom = this.height - 26;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-        listScroll = Math.max(0, Math.min(listScroll, Math.max(0, listings.size() - maxRows)));
-
-        for (int i = 0; i < maxRows && i + listScroll < listings.size(); i++) {
-            int idx = i + listScroll;
-            int ry = top + i * ROW_H;
-            boolean armed = armedRemove == idx;
-
-            Button editBtn = Button.builder(Component.literal("Edit"), b -> {
-                armedRemove = -1;
-                model.beginEditListing(idx);
-                rebuildWidgets();
-            }).bounds(this.width - 84, ry, 38, 11).build();
-            listingRowButtons.add(editBtn);
-            addRenderableWidget(editBtn);
-
-            Button removeBtn = Button.builder(Component.literal(armed ? "§cSure?" : "§c✕"), b -> {
-                if (armedRemove != idx) {
-                    armedRemove = idx;
-                    rebuildWidgets();
-                } else {
-                    armedRemove = -1;
-                    String err = model.removeListing(idx);
-                    if (err == null) sendSave("Removing listing...");
+        });
+        addFooterAction(Component.literal("Edit"), b -> {
+            ListingRow row = listingList.selectedRow();
+            if (row == null) {
+                echo(Component.literal("Select a listing first."), 1600);
+                return;
+            }
+            armedListing = -1;
+            model.beginEditListing(row.index());
+            rebuildWidgets();
+        });
+        addFooterAction(Component.literal(armedListing >= 0 ? "Sure?" : "Remove"), b -> {
+            ListingRow row = listingList.selectedRow();
+            if (row == null) {
+                if (armedListing >= 0) {
+                    armedListing = -1;
                     rebuildWidgets();
                 }
-            }).bounds(this.width - 42, ry, 30, 11).build();
-            listingRowButtons.add(removeBtn);
-            addRenderableWidget(removeBtn);
-        }
+                echo(Component.literal("Select a listing first."), 1600);
+                return;
+            }
+            if (armedListing != row.index()) {
+                armedListing = row.index();
+                rebuildWidgets();
+                return;
+            }
+            armedListing = -1;
+            String err = model.removeListing(row.index());
+            if (err == null) {
+                sendSave("Removing listing...");
+            }
+            // Rebuild first — init() clears the status slot before the echo.
+            rebuildWidgets();
+            syncStatus();
+        });
+        addFooterAction(Component.literal("Back"), b ->
+                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)));
+        setStatus(Component.literal("Select a listing — Edit or Remove (asks to confirm).")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    // ── Trader tab: add/edit a listing ──────────────────────────────────────
+    private void refreshListings() {
+        List<TradeListing> listings = model.getListings();
+        List<ListingRow> rows = new ArrayList<>(listings.size());
+        for (int i = 0; i < listings.size(); i++) {
+            rows.add(new ListingRow(i, model.describeListing(listings.get(i))));
+        }
+        listingList.setRows(rows);
+    }
 
-    private void initListingEditWidgets() {
-        int y = 22;
-        int labelX = 12;
-        int fieldX = 96;
+    // ── Add / edit a listing ────────────────────────────────────────────────
 
-        listingIdField = argField(fieldX, y, "listing id (optional)", model.getListingIdField());
-        listingIdField.setResponder(model::setListingIdField);
-        y += 16;
+    private void initListingEdit() {
+        int labelW = Math.min(72, contentWidth() / 4);
+        int colW = Math.max(60, (contentWidth() - UiTheme.PAD_L) / 2);
+        int leftX = contentLeft();
+        int rightX = contentLeft() + colW + UiTheme.PAD_L;
+        int y = contentTop();
 
-        offerItemIdField = argField(fieldX, y, "e.g. minecraft:emerald", model.getOfferItemIdField());
-        offerItemIdField.setResponder(model::setOfferItemIdField);
-        y += 16;
+        FieldValidator requiredWhole = wholeNumber(true);
+        FieldValidator nsId = FieldValidator.namespacedId();
+        FieldValidator optionalNsId = v -> v == null || v.isBlank() ? null : nsId.validate(v);
+        FieldValidator requiredNsId = FieldValidator.all(FieldValidator.required("item id"), nsId);
 
-        offerCountField = argField(fieldX, y, "1-64", model.getOfferCountField());
-        offerCountField.setResponder(model::setOfferCountField);
-        y += 16;
+        // Left column
+        y = argRow(leftX, y, colW, labelW, "Listing ID", "optional",
+                model::getListingIdField, model::setListingIdField, null);
+        y = argRow(leftX, y, colW, labelW, "Offer item", "e.g. minecraft:emerald",
+                model::getOfferItemIdField, model::setOfferItemIdField, requiredNsId);
+        y = argRow(leftX, y, colW, labelW, "Offer count", "1-64",
+                model::getOfferCountField, model::setOfferCountField, requiredWhole);
+        y = argRow(leftX, y, colW, labelW, "Price item", "e.g. minecraft:diamond",
+                model::getPriceItemIdField, model::setPriceItemIdField, requiredNsId);
+        y = argRow(leftX, y, colW, labelW, "Price count", "1-64",
+                model::getPriceCountField, model::setPriceCountField, requiredWhole);
+        argRow(leftX, y, colW, labelW, "Max uses", "0 = unlimited",
+                model::getMaxUsesField, model::setMaxUsesField, requiredWhole);
 
-        priceItemIdField = argField(fieldX, y, "e.g. minecraft:diamond", model.getPriceItemIdField());
-        priceItemIdField.setResponder(model::setPriceItemIdField);
-        y += 16;
+        // Right column
+        y = contentTop();
+        y = argRow(rightX, y, colW, labelW, "2nd item", "optional second input",
+                model::getSecondaryPriceItemIdField, model::setSecondaryPriceItemIdField,
+                optionalNsId);
+        y = argRow(rightX, y, colW, labelW, "2nd count", "0",
+                model::getSecondaryPriceCountField, model::setSecondaryPriceCountField,
+                wholeNumber(true));
+        y = argRow(rightX, y, colW, labelW, "Page", "0-99",
+                model::getPageField, model::setPageField, wholeNumber(true));
+        y = argRow(rightX, y, colW, labelW, "Restock ticks", "0 = role default",
+                model::getRestockIntervalField, model::setRestockIntervalField,
+                wholeNumber(true));
+        y = argRow(rightX, y, colW, labelW, "Req. faction", "optional",
+                model::getRequiredFactionField, model::setRequiredFactionField, optionalNsId);
+        argRow(rightX, y, colW, labelW, "Req. points", "min points",
+                model::getRequiredFactionPointsField, model::setRequiredFactionPointsField,
+                wholeNumber(true));
 
-        priceCountField = argField(fieldX, y, "1-64", model.getPriceCountField());
-        priceCountField.setResponder(model::setPriceCountField);
-        y += 16;
-
-        maxUsesField = argField(fieldX, y, "0 = unlimited", model.getMaxUsesField());
-        maxUsesField.setResponder(model::setMaxUsesField);
-        y += 16;
-
-        secondaryPriceItemIdField = argField(fieldX, y, "second input id (optional)", model.getSecondaryPriceItemIdField());
-        secondaryPriceItemIdField.setResponder(model::setSecondaryPriceItemIdField);
-        y += 16;
-
-        secondaryPriceCountField = argField(fieldX, y, "second input count", model.getSecondaryPriceCountField());
-        secondaryPriceCountField.setResponder(model::setSecondaryPriceCountField);
-        y += 16;
-
-        pageField = argField(fieldX, y, "page 0-99", model.getPageField());
-        pageField.setResponder(model::setPageField);
-        y += 16;
-
-        restockIntervalField = argField(fieldX, y, "restock ticks (0 = role default)", model.getRestockIntervalField());
-        restockIntervalField.setResponder(model::setRestockIntervalField);
-        y += 16;
-
-        requiredFactionField = argField(fieldX, y, "faction id (optional)", model.getRequiredFactionField());
-        requiredFactionField.setResponder(model::setRequiredFactionField);
-        y += 16;
-
-        requiredFactionPointsField = argField(fieldX, y, "min points", model.getRequiredFactionPointsField());
-        requiredFactionPointsField.setResponder(model::setRequiredFactionPointsField);
-
-        int footer = this.height - 22;
-        addRenderableWidget(Button.builder(Component.literal("§aSave Listing"), b -> {
+        addFooterAction(Component.literal("Save Listing"), b -> {
+            boolean invalid = false;
+            for (FormRow row : fieldRows) {
+                if (!row.validate()) invalid = true;
+            }
+            if (invalid) {
+                echo(Component.literal("Fix the highlighted field(s).")
+                        .withColor(UiTheme.DANGER), 3000);
+                return;
+            }
             String err = model.commitListing();
-            if (err == null) sendSave("Saving listing...");
+            if (err == null) {
+                sendSave("Saving listing...");
+            }
             rebuildWidgets();
-        }).bounds(12, footer, 90, 16).build());
-
-        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> {
+            syncStatus();
+        });
+        addFooterAction(Component.literal("Cancel"), b -> {
             model.cancelEditListing();
             rebuildWidgets();
-        }).bounds(108, footer, 60, 16).build());
+        });
+        setStatus(Component.literal(model.isAddingListing()
+                        ? "New listing — offer on the left is what you give, price is what you pay."
+                        : "Editing listing — uses counter is preserved.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private EditBox argField(int x, int y, String hint, String initial) {
-        EditBox box = new EditBox(this.font, x, y, 160, 14, Component.literal(hint));
-        box.setHint(Component.literal(hint));
-        box.setMaxLength(96);
-        box.setValue(initial == null ? "" : initial);
-        addRenderableWidget(box);
-        return box;
+    private int argRow(int x, int y, int w, int labelW, String label, String hint,
+                       java.util.function.Supplier<String> seed,
+                       java.util.function.Consumer<String> responder,
+                       FieldValidator check) {
+        FormRow row = new FormRow(this.font, Component.literal(label), Component.literal(hint));
+        row.editBox().setMaxLength(96);
+        // Seed first: FormRow#setValidator validates immediately, and an
+        // un-seeded row would push "" back into the model on every rebuild.
+        row.setValue(seed.get());
+        FieldValidator validator = check == null ? v -> null : check;
+        row.setValidator(v -> { responder.accept(v); return validator.validate(v); });
+        int nextY = row.layout(x, y, w, labelW);
+        addRenderableWidget(row.editBox());
+        fieldRows.add(row);
+        return nextY;
+    }
+
+    private static FieldValidator wholeNumber(boolean required) {
+        return v -> {
+            if (v == null || v.isBlank()) {
+                return required ? "Number required" : null;
+            }
+            try {
+                Integer.parseInt(v.trim());
+                return null;
+            } catch (NumberFormatException e) {
+                return "Not a whole number";
+            }
+        };
     }
 
     // ── Banker tab ───────────────────────────────────────────────────────────
 
-    private void initBankerWidgets() {
-        initTabBar();
-        int y = 26;
+    private void initBanker() {
+        int labelW = Math.min(90, contentWidth() / 4);
+        int w = Math.min(280, contentWidth());
+        int y = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
 
-        addRenderableWidget(labeled("Bank name", 12, y));
-        bankNameField = argField(96, y, "bank name", model.getBankNameField());
-        bankNameField.setResponder(model::setBankNameField);
-        y += 18;
+        y = argRow(contentLeft(), y, w, labelW, "Bank name", "bank name",
+                model::getBankNameField, model::setBankNameField,
+                FieldValidator.required("bank name"));
+        y = argRow(contentLeft(), y, w, labelW, "Max tabs",
+                "1-" + TraderBankerAdminScreenModel.MAX_TABS,
+                model::getMaxTabsField, model::setMaxTabsField, wholeNumber(true));
+        argRow(contentLeft(), y, w, labelW, "Tab upgrade cost", "0+",
+                model::getTabUpgradeCostField, model::setTabUpgradeCostField,
+                wholeNumber(true));
 
-        addRenderableWidget(labeled("Max tabs", 12, y));
-        maxTabsField = argField(96, y, "1-" + TraderBankerAdminScreenModel.MAX_TABS, model.getMaxTabsField());
-        maxTabsField.setResponder(model::setMaxTabsField);
-        y += 18;
-
-        addRenderableWidget(labeled("Tab upgrade cost", 12, y));
-        tabUpgradeCostField = argField(96, y, "0+", model.getTabUpgradeCostField());
-        tabUpgradeCostField.setResponder(model::setTabUpgradeCostField);
-        y += 22;
-
-        addRenderableWidget(Button.builder(Component.literal("§aSave"), b -> {
+        addFooterAction(Component.literal("Save"), b -> {
+            boolean invalid = false;
+            for (FormRow row : fieldRows) {
+                if (!row.validate()) invalid = true;
+            }
+            if (invalid) {
+                echo(Component.literal("Fix the highlighted field(s).")
+                        .withColor(UiTheme.DANGER), 3000);
+                return;
+            }
             String err = model.commitBankerConfig();
-            if (err == null) sendSave("Saving bank config...");
+            if (err == null) {
+                sendSave("Saving bank config...");
+            }
             rebuildWidgets();
-        }).bounds(12, y, 60, 16).build());
-    }
-
-    private Button labeled(String text, int x, int y) {
-        // A disabled, unclickable button is used purely as a positioned label,
-        // matching the plain-text-row convention the rest of this screen's
-        // rendering (drawString) does not otherwise reuse for form labels.
-        Button b = Button.builder(Component.literal(text), ignored -> {}).bounds(x, y, 80, 14).build();
-        b.active = false;
-        return b;
+            syncStatus();
+        });
+        addFooterAction(Component.literal("Back"), b ->
+                minecraft.setScreen(new NpcEditorScreen(model.getNpc(), expectedRevision)));
+        setStatus(Component.literal("Bank tab config — Save persists via the NPC definition.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
     // ── Save plumbing (same payload as the NPC editor — saveNpc path) ───────
 
     private void sendSave(String pendingMessage) {
-        model.setStatus(pendingMessage, false);
         NpcDefinition def = model.getNpc();
+        if (def.getId() == null) {
+            model.setStatus("Cannot save — NPC has no id.", true);
+            return;
+        }
+        model.setStatus(pendingMessage, false);
         String submittedJson = NpcDefinitionSerde.toJson(def);
         UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundNpcSavePayload(
@@ -280,89 +352,23 @@ public class TraderBankerAdminScreen extends Screen {
     // ── Rendering ───────────────────────────────────────────────────────────
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
-        // Screen#render runs the menu-blur post-process over whatever is
-        // already in the framebuffer — background first, custom content next,
-        // widgets last, or the listings below are blurred while buttons stay
-        // sharp (#197).
-        this.renderBackground(g, mouseX, mouseY, partial);
-        g.fill(0, 0, this.width, this.height, 0xE0101014);
-        g.renderOutline(0, 0, this.width, this.height, 0xFF3F3F46);
-
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        // FormRow draws its label + error line here — the EditBox itself is a
+        // widget and already rendered.
+        for (FormRow row : fieldRows) {
+            row.render(g, mouseX, mouseY);
+        }
         if (model.isEditingListing()) {
-            renderListingEdit(g);
-        } else if (model.getTab() == TraderBankerAdminScreenModel.Tab.TRADER) {
-            renderTraderList(g, mouseX, mouseY);
-        } else {
-            renderBanker(g);
+            if (!model.isAddingListing()) {
+                g.drawString(this.font, "§7Uses (read-only): " + model.currentUsesForEditingListing(),
+                        contentLeft(), contentBottom() - 8, UiTheme.TEXT_MUTED);
+            }
+            return;
         }
-        for (var renderable : this.renderables) {
-            renderable.render(g, mouseX, mouseY, partial);
+        if (model.getTab() == TraderBankerAdminScreenModel.Tab.TRADER
+                && model.getListings().isEmpty()) {
+            renderEmpty(g, "No trade listings — add one below.");
         }
-    }
-
-    private void renderTraderList(GuiGraphics g, int mouseX, int mouseY) {
-        var npc = model.getNpc();
-        g.drawString(this.font, "§6Trade Listings — §e" + (npc.getId() != null ? npc.getId() : "?"), 140, 8, 0xFFFFFFFF);
-
-        var listings = model.getListings();
-        int top = 22;
-        int bottom = this.height - 26;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-
-        if (listings.isEmpty()) {
-            g.drawString(this.font, "§7No trade listings — add one below.", 12, top + 4, COLOR_LABEL);
-        }
-        g.enableScissor(0, top, this.width, bottom);
-        for (int i = 0; i < maxRows && i + listScroll < listings.size(); i++) {
-            int idx = i + listScroll;
-            int ry = top + i * ROW_H;
-            boolean hover = mouseY >= ry && mouseY < ry + ROW_H;
-            if (hover) g.fill(4, ry, this.width - 4, ry + ROW_H, 0x33FFFFFF);
-            String line = "§7[" + (idx + 1) + "] §f" + model.describeListing(listings.get(idx));
-            g.drawString(this.font, this.font.plainSubstrByWidth(line, this.width - 132),
-                    10, ry + 2, hover ? 0xFFFFFFFF : 0xFFD4D4D8);
-        }
-        g.disableScissor();
-        drawStatus(g, this.height - 10);
-    }
-
-    private void renderListingEdit(GuiGraphics g) {
-        g.drawString(this.font, (model.isAddingListing() ? "§6Add Listing" : "§6Edit Listing") + " — §e"
-                + model.getNpc().getId(), 12, 8, 0xFFFFFFFF);
-        String[] labels = {"Listing ID", "Offer item", "Offer count", "Price item", "Price count",
-                "Max uses", "Req. faction", "Req. points"};
-        int y = 22;
-        for (String label : labels) {
-            g.drawString(this.font, label, 12, y + 3, COLOR_LABEL);
-            y += 16;
-        }
-        if (!model.isAddingListing()) {
-            g.drawString(this.font, "§7Uses (read-only): " + model.currentUsesForEditingListing(), 12, y + 4, COLOR_LABEL);
-        }
-        drawStatus(g, this.height - 8);
-    }
-
-    private void renderBanker(GuiGraphics g) {
-        g.drawString(this.font, "§6Bank Configuration — §e" + model.getNpc().getId(), 140, 8, 0xFFFFFFFF);
-        drawStatus(g, this.height - 10);
-    }
-
-    private void drawStatus(GuiGraphics g, int y) {
-        if (!model.getStatusMessage().isEmpty()) {
-            String msg = this.font.plainSubstrByWidth(model.getStatusMessage(), this.width - 24);
-            g.drawString(this.font, msg, 12, y, model.isStatusError() ? COLOR_ERR : COLOR_OK);
-        }
-    }
-
-    @Override
-    public boolean mouseScrolled(double mx, double my, double dx, double dy) {
-        if (!model.isEditingListing() && model.getTab() == TraderBankerAdminScreenModel.Tab.TRADER) {
-            listScroll = Math.max(0, listScroll - (int) Math.signum(dy));
-            rebuildWidgets();
-            return true;
-        }
-        return super.mouseScrolled(mx, my, dx, dy);
     }
 
     @Override
