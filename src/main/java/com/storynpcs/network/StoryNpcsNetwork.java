@@ -1484,13 +1484,15 @@ public class StoryNpcsNetwork {
         }
         var requestAdmission = mod.getRuntimeSessions(player.getServer())
                 .admitRequest(player.getUUID(), payload.requestId());
-        // Held-item deposits and whole-stack withdrawals have durable request
-        // journals and classify replays themselves. Unlock uses the in-memory
-        // window for same-session dedupe; its durable journal still classifies
-        // any replay that reaches the service (e.g. after a relog).
+        // Journaled actions (deposits, withdrawals, unlocks) bypass the
+        // in-memory duplicate window: the durable journal classifies the
+        // replay itself and the handler still sends the refresh the retrying
+        // client waits for. Swallowing an unlock retry here wedged the client
+        // in "Unlocking…" until an unrelated refresh cleared pending (#220).
         if (requestAdmission != com.storynpcs.runtime.session.RuntimeSessionRegistry.RequestAdmission.NEW
                 && !"deposit_held".equals(payload.action())
-                && !"withdraw".equals(payload.action())) {
+                && !"withdraw".equals(payload.action())
+                && !"unlock_tab".equals(payload.action())) {
             return;
         }
         var npc = resolveRoleNpc(player, payload.npcId());
