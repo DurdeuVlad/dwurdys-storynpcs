@@ -208,6 +208,17 @@ public final class StoryNpcsClient {
             com.storynpcs.network.ClientboundPlayerPanelPayload payload) {
         Minecraft mc = Minecraft.getInstance();
         mc.tell(() -> {
+            // Refresh contract (issue #201): a re-issued mail view for an
+            // already-open screen updates it in place — scroll, selection,
+            // and compose state survive; pending actions are acknowledged.
+            if (com.storynpcs.service.PlayerPanelViews.PANEL_MAIL.equals(payload.panel())
+                    && mc.screen instanceof com.storynpcs.client.gui.player.PlayerMailScreen open
+                    && open.matches(payload.sessionId())) {
+                com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
+                                com.storynpcs.domain.panel.PlayerPanels.MailView.class)
+                        .ifPresent(open::updateView);
+                return;
+            }
             net.minecraft.client.gui.screens.Screen screen = switch (payload.panel()) {
                 case com.storynpcs.service.PlayerPanelViews.PANEL_QUEST_LOG ->
                         com.storynpcs.domain.role.RoleSerde.fromJson(payload.viewJson(),
