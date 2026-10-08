@@ -47,45 +47,38 @@ class DialogueScreenModelTest {
                 chosen::set
         );
 
+        assertFalse(model.chooseOption(-1));
+        assertFalse(model.chooseOption(5));
+
         assertTrue(model.chooseOption(1));
         assertEquals(1, chosen.get());
 
-        assertTrue(model.chooseOption(0));
-        assertEquals(0, chosen.get());
-
-        assertFalse(model.chooseOption(-1));
-        assertEquals(0, chosen.get(), "Invalid index should not update selection");
-
-        assertFalse(model.chooseOption(5));
-        assertEquals(0, chosen.get(), "Out-of-bounds index should not update selection");
+        // Single-flight: a second activation would echo a consumed token and
+        // the server fails closed, ending the session — so it is swallowed.
+        assertFalse(model.chooseOption(0));
+        assertEquals(1, chosen.get(), "Choice must not re-fire after one is sent");
     }
 
     @Test
     @DisplayName("Keyboard shortcuts: digit keys 1-9 map to option indexes 0-8")
     void testDigitKeyboardShortcuts() {
-        AtomicInteger chosen = new AtomicInteger(-1);
-        DialogueScreenModel model = new DialogueScreenModel(
-                "d1", "n1", "Test", "",
-                List.of("First", "Second", "Third"),
-                false,
-                chosen::set
-        );
+        // Single-flight model: each digit needs a fresh screen model.
+        for (int key = 49; key <= 53; key++) {
+            AtomicInteger chosen = new AtomicInteger(-1);
+            DialogueScreenModel model = new DialogueScreenModel(
+                    "d1", "n1", "Test", "",
+                    List.of("First", "Second", "Third"),
+                    false,
+                    chosen::set
+            );
 
-        // Key code 49 = '1'
-        assertTrue(model.handleKeyPress(49));
-        assertEquals(0, chosen.get());
-
-        // Key code 50 = '2'
-        assertTrue(model.handleKeyPress(50));
-        assertEquals(1, chosen.get());
-
-        // Key code 51 = '3'
-        assertTrue(model.handleKeyPress(51));
-        assertEquals(2, chosen.get());
-
-        // Key code 52 = '4' (no 4th option)
-        assertFalse(model.handleKeyPress(52));
-        assertEquals(2, chosen.get());
+            if (key - 49 < 3) {
+                assertTrue(model.handleKeyPress(key), "digit " + (key - 48) + " should choose");
+                assertEquals(key - 49, chosen.get());
+            } else {
+                assertFalse(model.handleKeyPress(key), "no option " + (key - 48));
+            }
+        }
     }
 
     @Test
