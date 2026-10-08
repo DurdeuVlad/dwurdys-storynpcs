@@ -539,13 +539,14 @@ public class StoryNpcsNetwork {
         }
         if (result != null && result.applied()) {
             if (ServerboundMailActionPayload.ACTION_SEND.equals(payload.action())) {
-                // The sender's own mailbox is unchanged — confirm in chat
-                // instead of force-reopening a panel they may have closed.
+                // The sender's own mailbox is unchanged, but the refreshed
+                // payload is the client's pending-action ack (issue #201).
+                // Like mark_read/delete, a screen closed mid-flight reopens —
+                // the refresh payload carries no open/refresh discriminator.
                 player.sendSystemMessage(Component.literal(
                         "§a[StoryNPCs] Mail sent."), true);
-            } else {
-                sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL);
             }
+            sendPlayerPanel(player, com.storynpcs.service.PlayerPanelViews.PANEL_MAIL);
         } else if (result != null && result.decision() != null && !result.decision().allowed()) {
             player.sendSystemMessage(Component.literal(
                     "§c[StoryNPCs] Mail action rejected: " + result.decision().code()), true);
