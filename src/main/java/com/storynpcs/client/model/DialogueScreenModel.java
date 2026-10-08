@@ -21,6 +21,8 @@ public class DialogueScreenModel {
 
     private int hoveredOptionIndex = -1;
     private boolean closed = false;
+    /** Once a choice is sent the server consumes the token — further attempts would be rejected and close the session, so they're swallowed client-side. */
+    private boolean choiceSent = false;
 
     public DialogueScreenModel(
             String dialogueId,
@@ -140,11 +142,12 @@ public class DialogueScreenModel {
     }
 
     public boolean chooseOption(int index) {
-        if (closed) return false;
+        if (closed || choiceSent) return false;
         if (index < 0 || index >= options.size()) {
             return false;
         }
         if (optionChooser != null) {
+            choiceSent = true;
             optionChooser.accept(index);
         }
         return true;

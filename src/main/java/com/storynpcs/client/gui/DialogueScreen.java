@@ -39,6 +39,8 @@ public class DialogueScreen extends UiScreen {
     private static final int OPTION_H = 20;
     private static final int OPTION_GAP = 4;
     private static final int PORTRAIT_W = 84;
+    private static final int MIN_TEXT_H = 24;
+    private static final int MIN_TEXT_W = 40;
 
     private final DialogueScreenModel model;
     private final UUID sessionId;
@@ -66,7 +68,7 @@ public class DialogueScreen extends UiScreen {
             List<String> optionTokens
     ) {
         return create(dialogueId, nodeId, text, sound, options, isTerminal, npcName,
-                optionHints, sessionId, optionTokens, resolvePortrait(npcName));
+                optionHints, sessionId, optionTokens, resolvePortrait(npcName, sessionId));
     }
 
     public static DialogueScreen create(
@@ -96,47 +98,56 @@ public class DialogueScreen extends UiScreen {
     }
 
     /**
-     * The NPC the player is looking at when the node opens, name-checked
-     * against the payload so an unrelated entity never becomes the portrait.
-     * Node transitions happen while the cursor is over the panel (not the
-     * NPC), so a still-open dialogue screen donates its resolved portrait.
+     * The NPC this node belongs to, resolved through progressively weaker
+     * identity evidence. The payload's {@code npcName} is a speaker label
+     * (per-node override → display name → graph title), so it does not always
+     * equal the entity's name — name-matching tiers run first, then a tight
+     * interact-range scan, then the previous screen's portrait when the same
+     * session continues (a speaker change mid-dialogue must not drop it).
      */
-    private static LivingEntity resolvePortrait(String npcName) {
+    private static LivingEntity resolvePortrait(String npcName, UUID sessionId) {
         Minecraft mc = Minecraft.getInstance();
-        if (npcName == null || npcName.isBlank() || mc.level == null || mc.player == null) {
+        if (mc.level == null || mc.player == null) {
             return null;
         }
-        // Primary: the entity under the crosshair — the NPC the player just
-        // right-clicked. The payload lands a tick or two after the interact,
-        // so the pick can already be empty; fall back to the nearest matching
-        // NPC within generous interact range.
-        LivingEntity crosshair = mc.crosshairPickEntity instanceof LivingEntity living
-                && isPortraitable(living) && npcName.equals(living.getName().getString())
-                ? living : null;
-        if (crosshair != null) {
-            return crosshair;
+        boolean nameKnown = npcName != null && !npcName.isBlank();
+        if (nameKnown && mc.crosshairPickEntity instanceof LivingEntity living
+                && isPortraitable(living) && npcName.equals(living.getName().getString())) {
+            return living;
         }
-        LivingEntity nearest = null;
-        double nearestDist = 64.0; // 8-block leash — beyond interact range
-        for (var entity : mc.level.entitiesForRendering()) {
-            if (entity instanceof LivingEntity living && isPortraitable(living)
-                    && npcName.equals(living.getName().getString())) {
-                double dist = living.distanceToSqr(mc.player);
-                if (dist < nearestDist) {
-                    nearest = living;
-                    nearestDist = dist;
-                }
-            }
+        // The payload lands a tick or two after the interact, so the crosshair
+        // pick is often empty — scan for the named NPC instead.
+        LivingEntity named = nearest(mc, e -> nameKnown && npcName.equals(e.getName().getString()), 64.0);
+        if (named != null) {
+            return named;
         }
-        if (nearest != null) {
-            return nearest;
+        // Speaker-override nodes can't name-match; the NPC the player could
+        // have interacted with is within reach regardless of what it's called.
+        LivingEntity nearby = nearest(mc, e -> true, 20.25); // 4.5-block interact reach
+        if (nearby != null) {
+            return nearby;
         }
-        if (mc.screen instanceof DialogueScreen previous
-                && previous.portrait != null
-                && previous.model.getNpcName().equals(npcName)) {
+        if (mc.screen instanceof DialogueScreen previous && previous.portrait != null
+                && previous.sessionId.equals(sessionId)) {
             return previous.portrait;
         }
         return null;
+    }
+
+    private static LivingEntity nearest(Minecraft mc,
+            java.util.function.Predicate<LivingEntity> predicate, double maxDistSq) {
+        LivingEntity best = null;
+        double bestDist = maxDistSq;
+        for (var entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof LivingEntity living && isPortraitable(living) && predicate.test(living)) {
+                double dist = living.distanceToSqr(mc.player);
+                if (dist < bestDist) {
+                    best = living;
+                    bestDist = dist;
+                }
+            }
+        }
+        return best;
     }
 
     private static boolean isPortraitable(LivingEntity entity) {
@@ -162,8 +173,10 @@ public class DialogueScreen extends UiScreen {
             }
         }
 
-        int count = model.getOptionCount();
-        int optionsTop = contentBottom() - count * (OPTION_H + OPTION_GAP);
+        // Clamp the option stack to the band: a long dialogue keeps digit
+        // shortcuts for every option, but only the ones that fit render.
+        int count = Math.min(model.getOptionCount(), maxVisibleOptions());
+        int optionsTop = optionsTop();
         for (int i = 0; i < count; i++) {
             final int optionIndex = i;
             String hint = model.getOptionHint(i);
@@ -185,23 +198,34 @@ public class DialogueScreen extends UiScreen {
                 b -> { model.close(); onClose(); });
     }
 
+    /** Options that fit the band while leaving room for at least a line of text. */
+    private int maxVisibleOptions() {
+        int usable = contentBottom() - contentTop() - MIN_TEXT_H;
+        return Math.max(0, usable / (OPTION_H + OPTION_GAP));
+    }
+
+    private int optionsTop() {
+        return contentBottom()
+                - Math.min(model.getOptionCount(), maxVisibleOptions()) * (OPTION_H + OPTION_GAP);
+    }
+
     @Override
     protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         int textLeft = contentLeft();
         int textWidth = contentWidth();
-        if (portrait != null) {
+        // The rail only exists while the entity is present and the band is
+        // wide enough to still hold text beside it.
+        if (portrait != null && !portrait.isRemoved()
+                && contentWidth() >= PORTRAIT_W + MIN_TEXT_W) {
+            int railBottom = Math.max(contentTop() + 1, optionsTop() - UiTheme.PAD_S);
             int railRight = contentLeft() + PORTRAIT_W;
-            graphics.fill(contentLeft(), contentTop(), railRight,
-                    contentBottom() - model.getOptionCount() * (OPTION_H + OPTION_GAP) - UiTheme.PAD_S,
-                    UiTheme.FIELD_BG);
+            graphics.fill(contentLeft(), contentTop(), railRight, railBottom, UiTheme.FIELD_BG);
             InventoryScreen.renderEntityInInventoryFollowsMouse(graphics,
-                    contentLeft(), contentTop(), railRight,
-                    Math.max(contentTop() + 1,
-                            contentBottom() - model.getOptionCount() * (OPTION_H + OPTION_GAP) - UiTheme.PAD_S),
-                    Math.max(10, (contentBottom() - contentTop()) / 4), 0.0625f,
+                    contentLeft(), contentTop(), railRight, railBottom,
+                    Math.max(10, (railBottom - contentTop()) / 4), 0.0625f,
                     mouseX, mouseY, portrait);
             textLeft = railRight + UiTheme.PAD_M;
-            textWidth = contentRight() - textLeft;
+            textWidth = Math.max(1, contentRight() - textLeft);
         }
         graphics.drawWordWrap(this.font, Component.literal(model.getText()),
                 textLeft, contentTop() + UiTheme.PAD_S, textWidth, UiTheme.TEXT);
@@ -210,7 +234,7 @@ public class DialogueScreen extends UiScreen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         // A focused widget owns Enter/Space (footer Close, option buttons);
-        // otherwise they choose the hovered option via the model.
+        // otherwise they fall through to the model's hovered-option path.
         if ((keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER
                 || keyCode == GLFW.GLFW_KEY_SPACE) && getFocused() != null) {
             return super.keyPressed(keyCode, scanCode, modifiers);
