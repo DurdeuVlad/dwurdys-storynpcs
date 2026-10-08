@@ -2,6 +2,7 @@ package com.storynpcs.client.gui;
 
 import com.storynpcs.client.ui.AttemptIds;
 import com.storynpcs.client.ui.PendingAck;
+import com.storynpcs.client.ui.RowKeys;
 import com.storynpcs.client.ui.UiScreen;
 import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.domain.role.trader.TradeListing;
@@ -85,8 +86,8 @@ public class NpcTradeScreen extends UiScreen {
         int maxScroll = Math.max(0, listings().size() - maxVisibleRows());
         scrollOffset = Math.min(scrollOffset, maxScroll);
         selected = selectedKey == null ? -1
-                : com.storynpcs.client.ui.RowKeys.indexOf(
-                        listings(), NpcTradeScreen::listingKey, selectedKey);
+                : RowKeys.indexOf(listings(), NpcTradeScreen::listingKey, selectedKey);
+        applyPendingDisabled(isPending());
         setStatus(Component.literal(listings().size() + " listing(s)"));
     }
 
@@ -95,12 +96,15 @@ public class NpcTradeScreen extends UiScreen {
         return l == null ? List.of() : l;
     }
 
-    /** Stable per-listing key: authored id, else a content composite. */
+    /** Stable per-listing key: authored id, else the full contract composite. */
     private static String listingKey(TradeListing l) {
         String id = l.getListingId();
         if (id != null && !id.isBlank()) return id;
+        String faction = l.getRequiredFaction() == null ? "" : l.getRequiredFaction().toString();
         return l.getOfferItemId() + "x" + l.getOfferCount() + "<-"
-                + l.getPriceItemId() + "x" + l.getPriceCount();
+                + l.getPriceItemId() + "x" + l.getPriceCount()
+                + "+" + l.getSecondaryPriceItemId() + "x" + l.getSecondaryPriceCount()
+                + "|u" + l.getMaxUses() + "|f" + faction + ":" + l.getRequiredFactionPoints();
     }
 
     // ---- geometry (content band) ----
