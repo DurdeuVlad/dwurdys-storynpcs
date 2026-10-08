@@ -150,7 +150,8 @@ public class SelectableList<T, K> extends AbstractWidget {
             int idx = scroll.offset() + i;
             T row = rows.get(idx);
             int ry = getY() + i * rowHeight;
-            boolean selected = java.util.Objects.equals(keys.get(idx), selection.selected());
+            boolean selected = keys.get(idx) != null
+                    && java.util.Objects.equals(keys.get(idx), selection.selected());
             boolean hover = isMouseOver(mouseX, mouseY)
                     && mouseX >= getX() && mouseX < rowsRight()
                     && mouseY >= ry && mouseY < ry + rowHeight;
