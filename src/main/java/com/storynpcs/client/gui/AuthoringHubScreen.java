@@ -39,6 +39,7 @@ public class AuthoringHubScreen extends UiScreen {
     private SelectableList<AuthoringHub.Panel, AuthoringHub.Panel> panelList;
     private List<AuthoringHub.Panel> filtered = List.of(AuthoringHub.Panel.values());
     private int page;
+    private String lastQuery = "";
     private boolean searchHadFocus;
 
     public AuthoringHubScreen() {
@@ -50,12 +51,16 @@ public class AuthoringHubScreen extends UiScreen {
         searchBox = new EditBox(this.font, contentLeft(), contentTop(), LIST_W,
                 UiTheme.BUTTON_H, Component.literal("Search"));
         searchBox.setHint(Component.literal("Search panels..."));
+        // Seed before the responder attaches — init() rebuilds (resize) must
+        // not silently reset a live filter.
+        searchBox.setValue(lastQuery);
         if (searchHadFocus) {
             searchBox.setFocused(true);
             this.setFocused(searchBox);
         }
         searchBox.setResponder(v -> {
             searchHadFocus = true;
+            lastQuery = v;
             page = 0;
             refilter();
         });
@@ -71,14 +76,17 @@ public class AuthoringHubScreen extends UiScreen {
         panelList.setOnActivate(p -> dispatchSelected());
         addRenderableWidget(panelList);
 
-        // Page controls under the list column.
+        // Page controls under the list column. Rebuild on flip so the
+        // disabled-state affordance tracks the bounds.
         int navY = contentBottom() - UiTheme.BUTTON_H;
-        addRenderableWidget(Button.builder(Component.literal("<"), b -> {
-            if (page > 0) { page--; refreshRows(); }
-        }).bounds(contentLeft(), navY, 20, UiTheme.BUTTON_H).build());
-        addRenderableWidget(Button.builder(Component.literal(">"), b -> {
-            if (page < pageCount() - 1) { page++; refreshRows(); }
-        }).bounds(contentLeft() + 24, navY, 20, UiTheme.BUTTON_H).build());
+        Button prevBtn = Button.builder(Component.literal("<"), b -> gotoPage(page - 1))
+                .bounds(contentLeft(), navY, 20, UiTheme.BUTTON_H).build();
+        prevBtn.active = page > 0;
+        addRenderableWidget(prevBtn);
+        Button nextBtn = Button.builder(Component.literal(">"), b -> gotoPage(page + 1))
+                .bounds(contentLeft() + 24, navY, 20, UiTheme.BUTTON_H).build();
+        nextBtn.active = page < pageCount() - 1;
+        addRenderableWidget(nextBtn);
 
         addFooterAction(Component.literal("Close"), b -> onClose());
         setStatus(Component.literal("Enter opens the first command route — arrows cycle.")
@@ -94,6 +102,12 @@ public class AuthoringHubScreen extends UiScreen {
             hub.open(filtered.get(0), null);
         }
         refreshRows();
+    }
+
+    private void gotoPage(int target) {
+        if (target == page || target < 0 || target >= pageCount()) return;
+        page = target;
+        rebuildWidgets();
     }
 
     private void refreshRows() {
@@ -122,11 +136,11 @@ public class AuthoringHubScreen extends UiScreen {
         // Detail pane — routes for the selected panel.
         int detailX = contentLeft() + LIST_W + UiTheme.PAD_L;
         int detailW = Math.max(40, contentRight() - detailX);
-        AuthoringHub.Panel sel = hub.state().panel();
-        if (sel == null) {
+        if (filtered.isEmpty()) {
             renderEmpty(g, "No panels match the search.");
             return;
         }
+        AuthoringHub.Panel sel = hub.state().panel();
         int dy = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
         g.drawString(this.font, "§b" + sel.name().replace('_', ' '), detailX, dy, UiTheme.ACCENT);
         dy += 12;
@@ -162,7 +176,9 @@ public class AuthoringHubScreen extends UiScreen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (getFocused() == searchBox && keyCode != GLFW.GLFW_KEY_ENTER
-                && keyCode != GLFW.GLFW_KEY_DOWN && keyCode != GLFW.GLFW_KEY_UP) {
+                && keyCode != GLFW.GLFW_KEY_KP_ENTER
+                && keyCode != GLFW.GLFW_KEY_DOWN && keyCode != GLFW.GLFW_KEY_UP
+                && keyCode != GLFW.GLFW_KEY_PAGE_DOWN && keyCode != GLFW.GLFW_KEY_PAGE_UP) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
         if (keyCode == GLFW.GLFW_KEY_DOWN || keyCode == GLFW.GLFW_KEY_TAB) {
@@ -174,11 +190,11 @@ public class AuthoringHubScreen extends UiScreen {
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_PAGE_DOWN) {
-            if (page < pageCount() - 1) { page++; refreshRows(); }
+            gotoPage(page + 1);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_PAGE_UP) {
-            if (page > 0) { page--; refreshRows(); }
+            gotoPage(page - 1);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {

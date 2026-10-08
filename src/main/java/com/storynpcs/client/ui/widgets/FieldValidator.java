@@ -38,4 +38,15 @@ public interface FieldValidator {
         return value -> value == null || value.matches("[a-z0-9_.-]+:[a-z0-9_/.-]+")
                 ? null : "Expected namespace:id, e.g. storynpcs:my_quest";
     }
+
+    /**
+     * What {@code NamespacedId.of} accepts: a bare path (defaults the
+     * namespace) or namespace:path. Use for fields whose commit path goes
+     * through that parser — stricter checks would flag values the model
+     * accepts.
+     */
+    static FieldValidator namespacedOrBare() {
+        return value -> value == null || value.matches("([a-z0-9_.-]+:)?[a-z0-9_/.-]+")
+                ? null : "Expected id, e.g. emerald or minecraft:emerald";
+    }
 }

@@ -216,7 +216,7 @@ public class NpcRulesScreen extends UiScreen {
             argRows.add(argRow(argFieldX, y, argFieldW, "faction id",
                     model::getCondFaction, model::setCondFaction,
                     FieldValidator.all(FieldValidator.required("faction id"),
-                            FieldValidator.namespacedId())));
+                            FieldValidator.namespacedOrBare())));
         }
         if (model.condNeedsThreshold()) {
             addRenderableWidget(cycleBtn(
@@ -267,7 +267,7 @@ public class NpcRulesScreen extends UiScreen {
             argRows.add(argRow(argX, y, half, "faction id",
                     model::getActFaction, model::setActFaction,
                     FieldValidator.all(FieldValidator.required("faction id"),
-                            FieldValidator.namespacedId())));
+                            FieldValidator.namespacedOrBare())));
             argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "delta",
                     model::getActDelta, model::setActDelta, number(true, true)));
         }

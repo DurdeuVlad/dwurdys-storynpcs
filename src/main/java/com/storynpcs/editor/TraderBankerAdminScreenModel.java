@@ -68,7 +68,9 @@ public final class TraderBankerAdminScreenModel {
             maxTabs = "4";
             tabUpgradeCost = "1000";
         } else {
-            bankName = banker.getBankName();
+            // bankName deserializes from YAML — an explicit null/empty entry
+            // must not reach EditBox.setValue (NPE) via the form seed.
+            bankName = banker.getBankName() == null ? "Standard Vault" : banker.getBankName();
             maxTabs = Integer.toString(banker.getMaxTabs());
             tabUpgradeCost = Integer.toString(banker.getTabUpgradeCost());
         }

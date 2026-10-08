@@ -9,6 +9,7 @@ import com.storynpcs.client.ui.widgets.SelectableList;
 import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.domain.npc.NpcDefinition;
 import com.storynpcs.domain.npc.NpcDefinitionSerde;
+import com.storynpcs.domain.role.banker.BankerRole;
 import com.storynpcs.domain.role.trader.TradeListing;
 import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.editor.TraderBankerAdminScreenModel;
@@ -106,12 +107,14 @@ public class TraderBankerAdminScreen extends UiScreen {
         boolean trader = model.getTab() == TraderBankerAdminScreenModel.Tab.TRADER;
         int tabW = 90;
         Button traderBtn = Button.builder(Component.literal("Trader"), b -> {
+            armedListing = -1; // armed-remove must not survive a tab switch
             model.setTab(TraderBankerAdminScreenModel.Tab.TRADER);
             rebuildWidgets();
         }).bounds(contentLeft(), contentTop(), tabW, UiTheme.BUTTON_H).build();
         traderBtn.active = !trader;
         addRenderableWidget(traderBtn);
         Button bankerBtn = Button.builder(Component.literal("Banker"), b -> {
+            armedListing = -1;
             model.setTab(TraderBankerAdminScreenModel.Tab.BANKER);
             rebuildWidgets();
         }).bounds(contentLeft() + tabW + UiTheme.PAD_S, contentTop(), tabW,
@@ -196,8 +199,9 @@ public class TraderBankerAdminScreen extends UiScreen {
         int rightX = contentLeft() + colW + UiTheme.PAD_L;
         int y = contentTop();
 
-        FieldValidator requiredWhole = wholeNumber(true);
-        FieldValidator nsId = FieldValidator.namespacedId();
+        // Bounds mirror the model's commitListing parseInt/parseLong ranges so
+        // inline errors match what a commit would accept or reject.
+        FieldValidator nsId = FieldValidator.namespacedOrBare();
         FieldValidator optionalNsId = v -> v == null || v.isBlank() ? null : nsId.validate(v);
         FieldValidator requiredNsId = FieldValidator.all(FieldValidator.required("item id"), nsId);
 
@@ -207,13 +211,16 @@ public class TraderBankerAdminScreen extends UiScreen {
         y = argRow(leftX, y, colW, labelW, "Offer item", "e.g. minecraft:emerald",
                 model::getOfferItemIdField, model::setOfferItemIdField, requiredNsId);
         y = argRow(leftX, y, colW, labelW, "Offer count", "1-64",
-                model::getOfferCountField, model::setOfferCountField, requiredWhole);
+                model::getOfferCountField, model::setOfferCountField,
+                wholeNumber(1, 64));
         y = argRow(leftX, y, colW, labelW, "Price item", "e.g. minecraft:diamond",
                 model::getPriceItemIdField, model::setPriceItemIdField, requiredNsId);
         y = argRow(leftX, y, colW, labelW, "Price count", "1-64",
-                model::getPriceCountField, model::setPriceCountField, requiredWhole);
+                model::getPriceCountField, model::setPriceCountField,
+                wholeNumber(1, 64));
         argRow(leftX, y, colW, labelW, "Max uses", "0 = unlimited",
-                model::getMaxUsesField, model::setMaxUsesField, requiredWhole);
+                model::getMaxUsesField, model::setMaxUsesField,
+                wholeNumber(0, 1_000_000));
 
         // Right column
         y = contentTop();
@@ -222,17 +229,17 @@ public class TraderBankerAdminScreen extends UiScreen {
                 optionalNsId);
         y = argRow(rightX, y, colW, labelW, "2nd count", "0",
                 model::getSecondaryPriceCountField, model::setSecondaryPriceCountField,
-                wholeNumber(true));
+                wholeNumber(0, 64));
         y = argRow(rightX, y, colW, labelW, "Page", "0-99",
-                model::getPageField, model::setPageField, wholeNumber(true));
+                model::getPageField, model::setPageField, wholeNumber(0, 99));
         y = argRow(rightX, y, colW, labelW, "Restock ticks", "0 = role default",
                 model::getRestockIntervalField, model::setRestockIntervalField,
-                wholeNumber(true));
+                wholeNumber(0, 1_000_000_000L));
         y = argRow(rightX, y, colW, labelW, "Req. faction", "optional",
                 model::getRequiredFactionField, model::setRequiredFactionField, optionalNsId);
         argRow(rightX, y, colW, labelW, "Req. points", "min points",
                 model::getRequiredFactionPointsField, model::setRequiredFactionPointsField,
-                wholeNumber(true));
+                wholeNumber(-100_000, 100_000));
 
         addFooterAction(Component.literal("Save Listing"), b -> {
             boolean invalid = false;
@@ -279,14 +286,14 @@ public class TraderBankerAdminScreen extends UiScreen {
         return nextY;
     }
 
-    private static FieldValidator wholeNumber(boolean required) {
+    private static FieldValidator wholeNumber(long min, long max) {
         return v -> {
             if (v == null || v.isBlank()) {
-                return required ? "Number required" : null;
+                return "Number required";
             }
             try {
-                Integer.parseInt(v.trim());
-                return null;
+                long n = Long.parseLong(v.trim());
+                return n < min || n > max ? "Must be " + min + ".." + max : null;
             } catch (NumberFormatException e) {
                 return "Not a whole number";
             }
@@ -305,10 +312,11 @@ public class TraderBankerAdminScreen extends UiScreen {
                 FieldValidator.required("bank name"));
         y = argRow(contentLeft(), y, w, labelW, "Max tabs",
                 "1-" + TraderBankerAdminScreenModel.MAX_TABS,
-                model::getMaxTabsField, model::setMaxTabsField, wholeNumber(true));
+                model::getMaxTabsField, model::setMaxTabsField,
+                wholeNumber(BankerRole.MIN_TABS, TraderBankerAdminScreenModel.MAX_TABS));
         argRow(contentLeft(), y, w, labelW, "Tab upgrade cost", "0+",
                 model::getTabUpgradeCostField, model::setTabUpgradeCostField,
-                wholeNumber(true));
+                wholeNumber(0, 1_000_000));
 
         addFooterAction(Component.literal("Save"), b -> {
             boolean invalid = false;

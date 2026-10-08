@@ -34,6 +34,7 @@ public final class FormRow {
         this.font = font;
         this.label = label;
         this.editBox = new EditBox(font, 0, 0, 0, UiTheme.BUTTON_H, placeholder);
+        this.editBox.setHint(placeholder);
         this.editBox.setResponder(value -> validate());
     }
 
@@ -73,7 +74,9 @@ public final class FormRow {
         // setValue before layout ran with width 0, which clamps the scroll
         // offset (displayPos) to the text end — the seeded value would render
         // as blank. Re-clamping with the real width restores the scroll.
-        editBox.moveCursorToEnd(false);
+        if (!editBox.isFocused()) {
+            editBox.moveCursorToEnd(false);
+        }
         // field bottom + 9px error line + small gap
         return editBox.getY() + editBox.getHeight() + font.lineHeight + 1
                 + UiTheme.PAD_XS;
