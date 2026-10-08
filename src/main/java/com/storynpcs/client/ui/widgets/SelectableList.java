@@ -32,6 +32,8 @@ public class SelectableList<T, K> extends AbstractWidget {
     private final ScrollState scroll = new ScrollState();
     private List<T> rows = List.of();
     private Consumer<T> onSelect;
+    private Consumer<T> onActivate;
+    private Function<T, Component> detailOf;
 
     public SelectableList(int x, int y, int width, int height, int rowHeight,
                           Function<T, K> keyOf, Function<T, Component> labelOf) {
@@ -44,6 +46,21 @@ public class SelectableList<T, K> extends AbstractWidget {
 
     /** Fires once per user-initiated selection change (click or key). */
     public void setOnSelect(Consumer<T> onSelect) { this.onSelect = onSelect; }
+
+    /**
+     * Fires on explicit activation: clicking the already-selected row, or
+     * Enter/Space while a row is selected. Distinct from {@link #setOnSelect}
+     * so arrow-key navigation never triggers commits.
+     */
+    public void setOnActivate(Consumer<T> onActivate) { this.onActivate = onActivate; }
+
+    /**
+     * Optional second text line per row, drawn muted under the label —
+     * for rows taller than ~18px (companion stats, recipe ingredients).
+     */
+    public void setDetailRenderer(Function<T, Component> detailOf) {
+        this.detailOf = detailOf;
+    }
 
     public SelectionModel<K> selection() { return selection; }
     public ScrollState scroll() { return scroll; }
@@ -117,11 +134,31 @@ public class SelectableList<T, K> extends AbstractWidget {
                 graphics.fill(getX(), ry, getX() + getWidth(), ry + rowHeight, UiTheme.ROW_HOVER);
             }
             Component label = labelOf.apply(row);
+            Component detail = detailOf != null ? detailOf.apply(row) : null;
+            int labelY = detail != null && rowHeight >= 18
+                    ? ry + 2 : ry + (rowHeight - 8) / 2;
             graphics.drawString(font, label == null ? Component.empty() : label,
-                    getX() + UiTheme.PAD_S, ry + (rowHeight - 8) / 2,
+                    getX() + UiTheme.PAD_S, labelY,
                     selected ? UiTheme.ACCENT : UiTheme.TEXT);
+            if (detail != null && rowHeight >= 18) {
+                graphics.drawString(font, detail,
+                        getX() + UiTheme.PAD_S, ry + rowHeight - 10, UiTheme.TEXT_MUTED);
+            }
         }
         graphics.disableScissor();
+        // Scroll indicator: thin track + thumb when content overflows — the
+        // scrollbar affordance the hand-rolled panels added with ^/v buttons.
+        if (scroll.scrollable()) {
+            int trackX = getX() + getWidth() - 3;
+            int trackY = getY();
+            int trackH = bandBottom - trackY;
+            graphics.fill(trackX, trackY, trackX + 2, trackY + trackH, UiTheme.FIELD_BG);
+            int thumbH = Math.max(8, trackH * scroll.viewportSize() / Math.max(1, scroll.contentSize()));
+            int range = Math.max(1, trackH - thumbH);
+            int thumbY = trackY + range * scroll.offset()
+                    / Math.max(1, scroll.contentSize() - scroll.viewportSize());
+            graphics.fill(trackX, thumbY, trackX + 2, thumbY + thumbH, UiTheme.ACCENT);
+        }
     }
 
     @Override
@@ -129,7 +166,13 @@ public class SelectableList<T, K> extends AbstractWidget {
         if (active && visible && button == 0
                 && mouseX >= getX() && mouseX < getX() + getWidth()
                 && mouseY >= getY() && mouseY < getY() + visibleRows() * rowHeight) {
-            applySelectIndex(scroll.offset() + (int) ((mouseY - getY()) / rowHeight));
+            int index = scroll.offset() + (int) ((mouseY - getY()) / rowHeight);
+            if (index == selection.selectedIndex() && onActivate != null
+                    && index >= 0 && index < rows.size()) {
+                onActivate.accept(rows.get(index));
+            } else {
+                applySelectIndex(index);
+            }
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -146,6 +189,16 @@ public class SelectableList<T, K> extends AbstractWidget {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (isFocused()) {
+            if ((keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
+                    || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER
+                    || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE)
+                    && onActivate != null) {
+                T row = selectedRow();
+                if (row != null) {
+                    onActivate.accept(row);
+                    return true;
+                }
+            }
             boolean moved = switch (keyCode) {
                 case org.lwjgl.glfw.GLFW.GLFW_KEY_DOWN -> selection.move(1);
                 case org.lwjgl.glfw.GLFW.GLFW_KEY_UP -> selection.move(-1);

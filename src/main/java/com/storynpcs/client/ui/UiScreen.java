@@ -28,7 +28,9 @@ import java.util.List;
 public abstract class UiScreen extends Screen {
 
     private final List<FooterAction> footerActions = new ArrayList<>();
+    private final List<Button> footerButtons = new ArrayList<>();
     private Component status;
+    private long statusUntilMs = Long.MAX_VALUE;
     private boolean suppressBackground;
 
     protected int panelX, panelY, panelW, panelH;
@@ -49,6 +51,7 @@ public abstract class UiScreen extends Screen {
         panelW = panel.width();
         panelH = panel.height();
         footerActions.clear();
+        footerButtons.clear();
         status = null;
         initContent();
         layoutFooter();
@@ -69,9 +72,28 @@ public abstract class UiScreen extends Screen {
         footerActions.add(new FooterAction(label, onPress));
     }
 
-    /** Status line rendered at the left of the footer; null clears it. */
+    /** Persistent status line rendered at the left of the footer; null clears it. */
     protected void setStatus(Component status) {
         this.status = status;
+        this.statusUntilMs = Long.MAX_VALUE;
+    }
+
+    /**
+     * Transient status echo (issue #199/#201): shows for {@code millis} then
+     * reverts to no status — used for "Select a row first." style feedback.
+     * A later {@link #setStatus} call overrides it.
+     */
+    protected void echo(Component status, int millis) {
+        this.status = status;
+        this.statusUntilMs = System.currentTimeMillis() + Math.max(0, millis);
+    }
+
+    /**
+     * Footer buttons in {@link #addFooterAction} declaration order — screens
+     * toggle {@code .active} for pending/disabled states without a rebuild.
+     */
+    protected List<Button> footerButtons() {
+        return footerButtons;
     }
 
     private void layoutFooter() {
@@ -83,10 +105,15 @@ public abstract class UiScreen extends Screen {
             w = Math.min(w, x - contentLeft());
             if (w < 20) break;
             x -= w;
-            addRenderableWidget(Button.builder(action.label(), action.onPress())
-                    .bounds(x, by, w, UiTheme.BUTTON_H).build());
+            Button btn = Button.builder(action.label(), action.onPress())
+                    .bounds(x, by, w, UiTheme.BUTTON_H).build();
+            footerButtons.add(btn);
+            addRenderableWidget(btn);
             x -= UiTheme.PAD_S;
         }
+        // Declared order is left-to-right; layout produced right-to-left —
+        // restore declaration order for callers indexing footerButtons().
+        java.util.Collections.reverse(footerButtons);
     }
 
     // ---- geometry helpers for subclass content ----
@@ -125,6 +152,15 @@ public abstract class UiScreen extends Screen {
         super.renderBackground(graphics, mouseX, mouseY, partialTick);
     }
 
+    /** Called when a timed {@link #echo} clears — screens may restore a default status. */
+    protected void onStatusExpired() {}
+
+    /** Shared empty-state line, centered in the content band. */
+    protected void renderEmpty(GuiGraphics graphics, String message) {
+        graphics.drawCenteredString(this.font, "§7" + message,
+                panelX + panelW / 2, contentTop() + UiTheme.PAD_M * 2, UiTheme.TEXT_MUTED);
+    }
+
     private void renderChrome(GuiGraphics graphics) {
         graphics.fill(panelX, panelY, panelX + panelW, panelY + panelH, UiTheme.SURFACE_BG);
         graphics.fill(panelX, panelY, panelX + panelW, panelY + UiTheme.HEADER_H, UiTheme.SURFACE_HEADER);
@@ -134,6 +170,10 @@ public abstract class UiScreen extends Screen {
                 panelY + UiTheme.HEADER_H + 1, UiTheme.BORDER);
         int ft = footerTop();
         graphics.fill(panelX, ft, panelX + panelW, ft + 1, UiTheme.BORDER);
+        if (status != null && System.currentTimeMillis() >= statusUntilMs) {
+            status = null; // echo expired
+            onStatusExpired();
+        }
         if (status != null) {
             graphics.drawString(this.font, status, contentLeft(),
                     ft + (UiTheme.FOOTER_H - 8) / 2 + 1, UiTheme.TEXT_MUTED);
