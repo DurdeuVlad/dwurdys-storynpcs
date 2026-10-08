@@ -85,3 +85,14 @@ Workload design, for honesty:
 - `./gradlew test` — green; fixture suite: 1,207 cases, 41 probes, 0 failed.
 - `release_gate.py` — `benchmark_artifacts` PASS; overall gate BLOCKED only
   by legitimate open work (M10 issues, P11-3, target-runtime evidence).
+
+## Release-gate reference (#192)
+
+`release_gate.py` now carries a `live_benchmark_artifacts` check that loads
+`benchmark-live-{population,siege,stress}.json`, verifies each records live
+MSPT p50/p95/p99 plus Minecraft/NeoForge environment details, and surfaces
+recorded `LIVE_RUNTIME_FAIL` threshold results as findings. Current honest
+state: siege `LIVE_RUNTIME_PASS` (p99 43.5 ms); population `LIVE_RUNTIME_FAIL`
+(p99 50.9 ms); stress `LIVE_RUNTIME_FAIL` (p50 53.0 ms) — the gate reports
+FAIL on this check because the live evidence is present and records those
+misses, alongside the still-BLOCKED target-parity checks.

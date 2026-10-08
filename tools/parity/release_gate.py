@@ -462,6 +462,50 @@ def run_gate(root: Path) -> dict[str, Any]:
         "pass": not bench_findings, "findings": bench_findings, "detail": bench_detail,
     }
 
+    # Live-runtime benchmark evidence (#192): the real-NeoForge dedicated-server
+    # GameTest runs that replace HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED. Presence
+    # of recorded live MSPT + environment is the evidence; a recorded
+    # LIVE_RUNTIME_FAIL still surfaces as a finding — honest evidence includes
+    # failing measurements.
+    live_findings = []
+    live_detail = {}
+    for scenario in REQUIRED_BENCHMARKS:
+        path = parity / "reports" / f"benchmark-live-{scenario}.json"
+        if not path.exists():
+            live_findings.append(f"benchmark-live-{scenario}.json missing")
+            continue
+        artifact = load_json(path)
+        metrics = artifact.get("metrics", {})
+        environment = artifact.get("environment", {})
+        if any(not isinstance(metrics.get(k), (int, float))
+               for k in ("msptP50", "msptP95", "msptP99")):
+            live_findings.append(f"{scenario}: live MSPT p50/p95/p99 not recorded")
+        if not environment.get("minecraftVersion") or not environment.get("neoforgeVersion"):
+            live_findings.append(f"{scenario}: live environment not recorded")
+        cert_state = artifact.get("certification_state")
+        if not isinstance(cert_state, str) or not cert_state.startswith("LIVE_RUNTIME"):
+            live_findings.append(
+                f"{scenario}: not live-runtime evidence "
+                f"({cert_state!r} — expected LIVE_RUNTIME_*)")
+        failed = [c for c in artifact.get("threshold_results", []) if not c.get("pass")]
+        if failed:
+            live_findings.append(
+                f"{scenario}: {len(failed)} live threshold check(s) failed "
+                f"(certification_state={cert_state})")
+        live_detail[scenario] = {
+            "certification_state": cert_state,
+            "npc_count": artifact.get("workload", {}).get("npcCount"),
+            "mspt_p50": metrics.get("msptP50"),
+            "mspt_p95": metrics.get("msptP95"),
+            "mspt_p99": metrics.get("msptP99"),
+            "minecraft": environment.get("minecraftVersion"),
+            "neoforge": environment.get("neoforgeVersion"),
+            "hardware": environment.get("hardwareProfile"),
+        }
+    checks["live_benchmark_artifacts"] = {
+        "pass": not live_findings, "findings": live_findings, "detail": live_detail,
+    }
+
     hard_failures = [name for name, check in checks.items()
                      if not check["pass"] and not check.get("blocked", False)]
     blocked_checks = [name for name, check in checks.items() if check.get("blocked", False)]
