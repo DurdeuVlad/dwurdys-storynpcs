@@ -111,6 +111,17 @@ public final class NpcRulesScreenModel {
     public void cycleStanding(int dir) { standingIdx = Math.floorMod(standingIdx + dir, STANDINGS.length); }
     public void cycleStance(int dir) { stanceIdx = Math.floorMod(stanceIdx + dir, STANCES.length); }
 
+    public String getCondFaction() { return condFaction; }
+    public String getCondThreshold() { return condThreshold; }
+    public String getActText() { return actText; }
+    public String getActAmount() { return actAmount; }
+    public String getActRadius() { return actRadius; }
+    public String getActMessage() { return actMessage; }
+    public String getActFraction() { return actFraction; }
+    public String getActDialogue() { return actDialogue; }
+    public String getActFaction() { return actFaction; }
+    public String getActDelta() { return actDelta; }
+
     public void setCondFaction(String v) { condFaction = v; }
     public void setCondThreshold(String v) { condThreshold = v; }
     public void setActText(String v) { actText = v; }
@@ -135,6 +146,11 @@ public final class NpcRulesScreenModel {
     public boolean condNeedsThreshold() {
         String c = CONDITIONS[condIdx];
         return "health_percent".equals(c) || "strike_count".equals(c);
+    }
+
+    /** strike_count parses an int; health_percent accepts a fraction. */
+    public boolean condIdxUsesWholeNumber() {
+        return "strike_count".equals(CONDITIONS[condIdx]);
     }
 
     public boolean actNeedsText() { return "send_message".equals(ACTIONS[actionIdx]); }

@@ -62,9 +62,14 @@ public class NpcDisplayScreen extends UiScreen {
         saveRequestId.acknowledge(requestId);
     }
 
+    private String lastEchoed;
+
     private void syncStatus() {
-        if (!model.getStatusMessage().isEmpty()) {
-            echo(Component.literal(model.getStatusMessage())
+        String msg = model.getStatusMessage();
+        // Rebuilds re-run initContent — don't replay an identical echo.
+        if (!msg.isEmpty() && !msg.equals(lastEchoed)) {
+            lastEchoed = msg;
+            echo(Component.literal(msg)
                     .withColor(model.isStatusError() ? UiTheme.DANGER : UiTheme.TEXT), 4000);
         }
     }
@@ -227,8 +232,12 @@ public class NpcDisplayScreen extends UiScreen {
     }
 
     private void sendSave(String pendingMessage) {
-        model.setStatus(pendingMessage, false);
         NpcDefinition def = model.getNpc();
+        if (def.getId() == null) {
+            model.setStatus("Cannot save — NPC has no id.", true);
+            return;
+        }
+        model.setStatus(pendingMessage, false);
         String submittedJson = NpcDefinitionSerde.toJson(def);
         UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundNpcSavePayload(

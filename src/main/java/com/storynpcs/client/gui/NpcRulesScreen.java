@@ -38,8 +38,11 @@ public class NpcRulesScreen extends UiScreen {
     private final SelectionModel<Integer> selection = new SelectionModel<>();
     private final ScrollState scroll = new ScrollState();
     private SelectableList<RuleRow, Integer> ruleList;
-    private boolean armedRemove = false;
+    /** Armed remove is bound to a specific rule index, not a bare flag —
+        clicking a different row re-arms for that row. */
+    private int armedRule = -1;
     private EditBox filterField;
+    private boolean filterHadFocus;
     private long expectedRevision;
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
     private final List<FormRow> argRows = new ArrayList<>();
@@ -69,10 +72,15 @@ public class NpcRulesScreen extends UiScreen {
         saveRequestId.acknowledge(requestId);
     }
 
+    private String lastEchoed;
+
     private void syncStatus() {
-        if (!model.getStatusMessage().isEmpty()) {
-            // Transient echo — the base help line restores after it expires.
-            echo(Component.literal(model.getStatusMessage())
+        String msg = model.getStatusMessage();
+        // Transient echo — the base help line restores after it expires.
+        // Rebuilds re-run initContent — don't replay an identical echo.
+        if (!msg.isEmpty() && !msg.equals(lastEchoed)) {
+            lastEchoed = msg;
+            echo(Component.literal(msg)
                     .withColor(model.isStatusError() ? UiTheme.DANGER : UiTheme.TEXT), 4000);
         }
     }
@@ -96,14 +104,16 @@ public class NpcRulesScreen extends UiScreen {
         filterField.setHint(Component.literal("filter…"));
         filterField.setMaxLength(48);
         filterField.setValue(model.getListFilter());
-        if (!model.getListFilter().isEmpty()) {
+        if (filterHadFocus || !model.getListFilter().isEmpty()) {
             filterField.setFocused(true);
             this.setFocused(filterField);
             filterField.moveCursorToEnd(false);
         }
         filterField.setResponder(v -> {
+            // A keystroke implies focus — remember it so rebuilds keep it.
+            filterHadFocus = true;
             model.setListFilter(v);
-            armedRemove = false;
+            armedRule = -1;
             refreshRules();
         });
         addRenderableWidget(filterField);
@@ -118,21 +128,26 @@ public class NpcRulesScreen extends UiScreen {
 
         addFooterAction(Component.literal("+ Add Rule"), b -> {
             model.beginAdd();
-            armedRemove = false;
+            armedRule = -1;
             rebuildWidgets();
         });
-        addFooterAction(Component.literal(armedRemove ? "Sure?" : "Remove"), b -> {
+        addFooterAction(Component.literal(armedRule >= 0 ? "Sure?" : "Remove"), b -> {
             RuleRow row = ruleList.selectedRow();
             if (row == null) {
+                if (armedRule >= 0) {
+                    // Clear the stale "Sure?" label — nothing is selected.
+                    armedRule = -1;
+                    rebuildWidgets();
+                }
                 echo(Component.literal("Select a rule first."), 1600);
                 return;
             }
-            if (!armedRemove) {
-                armedRemove = true;
+            if (armedRule != row.ruleIndex()) {
+                armedRule = row.ruleIndex();
                 rebuildWidgets();
                 return;
             }
-            armedRemove = false;
+            armedRule = -1;
             String err = model.removeRule(row.ruleIndex());
             if (err == null) {
                 sendSave("Removing rule...");
@@ -165,7 +180,7 @@ public class NpcRulesScreen extends UiScreen {
         int y = contentTop();
         int pickW = Math.min(150, contentWidth() * 2 / 5);
         int argX = contentLeft() + pickW + UiTheme.PAD_M;
-        int argW = contentRight() - argX;
+        int argW = Math.max(40, contentRight() - argX);
 
         addRenderableWidget(cycleBtn("Trigger: " + NpcRulesScreenModel.TRIGGERS[model.getTriggerIdx()],
                 contentLeft(), y, pickW, () -> model.cycleTrigger(1)));
@@ -174,46 +189,59 @@ public class NpcRulesScreen extends UiScreen {
         addRenderableWidget(cycleBtn("If: " + NpcRulesScreenModel.CONDITIONS[model.getCondIdx()],
                 contentLeft(), y, pickW, () -> { model.cycleCondition(1); rebuildWidgets(); }));
 
+        int argFieldX = argX;
+        int argFieldW = argW;
+        // faction_standing needs its standing picker *beside* the faction
+        // field, not on top of it — offset the field right of the button.
+        if (model.condNeedsStanding()) {
+            int standingW = Math.min(90, argW);
+            addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANDINGS[model.getStandingIdx()],
+                    argX, y, standingW, () -> model.cycleStanding(1)));
+            argFieldX = argX + standingW + UiTheme.PAD_XS;
+            argFieldW = Math.max(40, argW - standingW - UiTheme.PAD_XS);
+        }
         if (model.condNeedsFaction()) {
-            argRows.add(argRow(argX, y, argW, "faction id", model::setCondFaction,
+            argRows.add(argRow(argFieldX, y, argFieldW, "faction id",
+                    model::getCondFaction, model::setCondFaction,
                     FieldValidator.all(FieldValidator.required("faction id"),
                             FieldValidator.namespacedId())));
-        }
-        if (model.condNeedsStanding()) {
-            addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANDINGS[model.getStandingIdx()],
-                    argX, y, Math.min(90, argW), () -> model.cycleStanding(1)));
         }
         if (model.condNeedsThreshold()) {
             addRenderableWidget(cycleBtn(NpcRulesScreenModel.OPERATORS[model.getCondOpIdx()],
                     argX, y, 30, () -> model.cycleCondOp(1)));
-            argRows.add(argRow(argX + 34, y, argW - 34, "value", model::setCondThreshold,
-                    number(true)));
+            argRows.add(argRow(argX + 34, y, Math.max(40, argW - 34), "value",
+                    model::getCondThreshold, model::setCondThreshold,
+                    number(true, model.condIdxUsesWholeNumber())));
         }
-        y += UiTheme.ROW_H + UiTheme.PAD_S;
+        // Leave room beneath the If row for a FormRow error line (~9px).
+        y += UiTheme.ROW_H + 10;
 
         addRenderableWidget(cycleBtn("Do: " + NpcRulesScreenModel.ACTIONS[model.getActionIdx()],
                 contentLeft(), y, pickW, () -> { model.cycleAction(1); rebuildWidgets(); }));
 
         if (model.actNeedsText()) {
-            argRows.add(argRow(argX, y, argW, "message text", model::setActText,
+            argRows.add(argRow(argX, y, argW, "message text",
+                    model::getActText, model::setActText,
                     FieldValidator.required("message text")));
         }
         if (model.actNeedsAmount()) {
-            argRows.add(argRow(argX, y, argW, "amount (def 100)", model::setActAmount,
-                    number(false)));
+            argRows.add(argRow(argX, y, argW, "amount (def 100)",
+                    model::getActAmount, model::setActAmount, number(false, false)));
         }
         if (model.actNeedsRadiusMessage()) {
             int half = (argW - UiTheme.PAD_S) / 2;
-            argRows.add(argRow(argX, y, half, "radius", model::setActRadius, number(false)));
+            argRows.add(argRow(argX, y, half, "radius",
+                    model::getActRadius, model::setActRadius, number(false, false)));
             argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "alert message",
-                    model::setActMessage, FieldValidator.required("alert message")));
+                    model::getActMessage, model::setActMessage,
+                    FieldValidator.required("alert message")));
         }
         if (model.actNeedsFractionDialogue()) {
             int half = (argW - UiTheme.PAD_S) / 2;
-            argRows.add(argRow(argX, y, half, "heal frac (0.5)", model::setActFraction,
-                    number(false)));
+            argRows.add(argRow(argX, y, half, "heal frac (0.5)",
+                    model::getActFraction, model::setActFraction, number(false, false)));
             argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "yield line",
-                    model::setActDialogue));
+                    model::getActDialogue, model::setActDialogue));
         }
         if (model.actNeedsStance()) {
             addRenderableWidget(cycleBtn(NpcRulesScreenModel.STANCES[model.getStanceIdx()],
@@ -221,11 +249,12 @@ public class NpcRulesScreen extends UiScreen {
         }
         if (model.actNeedsFactionDelta()) {
             int half = (argW - UiTheme.PAD_S) / 2;
-            argRows.add(argRow(argX, y, half, "faction id", model::setActFaction,
+            argRows.add(argRow(argX, y, half, "faction id",
+                    model::getActFaction, model::setActFaction,
                     FieldValidator.all(FieldValidator.required("faction id"),
                             FieldValidator.namespacedId())));
             argRows.add(argRow(argX + half + UiTheme.PAD_S, y, half, "delta",
-                    model::setActDelta, number(true)));
+                    model::getActDelta, model::setActDelta, number(true, true)));
         }
 
         addFooterAction(Component.literal("Add & Save"), b -> {
@@ -254,18 +283,24 @@ public class NpcRulesScreen extends UiScreen {
     }
 
     private FormRow argRow(int x, int y, int w, String hint,
+                           java.util.function.Supplier<String> seed,
                            java.util.function.Consumer<String> responder) {
-        return argRow(x, y, w, hint, responder, v -> null);
+        return argRow(x, y, w, hint, seed, responder, v -> null);
     }
 
     private FormRow argRow(int x, int y, int w, String hint,
+                           java.util.function.Supplier<String> seed,
                            java.util.function.Consumer<String> responder,
                            FieldValidator check) {
         FormRow row = new FormRow(this.font, Component.empty(), Component.literal(hint));
         row.editBox().setMaxLength(96);
-        // The model owns the value; commitAdd remains the authoritative gate.
+        // Seed from the model first — rebuilds (picker cycle, resize, failed
+        // commit) recreate the widget, and an un-seeded row would clobber the
+        // typed value back into the model when the validator fires.
+        row.setValue(seed.get());
         // Sync through the validator slot — overriding the EditBox responder
-        // would detach FormRow's per-edit validation.
+        // would detach FormRow's per-edit validation. commitAdd remains the
+        // authoritative gate (ranges, blank defaults).
         row.setValidator(v -> { responder.accept(v); return check.validate(v); });
         row.layout(x, y, w, 0);
         addRenderableWidget(row.editBox());
@@ -273,16 +308,20 @@ public class NpcRulesScreen extends UiScreen {
     }
 
     /** Numeric check mirroring the model's parse* paths; blank may be legal. */
-    private static FieldValidator number(boolean required) {
+    private static FieldValidator number(boolean required, boolean whole) {
         return v -> {
             if (v == null || v.isBlank()) {
                 return required ? "Number required" : null;
             }
             try {
-                Double.parseDouble(v.trim());
+                if (whole) {
+                    Integer.parseInt(v.trim());
+                } else {
+                    Double.parseDouble(v.trim());
+                }
                 return null;
             } catch (NumberFormatException e) {
-                return "Not a number";
+                return whole ? "Not a whole number" : "Not a number";
             }
         };
     }
@@ -295,8 +334,12 @@ public class NpcRulesScreen extends UiScreen {
     // ── Save plumbing (same payload as the NPC editor — saveNpc path) ───────
 
     private void sendSave(String pendingMessage) {
-        model.setStatus(pendingMessage, false);
         NpcDefinition def = model.getNpc();
+        if (def.getId() == null) {
+            model.setStatus("Cannot save — NPC has no id.", true);
+            return;
+        }
+        model.setStatus(pendingMessage, false);
         String submittedJson = NpcDefinitionSerde.toJson(def);
         UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundNpcSavePayload(

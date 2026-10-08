@@ -42,6 +42,12 @@ public class NpcEditorScreen extends UiScreen {
     private NpcAi.MovementType currentMovement;
     private TacticalStance currentStance;
 
+    /** Field text survives rebuilds (window resize re-runs init()); applied
+        to the definition only via saveCurrentState on commit/navigation. */
+    private final java.util.Map<String, String> draft = new java.util.HashMap<>();
+    /** Bottom of the right column — abilities summary hides when it would collide. */
+    private int rightColumnBottomY;
+
     private long expectedRevision;
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
 
@@ -90,12 +96,17 @@ public class NpcEditorScreen extends UiScreen {
         // generated name echoes in the save-result message.
         addRenderableWidget(Button.builder(Component.literal("🎲"), b -> {
             saveCurrentState();
+            String npcId = npcId();
+            if (npcId == null) {
+                echo(Component.literal("Cannot save — NPC has no id.")
+                        .withColor(UiTheme.DANGER), 3000);
+                return;
+            }
             overrideStatus(Component.literal("Randomizing name...").withColor(UiTheme.ACCENT));
             String submittedJson = NpcDefinitionSerde.toJson(definition);
             UUID requestId = saveRequestId.forPayload(submittedJson);
             PacketDistributor.sendToServer(new ServerboundNpcSavePayload(
-                    definition.getId().toString(), submittedJson,
-                    expectedRevision, requestId, "*"));
+                    npcId, submittedJson, expectedRevision, requestId, "*"));
         }).bounds(leftX + colW - 44, y + LABEL_H + 1, 44, UiTheme.BUTTON_H).build());
 
         y += FIELD_PITCH;
@@ -194,14 +205,26 @@ public class NpcEditorScreen extends UiScreen {
             }
         }).bounds(rightX, y, colW, UiTheme.BUTTON_H).build());
 
+        rightColumnBottomY = y + UiTheme.BUTTON_H;
+
         // ── Footer actions (D4: adaptive right-aligned row, no fixed crowding)
         addFooterAction(Component.literal("Save Changes"), b -> {
-            saveCurrentState();
-            overrideStatus(Component.literal("Saving...").withColor(UiTheme.ACCENT));
+            String warning = saveCurrentState();
+            String npcId = npcId();
+            if (npcId == null) {
+                echo(Component.literal("Cannot save — NPC has no id.")
+                        .withColor(UiTheme.DANGER), 3000);
+                return;
+            }
+            if (warning != null) {
+                echo(Component.literal(warning).withColor(UiTheme.DANGER), 4000);
+            } else {
+                overrideStatus(Component.literal("Saving...").withColor(UiTheme.ACCENT));
+            }
             String submittedJson = NpcDefinitionSerde.toJson(definition);
             UUID requestId = saveRequestId.forPayload(submittedJson);
             PacketDistributor.sendToServer(new ServerboundNpcSavePayload(
-                    definition.getId().toString(), submittedJson, expectedRevision, requestId));
+                    npcId, submittedJson, expectedRevision, requestId));
         });
         addFooterAction(Component.literal("Despawn NPC"), b -> {
             if (Minecraft.getInstance().player != null && definition.getId() != null) {
@@ -212,17 +235,24 @@ public class NpcEditorScreen extends UiScreen {
         addFooterAction(Component.literal("Close"), b -> this.onClose());
     }
 
+    private String npcId() {
+        return definition.getId() != null ? definition.getId().toString() : null;
+    }
+
     private EditBox field(int x, int y, int w, String label, String value, int maxLength) {
         // The label renders in renderContent via the row's y — drawn once, not per widget.
         EditBox box = new EditBox(this.font, x, y + LABEL_H + 1, Math.max(20, w),
                 UiTheme.BUTTON_H, Component.literal(label));
         box.setMaxLength(maxLength);
-        box.setValue(value);
+        // Draft wins over the definition — resize rebuilds must not lose typing.
+        box.setValue(draft.getOrDefault(label, value));
+        box.setResponder(v -> draft.put(label, v));
         addRenderableWidget(box);
         return box;
     }
 
-    private void saveCurrentState() {
+    /** @return a user-facing warning for the first rejected field, or null. */
+    private String saveCurrentState() {
         if (definition.getDisplay() == null) definition.setDisplay(new com.storynpcs.domain.npc.NpcDisplay());
         if (definition.getStats() == null) definition.setStats(new com.storynpcs.domain.npc.NpcStats());
         if (definition.getAi() == null) definition.setAi(new com.storynpcs.domain.npc.NpcAi());
@@ -231,33 +261,45 @@ public class NpcEditorScreen extends UiScreen {
         definition.getDisplay().setTitle(titleField.getValue().trim());
         definition.getDisplay().setSkinTexture(skinField.getValue().trim());
 
+        String warning = null;
         String fac = factionField.getValue().trim();
         if (!fac.isEmpty()) {
             try {
                 definition.setFactionId(NamespacedId.of(fac));
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                warning = "Ignored invalid Faction ID — kept previous value.";
+            }
         } else {
             definition.setFactionId(null);
         }
 
         try {
             definition.getStats().setMaxHealth(Math.max(1.0, Double.parseDouble(healthField.getValue().trim())));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            if (warning == null) warning = "Ignored invalid Health — kept previous value.";
+        }
 
         try {
             definition.getStats().setAttackDamage(Math.max(0.0, Double.parseDouble(damageField.getValue().trim())));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            if (warning == null) warning = "Ignored invalid Damage — kept previous value.";
+        }
 
         try {
             definition.getStats().setMovementSpeed(Math.max(0.01, Double.parseDouble(speedField.getValue().trim())));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            if (warning == null) warning = "Ignored invalid Speed — kept previous value.";
+        }
 
         try {
             definition.getAi().setWalkingRange(Math.max(0, Integer.parseInt(rangeField.getValue().trim())));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            if (warning == null) warning = "Ignored invalid Range — kept previous value.";
+        }
 
         definition.getAi().setMovementType(currentMovement);
         definition.getAi().setTacticalStance(currentStance);
+        return warning;
     }
 
     @Override
@@ -287,6 +329,11 @@ public class NpcEditorScreen extends UiScreen {
                         .map(a -> a.getType() != null ? a.getType().name() : "?")
                         .collect(java.util.stream.Collectors.joining(", "));
         int abilitiesY = contentBottom() - 18;
+        // At short windows the summary would collide with the column — drop
+        // it rather than overdraw the dialogue button or the footer.
+        if (abilitiesY < rightColumnBottomY + UiTheme.PAD_S) {
+            return;
+        }
         label(g, rightX, abilitiesY, "Abilities");
         g.drawString(this.font, this.font.plainSubstrByWidth("§f" + abilityLine, colW),
                 rightX, abilitiesY + LABEL_H + 2, UiTheme.TEXT);
