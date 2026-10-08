@@ -34,6 +34,7 @@ public final class FormRow {
         this.font = font;
         this.label = label;
         this.editBox = new EditBox(font, 0, 0, 0, UiTheme.BUTTON_H, placeholder);
+        this.editBox.setHint(placeholder);
         this.editBox.setResponder(value -> validate());
     }
 
@@ -58,7 +59,8 @@ public final class FormRow {
     /**
      * Positions the row: label at (x, y) with {@code labelWidth}, the field
      * filling the remaining width, the error line directly beneath the field.
-     * Returns the y where the next row can start.
+     * Returns the y where the next row can start — the error line is part of
+     * the row's occupied space, so stacked rows never overlap it.
      */
     public int layout(int x, int y, int width, int labelWidth) {
         this.x = x;
@@ -69,7 +71,15 @@ public final class FormRow {
         editBox.setX(fx);
         editBox.setY(y - 2);
         editBox.setWidth(Math.max(20, x + width - fx));
-        return y + UiTheme.ROW_H + UiTheme.PAD_XS;
+        // setValue before layout ran with width 0, which clamps the scroll
+        // offset (displayPos) to the text end — the seeded value would render
+        // as blank. Re-clamping with the real width restores the scroll.
+        if (!editBox.isFocused()) {
+            editBox.moveCursorToEnd(false);
+        }
+        // field bottom + 9px error line + small gap
+        return editBox.getY() + editBox.getHeight() + font.lineHeight + 1
+                + UiTheme.PAD_XS;
     }
 
     public void render(GuiGraphics graphics, int mouseX, int mouseY) {

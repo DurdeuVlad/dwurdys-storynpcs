@@ -1,10 +1,14 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.ScrollState;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.editor.hub.AuthoringHub;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
@@ -16,40 +20,77 @@ import java.util.List;
  * routes — editor screens arrive as server payloads after the matching
  * command; YAML/tool surfaces give the exact command or family path.
  * Server-authoritative: the hub never fabricates editor state client-side.
+ *
+ * <p>Migrated onto the shared chrome (#207): framed surface instead of an
+ * opaque full-screen fill, the list is a {@link SelectableList} keyed by the
+ * {@link AuthoringHub.Panel} enum, and feedback echoes ride the footer line.
+ * Up/Down/Tab cycle the page, Enter dispatches the first command route,
+ * PageUp/PageDown flip pages — same keyboard contract as before.
  */
-public class AuthoringHubScreen extends Screen {
+public class AuthoringHubScreen extends UiScreen {
 
-    private static final int ROW_H = 14;
-    private static final int LIST_X = 10;
-    private static final int LIST_Y = 56;
-    private static final int DETAIL_X = 170;
+    private static final int LIST_W = 150;
+    private static final int PAGE_ROW_H = UiTheme.BUTTON_H + 4;
 
     private final AuthoringHub hub = new AuthoringHub();
+    private final SelectionModel<AuthoringHub.Panel> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
     private EditBox searchBox;
+    private SelectableList<AuthoringHub.Panel, AuthoringHub.Panel> panelList;
     private List<AuthoringHub.Panel> filtered = List.of(AuthoringHub.Panel.values());
     private int page;
-    private String statusLine = "";
+    private String lastQuery = "";
+    private boolean searchHadFocus;
 
     public AuthoringHubScreen() {
-        super(Component.literal("StoryNPCs Authoring Hub"));
+        super(Component.literal("StoryNPCs — Authoring Hub"));
     }
 
     @Override
-    protected void init() {
-        super.init();
-        searchBox = new EditBox(this.font, LIST_X, 10, 140, 16, Component.literal("Search"));
+    protected void initContent() {
+        searchBox = new EditBox(this.font, contentLeft(), contentTop(), LIST_W,
+                UiTheme.BUTTON_H, Component.literal("Search"));
         searchBox.setHint(Component.literal("Search panels..."));
-        searchBox.setResponder(v -> { page = 0; refilter(); });
-        this.addRenderableWidget(searchBox);
+        // Seed before the responder attaches — init() rebuilds (resize) must
+        // not silently reset a live filter.
+        searchBox.setValue(lastQuery);
+        if (searchHadFocus) {
+            searchBox.setFocused(true);
+            this.setFocused(searchBox);
+        }
+        searchBox.setResponder(v -> {
+            searchHadFocus = true;
+            lastQuery = v;
+            page = 0;
+            refilter();
+        });
+        addRenderableWidget(searchBox);
 
-        this.addRenderableWidget(Button.builder(Component.literal("<"), b -> {
-            if (page > 0) { page--; }
-        }).bounds(LIST_X, height - 24, 20, 16).build());
-        this.addRenderableWidget(Button.builder(Component.literal(">"), b -> {
-            if (page < pageCount() - 1) { page++; }
-        }).bounds(LIST_X + 24, height - 24, 20, 16).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(width - 60, height - 24, 54, 16).build());
+        int listTop = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
+        int listBottom = contentBottom() - PAGE_ROW_H;
+        panelList = new SelectableList<>(contentLeft(), listTop, LIST_W,
+                Math.max(1, listBottom - listTop), UiTheme.ROW_H,
+                p -> p, p -> Component.literal(p.name().replace('_', ' ')),
+                selection, scroll);
+        panelList.setOnSelect(p -> hub.open(p, null));
+        panelList.setOnActivate(p -> dispatchSelected());
+        addRenderableWidget(panelList);
+
+        // Page controls under the list column. Rebuild on flip so the
+        // disabled-state affordance tracks the bounds.
+        int navY = contentBottom() - UiTheme.BUTTON_H;
+        Button prevBtn = Button.builder(Component.literal("<"), b -> gotoPage(page - 1))
+                .bounds(contentLeft(), navY, 20, UiTheme.BUTTON_H).build();
+        prevBtn.active = page > 0;
+        addRenderableWidget(prevBtn);
+        Button nextBtn = Button.builder(Component.literal(">"), b -> gotoPage(page + 1))
+                .bounds(contentLeft() + 24, navY, 20, UiTheme.BUTTON_H).build();
+        nextBtn.active = page < pageCount() - 1;
+        addRenderableWidget(nextBtn);
+
+        addFooterAction(Component.literal("Close"), b -> onClose());
+        setStatus(Component.literal("Enter opens the first command route — arrows cycle.")
+                .withColor(UiTheme.TEXT_MUTED));
         refilter();
     }
 
@@ -60,10 +101,24 @@ public class AuthoringHubScreen extends Screen {
         if (!filtered.contains(hub.state().panel()) && !filtered.isEmpty()) {
             hub.open(filtered.get(0), null);
         }
+        refreshRows();
+    }
+
+    private void gotoPage(int target) {
+        if (target == page || target < 0 || target >= pageCount()) return;
+        page = target;
+        rebuildWidgets();
+    }
+
+    private void refreshRows() {
+        List<AuthoringHub.Panel> visible = AuthoringHub.page(filtered, page, rowsPerPage());
+        panelList.setRows(visible);
+        selection.select(hub.state().panel());
     }
 
     private int rowsPerPage() {
-        int fit = (height - LIST_Y - 34) / ROW_H;
+        int fit = (contentBottom() - contentTop() - UiTheme.BUTTON_H - UiTheme.PAD_M - PAGE_ROW_H)
+                / UiTheme.ROW_H;
         return Math.max(1, Math.min(fit, 12));
     }
 
@@ -72,107 +127,74 @@ public class AuthoringHubScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // Screen#render runs the menu-blur post-process over whatever is
-        // already in the framebuffer — background first, custom content next,
-        // widgets last, or the hub lists are blurred while buttons stay
-        // sharp (#197).
-        this.renderBackground(graphics, mouseX, mouseY, partialTick);
-        graphics.fill(0, 0, width, height, 0xFF101418);
-        graphics.drawString(this.font, "StoryNPCs — Authoring Hub", LIST_X, 32, 0xFF38BDF8, false);
-
-        int perPage = rowsPerPage();
-        List<AuthoringHub.Panel> visible = AuthoringHub.page(filtered, page, perPage);
-        int y = LIST_Y;
-        for (AuthoringHub.Panel p : visible) {
-            boolean sel = p == hub.state().panel();
-            if (sel) {
-                graphics.fill(LIST_X - 2, y - 1, LIST_X + 148, y + 11, 0x3338BDF8);
-            }
-            graphics.drawString(this.font, (sel ? "> " : "  ")
-                            + p.name().replace('_', ' '),
-                    LIST_X, y + 2, sel ? 0xFF38BDF8 : 0xFFCBD5E1, false);
-            y += ROW_H;
-        }
-        graphics.drawString(this.font,
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        // Page indicator under the list, beside the < > buttons.
+        g.drawString(this.font,
                 "page " + (page + 1) + "/" + pageCount() + "  (" + filtered.size() + " panels)",
-                LIST_X + 50, height - 20, 0xFF64748B, false);
+                contentLeft() + 50, contentBottom() - UiTheme.BUTTON_H + 3, UiTheme.TEXT_MUTED);
 
-        // Detail pane — routes for the selected panel
+        // Detail pane — routes for the selected panel.
+        int detailX = contentLeft() + LIST_W + UiTheme.PAD_L;
+        int detailW = Math.max(40, contentRight() - detailX);
+        if (filtered.isEmpty()) {
+            renderEmpty(g, "No panels match the search.");
+            return;
+        }
         AuthoringHub.Panel sel = hub.state().panel();
-        graphics.drawString(this.font, sel.name().replace('_', ' '), DETAIL_X, LIST_Y, 0xFF38BDF8, false);
-        graphics.drawString(this.font,
-                this.font.plainSubstrByWidth(AuthoringHub.preview(sel), width - DETAIL_X - 12),
-                DETAIL_X, LIST_Y + 11, 0xFF94A3B8, false);
-        int dy = LIST_Y + 26;
+        int dy = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
+        g.drawString(this.font, "§b" + sel.name().replace('_', ' '), detailX, dy, UiTheme.ACCENT);
+        dy += 12;
+        g.drawString(this.font,
+                this.font.plainSubstrByWidth(AuthoringHub.preview(sel), detailW),
+                detailX, dy, UiTheme.TEXT_MUTED);
+        dy += 16;
         for (AuthoringHub.Route route : AuthoringHub.routesFor(sel)) {
-            graphics.drawString(this.font,
-                    this.font.plainSubstrByWidth("• " + route.description(),
-                            width - DETAIL_X - 12),
-                    DETAIL_X, dy, 0xFFE2E8F0, false);
-            graphics.drawString(this.font,
+            if (dy > contentBottom() - 24) break;
+            g.drawString(this.font,
+                    this.font.plainSubstrByWidth("• " + route.description(), detailW),
+                    detailX, dy, UiTheme.TEXT);
+            g.drawString(this.font,
                     this.font.plainSubstrByWidth("   " + route.kind() + ": " + route.openPath(),
-                            width - DETAIL_X - 12),
-                    DETAIL_X, dy + 10, 0xFF94A3B8, false);
-            dy += 24;
-            if (dy > height - 50) break;
+                            detailW),
+                    detailX, dy + 9, UiTheme.TEXT_MUTED);
+            dy += 22;
         }
         // Diagnostics — schema-path + repair-hint errors reported to the hub.
         for (AuthoringHub.FieldError err : hub.errors()) {
-            if (dy > height - 40) break;
-            graphics.drawString(this.font,
+            if (dy > contentBottom() - 12) break;
+            g.drawString(this.font,
                     this.font.plainSubstrByWidth(
                             "⚠ " + err.schemaPath() + ": " + err.message()
                                     + " — " + err.repairHint(),
-                            width - DETAIL_X - 12),
-                    DETAIL_X, dy, 0xFFFCA5A5, false);
-            dy += 12;
-        }
-        if (!statusLine.isEmpty()) {
-            graphics.drawString(this.font,
-                    this.font.plainSubstrByWidth(statusLine, width - 16),
-                    DETAIL_X, height - 20, 0xFFFBBF24, false);
-        }
-        for (var renderable : this.renderables) {
-            renderable.render(graphics, mouseX, mouseY, partialTick);
+                            detailW),
+                    detailX, dy, UiTheme.DANGER);
+            dy += 11;
         }
     }
 
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int perPage = rowsPerPage();
-        List<AuthoringHub.Panel> visible = AuthoringHub.page(filtered, page, perPage);
-        if (mouseX >= LIST_X && mouseX <= LIST_X + 148 && mouseY >= LIST_Y) {
-            int idx = (int) ((mouseY - LIST_Y) / ROW_H);
-            if (idx >= 0 && idx < visible.size()) {
-                hub.open(visible.get(idx), null);
-                return true;
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    /** Up/down cycle the filtered list; Enter dispatches the first command route. */
+    /** Up/Down/Tab cycle the filtered list; Enter dispatches; PgUp/PgDn flip pages. */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (getFocused() == searchBox && keyCode != GLFW.GLFW_KEY_ENTER
-                && keyCode != GLFW.GLFW_KEY_DOWN && keyCode != GLFW.GLFW_KEY_UP) {
+                && keyCode != GLFW.GLFW_KEY_KP_ENTER
+                && keyCode != GLFW.GLFW_KEY_DOWN && keyCode != GLFW.GLFW_KEY_UP
+                && keyCode != GLFW.GLFW_KEY_PAGE_DOWN && keyCode != GLFW.GLFW_KEY_PAGE_UP) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
         if (keyCode == GLFW.GLFW_KEY_DOWN || keyCode == GLFW.GLFW_KEY_TAB) {
-            select(hub.cyclePanel(filtered, true));
+            moveSelection(hub.cyclePanel(filtered, true));
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_UP) {
-            select(hub.cyclePanel(filtered, false));
+            moveSelection(hub.cyclePanel(filtered, false));
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_PAGE_DOWN) {
-            if (page < pageCount() - 1) page++;
+            gotoPage(page + 1);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_PAGE_UP) {
-            if (page > 0) page--;
+            gotoPage(page - 1);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
@@ -182,11 +204,18 @@ public class AuthoringHubScreen extends Screen {
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    private void select(AuthoringHub.Panel panel) {
+    private void moveSelection(AuthoringHub.Panel panel) {
         hub.open(panel, null);
-        // Keep the selection visible on the current page.
+        // Keep the selection visible — flip the page the panel lives on.
         int idx = filtered.indexOf(panel);
-        if (idx >= 0) page = idx / rowsPerPage();
+        if (idx >= 0) {
+            int targetPage = idx / rowsPerPage();
+            if (targetPage != page) {
+                page = targetPage;
+                refreshRows();
+            }
+        }
+        selection.select(panel);
     }
 
     private void dispatchSelected() {
@@ -202,11 +231,15 @@ public class AuthoringHubScreen extends Screen {
                 if (this.minecraft != null && this.minecraft.player != null) {
                     // sendCommand expects the full root command without '/'.
                     this.minecraft.player.connection.sendCommand(cmd);
-                    statusLine = "Sent: /" + cmd;
+                    echo(Component.literal("Sent: /" + cmd).withColor(UiTheme.ACCENT), 3000);
                 }
                 return;
             }
         }
-        statusLine = "No direct command — follow the route hint.";
+        echo(Component.literal("No direct command — follow the route hint.")
+                .withColor(UiTheme.TEXT_MUTED), 3000);
     }
+
+    @Override
+    public boolean isPauseScreen() { return true; }
 }
