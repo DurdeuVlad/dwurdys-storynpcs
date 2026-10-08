@@ -4,7 +4,9 @@ package com.storynpcs.migration;
  * P11-1: declared import sources. Only explicitly supported formats are
  * accepted; everything else fails closed with a named reason instead of a
  * silent guess. The supplied CustomNPCs JAR is an engine artifact — creator
- * world NBT/binary formats stay UNSUPPORTED until real samples exist.
+ * world NBT/binary formats stay UNSUPPORTED until real samples exist. The
+ * text-export (SNBT clone) surface is verified by the corpus committed under
+ * {@code src/test/resources/fixtures/customnpcs/} (#194).
  */
 public record ImportSource(Kind kind, String sourceId, int formatVersion, String origin) {
 
@@ -17,7 +19,12 @@ public record ImportSource(Kind kind, String sourceId, int formatVersion, String
         TEMPLATE_PACKAGE,
         /** CustomNPCs world NBT / binary saves — no verified format evidence exists. */
         TARGET_WORLD_NBT,
-        /** CustomNPCs text export — no verified format evidence exists. */
+        /**
+         * CustomNPCs text export (SNBT clone files). #194: verified against a
+         * real export corpus ({@code src/test/resources/fixtures/customnpcs/}).
+         * Clone documents translate to {@code npc} definitions; dialogs/quests
+         * quarantine until their mapping is defined.
+         */
         CUSTOMNPCS_TEXT_EXPORT
     }
 
@@ -37,15 +44,15 @@ public record ImportSource(Kind kind, String sourceId, int formatVersion, String
 
     public static Support support(Kind kind) {
         return switch (kind) {
-            case STORYNPCS_YAML_PACKAGE, STORYNPCS_JSON_PACKAGE, TEMPLATE_PACKAGE -> Support.SUPPORTED;
-            case TARGET_WORLD_NBT, CUSTOMNPCS_TEXT_EXPORT -> Support.UNSUPPORTED_NEEDS_EVIDENCE;
+            case STORYNPCS_YAML_PACKAGE, STORYNPCS_JSON_PACKAGE, TEMPLATE_PACKAGE,
+                    CUSTOMNPCS_TEXT_EXPORT -> Support.SUPPORTED;
+            case TARGET_WORLD_NBT -> Support.UNSUPPORTED_NEEDS_EVIDENCE;
         };
     }
 
     public static String unsupportedReason(Kind kind) {
         return switch (kind) {
             case TARGET_WORLD_NBT -> "Target world NBT format is unverified — register records the source as needs-input until an export sample exists";
-            case CUSTOMNPCS_TEXT_EXPORT -> "CustomNPCs text export format is unverified — no sample corpus is available to define a mapping";
             default -> "supported";
         };
     }

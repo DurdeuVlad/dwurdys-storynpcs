@@ -13,8 +13,12 @@ creator world data:
 
 - `ImportSource`: explicit source kinds. `STORYNPCS_YAML_PACKAGE`,
   `STORYNPCS_JSON_PACKAGE`, `TEMPLATE_PACKAGE` are supported;
-  `TARGET_WORLD_NBT` / `CUSTOMNPCS_TEXT_EXPORT` are `UNSUPPORTED_NEEDS_EVIDENCE`
-  with named reasons — the register's needs-input state, honored.
+  `TARGET_WORLD_NBT` remains `UNSUPPORTED_NEEDS_EVIDENCE` with a named reason.
+  `CUSTOMNPCS_TEXT_EXPORT` became `SUPPORTED` in #194 — clone SNBT documents
+  translate to `npc` definitions (`CnpcTextExportTranslator`, verified against
+  the real corpus in `src/test/resources/fixtures/customnpcs/`); CNPC
+  `dialogs/`/`quests`/`*.dat` families quarantine with explicit re-scope
+  reasons.
 - `FieldMappingRegistry`: every top-level field classified
   `DIRECT` / `MIGRATED` / `UNSUPPORTED` / `UNKNOWN` / `ENVELOPE` with a
   `P0-1` evidence reference. `scripts`/`linkedData`/`scriptData` are reported

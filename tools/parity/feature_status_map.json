@@ -1662,7 +1662,8 @@
      "src/main/java/com/storynpcs/migration/DefinitionImporter.java",
      "src/main/java/com/storynpcs/migration/ImportPlan.java",
      "src/main/java/com/storynpcs/migration/ImportReport.java",
-     "src/main/java/com/storynpcs/migration/FieldMappingRegistry.java"
+     "src/main/java/com/storynpcs/migration/FieldMappingRegistry.java",
+     "src/main/java/com/storynpcs/migration/CnpcTextExportTranslator.java"
     ],
     "wired": [
      {
@@ -1672,7 +1673,8 @@
     ],
     "registered": [],
     "tests": [
-     "src/test/java/com/storynpcs/migration/MigrationImportTest.java"
+     "src/test/java/com/storynpcs/migration/MigrationImportTest.java",
+     "src/test/java/com/storynpcs/migration/CnpcTextExportImportTest.java"
     ],
     "absent": []
    }
