@@ -29,6 +29,13 @@ import java.util.UUID;
  */
 public class CustomGuiScreen extends UiScreen {
 
+    /** Authored panel fill — translucent dark so sibling panels blend rather
+     *  than occlude, tinted to the FIELD_BG tone. */
+    private static final int PANEL_FILL = 0x6610131A;
+    /** Unsupported-element placeholder fill — warning-tinted so it stays
+     *  visibly distinct from authored panels. */
+    private static final int UNSUPPORTED_FILL = 0x22FBBF24;
+
     private final CustomGuiLayout layout;
     private final CustomGuiScreenModel model;
     private final UUID sessionId;
@@ -52,17 +59,24 @@ public class CustomGuiScreen extends UiScreen {
         originX = contentLeft() + Math.max(0, (contentWidth() - extent[0]) / 2);
         originY = contentTop() + Math.max(0, (contentBottom() - contentTop() - extent[1]) / 2);
         inputBoxes.clear();
+        int clipped = 0;
         for (var e : model.entries()) {
-            int x = originX + e.absX();
-            int y = originY + e.absY();
             int w = Math.max(20, e.width());
             int h = Math.max(12, e.height());
             switch (e.type()) {
-                case "button" -> addRenderableWidget(Button.builder(
-                                resolveText(e), b -> commit(e.path()))
-                        .bounds(x, y, Math.min(w, 200), Math.min(h, 24)).build());
+                case "button" -> {
+                    int[] r = bandClamp(originX + e.absX(), originY + e.absY(),
+                            Math.min(w, 200), Math.min(h, 24));
+                    if (r == null) { clipped++; break; }
+                    addRenderableWidget(Button.builder(
+                                    resolveText(e), b -> commit(e.path()))
+                            .bounds(r[0], r[1], r[2], r[3]).build());
+                }
                 case "input" -> {
-                    var box = new EditBox(this.font, x, y, Math.min(w, 220), 14,
+                    int[] r = bandClamp(originX + e.absX(), originY + e.absY(),
+                            Math.min(w, 220), 14);
+                    if (r == null) { clipped++; break; }
+                    var box = new EditBox(this.font, r[0], r[1], r[2], r[3],
                             resolveText(e));
                     box.setMaxLength(128);
                     box.setResponder(v -> model.setInputValue(e.path(), v));
@@ -72,8 +86,24 @@ public class CustomGuiScreen extends UiScreen {
                 default -> { }
             }
         }
-        setStatus(Component.literal(model.entries().size() + " element(s)"));
+        setStatus(Component.literal(Math.max(0, model.entries().size() - 1) + " element(s)"
+                + (clipped > 0 ? ", " + clipped + " clipped" : "")));
         addFooterAction(Component.literal("Close"), b -> onClose());
+    }
+
+    /**
+     * Intersects an authored rect with the content band — widgets are
+     * scissored for drawing but vanilla hit-tests use widget bounds, so the
+     * only honest containment is to clamp the widget itself. Fully outside
+     * returns null (the element is skipped, counted as clipped).
+     */
+    private int[] bandClamp(int x, int y, int w, int h) {
+        int cx = Math.max(x, contentLeft());
+        int cy = Math.max(y, contentTop());
+        int cr = Math.min(x + w, contentRight());
+        int cb = Math.min(y + h, contentBottom());
+        if (cr <= cx || cb <= cy) return null;
+        return new int[]{cx, cy, Math.max(1, cr - cx), Math.max(1, cb - cy)};
     }
 
     private Component resolveText(CustomGuiScreenModel.RenderEntry e) {
@@ -108,7 +138,7 @@ public class CustomGuiScreen extends UiScreen {
             int w = Math.max(1, e.width());
             int h = Math.max(1, e.height());
             switch (e.type()) {
-                case "panel" -> graphics.fill(x, y, x + w, y + h, UiTheme.FIELD_BG);
+                case "panel" -> graphics.fill(x, y, x + w, y + h, PANEL_FILL);
                 case "texture" -> {
                     // Authored texture refs aren't resolved client-side — draw
                     // a bordered placeholder so the authored footprint is real.
@@ -119,7 +149,7 @@ public class CustomGuiScreen extends UiScreen {
                 case "button", "input" -> { } // real widgets render themselves
                 default -> {
                     // Unsupported authored element — honest placeholder.
-                    graphics.fill(x, y, x + w, y + Math.max(10, h), UiTheme.FIELD_BG);
+                    graphics.fill(x, y, x + w, y + Math.max(10, h), UNSUPPORTED_FILL);
                     graphics.drawString(this.font, "§8[" + e.type() + "] " + e.name(),
                             x + 2, y + 2, UiTheme.TEXT_MUTED);
                 }
