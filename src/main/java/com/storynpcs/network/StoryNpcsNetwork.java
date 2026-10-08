@@ -540,9 +540,9 @@ public class StoryNpcsNetwork {
         if (result != null && result.applied()) {
             if (ServerboundMailActionPayload.ACTION_SEND.equals(payload.action())) {
                 // The sender's own mailbox is unchanged, but the refreshed
-                // payload is the client's pending-action ack (issue #201) —
-                // an open mail screen updates in place; a closed one is not
-                // reopened unless it was mid-flight, matching mark_read/delete.
+                // payload is the client's pending-action ack (issue #201).
+                // Like mark_read/delete, a screen closed mid-flight reopens —
+                // the refresh payload carries no open/refresh discriminator.
                 player.sendSystemMessage(Component.literal(
                         "§a[StoryNPCs] Mail sent."), true);
             }

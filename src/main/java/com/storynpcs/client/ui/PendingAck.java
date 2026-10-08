@@ -23,7 +23,9 @@ public final class PendingAck {
      * {@link #ack} or {@code nowMillis + timeoutMillis} — whichever first.
      */
     public void begin(String label, long nowMillis, long timeoutMillis) {
-        this.label = label == null ? "" : label;
+        // A blank label would arm an invisible pending state — treat as no-op.
+        if (label == null || label.isBlank()) return;
+        this.label = label;
         this.deadlineMillis = nowMillis + Math.max(0, timeoutMillis);
     }
 

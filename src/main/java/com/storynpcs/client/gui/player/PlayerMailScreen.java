@@ -43,6 +43,7 @@ public class PlayerMailScreen extends Screen {
     private EditBox subjectBox;
     private EditBox bodyBox;
     private final PendingAck pending = new PendingAck();
+    private boolean wasPending;
     private String statusMessage;
     private long statusUntilMs;
 
@@ -66,6 +67,7 @@ public class PlayerMailScreen extends Screen {
         if (view == null) return;
         this.view = view;
         pending.ack();
+        wasPending = false; // acked — tick() must not report this as an expiry
         int sel = selectedIndex();
         if (sel < 0) {
             selectedId = null;
@@ -102,6 +104,21 @@ public class PlayerMailScreen extends Screen {
     private void echo(String message) {
         statusMessage = message;
         statusUntilMs = System.currentTimeMillis() + STATUS_MS;
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        // Pending expiry re-enables the action buttons — without this a
+        // chat-only server reject would leave them grayed forever.
+        boolean nowPending = isPending();
+        if (wasPending && !nowPending) {
+            wasPending = false;
+            echo("No response from server — try again.");
+            rebuildWidgets();
+        } else if (nowPending) {
+            wasPending = true;
+        }
     }
 
     private String activeStatus() {
@@ -247,10 +264,11 @@ public class PlayerMailScreen extends Screen {
                 graphics.drawString(this.font, "§9From: §f" + row.sender()
                         + "   §9Subject: §f" + row.subject(), cx - 190, ry, 0xFFFFFF);
                 ry += 11;
+                int bodyFloor = activeStatus() != null ? this.height - 52 : this.height - 30;
                 for (String line : wrap(String.valueOf(row.body()), 62)) {
                     graphics.drawString(this.font, "§7" + line, cx - 190, ry, 0xCCCCCC);
                     ry += 10;
-                    if (ry > this.height - 30) break;
+                    if (ry > bodyFloor) break;
                 }
             }
         }
