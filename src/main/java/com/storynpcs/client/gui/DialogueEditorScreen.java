@@ -5,6 +5,7 @@ import com.storynpcs.domain.dialogue.DialogueAction;
 import com.storynpcs.domain.dialogue.DialogueCondition;
 import com.storynpcs.editor.DialogueEditorScreenModel;
 import com.storynpcs.editor.PayloadBoundRequestId;
+import com.storynpcs.client.ui.UiTheme;
 import com.storynpcs.editor.DialogueGraphLayout;
 import com.storynpcs.editor.VisualEdge;
 import com.storynpcs.editor.VisualNode;
@@ -31,6 +32,31 @@ public class DialogueEditorScreen extends Screen {
     private static final int INSPECTOR_Y = TOOLBAR_H + 6;
     /** How long a delete button stays in its "Confirm?" state before reverting. */
     private static final long DELETE_CONFIRM_MS = 4000;
+
+    // ── Palette (issue #209) ────────────────────────────────────────────────
+    // Chrome surfaces (toolbar, inspector, panes, status) consume UiTheme
+    // tokens. The graph canvas is the documented bespoke surface — its colors
+    // live here as named constants so the distinction stays grep-able.
+    private static final int CANVAS_BG             = UiTheme.FIELD_BG;
+    private static final int GRID_LINE             = 0x1AFFFFFF;
+    private static final int NODE_BODY             = withAlpha(UiTheme.SURFACE_BG, 0xEE);
+    private static final int NODE_BODY_SELECTED    = withAlpha(UiTheme.SURFACE_RAISED, 0xEE);
+    private static final int NODE_BORDER           = UiTheme.TEXT_DISABLED;
+    private static final int NODE_BORDER_ENTRY     = 0xFF22C55E;
+    private static final int CANVAS_SELECTED       = 0xFFFACC15;
+    private static final int EDGE_NORMAL           = UiTheme.SUCCESS;
+    private static final int EDGE_CYCLIC           = 0xFFFFA500;
+    private static final int EDGE_LABEL_BG         = 0xCC000000;
+    private static final int EDGE_LABEL_BG_SELECTED = 0xCC3B2A00;
+    // Chrome fills whose translucency differs from the token's baked alpha.
+    private static final int TOOLBAR_BG            = withAlpha(UiTheme.SURFACE_HEADER, 0xDD);
+    private static final int INSPECTOR_BG          = withAlpha(UiTheme.SURFACE_BG, 0xEE);
+    private static final int PANE_BG               = withAlpha(UiTheme.FIELD_BG, 0xF0);
+
+    /** Replaces a token's alpha channel so surfaces can stay translucent. */
+    private static int withAlpha(int rgb, int alpha) {
+        return (alpha << 24) | (rgb & 0xFFFFFF);
+    }
 
 
     private final DialogueEditorScreenModel model;
@@ -727,7 +753,7 @@ public class DialogueEditorScreen extends Screen {
         // sharp (#197).
         this.renderBackground(graphics, mouseX, mouseY, partialTick);
         // Dark background canvas
-        graphics.fill(0, 0, width, height, 0xFF121214);
+        graphics.fill(0, 0, width, height, CANVAS_BG);
 
         double panX = model.getEditorState().getPanX();
         double panY = model.getEditorState().getPanY();
@@ -746,7 +772,7 @@ public class DialogueEditorScreen extends Screen {
                 int x2 = (int) DialogueGraphLayout.canvasToScreenX(dst.getCenterX(), panX, zoom);
                 int y2 = (int) DialogueGraphLayout.canvasToScreenY(dst.getCenterY(), panY, zoom);
 
-                int color = edge.isCyclic() ? 0xFFFFA500 : 0xFF4ADE80; // Orange if cyclic, green otherwise
+                int color = edge.isCyclic() ? EDGE_CYCLIC : EDGE_NORMAL;
                 graphics.fill(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2) + 2, Math.max(y1, y2) + 2, color);
 
                 // Draw edge label
@@ -754,9 +780,9 @@ public class DialogueEditorScreen extends Screen {
                 int midY = (y1 + y2) / 2;
                 boolean edgeSelected = edge == model.getEditorState().getSelectedEdge();
                 graphics.fill(midX - 25, midY - 6, midX + 25, midY + 6,
-                        edgeSelected ? 0xCC3B2A00 : 0xCC000000);
+                        edgeSelected ? EDGE_LABEL_BG_SELECTED : EDGE_LABEL_BG);
                 if (edgeSelected) {
-                    graphics.renderOutline(midX - 25, midY - 6, 50, 12, 0xFFFACC15);
+                    graphics.renderOutline(midX - 25, midY - 6, 50, 12, CANVAS_SELECTED);
                 }
                 graphics.drawString(this.font, edge.getText(), midX - 20, midY - 4, color, false);
             }
@@ -770,8 +796,9 @@ public class DialogueEditorScreen extends Screen {
             int sh = (int) (node.getHeight() * zoom);
 
             boolean isSelected = node.getId().equals(model.getEditorState().getSelectedNodeId());
-            int borderColor = isSelected ? 0xFFFACC15 : (node.isEntryNode() ? 0xFF22C55E : 0xFF64748B);
-            int bodyColor = isSelected ? 0xEE1E293B : 0xEE0F172A;
+            int borderColor = isSelected ? CANVAS_SELECTED
+                    : (node.isEntryNode() ? NODE_BORDER_ENTRY : NODE_BORDER);
+            int bodyColor = isSelected ? NODE_BODY_SELECTED : NODE_BODY;
 
             graphics.fill(sx, sy, sx + sw, sy + sh, bodyColor);
             graphics.renderOutline(sx, sy, sw, sh, borderColor);
@@ -780,13 +807,13 @@ public class DialogueEditorScreen extends Screen {
             String titleStr = (node.isEntryNode() ? "[ENTRY] " : "") + node.getId();
             graphics.drawString(this.font, titleStr, sx + 6, sy + 6, borderColor, false);
             if (sh > 30) {
-                graphics.drawWordWrap(this.font, Component.literal(node.getText()), sx + 6, sy + 20, Math.max(sw - 12, 10), 0xFFCBD5E1);
+                graphics.drawWordWrap(this.font, Component.literal(node.getText()), sx + 6, sy + 20, Math.max(sw - 12, 10), UiTheme.TEXT);
             }
         }
 
         // Render Top Bar (two rows)
-        graphics.fill(0, 0, width, TOOLBAR_H, 0xDD0F172A);
-        graphics.renderOutline(0, 0, width, TOOLBAR_H, 0xFF334155);
+        graphics.fill(0, 0, width, TOOLBAR_H, TOOLBAR_BG);
+        graphics.renderOutline(0, 0, width, TOOLBAR_H, UiTheme.BORDER);
         // Title sits in the gap between the two button groups — cap it so it
         // can never render underneath the Save/Close buttons on narrow windows.
         int titleMaxW = Math.max(0, width - 130 - 6 - 250);
@@ -794,7 +821,7 @@ public class DialogueEditorScreen extends Screen {
             graphics.drawString(this.font,
                     this.font.plainSubstrByWidth(
                             String.format("Dialogue: %s (%s)", model.getDialogueId(), model.getTitle()), titleMaxW),
-                    250, 16, 0xFFF8FAFC, false);
+                    250, 16, UiTheme.TEXT, false);
         }
 
         // Status bar — capped so a long message can't slide under the inspector panel
@@ -804,7 +831,7 @@ public class DialogueEditorScreen extends Screen {
             int statusMaxW = inspectorOpen ? width - INSPECTOR_W - 30 : width - 16;
             graphics.drawString(this.font,
                     this.font.plainSubstrByWidth(model.getStatusMessage(), Math.max(60, statusMaxW)),
-                    10, height - 20, 0xFF94A3B8, false);
+                    10, height - 20, UiTheme.TEXT_MUTED, false);
         }
 
         // Inspector panel for selected node
@@ -828,10 +855,10 @@ public class DialogueEditorScreen extends Screen {
         double startY = panY % gridSize;
 
         for (double x = startX; x < width; x += gridSize) {
-            graphics.fill((int) x, 0, (int) x + 1, height, 0x1AFFFFFF);
+            graphics.fill((int) x, 0, (int) x + 1, height, GRID_LINE);
         }
         for (double y = startY; y < height; y += gridSize) {
-            graphics.fill(0, (int) y, width, (int) y + 1, 0x1AFFFFFF);
+            graphics.fill(0, (int) y, width, (int) y + 1, GRID_LINE);
         }
     }
 
@@ -845,52 +872,52 @@ public class DialogueEditorScreen extends Screen {
         int panelX = width - INSPECTOR_W - 10;
         int panelY = INSPECTOR_Y;
 
-        graphics.fill(panelX, panelY, panelX + INSPECTOR_W, panelY + inspectorHeight(), 0xEE0F172A);
-        graphics.renderOutline(panelX, panelY, INSPECTOR_W, inspectorHeight(), 0xFF38BDF8);
+        graphics.fill(panelX, panelY, panelX + INSPECTOR_W, panelY + inspectorHeight(), INSPECTOR_BG);
+        graphics.renderOutline(panelX, panelY, INSPECTOR_W, inspectorHeight(), UiTheme.ACCENT);
 
         if (selectedId == null && selEdge == null) {
             // Dialogue-level inspector — title key + availability conditions.
-            graphics.drawString(this.font, "Dialogue Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
-            graphics.drawString(this.font, "title key:", panelX + 10, panelY + 48, 0xFF64748B, false);
+            graphics.drawString(this.font, "Dialogue Inspector", panelX + 10, panelY + 10, UiTheme.ACCENT, false);
+            graphics.drawString(this.font, "title key:", panelX + 10, panelY + 48, UiTheme.TEXT_DISABLED, false);
             graphics.drawString(this.font, "Availability (all must hold):", panelX + 10, panelY + 60,
-                    0xFF94A3B8, false);
+                    UiTheme.TEXT_MUTED, false);
             List<DialogueCondition> conds = model.getAvailability();
             int rowY = panelY + 66;
             for (int i = 0; i < Math.min(conds.size(), 4); i++) {
                 DialogueCondition c = conds.get(i);
                 boolean sel = i == selectedConditionIndex;
                 if (sel) {
-                    graphics.fill(panelX + 6, rowY - 1, panelX + INSPECTOR_W - 6, rowY + 10, 0x3338BDF8);
+                    graphics.fill(panelX + 6, rowY - 1, panelX + INSPECTOR_W - 6, rowY + 10, UiTheme.ROW_SELECTED);
                 }
                 String row = c.getType().name() + " " + c.getTarget() + " " + c.getOperator()
                         + " " + c.getValue();
                 graphics.drawString(this.font,
                         this.font.plainSubstrByWidth((i + 1) + ". " + row, INSPECTOR_W - 24),
-                        panelX + 10, rowY, sel ? 0xFF38BDF8 : 0xFFCBD5E1, false);
+                        panelX + 10, rowY, sel ? UiTheme.ACCENT : UiTheme.TEXT, false);
                 rowY += 11;
             }
             if (conds.isEmpty()) {
-                graphics.drawString(this.font, "none — + adds a row", panelX + 10, rowY, 0xFF64748B, false);
+                graphics.drawString(this.font, "none — + adds a row", panelX + 10, rowY, UiTheme.TEXT_DISABLED, false);
             } else if (conds.size() > 4) {
                 graphics.drawString(this.font, "+" + (conds.size() - 4) + " more",
-                        panelX + 10, rowY, 0xFF64748B, false);
+                        panelX + 10, rowY, UiTheme.TEXT_DISABLED, false);
             }
             return;
         }
 
         if (selEdge != null) {
-            graphics.drawString(this.font, "Edge Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
+            graphics.drawString(this.font, "Edge Inspector", panelX + 10, panelY + 10, UiTheme.ACCENT, false);
             if (edgePage == 0) {
                 graphics.drawString(this.font, "Option text / flags:", panelX + 10, panelY + 40,
-                        0xFF94A3B8, false);
+                        UiTheme.TEXT_MUTED, false);
                 graphics.drawString(this.font, "Quest (START_QUEST):", panelX + 10, panelY + 98,
-                        0xFF94A3B8, false);
+                        UiTheme.TEXT_MUTED, false);
                 if (questWarning != null) {
-                    graphics.drawString(this.font, questWarning, panelX + 10, panelY + 116, 0xFFFBBF24, false);
+                    graphics.drawString(this.font, questWarning, panelX + 10, panelY + 116, UiTheme.WARNING, false);
                 }
             } else {
                 String label = edgePage == 1 ? "Conditions (all must hold):" : "Actions (run on choice):";
-                graphics.drawString(this.font, label, panelX + 10, panelY + 40, 0xFF94A3B8, false);
+                graphics.drawString(this.font, label, panelX + 10, panelY + 40, UiTheme.TEXT_MUTED, false);
                 renderEdgeRows(graphics, selEdge, panelX, panelY);
             }
             return;
@@ -899,21 +926,21 @@ public class DialogueEditorScreen extends Screen {
         VisualNode node = model.getLayout().getNodes().get(selectedId);
         if (node == null) return;
 
-        graphics.drawString(this.font, "Node Inspector", panelX + 10, panelY + 10, 0xFF38BDF8, false);
-        graphics.drawString(this.font, "id:", panelX + 10, panelY + 26, 0xFF64748B, false);
-        graphics.drawString(this.font, "x:", panelX + 10, panelY + 42, 0xFF64748B, false);
-        graphics.drawString(this.font, "y:", panelX + 106, panelY + 42, 0xFF64748B, false);
+        graphics.drawString(this.font, "Node Inspector", panelX + 10, panelY + 10, UiTheme.ACCENT, false);
+        graphics.drawString(this.font, "id:", panelX + 10, panelY + 26, UiTheme.TEXT_DISABLED, false);
+        graphics.drawString(this.font, "x:", panelX + 10, panelY + 42, UiTheme.TEXT_DISABLED, false);
+        graphics.drawString(this.font, "y:", panelX + 106, panelY + 42, UiTheme.TEXT_DISABLED, false);
         if (node.isEntryNode()) {
             graphics.drawString(this.font, "entry", panelX + INSPECTOR_W - 34, panelY + 26,
-                    0xFF4ADE80, false);
+                    UiTheme.SUCCESS, false);
         }
-        graphics.drawString(this.font, "Speaker:", panelX + 10, panelY + 56, 0xFF94A3B8, false);
-        graphics.drawString(this.font, "Sound:", panelX + 10, panelY + 72, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "Speaker:", panelX + 10, panelY + 56, UiTheme.TEXT_MUTED, false);
+        graphics.drawString(this.font, "Sound:", panelX + 10, panelY + 72, UiTheme.TEXT_MUTED, false);
         if (soundWarning != null) {
-            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 84, 0xFFFBBF24, false);
+            graphics.drawString(this.font, soundWarning, panelX + 10, panelY + 84, UiTheme.WARNING, false);
         }
-        graphics.drawString(this.font, "key:", panelX + 10, panelY + 92, 0xFF64748B, false);
-        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 106, 0xFF94A3B8, false);
+        graphics.drawString(this.font, "key:", panelX + 10, panelY + 92, UiTheme.TEXT_DISABLED, false);
+        graphics.drawString(this.font, "Text:", panelX + 10, panelY + 106, UiTheme.TEXT_MUTED, false);
     }
 
     /** Renders the condition/action row list for the active edge-inspector page. */
@@ -933,19 +960,19 @@ public class DialogueEditorScreen extends Screen {
         for (int i = 0; i < Math.min(rows.size(), 4); i++) {
             boolean sel = i == selected;
             if (sel) {
-                graphics.fill(panelX + 6, rowY - 1, panelX + INSPECTOR_W - 6, rowY + 10, 0x3338BDF8);
+                graphics.fill(panelX + 6, rowY - 1, panelX + INSPECTOR_W - 6, rowY + 10, UiTheme.ROW_SELECTED);
             }
             graphics.drawString(this.font,
                     this.font.plainSubstrByWidth((i + 1) + ". " + rows.get(i), INSPECTOR_W - 24),
-                    panelX + 10, rowY, sel ? 0xFF38BDF8 : 0xFFCBD5E1, false);
+                    panelX + 10, rowY, sel ? UiTheme.ACCENT : UiTheme.TEXT, false);
             rowY += 11;
         }
         if (rows.size() > 4) {
             graphics.drawString(this.font, "+" + (rows.size() - 4) + " more",
-                    panelX + 10, rowY, 0xFF64748B, false);
+                    panelX + 10, rowY, UiTheme.TEXT_DISABLED, false);
         }
         if (rows.isEmpty()) {
-            graphics.drawString(this.font, "none — + adds a row", panelX + 10, rowY, 0xFF64748B, false);
+            graphics.drawString(this.font, "none — + adds a row", panelX + 10, rowY, UiTheme.TEXT_DISABLED, false);
         }
     }
 
@@ -959,16 +986,16 @@ public class DialogueEditorScreen extends Screen {
         int paneH = Math.min(260, height - 80);
         int x = (width - paneW) / 2;
         int y = (height - paneH) / 2;
-        graphics.fill(x - 2, y - 2, x + paneW + 2, y + paneH + 2, 0xFF38BDF8);
-        graphics.fill(x, y, x + paneW, y + paneH, 0xF0101420);
+        graphics.fill(x - 2, y - 2, x + paneW + 2, y + paneH + 2, UiTheme.ACCENT);
+        graphics.fill(x, y, x + paneW, y + paneH, PANE_BG);
         diagRowHitY.clear();
         diagRowHitNode.clear();
         if (diagnosticsOpen) {
             graphics.drawString(this.font, "Diagnostics (click a row to select; Esc closes)",
-                    x + 8, y + 8, 0xFF38BDF8, false);
+                    x + 8, y + 8, UiTheme.ACCENT, false);
             int rowY = y + 24;
             if (diagnostics.isEmpty()) {
-                graphics.drawString(this.font, "No problems detected.", x + 8, rowY, 0xFF4ADE80, false);
+                graphics.drawString(this.font, "No problems detected.", x + 8, rowY, UiTheme.SUCCESS, false);
             }
             for (DiagnosticError d : diagnostics) {
                 if (rowY > y + paneH - 14) break;
@@ -977,21 +1004,21 @@ public class DialogueEditorScreen extends Screen {
                         + "[" + d.code() + "] " + d.message();
                 graphics.drawString(this.font, this.font.plainSubstrByWidth(line, paneW - 16),
                         x + 8, rowY, d.severity() == DiagnosticError.Severity.ERROR
-                                ? 0xFFFCA5A5 : 0xFFFDE68A, false);
+                                ? UiTheme.DANGER : UiTheme.WARNING, false);
                 diagRowHitY.add(new int[]{rowY - 2, rowY + 9});
                 diagRowHitNode.add(nodeId);
                 rowY += 11;
             }
         } else {
             graphics.drawString(this.font, "Preview (entry-first walkthrough; Esc closes)",
-                    x + 8, y + 8, 0xFF38BDF8, false);
+                    x + 8, y + 8, UiTheme.ACCENT, false);
             var prev = model.preview();
             int rowY = y + 24;
             if (prev.lines().isEmpty()) {
                 graphics.drawString(this.font, prev.valid()
                                 ? "Empty graph or no entry node."
                                 : "Validation failed — see Diagnostics.",
-                        x + 8, rowY, 0xFF94A3B8, false);
+                        x + 8, rowY, UiTheme.TEXT_MUTED, false);
             }
             for (var line : prev.lines()) {
                 if (rowY > y + paneH - 14) break;
@@ -1000,13 +1027,13 @@ public class DialogueEditorScreen extends Screen {
                                 ? " (" + line.speaker() + ")" : "")
                         + ": " + line.text();
                 graphics.drawString(this.font, this.font.plainSubstrByWidth(head, paneW - 16),
-                        x + 8, rowY, line.entry() ? 0xFF4ADE80 : 0xFFE2E8F0, false);
+                        x + 8, rowY, line.entry() ? UiTheme.SUCCESS : UiTheme.TEXT, false);
                 rowY += 11;
                 for (String opt : line.options()) {
                     if (rowY > y + paneH - 14) break;
                     graphics.drawString(this.font,
                             this.font.plainSubstrByWidth("    - " + opt, paneW - 20),
-                            x + 12, rowY, 0xFF94A3B8, false);
+                            x + 12, rowY, UiTheme.TEXT_MUTED, false);
                     rowY += 11;
                 }
             }
