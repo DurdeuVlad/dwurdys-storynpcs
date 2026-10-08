@@ -1,0 +1,34 @@
+{
+  "session": "UI-M3 #210 small-window pass — beta-01 @ 960x560 (guiScale ~2, 472x261 logical), dev server localhost:25566, 2026-10-08",
+  "gui_scale": 2,
+  "shots": [
+    {
+      "file": "s01-dialogue-editor.png",
+      "caption": "Dialogue editor at small canvas — bespoke graph canvas + themed toolbar/inspector remain usable."
+    },
+    {
+      "file": "s02-dialogue.png",
+      "caption": "Dialogue screen at small canvas — lit portrait scales, options and footer Close still bounded."
+    },
+    {
+      "file": "s03-quest-editor.png",
+      "caption": "Quest editor list at small canvas — filter field, quest row, new-quest controls, footer help all inside chrome."
+    },
+    {
+      "file": "s04-mail.png",
+      "caption": "Mail list at small canvas — framed panel and row layout hold."
+    },
+    {
+      "file": "s05-npc-editor.png",
+      "caption": "NPC editor at small canvas — two proportional columns reflow, Save/Despawn/Close footer fits."
+    },
+    {
+      "file": "s06-bank.png",
+      "caption": "Bank screen at small canvas — vault grid and footer actions bounded."
+    },
+    {
+      "file": "s07-faction-editor.png",
+      "caption": "Faction editor at small canvas — list + new-faction row fit inside chrome."
+    }
+  ]
+}

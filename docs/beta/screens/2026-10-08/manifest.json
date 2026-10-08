@@ -1,0 +1,125 @@
+{
+  "session": "UI-M3 #210 verification sweep — beta-01 @ 1.21.1 NeoForge, dev server localhost:25566, 2026-10-08",
+  "gui_scale": 3,
+  "shots": [
+    {
+      "file": "01-quest-log.png",
+      "caption": "Player quest log panel (/storynpcs me). Shared UiScreen chrome: framed surface, title band, bounded footer. Active quests listed with status."
+    },
+    {
+      "file": "02-factions.png",
+      "caption": "Player faction panel — standing list inside shared framed chrome (was an unframed overlay before UI-M2)."
+    },
+    {
+      "file": "03-mail.png",
+      "caption": "Player mailbox — list view with message count. Now a bounded framed panel (audit D1 closed)."
+    },
+    {
+      "file": "04-mail-selected.png",
+      "caption": "Clicked a mail row — row highlights and shows an inline preview. Reading mail no longer requires an unadvertised selection step (audit F3 closed)."
+    },
+    {
+      "file": "05-mail-compose.png",
+      "caption": "Compose view — recipient/subject/body fields inside shared chrome."
+    },
+    {
+      "file": "05-mail-sent.png",
+      "caption": "After send: returned to a refreshed list showing the new message without reopening the panel (audit F2 closed)."
+    },
+    {
+      "file": "06-transport.png",
+      "caption": "Player transport panel — destination rows in the shared list widget."
+    },
+    {
+      "file": "07-companions.png",
+      "caption": "Player companions panel."
+    },
+    {
+      "file": "08-hire.png",
+      "caption": "Follower hire panel — hireable NPC rows."
+    },
+    {
+      "file": "09-achievements.png",
+      "caption": "Achievements panel."
+    },
+    {
+      "file": "10-carpentry.png",
+      "caption": "Carpentry panel — recipe rows."
+    },
+    {
+      "file": "11-hub.png",
+      "caption": "Authoring hub (/storynpcs hub) — searchable entry catalog with detail pane and page controls; Enter dispatches the routed command."
+    },
+    {
+      "file": "12-custom-gui.png",
+      "caption": "CustomGuiScreen (beta_quest_board layout) — YAML-driven layout rendered inside shared UiScreen chrome."
+    },
+    {
+      "file": "13-npc-editor.png",
+      "caption": "NPC wand right-click on an existing NPC opens the editor — creator tools now reach entities (audit F1 closed). Framed two-column layout replaces the dense unbounded form (audit D4)."
+    },
+    {
+      "file": "14-npc-display.png",
+      "caption": "Display & Render editor — fields split into section tabs, two columns per tab so nothing collides with the footer."
+    },
+    {
+      "file": "15-npc-rules.png",
+      "caption": "Rules editor — filter field, list, footer help text on a dedicated contrast-safe band (audit D2 closed). Remove uses a two-click arm/confirm."
+    },
+    {
+      "file": "16-trade-admin.png",
+      "caption": "Trade & Bank admin (editor → Trade & Bank) — listings list, tabs, Add/Edit/Remove footer actions."
+    },
+    {
+      "file": "17-dialogue.png",
+      "caption": "Dialogue screen on Captain Valerie — the NPC portrait now renders fully lit instead of an unlit black silhouette (audit D3 closed)."
+    },
+    {
+      "file": "18-dialogue-node.png",
+      "caption": "Pressed digit 1 to pick an option — node transition keeps the lit portrait; quest-hint tag renders inline on the option."
+    },
+    {
+      "file": "19-trade.png",
+      "caption": "Trade screen — 'Trader buys' (player-sells) on the left, 'Trader sells' (player-buys) on the right, both with item icons and Buy/Close footer."
+    },
+    {
+      "file": "20-bank.png",
+      "caption": "Bank screen on a banker-only NPC (open space). Vault title, tab indicator, vault contents, Deposit/Withdraw/Unlock/Close footer."
+    },
+    {
+      "file": "21-banker-editor.png",
+      "caption": "Wand editor on the banker_demo NPC — creator tools work on banker-role NPCs too."
+    },
+    {
+      "file": "22b-banker-admin-tab.png",
+      "caption": "Banker tab of Trade & Bank admin — seeded Bank name / Max tabs / Tab upgrade cost fields.",
+      "clicks": [
+        {"x": 200, "y": 40, "label": "Banker tab"}
+      ]
+    },
+    {
+      "file": "23-quest-editor.png",
+      "caption": "Quest editor list (/storynpcs quest gui) — filter field, highlighted quest ids, new-quest fields, footer help."
+    },
+    {
+      "file": "23b-quest-detail.png",
+      "caption": "Quest editor — list view with seeded quest row (storynpcs:bounty_goblins). Detail/row-editor journeys verified in docs/evidence/208-quest-*.png."
+    },
+    {
+      "file": "24-faction-editor.png",
+      "caption": "Faction editor list (/storynpcs faction gui)."
+    },
+    {
+      "file": "24b-faction-detail.png",
+      "caption": "Faction detail — seeded fields, inline validation, Save/Back footer. Save ack verified via chat echo in docs/evidence/208-faction-saved.png."
+    },
+    {
+      "file": "25-nbt-book.png",
+      "caption": "NBT book on the banker — allowlisted rows (Invulnerable) render cyan, locked rows muted gray; footer hint 'Click a highlighted row to edit'."
+    },
+    {
+      "file": "26-dialogue-editor.png",
+      "caption": "Dialogue editor (/storynpcs dialogue edit) — toolbar and inspector now use UiTheme tokens; the green edge region is the bespoke graph canvas (documented exception)."
+    }
+  ]
+}
