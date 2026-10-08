@@ -1,6 +1,6 @@
 # Release notes — StoryNPCs v0.11.0-beta.1
 
-Status: `BETA` — the full parity program is implemented and merged;
+Status: `BETA` — the parity program's implementation work is merged;
 **parity with the target runtime is NOT certified** and live-server
 evidence is still being gathered (see `docs/beta-testing.md`). This
 document exists so unsupported claims cannot slip into a release
