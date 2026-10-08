@@ -1,31 +1,35 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.ScrollState;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.domain.support.NbtBookService;
 import com.storynpcs.network.ServerboundNbtBookEditPayload;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 import java.util.UUID;
 
 /**
  * NBT book viewer/editor screen (issue #148). Renders the flattened NBT view
- * the server computed; editable rows (the allowlisted keys) highlight on
- * hover and load the bottom edit box. Enter/Apply sends a
+ * the server computed; editable rows (the allowlisted keys) are accent-tinted,
+ * load the bottom edit box on select, and Enter/Apply sends a
  * {@link ServerboundNbtBookEditPayload} — the server re-validates permission,
  * session, and allowlist, then resends a fresh view.
+ *
+ * <p>Migrated onto the shared chrome (#208): the row list is a
+ * {@link SelectableList} keyed by entry path — the editable/locked distinction
+ * the old hand-rolled highlight encoded is now a muted-vs-accent label color
+ * plus the standard selection band. The edit strip still sits above the
+ * footer; read-only users get a view without it.
  */
-public class NbtBookScreen extends Screen {
-
-    private static final int ROW_H = 11;
-    private static final int COLOR_PATH = 0xFFA1A1AA;
-    private static final int COLOR_VALUE = 0xFFFFFFFF;
-    private static final int COLOR_EDITABLE = 0xFF7DD3FC;
-    private static final int COLOR_TITLE = 0xFFFDE68A;
+public class NbtBookScreen extends UiScreen {
 
     private final int entityId;
     private final String displayName;
@@ -33,15 +37,16 @@ public class NbtBookScreen extends Screen {
     private final UUID sessionId;
     private List<NbtBookService.NbtEntry> entries;
 
-    private int scroll;
-    private int editIndex = -1;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
+    private SelectableList<NbtBookService.NbtEntry, String> entryList;
     private EditBox editField;
-    private Button applyButton;
-    private String statusMessage = "";
+    /** Path loaded into the edit strip — null keeps the strip hidden. */
+    private String editingPath;
 
     public NbtBookScreen(int entityId, String displayName, String entriesJson,
                          boolean canEdit, UUID sessionId) {
-        super(Component.literal("NBT Book"));
+        super(Component.literal("NBT Book — " + displayName));
         this.entityId = entityId;
         this.displayName = displayName;
         this.canEdit = canEdit;
@@ -57,13 +62,14 @@ public class NbtBookScreen extends Screen {
     /** Refresh path: the server resent the view after an applied edit. */
     public void updateEntries(String entriesJson) {
         this.entries = NbtBookService.entriesFromJson(entriesJson);
-        this.scroll = Math.min(this.scroll, Math.max(0, entries.size() - visibleRows()));
-        if (this.editIndex >= entries.size()) {
-            this.editIndex = -1;
-            this.editField.setVisible(false);
-            this.applyButton.visible = false;
+        // Drop the edit strip only if the path vanished — selection keys are
+        // path-stable, so the list keeps the user's place across the refresh.
+        if (editingPath != null
+                && entries.stream().noneMatch(e -> e.path().equals(editingPath))) {
+            editingPath = null;
         }
-        this.statusMessage = "§aView refreshed.";
+        refreshRows();
+        echo(Component.literal("View refreshed.").withColor(UiTheme.ACCENT), 2000);
     }
 
     @Override
@@ -74,78 +80,71 @@ public class NbtBookScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        int bottomY = this.height - 28;
-        this.editField = new EditBox(this.font, this.width / 2 - 160, bottomY, 240, 18,
-                Component.literal("edit value"));
-        this.editField.setVisible(false);
-        this.editField.setMaxLength(256);
-        this.editField.setResponder(value -> { });
-        this.addRenderableWidget(this.editField);
-        this.applyButton = Button.builder(Component.literal("Apply"), b -> applyEdit())
-                .bounds(this.width / 2 + 84, bottomY - 1, 76, 20).build();
-        this.applyButton.visible = false;
-        this.addRenderableWidget(this.applyButton);
+    protected void initContent() {
+        int editY = contentBottom() - UiTheme.BUTTON_H;
+        int listH = Math.max(1, (canEdit ? editY - UiTheme.PAD_S : contentBottom())
+                - contentTop());
+        entryList = new SelectableList<>(contentLeft(), contentTop(), contentWidth(),
+                listH, UiTheme.ROW_H, NbtBookService.NbtEntry::path,
+                this::entryLabel, selection, scroll);
+        entryList.setOnSelect(e -> {
+            if (canEdit && e.editable()) {
+                editingPath = e.path();
+                if (editField != null) {
+                    editField.setValue(stripQuotes(e.value()));
+                }
+                rebuildWidgets();
+            }
+        });
+        addRenderableWidget(entryList);
+
+        if (canEdit) {
+            editField = new EditBox(this.font, contentLeft(), editY,
+                    Math.max(60, contentWidth() - 84), UiTheme.BUTTON_H,
+                    Component.literal("edit value"));
+            editField.setMaxLength(256);
+            editField.setHint(Component.literal("select a highlighted row"));
+            editField.setVisible(editingPath != null);
+            if (editingPath != null) {
+                editField.setValue(currentValueOf(editingPath));
+            }
+            addRenderableWidget(editField);
+
+            addFooterAction(Component.literal("Apply"), b -> applyEdit());
+        }
+        addFooterAction(Component.literal("Close"), b -> onClose());
+        setStatus(Component.literal(canEdit
+                        ? "Click a highlighted row to edit — Enter applies."
+                        : "Read-only view (edits require operator level 2).")
+                .withColor(UiTheme.TEXT_MUTED));
+        refreshRows();
+    }
+
+    private void refreshRows() {
+        if (entryList != null) {
+            entryList.setRows(entries);
+        }
+    }
+
+    private String currentValueOf(String path) {
+        for (var e : entries) {
+            if (e.path().equals(path)) return stripQuotes(e.value());
+        }
+        return "";
+    }
+
+    /** Editable rows read accent-tinted; locked rows stay muted. */
+    private Component entryLabel(NbtBookService.NbtEntry e) {
+        String line = (e.editable() ? "§b" : "§7") + e.path() + " §8= §f" + e.value();
+        return Component.literal(line);
     }
 
     private void applyEdit() {
-        if (editIndex < 0 || editIndex >= entries.size()) {
-            return;
-        }
-        var entry = entries.get(editIndex);
+        if (editingPath == null || editField == null) return;
         PacketDistributor.sendToServer(new ServerboundNbtBookEditPayload(
-                sessionId, entityId, entry.path(), this.editField.getValue()));
-        statusMessage = "§7Sent " + entry.path() + " edit…";
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (canEdit && button == 0) {
-            int idx = rowAt(mouseY);
-            if (idx >= 0 && idx < entries.size() && entries.get(idx).editable()
-                    && mouseX >= this.width / 2 - 170 && mouseX <= this.width / 2 + 170) {
-                editIndex = idx;
-                this.editField.setValue(stripQuotes(entries.get(idx).value()));
-                this.editField.setVisible(true);
-                this.applyButton.visible = true;
-                this.setFocused(this.editField);
-                return true;
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        int maxScroll = Math.max(0, entries.size() - visibleRows());
-        scroll = Math.max(0, Math.min(maxScroll, scroll - (int) Math.signum(scrollY) * 3));
-        return true;
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.editField.isVisible() && keyCode == 257) { // Enter
-            applyEdit();
-            return true;
-        }
-        // ESC must still close the screen while the edit box holds focus —
-        // EditBox.keyPressed would swallow it otherwise.
-        if (this.editField.isFocused() && keyCode != 256) {
-            return this.editField.keyPressed(keyCode, scanCode, modifiers);
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    private int visibleRows() {
-        return (this.height - 78) / ROW_H;
-    }
-
-    private int rowAt(double mouseY) {
-        int top = 40;
-        if (mouseY < top || mouseY >= top + visibleRows() * ROW_H) {
-            return -1;
-        }
-        return scroll + (int) ((mouseY - top) / ROW_H);
+                sessionId, entityId, editingPath, this.editField.getValue()));
+        echo(Component.literal("Sent " + editingPath + " edit…")
+                .withColor(UiTheme.TEXT_MUTED), 2000);
     }
 
     private static String stripQuotes(String raw) {
@@ -154,38 +153,21 @@ public class NbtBookScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(graphics, mouseX, mouseY, partialTick);
-        int cx = this.width / 2;
-        graphics.drawString(this.font, "§6NBT Book — " + displayName, cx - 170, 12, COLOR_TITLE);
-        graphics.drawString(this.font, canEdit
-                ? "§7Click a highlighted row to edit · Enter applies"
-                : "§7Read-only view (edits require operator level 2)", cx - 170, 24, COLOR_PATH);
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        if (entries.isEmpty()) {
+            renderEmpty(g, "No NBT data for this entity.");
+        }
+    }
 
-        int top = 40;
-        int bottom = top + visibleRows() * ROW_H;
-        graphics.enableScissor(0, top, this.width, bottom);
-        for (int i = scroll; i < entries.size() && top < bottom; i++, top += ROW_H) {
-            var entry = entries.get(i);
-            boolean hovered = canEdit && entry.editable() && rowAt(mouseY) == i;
-            int pathColor = entry.editable() ? COLOR_EDITABLE : COLOR_PATH;
-            String line = entry.path() + " = " + entry.value();
-            if (hovered) {
-                graphics.fill(cx - 172, top - 1, cx + 172, top + ROW_H - 1, 0x33415566);
-            }
-            graphics.drawString(this.font,
-                    this.font.plainSubstrByWidth(line, 344), cx - 170, top + 1, pathColor);
+    /** Enter applies while the edit box holds focus; Esc still closes. */
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (editField != null && editField.isVisible() && editField.isFocused()
+                && (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER)) {
+            applyEdit();
+            return true;
         }
-        graphics.disableScissor();
-
-        if (!statusMessage.isEmpty()) {
-            graphics.drawString(this.font, statusMessage, cx - 170, this.height - 42, COLOR_PATH);
-        }
-        // Render widgets directly — super.render() would re-run the blur
-        // background pass and smear the rows drawn above (#197).
-        for (var renderable : this.renderables) {
-            renderable.render(graphics, mouseX, mouseY, partialTick);
-        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override

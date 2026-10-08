@@ -1,5 +1,12 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.FieldValidator;
+import com.storynpcs.client.ui.widgets.FormRow;
+import com.storynpcs.client.ui.widgets.ScrollState;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.faction.Faction;
 import com.storynpcs.editor.PayloadBoundRequestId;
@@ -8,9 +15,7 @@ import com.storynpcs.editor.FactionEditorScreenModel.Mode;
 import com.storynpcs.network.ServerboundFactionDeletePayload;
 import com.storynpcs.network.ServerboundFactionSavePayload;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -22,32 +27,45 @@ import java.util.UUID;
  * registry; EDIT mode mirrors the /storynpcs faction command surface — name,
  * defaultPoints, hostileThreshold, friendlyThreshold — routed through
  * {@link FactionEditorScreenModel} and the same service methods as the commands.
+ *
+ * <p>Migrated onto the shared chrome (#208): the faction list is a
+ * {@link SelectableList} keyed by faction id, the new-faction bar sits above
+ * the footer, and the edit form uses {@link FormRow} with inline validation
+ * matching {@link FactionEditorScreenModel#validateForSave()}.
  */
-public class FactionEditorScreen extends Screen {
-
-    private static final int ROW_H = 11;
-    private static final int COLOR_OK = 0xFF4ADE80;
-    private static final int COLOR_ERR = 0xFFF87171;
-    private static final int COLOR_LABEL = 0xFFA1A1AA;
+public class FactionEditorScreen extends UiScreen {
 
     private final FactionEditorScreenModel model = new FactionEditorScreenModel();
 
     // LIST widgets
+    private SelectableList<Faction, String> factionList;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState scroll = new ScrollState();
+    private EditBox filterField;
+    private boolean filterHadFocus;
     private EditBox newIdField;
     private EditBox newNameField;
-    private EditBox filterField;
 
     // EDIT widgets
-    private EditBox idField;
-    private EditBox nameField;
-    private EditBox defaultPointsField;
-    private EditBox hostileField;
-    private EditBox friendlyField;
+    private final java.util.List<FormRow> fieldRows = new java.util.ArrayList<>();
+    /** Raw text drafts for the int fields — survives rebuilds so mid-edit
+     * (even unparseable) input is never lost on a widget rebuild. Reseeded
+     * when a different faction enters edit mode. */
+    private String draftId;
+    private String draftName;
+    private String draftDefaultPoints;
+    private String draftHostile;
+    private String draftFriendly;
+    /** Working-copy identity the drafts were seeded from — beginEdit/beginNew
+     * swap it, so drafts reseed on entry but never mid-edit. */
+    private Faction draftsFor;
+
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
     private final PayloadBoundRequestId deleteRequestId = new PayloadBoundRequestId();
     /** Definition ids bound to in-flight save/delete requests — revision updates are id-scoped. */
     private String pendingSaveId;
     private String pendingDeleteId;
+    private String lastEchoed;
 
     public FactionEditorScreen(List<Faction> factions, String selectId) {
         this(factions, selectId, 0L, java.util.Map.of());
@@ -95,126 +113,224 @@ public class FactionEditorScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        super.init();
-        if (model.getMode() == Mode.LIST) {
-            initListWidgets();
-        } else {
-            initEditWidgets();
+    protected void onStatusExpired() {
+        lastEchoed = null; // identical later results may echo again
+    }
+
+    private void syncStatus() {
+        String msg = model.getStatusMessage();
+        if (!msg.isEmpty() && !msg.equals(lastEchoed)) {
+            lastEchoed = msg;
+            echo(Component.literal(msg)
+                    .withColor(model.isStatusError() ? UiTheme.DANGER : UiTheme.TEXT), 4000);
         }
     }
 
-    private void initListWidgets() {
-        int bottom = this.height - 30;
-        // Adaptive widths — fixed 170+130+46 layout overflowed the right edge on narrow windows
-        newIdField = new EditBox(this.font, 12, bottom, Math.max(60, Math.min(170, this.width - 246)), 16, Component.literal("Faction id"));
+    @Override
+    protected void initContent() {
+        fieldRows.clear();
+        if (model.getMode() == Mode.LIST) {
+            initListMode();
+        } else {
+            initEditMode();
+        }
+    }
+
+    // ── LIST mode ───────────────────────────────────────────────────────────
+
+    private void initListMode() {
+        filterField = new EditBox(this.font, contentRight() - 120, contentTop(), 120,
+                UiTheme.BUTTON_H, Component.literal("Filter"));
+        filterField.setHint(Component.literal("filter…"));
+        filterField.setMaxLength(48);
+        filterField.setValue(model.getListFilter());
+        if (filterHadFocus || !model.getListFilter().isEmpty()) {
+            filterField.setFocused(true);
+            this.setFocused(filterField);
+            filterField.moveCursorToEnd(false);
+        }
+        filterField.setResponder(v -> {
+            filterHadFocus = true;
+            model.setListFilter(v);
+            refreshFactionRows();
+        });
+        addRenderableWidget(filterField);
+
+        int listTop = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
+        int barY = contentBottom() - UiTheme.BUTTON_H;
+        factionList = new SelectableList<>(contentLeft(), listTop, contentWidth(),
+                Math.max(1, barY - listTop - UiTheme.PAD_S), UiTheme.ROW_H,
+                f -> f.getId() != null ? f.getId().toString() : null,
+                this::factionLabel, selection, scroll);
+        factionList.setOnActivate(f -> {
+            if (f.getId() != null) {
+                model.beginEdit(f.getId());
+                rebuildWidgets();
+            }
+        });
+        addRenderableWidget(factionList);
+        refreshFactionRows();
+
+        // New-faction bar: id + name fields on a row above the footer.
+        int idW = Math.max(60, Math.min(170, contentWidth() / 2));
+        newIdField = new EditBox(this.font, contentLeft(), barY, idW,
+                UiTheme.BUTTON_H, Component.literal("Faction id"));
         newIdField.setHint(Component.literal("storynpcs:faction_id"));
         newIdField.setMaxLength(64);
         addRenderableWidget(newIdField);
 
-        int nameX = 12 + newIdField.getWidth() + 6;
-        newNameField = new EditBox(this.font, nameX, bottom,
-                Math.max(60, this.width - 66 - nameX), 16, Component.literal("Name"));
+        int nameX = contentLeft() + idW + UiTheme.PAD_S;
+        newNameField = new EditBox(this.font, nameX, barY,
+                Math.max(60, contentRight() - nameX - 80), UiTheme.BUTTON_H,
+                Component.literal("Name"));
         newNameField.setHint(Component.literal("Name (optional)"));
         newNameField.setMaxLength(64);
         addRenderableWidget(newNameField);
 
-        addRenderableWidget(Button.builder(Component.literal("§a+ New"), b -> {
+        addFooterAction(Component.literal("+ New"), b -> {
             String raw = newIdField.getValue().trim();
             NamespacedId id;
             try {
                 id = NamespacedId.of(raw);
             } catch (Exception e) {
-                model.setStatus("Malformed faction id: '" + raw + "'", true);
+                echo(Component.literal("Malformed faction id: '" + raw + "'")
+                        .withColor(UiTheme.DANGER), 3000);
                 return;
             }
             if (model.beginNew(id, newNameField.getValue().trim())) {
+                newIdField.setValue("");
                 rebuildWidgets();
             }
-        }).bounds(this.width - 60, bottom, 48, 16).build());
-
-        // Search/filter (issue #21) — typing filters the list live; clearing restores it
-        boolean hadFocus = filterField != null
-                && (filterField.isFocused() || this.getFocused() == filterField);
-        filterField = new EditBox(this.font, this.width - 190, 4, 128, 14, Component.literal("Filter"));
-        filterField.setHint(Component.literal("filter…"));
-        filterField.setMaxLength(48);
-        filterField.setValue(model.getListFilter());
-        if (hadFocus || !model.getListFilter().isEmpty()) {
-            filterField.setFocused(true);
-            this.setFocused(filterField);
-            filterField.moveCursorToEnd(false);
-        }
-        filterField.setResponder(model::setListFilter);
-        addRenderableWidget(filterField);
-
-        addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(this.width - 50, 4, 42, 14).build());
+        });
+        addFooterAction(Component.literal("Close"), b -> onClose());
+        setStatus(Component.literal("Enter or double-click a faction to edit — new factions start below.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private void initEditWidgets() {
+    private void refreshFactionRows() {
+        factionList.setRows(model.getFilteredFactions());
+    }
+
+    private Component factionLabel(Faction f) {
+        String line = "§e" + f.getId() + " §7— §f" + (f.getName() != null ? f.getName() : "")
+                + " §7(hostile<" + f.getHostileThreshold() + " friendly>=" + f.getFriendlyThreshold() + ")";
+        return Component.literal(line);
+    }
+
+    // ── EDIT mode ───────────────────────────────────────────────────────────
+
+    private void initEditMode() {
         Faction f = model.getEditing();
-        int y = 22;
+        seedDrafts(f);
+
+        int labelW = Math.min(96, contentWidth() / 4);
+        int w = Math.min(320, contentWidth());
+        int y = contentTop();
 
         if (model.isEditingNew()) {
-            idField = new EditBox(this.font, 60, y, 170, 14, Component.literal("Faction id"));
-            idField.setMaxLength(64);
-            idField.setValue(f.getId() != null ? f.getId().toString() : "");
-            idField.setResponder(v -> model.setFactionId(v));
-            addRenderableWidget(idField);
-            y += 18;
+            y = row(y, w, labelW, "ID", "storynpcs:faction_id",
+                    () -> draftId, v -> { draftId = v; model.setFactionId(v); },
+                    FieldValidator.all(FieldValidator.required("faction id"),
+                            FieldValidator.namespacedOrBare()));
         }
+        y = row(y, w, labelW, "Name", "display name",
+                () -> draftName, v -> { draftName = v; model.setName(v); }, null);
+        y = row(y, w, labelW, "Default Points", "start rep",
+                () -> draftDefaultPoints,
+                v -> { draftDefaultPoints = v; applyInt(v, model::setDefaultPoints); },
+                intValidator(Integer.MIN_VALUE, Integer.MAX_VALUE));
+        y = row(y, w, labelW, "Hostile below", "rep < this → attacked",
+                () -> draftHostile,
+                v -> { draftHostile = v; applyInt(v, model::setHostileThreshold); },
+                intValidator(Integer.MIN_VALUE, Integer.MAX_VALUE));
+        y = row(y, w, labelW, "Friendly at/above", "rep >= this → allied",
+                () -> draftFriendly,
+                v -> { draftFriendly = v; applyInt(v, model::setFriendlyThreshold); },
+                intValidator(Integer.MIN_VALUE, Integer.MAX_VALUE));
 
-        nameField = new EditBox(this.font, 60, y, 170, 14, Component.literal("Name"));
-        nameField.setMaxLength(64);
-        nameField.setValue(f.getName() != null ? f.getName() : "");
-        nameField.setResponder(v -> model.setName(v));
-        addRenderableWidget(nameField);
-        y += 22;
-
-        defaultPointsField = intField(96, y, f.getDefaultPoints(), v -> model.setDefaultPoints(v));
-        hostileField = intField(96, y + 20, f.getHostileThreshold(), v -> model.setHostileThreshold(v));
-        friendlyField = intField(96, y + 40, f.getFriendlyThreshold(), v -> model.setFriendlyThreshold(v));
-
-        int footer = this.height - 20;
-        addRenderableWidget(Button.builder(Component.literal("§aSave"), b -> save())
-                .bounds(12, footer, 70, 16).build());
-        addRenderableWidget(Button.builder(Component.literal(model.isDeleteArmed() ? "§cSure?" : "§cDelete"), b -> {
-            if (model.confirmDeleteClick()) {
-                long revision = model.expectedRevision();
-                pendingDeleteId = f.getId().toString();
-                UUID requestId = deleteRequestId.forPayload(
-                        "faction-delete\n" + f.getId() + "\n" + revision);
-                PacketDistributor.sendToServer(new ServerboundFactionDeletePayload(
-                        f.getId().toString(), revision, requestId));
-                model.setStatus("Deleting...", false);
-            } else {
-                rebuildWidgets();
-            }
-        }).bounds(88, footer, 52, 16).build());
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> {
+        addFooterAction(Component.literal("Save"), b -> save());
+        addFooterAction(
+                Component.literal(model.isDeleteArmed() ? "Sure?" : "Delete"), b -> {
+                    Faction cur = model.getEditing();
+                    if (cur == null || cur.getId() == null) return;
+                    if (model.confirmDeleteClick()) {
+                        long revision = model.expectedRevision();
+                        pendingDeleteId = cur.getId().toString();
+                        UUID requestId = deleteRequestId.forPayload(
+                                "faction-delete\n" + cur.getId() + "\n" + revision);
+                        PacketDistributor.sendToServer(new ServerboundFactionDeletePayload(
+                                cur.getId().toString(), revision, requestId));
+                        model.setStatus("Deleting...", false);
+                    }
+                    rebuildWidgets();
+                    syncStatus();
+                });
+        addFooterAction(Component.literal("Back"), b -> {
             model.backToList();
             rebuildWidgets();
-        }).bounds(146, footer, 46, 16).build());
+        });
+        setStatus(Component.literal("Below Hostile → attacked on sight; at/above Friendly → allied perks.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private EditBox intField(int x, int y, int initial, java.util.function.IntConsumer apply) {
-        EditBox box = new EditBox(this.font, x, y, 70, 14, Component.literal("value"));
-        box.setMaxLength(10);
-        box.setValue(String.valueOf(initial));
-        box.setResponder(v -> {
+    private void seedDrafts(Faction f) {
+        if (f == draftsFor) return;
+        draftsFor = f;
+        draftId = f.getId() != null ? f.getId().toString() : "";
+        draftName = f.getName() != null ? f.getName() : "";
+        draftDefaultPoints = String.valueOf(f.getDefaultPoints());
+        draftHostile = String.valueOf(f.getHostileThreshold());
+        draftFriendly = String.valueOf(f.getFriendlyThreshold());
+    }
+
+    private int row(int y, int w, int labelW, String label, String hint,
+                    java.util.function.Supplier<String> seed,
+                    java.util.function.Consumer<String> responder, FieldValidator check) {
+        FormRow formRow = new FormRow(this.font, Component.literal(label), Component.literal(hint));
+        formRow.editBox().setMaxLength(96);
+        formRow.setValue(seed.get());
+        FieldValidator validator = check == null ? v -> null : check;
+        formRow.setValidator(v -> { responder.accept(v); return validator.validate(v); });
+        int nextY = formRow.layout(contentLeft(), y, w, labelW);
+        addRenderableWidget(formRow.editBox());
+        fieldRows.add(formRow);
+        return nextY;
+    }
+
+    private static FieldValidator intValidator(int min, int max) {
+        return v -> {
+            if (v == null || v.isBlank()) return "Number required";
             try {
-                apply.accept(Integer.parseInt(v.trim()));
-            } catch (Exception ignored) { }
-        });
-        addRenderableWidget(box);
-        return box;
+                int n = Integer.parseInt(v.trim());
+                return n < min || n > max ? "Must be " + min + ".." + max : null;
+            } catch (NumberFormatException e) {
+                return "Not a whole number";
+            }
+        };
+    }
+
+    private static void applyInt(String v, java.util.function.IntConsumer apply) {
+        try {
+            apply.accept(Integer.parseInt(v.trim()));
+        } catch (NumberFormatException ignored) { }
     }
 
     private void save() {
+        boolean invalid = false;
+        for (FormRow row : fieldRows) {
+            if (!row.validate()) invalid = true;
+        }
+        if (invalid) {
+            echo(Component.literal("Fix the highlighted field(s).")
+                    .withColor(UiTheme.DANGER), 3000);
+            return;
+        }
         String err = model.validateForSave();
         if (err != null) {
             model.setStatus(err, true);
+            syncStatus();
             return;
         }
         model.setStatus("Saving...", false);
@@ -224,122 +340,29 @@ public class FactionEditorScreen extends Screen {
         UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundFactionSavePayload(
                 submittedJson, model.expectedRevision(), requestId));
+        syncStatus();
     }
+
+    // ── Rendering ───────────────────────────────────────────────────────────
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
-        // Screen#render runs the menu-blur post-process over whatever is
-        // already in the framebuffer — background first, custom content next,
-        // widgets last, or the rows below are blurred while buttons stay
-        // sharp (#197).
-        this.renderBackground(g, mouseX, mouseY, partial);
-        g.fill(0, 0, this.width, this.height, 0xE0101014);
-        g.renderOutline(0, 0, this.width, this.height, 0xFF3F3F46);
-
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        for (FormRow row : fieldRows) {
+            row.render(g, mouseX, mouseY);
+        }
         if (model.getMode() == Mode.LIST) {
-            renderList(g, mouseX, mouseY);
-        } else {
-            renderEdit(g);
-        }
-        for (var renderable : this.renderables) {
-            renderable.render(g, mouseX, mouseY, partial);
-        }
-    }
-
-    private void renderList(GuiGraphics g, int mouseX, int mouseY) {
-        g.drawString(this.font, "§6StoryNPCs — Factions", 12, 8, 0xFFFFFFFF);
-        List<Faction> factions = model.getFilteredFactions();
-        int top = 22;
-        int bottom = this.height - 56;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-        model.setListScroll(Math.min(model.getListScroll(), Math.max(0, factions.size() - maxRows)));
-
-        if (factions.isEmpty()) {
-            g.drawString(this.font, model.factionCount() > 0
-                    ? "§7No factions match the filter."
-                    : "§7No factions defined yet — create one below.", 12, top + 4, COLOR_LABEL);
-        }
-        g.enableScissor(0, top, this.width, bottom);
-        for (int i = 0; i < maxRows && i + model.getListScroll() < factions.size(); i++) {
-            Faction f = factions.get(i + model.getListScroll());
-            int ry = top + i * ROW_H;
-            boolean hover = mouseX >= 4 && mouseX <= this.width - 4 && mouseY >= ry && mouseY < ry + ROW_H;
-            if (hover) {
-                g.fill(4, ry, this.width - 4, ry + ROW_H, 0x33FFFFFF);
+            List<Faction> factions = model.getFilteredFactions();
+            if (factions.isEmpty()) {
+                renderEmpty(g, model.factionCount() > 0
+                        ? "No factions match the filter."
+                        : "No factions defined yet — create one below.");
+            } else if (!model.getListFilter().isBlank()
+                    && factions.size() < model.factionCount()) {
+                // Free space on the filter row, left of the box.
+                g.drawString(this.font, factions.size() + " of " + model.factionCount(),
+                        contentLeft(), contentTop() + 3, UiTheme.TEXT_MUTED);
             }
-            String line = "§e" + f.getId() + " §7— §f" + (f.getName() != null ? f.getName() : "")
-                    + " §7(hostile<" + f.getHostileThreshold() + " friendly>=" + f.getFriendlyThreshold() + ")";
-            g.drawString(this.font, this.font.plainSubstrByWidth(line, this.width - 16), 10, ry + 2,
-                    hover ? 0xFFFFFFFF : 0xFFD4D4D8);
         }
-        g.disableScissor();
-        g.drawString(this.font, "§7New faction id:", 12, bottom + 8, COLOR_LABEL);
-        if (factions.size() > maxRows) {
-            g.drawString(this.font, "§7(scroll — " + factions.size() + " factions)", 200, bottom + 8, COLOR_LABEL);
-        } else if (!model.getListFilter().isBlank() && factions.size() < model.factionCount()) {
-            g.drawString(this.font, "§7(" + factions.size() + " of " + model.factionCount() + ")", 200, bottom + 8, COLOR_LABEL);
-        }
-        drawStatus(g, this.height - 12);
-    }
-
-    private void renderEdit(GuiGraphics g) {
-        Faction f = model.getEditing();
-        g.drawString(this.font, "§6Faction Editor: §e" + (model.isEditingNew() ? "(new)" : f.getId()), 12, 8, 0xFFFFFFFF);
-
-        int y = 22;
-        if (model.isEditingNew()) {
-            g.drawString(this.font, "§7ID", 12, y + 3, COLOR_LABEL);
-            y += 18;
-        }
-        g.drawString(this.font, "§7Name", 12, y + 3, COLOR_LABEL);
-        y += 22;
-        g.drawString(this.font, "§7Default Points", 12, y + 3, COLOR_LABEL);
-        g.drawString(this.font, "§7Hostile below", 12, y + 23, COLOR_LABEL);
-        g.drawString(this.font, "§7Friendly at/above", 12, y + 43, COLOR_LABEL);
-        g.drawString(this.font, "§8New players start at Default; below Hostile → attacked on sight;", 12, y + 62, 0xFF71717A);
-        g.drawString(this.font, "§8at/above Friendly → allied perks.", 12, y + 72, 0xFF71717A);
-
-        int footer = this.height - 20;
-        drawStatus(g, footer - 10);
-    }
-
-    private void drawStatus(GuiGraphics g, int y) {
-        if (!model.getStatusMessage().isEmpty()) {
-            String msg = this.font.plainSubstrByWidth(model.getStatusMessage(), this.width - 20);
-            g.drawString(this.font, msg, 12, y, model.isStatusError() ? COLOR_ERR : COLOR_OK);
-        }
-    }
-
-    @Override
-    public boolean mouseClicked(double mx, double my, int button) {
-        if (model.getMode() == Mode.LIST && button == 0) {
-            return listClick(mx, my) || super.mouseClicked(mx, my, button);
-        }
-        return super.mouseClicked(mx, my, button);
-    }
-
-    private boolean listClick(double mx, double my) {
-        List<Faction> factions = model.getFilteredFactions();
-        int top = 22;
-        int bottom = this.height - 56;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-        if (my < top || my >= bottom) return false;
-        int idx = (int) ((my - top) / ROW_H) + model.getListScroll();
-        if (idx < factions.size() && idx < model.getListScroll() + maxRows) {
-            model.beginEdit(factions.get(idx).getId());
-            rebuildWidgets();
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean mouseScrolled(double mx, double my, double dx, double dy) {
-        if (model.getMode() == Mode.LIST) {
-            model.setListScroll(model.getListScroll() - (int) Math.signum(dy));
-            return true;
-        }
-        return super.mouseScrolled(mx, my, dx, dy);
     }
 
     @Override

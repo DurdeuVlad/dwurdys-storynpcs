@@ -81,6 +81,19 @@ public abstract class UiScreen extends Screen {
         footerActions.add(new FooterAction(label, onPress));
     }
 
+    /**
+     * Cycle-picker button (issue #208): the label is re-read from the supplier
+     * after every click instead of baked once at build time, so option cycling
+     * can't leave a stale caption the way a static message did.
+     */
+    protected Button cycleBtn(java.util.function.Supplier<String> label,
+                              int x, int y, int w, Runnable onClick) {
+        return Button.builder(Component.literal(label.get()), b -> {
+            onClick.run();
+            b.setMessage(Component.literal(label.get()));
+        }).bounds(x, y, Math.max(20, w), UiTheme.BUTTON_H).build();
+    }
+
     /** Persistent status line rendered at the left of the footer; null clears it. */
     protected void setStatus(Component status) {
         this.baseStatus = status;

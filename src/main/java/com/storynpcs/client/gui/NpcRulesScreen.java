@@ -343,14 +343,6 @@ public class NpcRulesScreen extends UiScreen {
         };
     }
 
-    private Button cycleBtn(java.util.function.Supplier<String> label,
-                            int x, int y, int w, Runnable onClick) {
-        return Button.builder(Component.literal(label.get()), b -> {
-            onClick.run();
-            b.setMessage(Component.literal(label.get()));
-        }).bounds(x, y, Math.max(20, w), UiTheme.BUTTON_H).build();
-    }
-
     // ── Save plumbing (same payload as the NPC editor — saveNpc path) ───────
 
     private void sendSave(String pendingMessage) {

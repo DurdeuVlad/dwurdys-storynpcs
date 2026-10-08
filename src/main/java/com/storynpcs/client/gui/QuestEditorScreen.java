@@ -1,23 +1,28 @@
 package com.storynpcs.client.gui;
 
+import com.storynpcs.client.ui.UiScreen;
+import com.storynpcs.client.ui.UiTheme;
+import com.storynpcs.client.ui.widgets.FieldValidator;
+import com.storynpcs.client.ui.widgets.FormRow;
+import com.storynpcs.client.ui.widgets.ScrollState;
+import com.storynpcs.client.ui.widgets.SelectableList;
+import com.storynpcs.client.ui.widgets.SelectionModel;
 import com.storynpcs.domain.common.NamespacedId;
 import com.storynpcs.domain.quest.Quest;
-import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.domain.quest.QuestObjective;
 import com.storynpcs.domain.quest.QuestReward;
+import com.storynpcs.editor.PayloadBoundRequestId;
 import com.storynpcs.editor.QuestEditorScreenModel;
 import com.storynpcs.editor.QuestEditorScreenModel.Mode;
 import com.storynpcs.editor.QuestEditorScreenModel.RowKind;
 import com.storynpcs.network.ServerboundQuestDeletePayload;
 import com.storynpcs.network.ServerboundQuestSavePayload;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,41 +32,51 @@ import java.util.UUID;
  * cycle buttons, and objective/reward rows — and routes every mutation through
  * {@link QuestEditorScreenModel} + the same server save/delete packets the
  * commands use.
+ *
+ * <p>Migrated onto the shared chrome (#208): the registry list and the
+ * objectives/rewards region are {@link SelectableList}s (the latter a union
+ * list with unselectable section headers and "+ add" sentinel rows), the edit
+ * form uses {@link FormRow} with inline validation, and the row editor is a
+ * content-mode swap rather than an overlay.
  */
-public class QuestEditorScreen extends Screen {
-
-    private static final int ROW_H = 11;
-    private static final int COLOR_OK = 0xFF4ADE80;
-    private static final int COLOR_ERR = 0xFFF87171;
-    private static final int COLOR_WARN = 0xFFEAB308;
-    private static final int COLOR_LABEL = 0xFFA1A1AA;
+public class QuestEditorScreen extends UiScreen {
 
     private final QuestEditorScreenModel model = new QuestEditorScreenModel();
 
     // LIST widgets
+    private SelectableList<Quest, String> questList;
+    private final SelectionModel<String> selection = new SelectionModel<>();
+    private final ScrollState listScroll = new ScrollState();
+    private EditBox filterField;
+    private boolean filterHadFocus;
     private EditBox newIdField;
     private EditBox newTitleField;
-    private EditBox filterField;
 
     // EDIT widgets
-    private EditBox idField;
-    private EditBox titleField;
-    private EditBox categoryField;
-    private EditBox descField;
-    private Button repeatButton;
+    private final List<FormRow> fieldRows = new ArrayList<>();
+    private SelectableList<Row, String> rowList;
+    private final SelectionModel<String> rowSelection = new SelectionModel<>();
+    private final ScrollState rowScroll = new ScrollState();
+    /** Armed remove is bound to the selected row key. */
+    private String armedRow;
 
-    // Row-editor modal widgets
-    private Button rowTypeButton;
-    private EditBox rowTargetField;
-    private EditBox rowCountField;
+    // Row-editor (add/edit objective|reward) drafts — survive rebuilds.
     private String rowType;
+    private String rowTarget = "";
+    private String rowCount = "1";
+    private int rowEditorFor = -2; // RowKind ordinal+index pair the drafts seed from
+    private int rowEditorIdx = -2;
 
-    private int rowScroll;
     private final PayloadBoundRequestId saveRequestId = new PayloadBoundRequestId();
     private final PayloadBoundRequestId deleteRequestId = new PayloadBoundRequestId();
     /** Definition ids bound to in-flight save/delete requests — revision updates are id-scoped. */
     private String pendingSaveId;
     private String pendingDeleteId;
+    private String lastEchoed;
+
+    /** A union row: section headers carry a null key (render, never select),
+     * data rows carry "o<i>"/"r<i>", and the "+ add" sentinels "add-o"/"add-r". */
+    private record Row(String key, String label) {}
 
     public QuestEditorScreen(List<Quest> quests, String selectId) {
         this(quests, selectId, 0L, java.util.Map.of());
@@ -110,185 +125,357 @@ public class QuestEditorScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        super.init();
-        rowType = null;
-        if (model.getMode() == Mode.LIST) {
-            initListWidgets();
-        } else if (model.getRowKind() != RowKind.NONE) {
-            initRowEditorWidgets();
-        } else {
-            initEditWidgets();
+    protected void onStatusExpired() {
+        lastEchoed = null; // identical later results may echo again
+    }
+
+    private void syncStatus() {
+        String msg = model.getStatusMessage();
+        if (!msg.isEmpty() && !msg.equals(lastEchoed)) {
+            lastEchoed = msg;
+            echo(Component.literal(msg)
+                    .withColor(model.isStatusError() ? UiTheme.DANGER : UiTheme.TEXT), 4000);
         }
     }
 
-    private void initListWidgets() {
-        int bottom = this.height - 30;
-        // Adaptive widths — fixed 170+130+46 layout overflowed the right edge on narrow windows
-        newIdField = new EditBox(this.font, 12, bottom, Math.max(60, Math.min(170, this.width - 246)), 16, Component.literal("Quest id"));
+    @Override
+    protected void initContent() {
+        fieldRows.clear();
+        if (model.getMode() == Mode.LIST) {
+            initListMode();
+        } else if (model.getRowKind() != RowKind.NONE) {
+            initRowEditor();
+        } else {
+            initEditMode();
+        }
+    }
+
+    // ── LIST mode ───────────────────────────────────────────────────────────
+
+    private void initListMode() {
+        filterField = new EditBox(this.font, contentRight() - 120, contentTop(), 120,
+                UiTheme.BUTTON_H, Component.literal("Filter"));
+        filterField.setHint(Component.literal("filter…"));
+        filterField.setMaxLength(48);
+        filterField.setValue(model.getListFilter());
+        if (filterHadFocus || !model.getListFilter().isEmpty()) {
+            filterField.setFocused(true);
+            this.setFocused(filterField);
+            filterField.moveCursorToEnd(false);
+        }
+        filterField.setResponder(v -> {
+            filterHadFocus = true;
+            model.setListFilter(v);
+            refreshQuestRows();
+        });
+        addRenderableWidget(filterField);
+
+        int listTop = contentTop() + UiTheme.BUTTON_H + UiTheme.PAD_M;
+        int barY = contentBottom() - UiTheme.BUTTON_H;
+        questList = new SelectableList<>(contentLeft(), listTop, contentWidth(),
+                Math.max(1, barY - listTop - UiTheme.PAD_S), UiTheme.ROW_H,
+                q -> q.getId() != null ? q.getId().toString() : null,
+                q -> Component.literal("§e" + q.getId() + " §7— §f"
+                        + (q.getTitle() != null ? q.getTitle() : "")),
+                selection, listScroll);
+        questList.setOnActivate(q -> {
+            if (q.getId() != null) {
+                model.beginEdit(q.getId());
+                rebuildWidgets();
+            }
+        });
+        addRenderableWidget(questList);
+        refreshQuestRows();
+
+        // New-quest bar: id + title fields on a row above the footer.
+        int idW = Math.max(60, Math.min(170, contentWidth() / 2));
+        newIdField = new EditBox(this.font, contentLeft(), barY, idW,
+                UiTheme.BUTTON_H, Component.literal("Quest id"));
         newIdField.setHint(Component.literal("storynpcs:quest_id"));
         newIdField.setMaxLength(64);
         addRenderableWidget(newIdField);
 
-        int titleX = 12 + newIdField.getWidth() + 6;
-        newTitleField = new EditBox(this.font, titleX, bottom,
-                Math.max(60, this.width - 66 - titleX), 16, Component.literal("Title"));
+        int titleX = contentLeft() + idW + UiTheme.PAD_S;
+        newTitleField = new EditBox(this.font, titleX, barY,
+                Math.max(60, contentRight() - titleX - 80), UiTheme.BUTTON_H,
+                Component.literal("Title"));
         newTitleField.setHint(Component.literal("Title (optional)"));
         newTitleField.setMaxLength(64);
         addRenderableWidget(newTitleField);
 
-        addRenderableWidget(Button.builder(Component.literal("§a+ New"), b -> {
+        addFooterAction(Component.literal("+ New"), b -> {
             String raw = newIdField.getValue().trim();
             NamespacedId id;
             try {
                 id = NamespacedId.of(raw);
             } catch (Exception e) {
-                model.setStatus("Malformed quest id: '" + raw + "'", true);
+                echo(Component.literal("Malformed quest id: '" + raw + "'")
+                        .withColor(UiTheme.DANGER), 3000);
                 return;
             }
             if (model.beginNew(id, newTitleField.getValue().trim())) {
+                newIdField.setValue("");
                 rebuildWidgets();
             }
-        }).bounds(this.width - 60, bottom, 48, 16).build());
-
-        // Search/filter (issue #21) — typing filters the list live; clearing restores it
-        boolean hadFocus = filterField != null
-                && (filterField.isFocused() || this.getFocused() == filterField);
-        filterField = new EditBox(this.font, this.width - 190, 4, 128, 14, Component.literal("Filter"));
-        filterField.setHint(Component.literal("filter…"));
-        filterField.setMaxLength(48);
-        filterField.setValue(model.getListFilter());
-        if (hadFocus || !model.getListFilter().isEmpty()) {
-            filterField.setFocused(true);
-            this.setFocused(filterField);
-            filterField.moveCursorToEnd(false);
-        }
-        filterField.setResponder(model::setListFilter);
-        addRenderableWidget(filterField);
-
-        addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-                .bounds(this.width - 50, 4, 42, 14).build());
+        });
+        addFooterAction(Component.literal("Close"), b -> onClose());
+        setStatus(Component.literal("Enter or double-click a quest to edit — new quests start below.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private void initEditWidgets() {
+    private void refreshQuestRows() {
+        questList.setRows(model.getFilteredQuests());
+    }
+
+    // ── EDIT mode ───────────────────────────────────────────────────────────
+
+    private void initEditMode() {
         Quest q = model.getEditing();
-        int y = 22;
+        int labelW = Math.min(64, contentWidth() / 5);
+        int y = contentTop();
 
         if (model.isEditingNew()) {
-            idField = new EditBox(this.font, 60, y, 150, 14, Component.literal("Quest id"));
-            idField.setMaxLength(64);
-            idField.setValue(q.getId() != null ? q.getId().toString() : "");
-            idField.setResponder(v -> model.setQuestId(v));
-            addRenderableWidget(idField);
+            y = row(contentLeft(), y, contentWidth(), labelW, "ID",
+                    "storynpcs:quest_id",
+                    () -> q.getId() != null ? q.getId().toString() : "",
+                    model::setQuestId,
+                    FieldValidator.all(FieldValidator.required("quest id"),
+                            FieldValidator.namespacedOrBare()));
         }
-        y += 18;
 
-        titleField = new EditBox(this.font, 42, y, 160, 14, Component.literal("Title"));
-        titleField.setMaxLength(80);
-        titleField.setValue(q.getTitle() != null ? q.getTitle() : "");
-        titleField.setResponder(v -> model.setTitle(v));
-        addRenderableWidget(titleField);
+        // Title + Repeat on one row.
+        int repeatW = Math.min(120, contentWidth() / 3);
+        int nextY = row(contentLeft(), y, contentWidth() - repeatW - UiTheme.PAD_M, labelW,
+                "Title", "quest title",
+                () -> q.getTitle() != null ? q.getTitle() : "", model::setTitle,
+                FieldValidator.required("title"));
+        addRenderableWidget(cycleBtn(
+                () -> "Repeat: " + (q.getRepeatType() != null ? q.getRepeatType()
+                        : Quest.RepeatType.NORMAL),
+                contentRight() - repeatW, y - 2, repeatW, () -> model.cycleRepeatType()));
+        y = nextY;
 
-        repeatButton = Button.builder(Component.literal("Repeat: " + (q.getRepeatType() != null ? q.getRepeatType() : Quest.RepeatType.NORMAL)), b -> {
-            Quest.RepeatType next = model.cycleRepeatType();
-            repeatButton.setMessage(Component.literal("Repeat: " + next));
-        }).bounds(206, y, 92, 14).build();
-        addRenderableWidget(repeatButton);
-        y += 18;
+        // Category + Description on one row.
+        int catW = Math.min(170, contentWidth() / 3);
+        nextY = row(contentLeft(), y, catW, labelW, "Category", "optional",
+                () -> q.getCategory() != null ? q.getCategory() : "", model::setCategory, null);
+        row(contentLeft() + catW + UiTheme.PAD_M, y,
+                Math.max(60, contentRight() - contentLeft() - catW - UiTheme.PAD_M),
+                Math.min(70, contentWidth() / 5), "Description", "optional",
+                () -> q.getDescription() != null ? q.getDescription() : "",
+                model::setDescription, null);
+        y = nextY;
 
-        categoryField = new EditBox(this.font, 60, y, 108, 14, Component.literal("Category"));
-        categoryField.setMaxLength(48);
-        categoryField.setValue(q.getCategory() != null ? q.getCategory() : "");
-        categoryField.setResponder(v -> model.setCategory(v));
-        addRenderableWidget(categoryField);
+        // Union objectives+rewards list: headers unselectable, "+ add" rows
+        // selectable-and-activatable, data rows activate into the row editor.
+        rowList = new SelectableList<>(contentLeft(), y, contentWidth(),
+                Math.max(1, contentBottom() - y - UiTheme.PAD_S), UiTheme.ROW_H,
+                Row::key, r -> Component.literal(r.label()), rowSelection, rowScroll);
+        rowList.setOnActivate(this::activateRow);
+        addRenderableWidget(rowList);
+        refreshRowList();
 
-        descField = new EditBox(this.font, 172, y, this.width - 184, 14, Component.literal("Description"));
-        descField.setMaxLength(256);
-        descField.setValue(q.getDescription() != null ? q.getDescription() : "");
-        descField.setResponder(v -> model.setDescription(v));
-        addRenderableWidget(descField);
-
-        int footer = this.height - 20;
-        addRenderableWidget(Button.builder(Component.literal("§aSave"), b -> save())
-                .bounds(12, footer, 70, 16).build());
-        addRenderableWidget(Button.builder(Component.literal(model.isDeleteArmed() ? "§cSure?" : "§cDelete"), b -> {
-            if (model.confirmDeleteClick()) {
-                long revision = model.expectedRevision();
-                pendingDeleteId = q.getId().toString();
-                UUID requestId = deleteRequestId.forPayload(
-                        "quest-delete\n" + q.getId() + "\n" + revision);
-                PacketDistributor.sendToServer(new ServerboundQuestDeletePayload(
-                        q.getId().toString(), revision, requestId));
-                model.setStatus("Deleting...", false);
-            } else {
-                rebuildWidgets();
+        addFooterAction(Component.literal("Save"), b -> save());
+        addFooterAction(
+                Component.literal(model.isDeleteArmed() ? "Sure?" : "Delete"), b -> {
+                    Quest cur = model.getEditing();
+                    if (cur == null || cur.getId() == null) return;
+                    if (model.confirmDeleteClick()) {
+                        long revision = model.expectedRevision();
+                        pendingDeleteId = cur.getId().toString();
+                        UUID requestId = deleteRequestId.forPayload(
+                                "quest-delete\n" + cur.getId() + "\n" + revision);
+                        PacketDistributor.sendToServer(new ServerboundQuestDeletePayload(
+                                cur.getId().toString(), revision, requestId));
+                        model.setStatus("Deleting...", false);
+                    }
+                    rebuildWidgets();
+                    syncStatus();
+                });
+        addFooterAction(Component.literal(armedRow != null ? "Sure?" : "Remove row"), b -> {
+            Row row = rowList.selectedRow();
+            if (row == null || !isDataKey(row.key())) {
+                if (armedRow != null) {
+                    armedRow = null;
+                    rebuildWidgets();
+                }
+                echo(Component.literal("Select an objective or reward row first.")
+                        .withColor(UiTheme.TEXT_MUTED), 1600);
+                return;
             }
-        }).bounds(88, footer, 52, 16).build());
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> {
+            if (!row.key().equals(armedRow)) {
+                armedRow = row.key();
+                rebuildWidgets();
+                return;
+            }
+            armedRow = null;
+            if (row.key().startsWith("o")) {
+                model.removeObjectiveRow(Integer.parseInt(row.key().substring(1)));
+            } else {
+                model.removeRewardRow(Integer.parseInt(row.key().substring(1)));
+            }
+            rebuildWidgets();
+        });
+        addFooterAction(Component.literal("Back"), b -> {
             model.backToList();
             rebuildWidgets();
-        }).bounds(146, footer, 46, 16).build());
+        });
+        setStatus(Component.literal("Select a row — Enter edits it; Remove row asks to confirm.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
     }
 
-    private void initRowEditorWidgets() {
-        int cx = this.width / 2;
-        int cy = this.height / 2;
+    private boolean isDataKey(String key) {
+        return key != null && (key.startsWith("o") || key.startsWith("r"))
+                && !key.startsWith("add");
+    }
 
-        // Resolve initial type/target/count BEFORE building widgets
+    private void refreshRowList() {
         Quest q = model.getEditing();
-        String preTarget = "";
-        String preCount = "1";
+        List<QuestObjective> objs = q.getObjectives();
+        List<QuestReward> rews = q.getRewards();
+        List<Row> rows = new ArrayList<>(objs.size() + rews.size() + 4);
+        rows.add(new Row(null, "§bObjectives (" + objs.size() + ") §7— click a row to edit"));
+        for (int i = 0; i < objs.size(); i++) {
+            QuestObjective o = objs.get(i);
+            rows.add(new Row("o" + i, "§f" + o.getType() + " §7" + o.getTarget()
+                    + " §ex" + o.getRequiredCount()));
+        }
+        rows.add(new Row("add-o", "§a+ add objective"));
+        rows.add(new Row(null, "§dRewards (" + rews.size() + ") §7— click a row to edit"));
+        for (int i = 0; i < rews.size(); i++) {
+            QuestReward r = rews.get(i);
+            rows.add(new Row("r" + i, "§f" + r.getType() + " §7" + r.getTarget()
+                    + " §ex" + r.getAmount()));
+        }
+        rows.add(new Row("add-r", "§a+ add reward"));
+        rowList.setRows(rows);
+    }
+
+    private void activateRow(Row row) {
+        String key = row.key();
+        if ("add-o".equals(key)) {
+            model.beginRowEdit(RowKind.OBJECTIVE, -1);
+        } else if ("add-r".equals(key)) {
+            model.beginRowEdit(RowKind.REWARD, -1);
+        } else if (key != null && key.startsWith("o")) {
+            model.beginRowEdit(RowKind.OBJECTIVE, Integer.parseInt(key.substring(1)));
+        } else if (key != null && key.startsWith("r")) {
+            model.beginRowEdit(RowKind.REWARD, Integer.parseInt(key.substring(1)));
+        } else {
+            return;
+        }
+        armedRow = null;
+        rebuildWidgets();
+    }
+
+    private int row(int x, int y, int w, int labelW, String label, String hint,
+                    java.util.function.Supplier<String> seed,
+                    java.util.function.Consumer<String> responder, FieldValidator check) {
+        FormRow formRow = new FormRow(this.font, Component.literal(label), Component.literal(hint));
+        formRow.editBox().setMaxLength(256);
+        formRow.setValue(seed.get());
+        FieldValidator validator = check == null ? v -> null : check;
+        formRow.setValidator(v -> { responder.accept(v); return validator.validate(v); });
+        int nextY = formRow.layout(x, y, w, labelW);
+        addRenderableWidget(formRow.editBox());
+        fieldRows.add(formRow);
+        return nextY;
+    }
+
+    // ── Row editor (add/edit objective|reward) ──────────────────────────────
+
+    private void initRowEditor() {
+        Quest q = model.getEditing();
+        seedRowEditor(q);
+
+        int w = Math.min(300, contentWidth());
+        int x = contentLeft() + (contentWidth() - w) / 2;
+        int labelW = Math.min(56, w / 4);
+        int y = contentTop() + 14; // room for the heading line
+
+        addRenderableWidget(cycleBtn(() -> "Type: " + rowType,
+                x, y, w, () -> {
+                    rowType = nextType(rowType, model.getRowKind());
+                }));
+        y += UiTheme.BUTTON_H + UiTheme.PAD_M;
+
+        y = row(x, y, w, labelW, "Target", "e.g. minecraft:zombie",
+                () -> rowTarget, v -> rowTarget = v,
+                FieldValidator.required("target"));
+        y = row(x, y, w / 2, labelW, "Count", "1+",
+                () -> rowCount, v -> rowCount = v,
+                v2 -> {
+                    if (v2 == null || v2.isBlank()) return "Number required";
+                    try {
+                        return Integer.parseInt(v2.trim()) < 1 ? "Must be 1+" : null;
+                    } catch (NumberFormatException e) {
+                        return "Not a whole number";
+                    }
+                });
+
+        boolean isObjective = model.getRowKind() == RowKind.OBJECTIVE;
+        addFooterAction(Component.literal("OK"), b -> {
+            boolean invalid = false;
+            for (FormRow r : fieldRows) {
+                if (!r.validate()) invalid = true;
+            }
+            if (invalid) {
+                echo(Component.literal("Fix the highlighted field(s).")
+                        .withColor(UiTheme.DANGER), 3000);
+                return;
+            }
+            int count;
+            try {
+                count = Math.max(1, Integer.parseInt(rowCount.trim()));
+            } catch (NumberFormatException e) {
+                count = 1;
+            }
+            // Leaving the row editor: drafts must reseed on the next entry,
+            // even for the same kind+index pair.
+            rowEditorFor = -2;
+            model.applyRowEdit(rowType, rowTarget, count);
+            rebuildWidgets();
+        });
+        addFooterAction(Component.literal("Cancel"), b -> {
+            rowEditorFor = -2;
+            model.cancelRowEdit();
+            rebuildWidgets();
+        });
+        setStatus(Component.literal(isObjective ? "Objective" : "Reward"
+                        + " — type cycles the enum; target/count commit on OK.")
+                .withColor(UiTheme.TEXT_MUTED));
+        syncStatus();
+    }
+
+    private void seedRowEditor(Quest q) {
+        int kindOrd = model.getRowKind().ordinal();
+        int idx = model.getRowIndex();
+        if (kindOrd == rowEditorFor && idx == rowEditorIdx) return;
+        rowEditorFor = kindOrd;
+        rowEditorIdx = idx;
+        rowTarget = "";
+        rowCount = "1";
         if (model.getRowKind() == RowKind.OBJECTIVE) {
-            if (model.getRowIndex() >= 0 && model.getRowIndex() < q.getObjectives().size()) {
-                QuestObjective o = q.getObjectives().get(model.getRowIndex());
+            if (idx >= 0 && idx < q.getObjectives().size()) {
+                QuestObjective o = q.getObjectives().get(idx);
                 rowType = o.getType().name();
-                preTarget = o.getTarget() != null ? o.getTarget() : "";
-                preCount = String.valueOf(o.getRequiredCount());
+                rowTarget = o.getTarget() != null ? o.getTarget() : "";
+                rowCount = String.valueOf(o.getRequiredCount());
             } else {
                 rowType = QuestObjective.Type.KILL_ENTITY.name();
             }
         } else {
-            if (model.getRowIndex() >= 0 && model.getRowIndex() < q.getRewards().size()) {
-                QuestReward r = q.getRewards().get(model.getRowIndex());
+            if (idx >= 0 && idx < q.getRewards().size()) {
+                QuestReward r = q.getRewards().get(idx);
                 rowType = r.getType().name();
-                preTarget = r.getTarget() != null ? r.getTarget() : "";
-                preCount = String.valueOf(r.getAmount());
+                rowTarget = r.getTarget() != null ? r.getTarget() : "";
+                rowCount = String.valueOf(r.getAmount());
             } else {
                 rowType = QuestReward.Type.ITEM.name();
             }
         }
-
-        rowTypeButton = Button.builder(Component.literal("Type: " + rowType), b -> {
-            rowType = nextType(rowType, model.getRowKind());
-            rowTypeButton.setMessage(Component.literal("Type: " + rowType));
-        }).bounds(cx - 80, cy - 30, 160, 16).build();
-        addRenderableWidget(rowTypeButton);
-
-        rowTargetField = new EditBox(this.font, cx - 80, cy - 10, 160, 14, Component.literal("Target"));
-        rowTargetField.setMaxLength(128);
-        rowTargetField.setValue(preTarget);
-        addRenderableWidget(rowTargetField);
-
-        rowCountField = new EditBox(this.font, cx - 80, cy + 8, 60, 14, Component.literal("Count"));
-        rowCountField.setMaxLength(6);
-        rowCountField.setValue(preCount);
-        addRenderableWidget(rowCountField);
-
-        addRenderableWidget(Button.builder(Component.literal("§aOK"), b -> {
-            int count;
-            try {
-                count = Math.max(1, Integer.parseInt(rowCountField.getValue().trim()));
-            } catch (Exception e) {
-                count = 1;
-            }
-            model.applyRowEdit(rowType, rowTargetField.getValue(), count);
-            rebuildWidgets();
-        }).bounds(cx - 80, cy + 26, 76, 16).build());
-
-        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> {
-            model.cancelRowEdit();
-            rebuildWidgets();
-        }).bounds(cx + 4, cy + 26, 76, 16).build());
     }
 
     private static String nextType(String current, RowKind kind) {
@@ -301,9 +488,19 @@ public class QuestEditorScreen extends Screen {
     }
 
     private void save() {
+        boolean invalid = false;
+        for (FormRow row : fieldRows) {
+            if (!row.validate()) invalid = true;
+        }
+        if (invalid) {
+            echo(Component.literal("Fix the highlighted field(s).")
+                    .withColor(UiTheme.DANGER), 3000);
+            return;
+        }
         String err = model.validateForSave();
         if (err != null) {
             model.setStatus(err, true);
+            syncStatus();
             return;
         }
         model.setStatus("Saving...", false);
@@ -313,238 +510,32 @@ public class QuestEditorScreen extends Screen {
         UUID requestId = saveRequestId.forPayload(submittedJson);
         PacketDistributor.sendToServer(new ServerboundQuestSavePayload(
                 submittedJson, model.expectedRevision(), requestId));
+        syncStatus();
     }
 
-    // ---------- rendering ----------
+    // ── Rendering ───────────────────────────────────────────────────────────
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
-        // Screen#render runs the menu-blur post-process over whatever is
-        // already in the framebuffer — background first, custom content next,
-        // widgets last, or the list rows are blurred while buttons stay
-        // sharp (#197).
-        this.renderBackground(g, mouseX, mouseY, partial);
-        g.fill(0, 0, this.width, this.height, 0xE0101014);
-        g.renderOutline(0, 0, this.width, this.height, 0xFF3F3F46);
-
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        for (FormRow row : fieldRows) {
+            row.render(g, mouseX, mouseY);
+        }
         if (model.getMode() == Mode.LIST) {
-            renderList(g, mouseX, mouseY);
-        } else {
-            renderEdit(g, mouseX, mouseY);
-        }
-        if (model.getRowKind() != RowKind.NONE) {
-            renderRowEditorOverlay(g);
-        }
-        for (var renderable : this.renderables) {
-            renderable.render(g, mouseX, mouseY, partial);
-        }
-    }
-
-    private void renderList(GuiGraphics g, int mouseX, int mouseY) {
-        g.drawString(this.font, "§6StoryNPCs — Quests", 12, 8, 0xFFFFFFFF);
-        List<Quest> quests = model.getFilteredQuests();
-        int top = 22;
-        int bottom = this.height - 56;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-        model.setListScroll(Math.min(model.getListScroll(), Math.max(0, quests.size() - maxRows)));
-
-        if (quests.isEmpty()) {
-            g.drawString(this.font, model.questCount() > 0
-                    ? "§7No quests match the filter."
-                    : "§7No quests defined yet — create one below.", 12, top + 4, COLOR_LABEL);
-        }
-        g.enableScissor(0, top, this.width, bottom);
-        for (int i = 0; i < maxRows && i + model.getListScroll() < quests.size(); i++) {
-            Quest q = quests.get(i + model.getListScroll());
-            int ry = top + i * ROW_H;
-            boolean hover = mouseX >= 4 && mouseX <= this.width - 4 && mouseY >= ry && mouseY < ry + ROW_H;
-            if (hover) {
-                g.fill(4, ry, this.width - 4, ry + ROW_H, 0x33FFFFFF);
+            List<Quest> quests = model.getFilteredQuests();
+            if (quests.isEmpty()) {
+                renderEmpty(g, model.questCount() > 0
+                        ? "No quests match the filter."
+                        : "No quests defined yet — create one below.");
+            } else if (!model.getListFilter().isBlank()
+                    && quests.size() < model.questCount()) {
+                g.drawString(this.font, quests.size() + " of " + model.questCount(),
+                        contentLeft(), contentTop() + 3, UiTheme.TEXT_MUTED);
             }
-            String line = "§e" + q.getId() + " §7— §f" + (q.getTitle() != null ? q.getTitle() : "");
-            g.drawString(this.font, this.font.plainSubstrByWidth(line, this.width - 16), 10, ry + 2,
-                    hover ? 0xFFFFFFFF : 0xFFD4D4D8);
+        } else if (model.getRowKind() != RowKind.NONE) {
+            g.drawString(this.font, model.getRowKind() == RowKind.OBJECTIVE
+                            ? "§bEdit Objective" : "§dEdit Reward",
+                    contentLeft(), contentTop() + 2, UiTheme.ACCENT);
         }
-        g.disableScissor();
-        g.drawString(this.font, "§7New quest id:", 12, bottom + 8, COLOR_LABEL);
-        if (quests.size() > maxRows) {
-            g.drawString(this.font, "§7(scroll — " + quests.size() + " quests)", 200, bottom + 8, COLOR_LABEL);
-        } else if (!model.getListFilter().isBlank() && quests.size() < model.questCount()) {
-            g.drawString(this.font, "§7(" + quests.size() + " of " + model.questCount() + ")", 200, bottom + 8, COLOR_LABEL);
-        }
-        drawStatus(g, this.height - 12);
-    }
-
-    private void renderEdit(GuiGraphics g, int mouseX, int mouseY) {
-        Quest q = model.getEditing();
-        g.drawString(this.font, "§6Quest Editor: §e" + (model.isEditingNew() ? "(new)" : q.getId()), 12, 8, 0xFFFFFFFF);
-
-        int y = 22;
-        if (model.isEditingNew()) {
-            g.drawString(this.font, "§7ID", 12, y + 3, COLOR_LABEL);
-            y += 18;
-        }
-        g.drawString(this.font, "§7Title", 12, y + 3, COLOR_LABEL);
-        y += 18;
-        g.drawString(this.font, "§7Category", 12, y + 3, COLOR_LABEL);
-        y += 20;
-
-        int footer = this.height - 20;
-        int rowsTop = y;
-        int rowsBottom = footer - 14;
-
-        // Objectives + rewards inside one scissored scroll region
-        List<QuestObjective> objs = q.getObjectives();
-        List<QuestReward> rews = q.getRewards();
-        int totalRows = 1 + objs.size() + 1 + 1 + 1 + rews.size() + 1; // headers + rows + add-rows + spacer
-        int maxVisible = Math.max(1, (rowsBottom - rowsTop) / ROW_H);
-        rowScroll = Math.max(0, Math.min(rowScroll, Math.max(0, totalRows - maxVisible)));
-
-        g.enableScissor(0, rowsTop, this.width, rowsBottom);
-        int ry = rowsTop - rowScroll * ROW_H;
-
-        g.drawString(this.font, "§bObjectives (" + objs.size() + ") §7— click a row to edit", 10, ry + 2, 0xFFFFFFFF);
-        ry += ROW_H;
-        for (int i = 0; i < objs.size(); i++) {
-            ry = renderRow(g, "§f" + objs.get(i).getType() + " §7" + objs.get(i).getTarget()
-                    + " §ex" + objs.get(i).getRequiredCount(), ry, mouseX, mouseY);
-        }
-        ry = renderRow(g, "§a+ add objective", ry, mouseX, mouseY);
-        ry += ROW_H / 2;
-        g.drawString(this.font, "§dRewards (" + rews.size() + ") §7— click a row to edit", 10, ry + 2, 0xFFFFFFFF);
-        ry += ROW_H;
-        for (int i = 0; i < rews.size(); i++) {
-            ry = renderRow(g, "§f" + rews.get(i).getType() + " §7" + rews.get(i).getTarget()
-                    + " §ex" + rews.get(i).getAmount(), ry, mouseX, mouseY);
-        }
-        ry = renderRow(g, "§a+ add reward", ry, mouseX, mouseY);
-        g.disableScissor();
-
-        if (totalRows > maxVisible) {
-            g.drawString(this.font, "§7(scroll for more)", 200, footer + 4, COLOR_LABEL);
-        }
-        drawStatus(g, footer - 10);
-    }
-
-    private int renderRow(GuiGraphics g, String text, int ry, int mouseX, int mouseY) {
-        boolean hover = mouseX >= 4 && mouseX <= this.width - 20 && mouseY >= ry && mouseY < ry + ROW_H;
-        if (hover && ry >= 0) {
-            g.fill(4, ry, this.width - 20, ry + ROW_H, 0x33FFFFFF);
-        }
-        g.drawString(this.font, this.font.plainSubstrByWidth(text, this.width - 60), 12, ry + 2,
-                hover ? 0xFFFFFFFF : 0xFFD4D4D8);
-        g.drawString(this.font, "§c×", this.width - 26, ry + 2, 0xFFF87171);
-        return ry + ROW_H;
-    }
-
-    private void renderRowEditorOverlay(GuiGraphics g) {
-        int cx = this.width / 2;
-        int cy = this.height / 2;
-        g.fill(cx - 95, cy - 42, cx + 95, cy + 48, 0xFF18181B);
-        g.renderOutline(cx - 95, cy - 42, 190, 90, 0xFF3F3F46);
-        g.drawString(this.font, model.getRowKind() == RowKind.OBJECTIVE ? "§bEdit Objective" : "§dEdit Reward",
-                cx - 85, cy - 36, 0xFFFFFFFF);
-    }
-
-    private void drawStatus(GuiGraphics g, int y) {
-        if (!model.getStatusMessage().isEmpty()) {
-            String msg = this.font.plainSubstrByWidth(model.getStatusMessage(), this.width - 20);
-            g.drawString(this.font, msg, 12, y, model.isStatusError() ? COLOR_ERR : COLOR_OK);
-        }
-    }
-
-    // ---------- input ----------
-
-    @Override
-    public boolean mouseClicked(double mx, double my, int button) {
-        if (model.getRowKind() != RowKind.NONE) {
-            return super.mouseClicked(mx, my, button); // modal owns clicks
-        }
-        if (button == 0 && model.getMode() == Mode.LIST) {
-            return listClick(mx, my) || super.mouseClicked(mx, my, button);
-        }
-        if (button == 0) {
-            return editClick(mx, my) || super.mouseClicked(mx, my, button);
-        }
-        return super.mouseClicked(mx, my, button);
-    }
-
-    private boolean listClick(double mx, double my) {
-        List<Quest> quests = model.getFilteredQuests();
-        int top = 22;
-        int bottom = this.height - 56;
-        int maxRows = Math.max(1, (bottom - top) / ROW_H);
-        if (my < top || my >= bottom) return false;
-        int idx = (int) ((my - top) / ROW_H) + model.getListScroll();
-        if (idx < quests.size() && idx < model.getListScroll() + maxRows) {
-            model.beginEdit(quests.get(idx).getId());
-            rebuildWidgets();
-            return true;
-        }
-        return false;
-    }
-
-    private boolean editClick(double mx, double my) {
-        Quest q = model.getEditing();
-        int y = 22 + (model.isEditingNew() ? 18 : 0) + 18 + 20;
-        int footer = this.height - 20;
-        int rowsTop = y;
-        int rowsBottom = footer - 14;
-        if (my < rowsTop || my >= rowsBottom) return false;
-
-        List<QuestObjective> objs = q.getObjectives();
-        List<QuestReward> rews = q.getRewards();
-        int ry = rowsTop - rowScroll * ROW_H;
-        ry += ROW_H; // objectives header
-
-        for (int i = 0; i < objs.size(); i++) {
-            if (my >= ry && my < ry + ROW_H) {
-                if (mx >= this.width - 32) {
-                    model.removeObjectiveRow(i);
-                } else {
-                    model.beginRowEdit(RowKind.OBJECTIVE, i);
-                }
-                rebuildWidgets();
-                return true;
-            }
-            ry += ROW_H;
-        }
-        if (my >= ry && my < ry + ROW_H) { // + add objective row
-            model.beginRowEdit(RowKind.OBJECTIVE, -1);
-            rebuildWidgets();
-            return true;
-        }
-        ry += ROW_H;
-        ry += ROW_H / 2;
-        ry += ROW_H; // rewards header
-        for (int i = 0; i < rews.size(); i++) {
-            if (my >= ry && my < ry + ROW_H) {
-                if (mx >= this.width - 32) {
-                    model.removeRewardRow(i);
-                } else {
-                    model.beginRowEdit(RowKind.REWARD, i);
-                }
-                rebuildWidgets();
-                return true;
-            }
-            ry += ROW_H;
-        }
-        if (my >= ry && my < ry + ROW_H) { // + add reward row
-            model.beginRowEdit(RowKind.REWARD, -1);
-            rebuildWidgets();
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean mouseScrolled(double mx, double my, double dx, double dy) {
-        if (model.getMode() == Mode.LIST) {
-            model.setListScroll(model.getListScroll() - (int) Math.signum(dy));
-            return true;
-        }
-        rowScroll = Math.max(0, rowScroll - (int) Math.signum(dy));
-        return true;
     }
 
     @Override
