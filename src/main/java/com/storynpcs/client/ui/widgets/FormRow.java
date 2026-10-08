@@ -10,7 +10,11 @@ import net.minecraft.network.chat.Component;
  * Label + {@link EditBox} + inline validation error (issue #199): the standard
  * form unit so every screen stops hand-rolling label/field/error geometry.
  * The owning screen adds {@link #editBox()} via {@code addRenderableWidget}
- * and calls {@link #render} for the label and error line.
+ * (which renders and focuses it) and calls {@link #render} for the label and
+ * error line only — {@link #render} intentionally does not draw the EditBox,
+ * or it would be double-drawn per frame. Do not call
+ * {@code editBox().setResponder}: it would detach per-edit validation; use
+ * {@link #setValidator} instead.
  *
  * <p>Validation runs on every edit and on {@link #validate()}; the current
  * error is exposed via {@link #error()} so a Save action can refuse to send.
@@ -75,6 +79,5 @@ public final class FormRow {
             graphics.drawString(font, Component.literal(error),
                     editBox.getX(), editBox.getY() + editBox.getHeight() + 1, UiTheme.DANGER);
         }
-        editBox.render(graphics, mouseX, mouseY, 0f);
     }
 }

@@ -77,8 +77,8 @@ public class ScrollRegion extends AbstractWidget {
         int trackY = getY();
         int trackH = getHeight();
         graphics.fill(trackX, trackY, trackX + SCROLLBAR_W, trackY + trackH, TRACK);
-        int thumbH = Math.max(8, trackH * scroll.viewportSize() / Math.max(1, scroll.contentSize()));
-        int travel = trackH - thumbH;
+        int thumbH = thumbHeight();
+        int travel = Math.max(0, trackH - thumbH);
         int thumbY = trackY + (scroll.maxOffset() == 0 ? 0
                 : travel * scroll.offset() / scroll.maxOffset());
         boolean hover = mouseX >= trackX && mouseX < trackX + SCROLLBAR_W
@@ -89,7 +89,7 @@ public class ScrollRegion extends AbstractWidget {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (isMouseOver(mouseX, mouseY) && scroll.wheel(scrollY * UiTheme.ROW_H)) {
+        if (isMouseOver(mouseX, mouseY) && scroll.wheel(scrollY, UiTheme.ROW_H)) {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -97,17 +97,27 @@ public class ScrollRegion extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // Clicks on the scrollbar track page the viewport.
+        // Clicks on the scrollbar track page the viewport; a click landing on
+        // the thumb itself is consumed but does not move it.
         if (button == 0 && scroll.scrollable()
                 && mouseX >= getX() + getWidth() - SCROLLBAR_W && mouseX < getX() + getWidth()
                 && mouseY >= getY() && mouseY < getY() + getHeight()) {
-            int thumbH = Math.max(8, getHeight() * scroll.viewportSize() / Math.max(1, scroll.contentSize()));
+            int thumbH = thumbHeight();
             int thumbY = getY() + (scroll.maxOffset() == 0 ? 0
                     : (getHeight() - thumbH) * scroll.offset() / scroll.maxOffset());
-            scroll.page(mouseY < thumbY ? -1 : 1);
+            if (mouseY < thumbY) {
+                scroll.page(-1);
+            } else if (mouseY >= thumbY + thumbH) {
+                scroll.page(1);
+            }
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private int thumbHeight() {
+        return Math.min(getHeight(), Math.max(8,
+                getHeight() * scroll.viewportSize() / Math.max(1, scroll.contentSize())));
     }
 
     @Override

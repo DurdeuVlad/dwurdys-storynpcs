@@ -19,6 +19,8 @@ public class BusyButton extends Button {
     private final Component idleLabel;
     private final Component busyLabel;
     private final long timeoutMs;
+    /** True while the busy state — not an external caller — disabled us. */
+    private boolean busyDisabled;
 
     protected BusyButton(int x, int y, int w, int h, Component label, Component busyLabel,
                          long timeoutMs, OnPress onPress) {
@@ -42,14 +44,22 @@ public class BusyButton extends Button {
     public boolean isBusy() { return busy.isPending(System.currentTimeMillis()); }
 
     private void syncState() {
-        boolean pending = busy.isPending(System.currentTimeMillis());
-        this.active = !pending;
-        setMessage(pending ? busyLabel : idleLabel);
+        if (busy.isPending(System.currentTimeMillis())) {
+            busyDisabled = true;
+            this.active = false;
+            setMessage(busyLabel);
+        } else if (busyDisabled) {
+            // Only re-enable if *we* disabled it — an external active=false
+            // (e.g. form-invalid gating) must survive the busy transition.
+            busyDisabled = false;
+            this.active = true;
+            setMessage(idleLabel);
+        }
     }
 
     @Override
     public void renderWidget(net.minecraft.client.gui.GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        if (busy.expired(System.currentTimeMillis()) && !this.active) {
+        if (busyDisabled && busy.expired(System.currentTimeMillis())) {
             syncState();
         }
         super.renderWidget(graphics, mouseX, mouseY, partialTick);

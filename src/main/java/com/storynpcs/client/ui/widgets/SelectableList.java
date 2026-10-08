@@ -48,11 +48,20 @@ public class SelectableList<T, K> extends AbstractWidget {
     public SelectionModel<K> selection() { return selection; }
     public ScrollState scroll() { return scroll; }
 
-    /** Swap in fresh data; the selected key survives if it still exists. */
+    /**
+     * Swap in fresh data; the selected key survives if it still exists and is
+     * scrolled back into view. Keys must be unique per row — duplicates throw
+     * (selection would be ambiguous).
+     */
     public void setRows(List<T> newRows) {
         rows = newRows == null ? List.of() : List.copyOf(newRows);
-        selection.setItems(rows.stream().map(keyOf).toList());
+        List<K> keys = rows.stream().map(keyOf).toList();
+        if (new java.util.HashSet<>(keys).size() != keys.size()) {
+            throw new IllegalArgumentException("SelectableList row keys must be unique");
+        }
+        selection.setItems(keys);
         scroll.setContentSize(rows.size());
+        ensureSelectedVisible();
     }
 
     public T selectedRow() {
@@ -92,6 +101,7 @@ public class SelectableList<T, K> extends AbstractWidget {
     @Override
     protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         int bandBottom = getY() + visibleRows() * rowHeight;
+        net.minecraft.client.gui.Font font = net.minecraft.client.Minecraft.getInstance().font;
         graphics.enableScissor(getX(), getY(), getX() + getWidth(), bandBottom);
         for (int i = 0; i < visibleRows() && i + scroll.offset() < rows.size(); i++) {
             int idx = scroll.offset() + i;
@@ -107,15 +117,11 @@ public class SelectableList<T, K> extends AbstractWidget {
                 graphics.fill(getX(), ry, getX() + getWidth(), ry + rowHeight, UiTheme.ROW_HOVER);
             }
             Component label = labelOf.apply(row);
-            graphics.drawString(getFont(), label == null ? Component.empty() : label,
+            graphics.drawString(font, label == null ? Component.empty() : label,
                     getX() + UiTheme.PAD_S, ry + (rowHeight - 8) / 2,
                     selected ? UiTheme.ACCENT : UiTheme.TEXT);
         }
         graphics.disableScissor();
-    }
-
-    private net.minecraft.client.gui.Font getFont() {
-        return net.minecraft.client.Minecraft.getInstance().font;
     }
 
     @Override
@@ -141,10 +147,10 @@ public class SelectableList<T, K> extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (isFocused()) {
             boolean moved = switch (keyCode) {
-                case 264 -> selection.move(1);          // down
-                case 265 -> selection.move(-1);         // up
-                case 266 -> selection.move(-visibleRows()); // page up
-                case 267 -> selection.move(visibleRows());  // page down
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_DOWN -> selection.move(1);
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_UP -> selection.move(-1);
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_UP -> selection.move(-visibleRows());
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_DOWN -> selection.move(visibleRows());
                 default -> false;
             };
             if (moved) {

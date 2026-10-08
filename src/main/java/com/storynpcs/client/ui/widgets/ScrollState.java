@@ -35,12 +35,21 @@ public final class ScrollState {
         clamp();
     }
 
-    /** One wheel notch: positive scrollY scrolls up (decrement). */
+    /** One wheel notch: positive scrollY scrolls up (decrement), one unit. */
     public boolean wheel(double scrollY) {
+        return wheel(scrollY, 1);
+    }
+
+    /**
+     * One wheel notch of {@code step} units — pixel-based regions pass their
+     * row height; list widgets use the 1-unit default. Positive scrollY
+     * scrolls up.
+     */
+    public boolean wheel(double scrollY, int step) {
         if (scrollY == 0 || !scrollable()) {
             return false;
         }
-        return scrollBy(scrollY > 0 ? -1 : 1);
+        return scrollBy((scrollY > 0 ? -1 : 1) * Math.max(1, step));
     }
 
     /** Scrolls by one viewport page (PageUp/PageDown semantics). */

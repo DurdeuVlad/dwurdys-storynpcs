@@ -60,6 +60,18 @@ class ScrollStateTest {
     }
 
     @Test
+    @DisplayName("pixel-mode wheel steps by the given unit, not 1")
+    void pixelWheel() {
+        ScrollState s = new ScrollState();
+        s.setContentSize(300);   // pixels
+        s.setViewportSize(100);
+        assertTrue(s.wheel(-1, 12));
+        assertEquals(12, s.offset(), "one notch must move one row-height, not 1px");
+        assertTrue(s.wheel(1, 12));
+        assertEquals(0, s.offset());
+    }
+
+    @Test
     @DisplayName("page moves by viewport-1 and clamps")
     void page() {
         ScrollState s = new ScrollState();
