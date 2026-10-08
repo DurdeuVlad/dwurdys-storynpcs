@@ -11,7 +11,11 @@ package com.storynpcs.client.ui.layout;
  */
 public interface LayoutNode {
 
-    /** Preferred size within {@code constraints}; must honor the minima. */
+    /**
+     * Preferred size within {@code constraints}; must honor the minima.
+     * Must be idempotent — {@link Viewport#arrange} re-invokes it at the
+     * granted width, and containers may re-measure children.
+     */
     Size measure(Constraints constraints);
 
     /** Assigns final geometry; always called after measure. */
