@@ -1,5 +1,7 @@
 package com.storynpcs.client.ui;
 
+import com.storynpcs.client.ui.layout.Rect;
+import com.storynpcs.client.ui.layout.UiFrames;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -39,12 +41,13 @@ public abstract class UiScreen extends Screen {
 
     @Override
     protected final void init() {
-        panelW = Math.max(UiTheme.PAD_XL * 2,
-                Math.min(this.width - UiTheme.PANEL_INSET * 2, UiTheme.PANEL_MAX_W));
-        panelH = Math.max(UiTheme.HEADER_H + UiTheme.FOOTER_H + UiTheme.PAD_S * 2 + 1,
-                Math.min(this.height - UiTheme.PANEL_INSET * 2, UiTheme.PANEL_MAX_H));
-        panelX = (this.width - panelW) / 2;
-        panelY = (this.height - panelH) / 2;
+        // Panel geometry comes from the layout engine (UiFrames), so chrome
+        // math is headless-tested and every UiScreen shares it (#200).
+        Rect panel = UiFrames.panel(this.width, this.height);
+        panelX = panel.x();
+        panelY = panel.y();
+        panelW = panel.width();
+        panelH = panel.height();
         footerActions.clear();
         status = null;
         initContent();
