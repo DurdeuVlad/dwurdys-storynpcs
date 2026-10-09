@@ -4,7 +4,7 @@
 
 Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capabilities traditionally found in CustomNPCs.
 
-**[v0.11.0-beta.1 is out](https://github.com/DurdeuVlad/dwurdys-storynpcs/releases/tag/v0.11.0-beta.1)** — first public beta. New here? [Getting started](docs/getting-started.md) · [Changelog](CHANGELOG.md) · [Beta testing guide](docs/beta-testing.md)
+**[v0.11.0-beta.2 is out](https://github.com/DurdeuVlad/dwurdys-storynpcs/releases/tag/v0.11.0-beta.2)** — public beta. New here? [Getting started](docs/getting-started.md) · [Changelog](CHANGELOG.md) · [Beta testing guide](docs/beta-testing.md)
 
 ## Key Features
 
@@ -26,7 +26,7 @@ Dwurdy's StoryNPCs is a modern, clean-room reimagining of the storytelling capab
 
 ## Current truth gate
 
-The full CustomNPCs-parity program is **implemented** in v0.11.0-beta.1 — but parity with the target runtime is **not certified**: no CustomNPCs runtime probe exists, so behavioral rows are `UNVERIFIED_TARGET_RUNTIME` and the release gate remains `BLOCKED` by design. The exact inventory, evidence states, intentional deviations, and unsupported claims are tracked in the [parity roadmap](docs/CUSTOMNPCS_PARITY_ROADMAP.md) and [release notes](docs/RELEASE-NOTES.md). Static target inventory and passing unit tests do not prove runtime parity.
+The full CustomNPCs-parity program is **implemented** in v0.11.0-beta.2 — but parity with the target runtime is **not certified**: no CustomNPCs runtime probe exists, so behavioral rows are `UNVERIFIED_TARGET_RUNTIME` and the release gate remains `BLOCKED` on target-runtime evidence by design. Live-server MSPT is now *recorded* — two benchmark scenarios missed their thresholds on the dev box, so the gate honestly reports `LIVE_RUNTIME_FAIL`; real beta servers are how that gets resolved. The exact inventory, evidence states, intentional deviations, and unsupported claims are tracked in the [parity roadmap](docs/CUSTOMNPCS_PARITY_ROADMAP.md) and [release notes](docs/RELEASE-NOTES.md). Static target inventory and passing unit tests do not prove runtime parity.
 
 ## Architecture
 
