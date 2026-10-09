@@ -1,7 +1,7 @@
-# Beta testing — v0.11.0-beta.1
+# Beta testing — v0.11.0-beta.2
 
 This build is a **beta**: everything is implemented and headlessly tested
-(1,400+ JUnit cases), but live-server and CustomNPCs-runtime parity are
+(1,500+ JUnit cases), but live-server and CustomNPCs-runtime parity are
 *not* certified. Testing on a real server is exactly what moves those two
 claims forward — see "what helps most" below.
 
@@ -26,7 +26,7 @@ A screenshot of the problem plus the report file is a perfect bug report.
 
 ## For server owners
 
-Install the `storynpcs-0.11.0-beta.1` jar on a NeoForge 21.1.x / Minecraft
+Install the `storynpcs-0.11.0-beta.2` jar on a NeoForge 21.1.x / Minecraft
 1.21.1 server. Definitions live under `world/storynpcs/definitions/` as
 YAML — editable live, `/storynpcs reload` re-reads them.
 
@@ -40,13 +40,15 @@ YAML — editable live, `/storynpcs reload` re-reads them.
 
 ### What helps most (feeds the release gate)
 
-The release gate is `BLOCKED` on exactly two kinds of live evidence. Real
-servers are the only place it can come from:
+The release gate is `BLOCKED` on target-runtime evidence and now records
+`LIVE_RUNTIME_FAIL` on performance — real servers are the only place that
+moves either:
 
-1. **Live performance**: if you can run a population/siege scenario, capture
+1. **Live performance**: the dev-box benchmark already recorded failing
+   MSPT under load. If you can run a population/siege scenario, capture
    MSPT/TPS during the load (spark, `/forge tps`, or timings) and note the
-   NPC count, hardware, and view distance. That turns
-   `HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED` into real data.
+   NPC count, hardware, and view distance — especially if your numbers
+   differ from the recorded failures.
 2. **CustomNPCs target observations** (optional, high value): if you also
    run actual CustomNPCs, record what a real NPC does for a specific
    feature (dialogue flow, trade, job, combat ability) — version, world
@@ -67,7 +69,11 @@ happened.
 
 - Target-runtime parity vs. CustomNPCs: **uncertified** — behavioral claims
   are `UNVERIFIED_TARGET_RUNTIME` by design.
-- CustomNPCs world/NBT import: **unsupported** — the importer says so
-  rather than guessing; supplying a real export sample unblocks it.
-- Live-screen rendering and live MSPT: unverified until the evidence above
-  exists.
+- Live performance: **recorded failing** on the dev box (population +
+  stress scenarios missed MSPT thresholds) — report your server's numbers.
+- CustomNPCs import: SNBT clone text exports import to npc YAML; binary
+  `.dat` world stores and dialog/quest families remain **unsupported** —
+  the importer says so rather than guessing.
+- Live-screen rendering: 21 screens verified rendered on a real client +
+  server post-migration; anything outside the audited journeys is still
+  unverified — screenshots welcome.

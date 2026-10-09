@@ -4,6 +4,80 @@ All notable changes to Dwurdy's StoryNPCs are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are pre-1.0 [Semantic Versioning](https://semver.org/).
 
+## [0.11.0-beta.2] — 2026-10-09
+
+**Second public beta.** Everything since beta.1: the whole authoring and
+player UI moved onto the new `client/ui` kit, real-server benchmark
+evidence is wired into the release gate, and CustomNPCs SNBT text exports
+now import into native definitions.
+
+> **Honest status:** live-runtime benchmarks are now *recorded*, and two
+> of the three scenarios missed their performance thresholds on the dev
+> server — the gate reports `LIVE_RUNTIME_FAIL` honestly rather than
+> hiding it. That is evidence, not a certification claim. Target-runtime
+> parity remains uncertified.
+
+### Added
+
+- **Unified client UI kit (`client/ui`)** — `UiTheme` design tokens,
+  `UiScreen` base chrome, a retained-mode widget kit (selectable lists,
+  scroll regions, form rows, status echo, busy states), and a
+  deterministic integer-only layout engine that measures/arranges over
+  the logical canvas with guiScale awareness (#198–#200).
+- **Screen migrations onto the kit** — authored `CustomGuiScreen`
+  layouts wrapped in shared chrome; all eight player panels (quests,
+  factions, mail, transport, companions, hire, achievements, carpentry);
+  trade and bank screens with buy-left/sell-right columns;
+  `DialogueScreen` with a lit in-world NPC preview; NPC editor, display,
+  and rules screens; trader/banker admin + authoring hub; quest/faction
+  editors; NBT book; and the dialogue editor canvas on theme tokens
+  (#203–#209).
+- **Post-mutation refresh contract** — refresh payloads correlated to
+  in-flight requestIds; pending states on mutation; retry-safe admission
+  (#201, #219).
+- **CustomNPCs SNBT import** — `CnpcTextExportTranslator` parses real
+  CustomNPCs clone exports (SNBT via `TagParser`) into normalized npc
+  YAML: identity, texture, stats, regen/respawn, movement (MoveSpeed /20),
+  melee range/delay, aggro range, faction link. Dialogs, quests, and other
+  CNPC families quarantine with explicit re-scope reasons; binary `.dat`
+  world stores stay `UNSUPPORTED_NEEDS_EVIDENCE`. Ships with a
+  provenance-recorded real-export corpus under
+  `src/test/resources/fixtures/customnpcs/` (#194).
+- **Live benchmark evidence** — the population, siege, and stress
+  scenarios run inside a real NeoForge dedicated server via GameTest
+  (`runLiveBenchmark`) and write `benchmark-live-*.json`; the release gate
+  now consumes them (#192).
+- **Rendered-screen audit** — all 21 screens verified rendered on a real
+  client + dedicated server, then re-captured post-migration
+  (`docs/beta/screens/AUDIT.md`, #210).
+
+### Fixed
+
+- `unlock_tab` retries wedged on `DUPLICATE` admission — journaled retries
+  now reach the refresh ack (#220).
+- Creator tools could not reach NPCs; editor blur fix (#197).
+- Trade/bank/mail refresh payloads now correlate to their in-flight
+  requestIds (#219).
+
+### Verification & evidence
+
+- 155 suites / 1,503 JUnit tests / 0 failures; 41/41 parity fixtures
+  observed; 2,836/2,836 compatibility-report rows in terminal states;
+  fingerprint-bound evidence re-generated for beta.2; live MSPT recorded
+  for all three benchmark scenarios.
+
+### Known limitations
+
+- **Target-runtime parity: uncertified** — unchanged: no CustomNPCs
+  runtime probe exists; behavioral rows are `UNVERIFIED_TARGET_RUNTIME`.
+- **Live performance thresholds: FAILED on recorded runs** — population
+  p99 50.9 ms and stress p95 86.8 / p99 95.6 ms on the dev box (Windows 11,
+  NeoForge 21.1.248, MC 1.21.1); siege passed. The release gate reports
+  `LIVE_RUNTIME_FAIL` by design — beta servers running real worlds are how
+  this gets resolved.
+- CustomNPCs binary `.dat` world stores remain unsupported; SNBT text
+  exports import (see above).
+
 ## [0.11.0-beta.1] — 2026-10-06
 
 **First public beta.** The complete CustomNPCs-parity program (milestones

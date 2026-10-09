@@ -9,19 +9,19 @@
     "population": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 8.170647264910444,
+     "timing_repeatability_observed_pct": 18.3213765166859,
      "timing_repeatable_within_10pct": null
     },
     "siege": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 13.632821024410019,
+     "timing_repeatability_observed_pct": 9.77596190270036,
      "timing_repeatable_within_10pct": null
     },
     "stress": {
      "certification_state": "HEADLESS_PASS_LIVE_RUNTIME_UNVERIFIED",
      "runs": 3,
-     "timing_repeatability_observed_pct": 52.539642699967004,
+     "timing_repeatability_observed_pct": 9.53419604169107,
      "timing_repeatable_within_10pct": null
     }
    },
